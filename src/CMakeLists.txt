@@ -14,6 +14,7 @@ add_library(fg_core
   physics/incidence.cpp
   physics/qmatrix.cpp
   physics/efficiency.cpp
+  physics/anisotropic.cpp
   smatrix/smatrix.cpp
   solvers/butcher.cpp
   solvers/solver.cpp

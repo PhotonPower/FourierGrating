@@ -22,8 +22,8 @@ PlaneWaveOrder planeWaveOrder(cplx eps, cplx alpha, cplx gamma, cplx beta, int d
   Vec3D k(kx, ky.real(), kz);
   if (k.norm() > 0) k.normalize();
   const Vec3D p = k.cross(s);
-  o.amp_s = o.E.dot(s.cast<cplx>());
-  o.amp_p = o.E.dot(p.cast<cplx>());
+  o.amp_s = (o.E.array() * s.cast<cplx>().array()).sum();  // E . s (Eigen dot() conjugates)
+  o.amp_p = (o.E.array() * p.cast<cplx>().array()).sum();
   return o;
 }
 

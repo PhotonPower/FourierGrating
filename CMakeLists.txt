@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(FourierGrating VERSION 0.3.0 DESCRIPTION "Fourier modal method: differential method (implicit RK) and RCWA" LANGUAGES CXX)
+project(FourierGrating VERSION 0.4.0 DESCRIPTION "Fourier modal method: differential method (implicit RK) and RCWA" LANGUAGES CXX)
 
 option(FG_ENABLE_CUDA   "Build the CUDA backend (RTX 6000 Ada, sm_89)" OFF)
 option(FG_ENABLE_OPENMP "Use OpenMP for parameter sweeps"              ON)

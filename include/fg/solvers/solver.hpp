@@ -29,7 +29,8 @@ struct SolverOptions {
 struct OrderEfficiency {
   int n = 0, m = 0;
   double efficiency = 0;              ///< Plan eq:eff
-  cplx amp_s = 0, amp_p = 0;          ///< s/p amplitudes of the order
+  cplx amp_s = 0, amp_p = 0;          ///< s/p amplitudes of the order (isotropic media)
+  double eff_s = 0, eff_p = 0;        ///< s/p parts of the efficiency (isotropic media)
 };
 
 struct Diagnostics {

@@ -14,6 +14,11 @@ struct SliceCoefficients {
   fourier::CoefficientGrid invEps;   ///< isotropic: 1/eps(x, z)
   std::array<std::array<fourier::CoefficientGrid, 3>, 3> epsTensor{};  ///< anisotropic: eps_ij
   const NormalFieldCoefficients* normal = nullptr;  ///< N_i N_j (FFF)
+  // anisotropic FFF, variant A: entries of C_eps and eps C_eps (Plan eq:QaniA)
+  std::array<std::array<fourier::CoefficientGrid, 3>, 3> C{}, epsC{};
+  // anisotropic FFF, variant B: entries of G1, G2, H1, P_T and 1/xi (Plan eq:QaniB)
+  std::array<std::array<fourier::CoefficientGrid, 3>, 3> G1{}, G2{}, H1{}, PT{};
+  fourier::CoefficientGrid invXi;
 };
 
 /// Laurent: Q_ij = [[eps_ij]] (isotropic: delta_ij [[eps]]).
@@ -28,9 +33,9 @@ QBlocks qFFFIsotropic(const SliceCoefficients& c, const IndexMap& map, bool symm
 /// Q_ij = delta_ij [[eps]] - [[eps]] [[N_i]] [[N_j]] + [[N_i]] [[1/eps]]^-1 [[N_j]].
 /// Requires the signed normal components (c.normal->hasSigned).
 QBlocks qFFFIsotropicRigorous(const SliceCoefficients& c, const IndexMap& map);
-/// Anisotropic FFF variant A: [[eps C]] [[C]]^-1 (Plan eq:QaniA).      TODO(M5)
+/// Anisotropic FFF variant A: [[eps C]] [[C]]^-1 (Plan eq:QaniA); needs c.C and c.epsC.
 QBlocks qFFFAnisotropicA(const SliceCoefficients& c, const IndexMap& map);
-/// Anisotropic FFF variant B (projectors, Plan eq:QaniB).              TODO(M5)
+/// Anisotropic FFF variant B (projectors, Plan eq:QaniB); needs c.G1, c.G2, c.H1, c.PT, c.invXi.
 QBlocks qFFFAnisotropicB(const SliceCoefficients& c, const IndexMap& map);
 
 }  // namespace fg

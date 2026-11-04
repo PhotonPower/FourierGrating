@@ -8,6 +8,7 @@
 #include <sstream>
 
 #include "fg/core/error.hpp"
+#include "fg/physics/anisotropic.hpp"
 
 namespace fg::io {
 
@@ -39,7 +40,16 @@ Material parseMaterial(const std::string& name, const json& j) {
       for (int k = 0; k < 3; ++k) e(i, k) = toComplex(t[static_cast<std::size_t>(i)][static_cast<std::size_t>(k)]);
     return Material::fromTensor(name, e);
   }
-  throw Error("material '" + name + "' needs 'n', 'eps' or 'eps_tensor'");
+  if (j.contains("eps_principal")) {
+    const json& p = j["eps_principal"];
+    FG_REQUIRE(p.is_array() && p.size() == 3, "eps_principal needs three values");
+    std::vector<double> eu{0.0, 0.0, 0.0};
+    if (j.contains("euler_deg")) eu = j["euler_deg"].get<std::vector<double>>();
+    FG_REQUIRE(eu.size() == 3, "euler_deg needs three angles (z-x-z)");
+    return Material::fromTensor(name, rotatedTensor(toComplex(p[0]), toComplex(p[1]), toComplex(p[2]),
+                                                    eu[0] * DEG, eu[1] * DEG, eu[2] * DEG));
+  }
+  throw Error("material '" + name + "' needs 'n', 'eps', 'eps_tensor' or 'eps_principal'");
 }
 
 Factorization parseFactorization(const json& j) {
@@ -178,14 +188,16 @@ void writeEfficiencies(const std::string& file, const std::vector<Wavelength>& s
   if (!dir.empty()) std::filesystem::create_directories(dir);
   std::ofstream out(file);
   FG_REQUIRE(out.good(), "cannot write " + file);
-  out << "lambda_um,phi_deg,psi_deg,delta_deg,side,n,m,efficiency,amp_s_re,amp_s_im,amp_p_re,amp_p_im\n";
+  out << "lambda_um,phi_deg,psi_deg,delta_deg,side,n,m,efficiency,eff_s,eff_p,amp_s_re,amp_s_im,amp_p_re,"
+         "amp_p_im\n";
   out << std::setprecision(12);
   for (std::size_t k = 0; k < results.size(); ++k) {
     const auto& w = scan[k];
     auto row = [&](const char* side, const OrderEfficiency& o) {
       out << w.lambda_um << ',' << w.phi / DEG << ',' << w.psi / DEG << ',' << w.delta / DEG << ','
-          << side << ',' << o.n << ',' << o.m << ',' << o.efficiency << ',' << o.amp_s.real() << ','
-          << o.amp_s.imag() << ',' << o.amp_p.real() << ',' << o.amp_p.imag() << '\n';
+          << side << ',' << o.n << ',' << o.m << ',' << o.efficiency << ',' << o.eff_s << ',' << o.eff_p
+          << ',' << o.amp_s.real() << ',' << o.amp_s.imag() << ',' << o.amp_p.real() << ','
+          << o.amp_p.imag() << '\n';
     };
     for (const auto& o : results[k].reflected) row("R", o);
     for (const auto& o : results[k].transmitted) row("T", o);

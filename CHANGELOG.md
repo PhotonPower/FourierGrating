@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0] – M5 (anisotrop, 1D)
+
+### Hinzugefügt
+- Anisotrope FFF: Variante A (Buch Kap. V/VIII, C_ε) und Variante B (Projektoren, Eigenherleitung);
+  Fourierkoeffizienten stückweise glatter Funktionen per Gauß-Quadratur.
+- Anisotrope Modenbasis homogener Medien (4×4 je Ordnung, Klassifikation); anisotrope Substrate,
+  homogene Schichten, Lamellen (N = x konstant) und Profile; Transmission über den Modenfluss.
+- Materialeingabe über Hauptachsen + Euler-Winkel; s/p-Anteile der Effizienzen (CSV-Spalten eff_s, eff_p).
+- Validierung V7 (Kobalt), V8 (isotroper Tensor), einachsiges Substrat (analytisch), biaxiale Schicht.
+
+### Behoben
+- Eigen konjugiert bei `dot()`/`cross()` komplexer Vektoren: ξ und C_ε waren falsch, s/p-Amplituden konjugiert.
+
 ## [0.3.0] – M3, M4
 
 ### Hinzugefügt

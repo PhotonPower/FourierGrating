@@ -37,6 +37,10 @@ Diese Datei gilt für jeden, der an FourierGrating arbeitet. Lies sie vollständ
 * Keine expliziten Inversen, wenn ein LU-Solve genügt.
 * Wurzelzweig für β, Moden-Klassifikation und Rayleigh-Anomalie exakt wie im Plan.
 * Konvention der S-Matrix: Plan eq:Sdef. Verkettung nur über `fg::star`.
+* **Eigen-Falle:** `a.dot(b)` konjugiert bei komplexen Vektoren das erste Argument, und `a.cross(b)`
+  liefert für komplexe Vektoren das **konjugierte** Kreuzprodukt. Für bilineare Ausdrücke
+  (ξ = Nᵀ ε N, v × T, E·s) immer `(a.array() * b.array()).sum()` bzw. ein eigenes Kreuzprodukt
+  verwenden. (Dieser Fehler hat in M5 die anisotrope FFF still verfälscht.)
 * Unstetige Funktionen nie per FFT abtasten, wenn eine exakte Formel existiert
   (Intervall, Rechteck, Polygon).
 

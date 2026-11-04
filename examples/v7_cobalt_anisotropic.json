@@ -75,7 +75,8 @@
       "depth_um": 0.5,
       "below": "co",
       "above": "air",
-      "factorization": "FFF_A"
+      "factorization": "FFF_A",
+      "slices": 100
     }
   ],
   "rcwa": {

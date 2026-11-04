@@ -8,9 +8,11 @@
 
 #include "fg/core/error.hpp"
 #include "fg/fourier/coefficients.hpp"
+#include "fg/fourier/sampling.hpp"
 #include "fg/geometry/normal_field.hpp"
 #include "fg/geometry/profile.hpp"
 #include "fg/physics/efficiency.hpp"
+#include "fg/physics/anisotropic.hpp"
 #include "fg/physics/modes.hpp"
 #include "fg/physics/qmatrix.hpp"
 #include "fg/solvers/rcwa.hpp"
@@ -56,8 +58,8 @@ class StackSolver final : public Solver {
 
     // substrate -> reference interface (Plan eq:Stot)
     const Material& sub = stack.material(stack.substrate);
-    if (!sub.isotropic) throw NotImplemented("anisotropic substrate (milestone M5)");
-    const ModeBasis subModes = isotropicModes(s.epsSub, s.alpha, s.gamma);
+    const ModeBasis subModes = sub.isotropic ? isotropicModes(s.epsSub, s.alpha, s.gamma)
+                                             : anisotropicModes(sub.epsTensor, s.alpha, s.gamma);
     SMatrix S = fromTransfer(s.ref.PsiInv * subModes.Psi);
 
     for (const LayerEntry& le : stack.layers) S = star(S, layerSMatrix(stack, le, s, res.diag));
@@ -74,20 +76,47 @@ class StackSolver final : public Solver {
                                          a_in(c), a_in(nf + c));
     const double Sinc = std::abs(incOrder.Sy);
     double sumR = 0, sumT = 0;
-    const bool subLossless = std::abs(s.epsSub.imag()) < 1e-14 && s.epsSub.real() > 0;
+    const bool subLossless =
+        sub.isotropic ? (std::abs(s.epsSub.imag()) < 1e-14 && s.epsSub.real() > 0)
+                      : (sub.epsTensor - sub.epsTensor.adjoint()).cwiseAbs().maxCoeff() < 1e-14;
+    const VecC Fsub = subModes.Psi.leftCols(nh) * a_sub;  // field just below y = 0
+    auto split = [](OrderEfficiency& o, double e) {
+      o.efficiency = e;
+      const double ws = std::norm(o.amp_s), wp = std::norm(o.amp_p);
+      if (ws + wp > 0) {
+        o.eff_s = e * ws / (ws + wp);
+        o.eff_p = e * wp / (ws + wp);
+      }
+    };
     for (int r = 0; r < nf; ++r) {
       const auto [n, m] = s.map.orders(r);
       const auto ro = planeWaveOrder(s.epsSup, s.alpha(r), s.gamma(r), s.ref.beta(r), +1, b_top(r),
                                      b_top(nf + r));
       if (ro.propagating) {
-        res.reflected.push_back({n, m, ro.Sy / Sinc, ro.amp_s, ro.amp_p});
+        OrderEfficiency o{n, m, 0, ro.amp_s, ro.amp_p};
+        split(o, ro.Sy / Sinc);
+        res.reflected.push_back(o);
         sumR += ro.Sy / Sinc;
       }
-      const auto to = planeWaveOrder(s.epsSub, s.alpha(r), s.gamma(r), subModes.beta(r), -1,
-                                     a_sub(r), a_sub(nf + r));
-      if (subLossless && to.propagating) {
-        res.transmitted.push_back({n, m, -to.Sy / Sinc, to.amp_s, to.amp_p});
-        sumT += -to.Sy / Sinc;
+      if (!subLossless) continue;
+      if (sub.isotropic) {
+        const auto to = planeWaveOrder(s.epsSub, s.alpha(r), s.gamma(r), subModes.beta(r), -1,
+                                       a_sub(r), a_sub(nf + r));
+        if (to.propagating) {
+          OrderEfficiency o{n, m, 0, to.amp_s, to.amp_p};
+          split(o, -to.Sy / Sinc);
+          res.transmitted.push_back(o);
+          sumT += -to.Sy / Sinc;
+        }
+      } else {
+        // anisotropic substrate: flux of the order from the modal field (Plan eq:Sy)
+        const double sy = 0.5 * std::real(Fsub(nf + r) * std::conj(Fsub(2 * nf + r)) -
+                                          Fsub(r) * std::conj(Fsub(3 * nf + r)));
+        if (std::abs(sy) > 1e-14 * Sinc) {
+          OrderEfficiency o{n, m, -sy / Sinc, 0, 0};
+          res.transmitted.push_back(o);
+          sumT += -sy / Sinc;
+        }
       }
     }
     res.absorption = 1.0 - sumR - sumT;
@@ -123,8 +152,8 @@ class StackSolver final : public Solver {
   SMatrix layerSMatrix(const Stack& stack, const LayerEntry& le, const Setup& s, Diagnostics& diag) {
     if (const auto* hl = std::get_if<HomogeneousLayer>(&le.spec)) {
       const Material& mat = stack.material(hl->material);
-      if (!mat.isotropic) throw NotImplemented("anisotropic homogeneous layer (milestone M5)");
-      const ModeBasis mb = isotropicModes(mat.eps, s.alpha, s.gamma);
+      const ModeBasis mb = mat.isotropic ? isotropicModes(mat.eps, s.alpha, s.gamma)
+                                         : anisotropicModes(mat.epsTensor, s.alpha, s.gamma);
       return stableLayerSMatrix(layerModesHomogeneous(mb), hl->thickness_um * s.k0, s.ref);
     }
     if (const auto* ll = std::get_if<Lamellar1DLayer>(&le.spec)) return lamellar(stack, *ll, le, s, diag);
@@ -143,8 +172,15 @@ class StackSolver final : public Solver {
       eps.push_back(m.eps);
       inv.push_back(1.0 / m.eps);
     }
-    if (!iso) throw NotImplemented("anisotropic lamellar layer (milestone M5)");
     const int Px = 2 * s.map.Nx(), Pz = 2 * s.map.Nz();
+    if (!iso) {
+      std::vector<Mat3C> tens;
+      for (const auto& name : ll.materials) tens.push_back(stack.material(name).tensor());
+      const Factorization fac = le.factorization == Factorization::Auto ? Factorization::FFF_A : le.factorization;
+      const QBlocks Q = anisotropicQ(ll.breakpoints_um, tens, [](double) { return Vec3D(1, 0, 0); }, fac,
+                                     stack.dx_um, s.map);
+      return constantSlice(buildPropagationMatrix(Q, s.alpha, s.gamma), ll.thickness_um * s.k0, eps, s, diag);
+    }
     const auto ce = fourier::piecewiseConstant1D(ll.breakpoints_um, eps, stack.dx_um, Px);
     const auto ci = fourier::piecewiseConstant1D(ll.breakpoints_um, inv, stack.dx_um, Px);
     SliceCoefficients sc;
@@ -164,23 +200,92 @@ class StackSolver final : public Solver {
       case Factorization::FFF_rig: Q = qLiLamellar(sc, s.map); break;  // FFF with N = x (exact: NN = diag)
       default: throw Error("factorization not applicable to an isotropic lamellar layer");
     }
-    const MatC M = buildPropagationMatrix(Q, s.alpha, s.gamma);
-    const double h = ll.thickness_um * s.k0;
-    if (opt_.kind == SolverKind::RCWA) {
-      const LayerModes lm = layerModesAuto(M);
-      return stableLayerSMatrix(lm, h, s.ref);
-    }
-    // RK: split into sub-slices with rho * h_sub <= ln(growthLimit) (Plan eq:slicecrit)
-    const double rho = rhoEstimate(s, eps);
+    return constantSlice(buildPropagationMatrix(Q, s.alpha, s.gamma), ll.thickness_um * s.k0, eps, s, diag);
+  }
+
+  /// y-invariant slice of thickness h with constant M: RCWA modes, or RK sub-slices
+  /// (Plan eq:slicecrit with the spectral radius of M).
+  SMatrix constantSlice(const MatC& M, double h, const std::vector<cplx>& eps, const Setup& s, Diagnostics& diag) {
+    if (opt_.kind == SolverKind::RCWA) return stableLayerSMatrix(layerModesAuto(M), h, s.ref);
+    const double rho = std::max(rhoEstimate(s, eps), spectralRadius(M));
     const int nsub = std::max(1, static_cast<int>(std::ceil(rho * h / std::log(opt_.growthLimit))));
     RKStats st;
-    const MatC TF = rkTransferConstant(M, h / nsub, ButcherTableau::byName(opt_.rkTableau),
-                                       opt_.rkTol, rho, st);
+    const MatC TF = rkTransferConstant(M, h / nsub, ButcherTableau::byName(opt_.rkTableau), opt_.rkTol, rho, st);
     diag.rkSteps += st.steps;
     const SMatrix Ssub = rkSliceSMatrix(TF, s.ref);
     SMatrix S = Ssub;
     for (int k = 1; k < nsub; ++k) S = star(S, Ssub);
     return S;
+  }
+
+  /// Q blocks of an anisotropic slice: piecewise constant tensors on [br_k, br_k+1] and a normal
+  /// field N(x) (Plan eq:QaniA / eq:QaniB; Laurent for comparison).
+  static QBlocks anisotropicQ(const std::vector<double>& br, const std::vector<Mat3C>& eps,
+                              const std::function<Vec3D(double)>& Nfun, Factorization fac, double dx,
+                              const IndexMap& map) {
+    const int Px = 2 * map.Nx(), Pz = 2 * map.Nz();
+    SliceCoefficients sc;
+    sc.isotropic = false;
+    auto fill = [&](std::array<std::array<fourier::CoefficientGrid, 3>, 3>& g,
+                    const std::vector<std::vector<cplx>>& c, int offset) {
+      for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) {
+          auto& grid = g[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+          grid = fourier::CoefficientGrid(Px, Pz);
+          for (int p = -Px; p <= Px; ++p)
+            grid(p, 0) = c[static_cast<std::size_t>(offset + 3 * i + j)][static_cast<std::size_t>(p + Px)];
+        }
+    };
+    if (fac == Factorization::Laurent) {
+      const auto c = fourier::piecewiseSmoothCoefficients(
+          br, 9, [&](double, int k, cplx* out) { for (int q = 0; q < 9; ++q) out[q] = eps[static_cast<std::size_t>(k)](q / 3, q % 3); },
+          dx, Px);
+      fill(sc.epsTensor, c, 0);
+      return qLaurent(sc, map);
+    }
+    if (fac == Factorization::FFF_A) {
+      const auto c = fourier::piecewiseSmoothCoefficients(
+          br, 18,
+          [&](double x, int k, cplx* out) {
+            const Vec3D N = Nfun(x);
+            Vec3D T1, T2;
+            profileTangents(N, T1, T2);
+            const Mat3C& e = eps[static_cast<std::size_t>(k)];
+            const Mat3C C = cMatrix(e, N, T1, T2);
+            const Mat3C eC = e * C;
+            for (int q = 0; q < 9; ++q) {
+              out[q] = C(q / 3, q % 3);
+              out[9 + q] = eC(q / 3, q % 3);
+            }
+          },
+          dx, Px);
+      fill(sc.C, c, 0);
+      fill(sc.epsC, c, 9);
+      return qFFFAnisotropicA(sc, map);
+    }
+    if (fac == Factorization::FFF_B) {
+      const auto c = fourier::piecewiseSmoothCoefficients(
+          br, 37,
+          [&](double x, int k, cplx* out) {
+            const ProjectorSet ps = projectorMatrices(eps[static_cast<std::size_t>(k)], Nfun(x));
+            for (int q = 0; q < 9; ++q) {
+              out[q] = ps.G1(q / 3, q % 3);
+              out[9 + q] = ps.G2(q / 3, q % 3);
+              out[18 + q] = ps.H1(q / 3, q % 3);
+              out[27 + q] = ps.PT(q / 3, q % 3);
+            }
+            out[36] = ps.invXi;
+          },
+          dx, Px);
+      fill(sc.G1, c, 0);
+      fill(sc.G2, c, 9);
+      fill(sc.H1, c, 18);
+      fill(sc.PT, c, 27);
+      sc.invXi = fourier::CoefficientGrid(Px, Pz);
+      for (int p = -Px; p <= Px; ++p) sc.invXi(p, 0) = c[36][static_cast<std::size_t>(p + Px)];
+      return qFFFAnisotropicB(sc, map);
+    }
+    throw Error("factorization not applicable to an anisotropic layer (use FFF_A, FFF_B or Laurent)");
   }
 
   /// RK slice S-matrix over [y0, y1]; bisects if the transfer matrix grows beyond growthLimit.
@@ -205,28 +310,40 @@ class StackSolver final : public Solver {
     FG_REQUIRE(!stack.is2D(), "Profile1D layers are only supported in 1D stacks (2D: Profile2D, M7)");
     const Material& mb = stack.material(pl.below);
     const Material& ma = stack.material(pl.above);
-    if (!mb.isotropic || !ma.isotropic) throw NotImplemented("anisotropic profile layer (milestone M5)");
+    const bool aniso = !mb.isotropic || !ma.isotropic;
     const int Px = 2 * s.map.Nx(), Pz = 2 * s.map.Nz();
     const NormalFieldCoefficients nf = normalField(pl, stack.dx_um, s.map);
     // Default (Plan section "Varianten der isotropen FFF"): FFF_rig for smooth profiles (signed
     // normal field continuous), FFF_sym for profiles with corners (piecewise linear, user functions).
     Factorization fac = le.factorization;
     if (fac == Factorization::Auto)
-      fac = pl.shape == Profile1DLayer::Shape::Sinus ? Factorization::FFF_rig : Factorization::FFF_sym;
+      fac = aniso ? Factorization::FFF_A
+                  : (pl.shape == Profile1DLayer::Shape::Sinus ? Factorization::FFF_rig : Factorization::FFF_sym);
     if (fac == Factorization::FFF_iso)
       for (const Material* m : {&mb, &ma})
         if (m->eps.real() < 0 && std::abs(m->eps.imag()) < 0.5 * std::abs(m->eps.real()))
           diag.warnings.push_back("FFF_iso (book IV.32) with a weakly absorbing metal ('" + m->name +
                                   "'): known to produce unphysical results, use FFF_rig or FFF_sym");
-    FG_REQUIRE(fac == Factorization::FFF_iso || fac == Factorization::FFF_sym ||
-                   fac == Factorization::FFF_rig || fac == Factorization::Laurent,
-               "profile layers support factorization FFF_sym, FFF_rig, FFF_iso or Laurent");
+    FG_REQUIRE(aniso ? (fac == Factorization::FFF_A || fac == Factorization::FFF_B || fac == Factorization::Laurent)
+                     : (fac == Factorization::FFF_iso || fac == Factorization::FFF_sym ||
+                        fac == Factorization::FFF_rig || fac == Factorization::Laurent),
+               "factorization not applicable to this profile layer");
+    const Mat3C tb = mb.tensor(), ta = ma.tensor();
+    auto Nfun = [&](double x) -> Vec3D {
+      const double sl = profileSlope(pl, x, stack.dx_um);
+      return Vec3D(-sl, 1.0, 0.0) / std::sqrt(1.0 + sl * sl);
+    };
     const double a = pl.depth_um;
     // M at height y_um inside the layer
     auto Mat = [&](double y_um) {
       std::vector<double> br;
       std::vector<bool> below;
       profileIntervals(pl, std::clamp(y_um, 1e-14 * a, a * (1 - 1e-14)), stack.dx_um, br, below);
+      if (aniso) {
+        std::vector<Mat3C> tens;
+        for (bool b : below) tens.push_back(b ? tb : ta);
+        return buildPropagationMatrix(anisotropicQ(br, tens, Nfun, fac, stack.dx_um, s.map), s.alpha, s.gamma);
+      }
       std::vector<cplx> ve, vi;
       for (bool b : below) {
         const cplx e = b ? mb.eps : ma.eps;

@@ -15,6 +15,9 @@
   \item Diagnosen je Rechnung: Energiebilanz $\sum e^{(r)}+\sum e^{(t)}$ (verlustfrei $=1$), Konditionszahlen
         ($T_{11}$, $G$, $Q_{\varepsilon,yy}$), Anzahl RK-Schritte, Klassifikationsreserve.
   \item Reproduzierbarkeit: deterministische Reihenfolgen, keine Zufallszahlen im Kern.
+  \item \textbf{Eigen-Falle:} \verb|dot()| konjugiert das erste Argument, \verb|cross()| liefert für komplexe
+        Vektoren das konjugierte Kreuzprodukt. Bilineare Formen ($\xi=\mathbf N^T\overline{\overline\varepsilon}\mathbf N$,
+        $\mathbf v\times\mathbf T$, $\mathbf E\cdot\hat{\mathbf s}$) explizit ausschreiben (Befund M5).
   \item Symmetrien (optional, später): spiegelsymmetrische Strukturen bei Normaleinfall erlauben
         Halbierung der Ordnungen -- \emph{nicht} in der ersten Version.
 \end{itemize}
@@ -169,7 +172,10 @@ V6 & Dielektrisches Sinusgitter $\nu=2{,}5$, $a/d=1$, $d=1\,\mu$m, $30^\circ$ (B
 V7 & Kobalt-Sinusgitter anisotrop (Buch Kap.\ VIII): $d=0{,}6$, $a=0{,}5\,\mu$m, $30^\circ$, TM-Einfall,
      $\varepsilon_{ii}=-8{,}19+16{,}38i$, $\varepsilon_{xz}=-\varepsilon_{zx}=-0{,}495-0{,}106i$ &
      intern ($N=20$, 100 Scheiben): TM$_0$ $0{,}0567$, TM$_{-1}$ $0{,}1435$, TE$_0$ $1{,}3\cdot10^{-7}$,
-     TE$_{-1}$ $2{,}37\cdot10^{-6}$; Buch $\approx0{,}055/0{,}148/\approx10^{-7}/2{,}6\cdot10^{-6}$; Toleranz 3\,\% \\
+     TE$_{-1}$ $2{,}37\cdot10^{-6}$; Buch $\approx0{,}055/0{,}148/\approx10^{-7}/2{,}6\cdot10^{-6}$; Toleranz 3\,\%.
+     M5: $0{,}05673/0{,}14355/1{,}275\cdot10^{-7}/2{,}372\cdot10^{-6}$; RK ($N=8$) = RCWA (400 Scheiben) auf $10^{-4}$ \\
+V7b & einachsiges Substrat, Achse $\parallel y$, $\varepsilon_o=2{,}4$, $\varepsilon_e=3{,}1$ & analytisch ($r_s$, $r_p$ s.\ Text), $10^{-12}$ \\
+V7c & verlustfreie biaxiale gedrehte Schicht, konisch & Energie $10^{-12}$; homogener Pfad = Lamellenpfad (RCWA $10^{-10}$, RK $10^{-8}$) \\
 V8 & Anisotroper Code mit isotropem Tensor & identisch mit isotropem Code ($10^{-10}$ bei gleicher Faktorisierung) \\
 V9 & 2D-Code mit $z$-invarianter Struktur ($g(x,z)=g(x)$, $N_z=0$) & identisch mit 1D-konisch \\
 V10 & Lochgitter (Buch IX.1.7): Ag-Film $0{,}2\,\mu$m auf Glas, quadratische Löcher $0{,}25\,\mu$m,

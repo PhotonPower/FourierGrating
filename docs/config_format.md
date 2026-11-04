@@ -19,14 +19,16 @@ Die Implementierung erfolgt in M2 (`fg::io::loadConfig`); dieses Dokument ist di
     "al":    { "n": [1.38, 7.62] },
     "co":    { "eps_tensor": [[[-8.19,16.38],[0,0],[-0.495,-0.106]],
                               [[0,0],[-8.19,16.38],[0,0]],
-                              [[0.495,0.106],[0,0],[-8.19,16.38]]] }
+                              [[0.495,0.106],[0,0],[-8.19,16.38]]] },
+    "lnb":   { "eps_principal": [4.98, 4.98, 4.6], "euler_deg": [0, 90, 0] }  // R diag R^T, z-x-z
   },
   "superstrate": "air",
   "substrate": "al",
   "layers": [                            // von unten (Substrat) nach oben
     { "type": "profile1d", "shape": "sinus",            // sinus | triangle | points
       "depth_um": 0.2, "below": "al", "above": "air",
-      "slices": 0, "factorization": "auto" },     // auto | laurent | li_lamellar | FFF_iso | FFF_sym | FFF_rig
+      "slices": 0, "factorization": "auto" },     // isotrop: auto | laurent | li_lamellar | FFF_iso | FFF_sym | FFF_rig
+                                                  // anisotrop: auto (= FFF_A) | FFF_A | FFF_B | laurent
     { "type": "homogeneous", "thickness_um": 0.05, "material": "air" },
     { "type": "lamellar1d", "thickness_um": 0.3,
       "breakpoints_um": [0.0, 0.2, 0.5], "materials": ["al", "air"] },
@@ -56,5 +58,5 @@ Formen für `profile1d.shape`: `sinus` (g = a/2 (1 + cos Kx)), `triangle` (Param
 Kommentare (`//`) dienen nur der Erläuterung; echte Dateien sind reines JSON.
 
 Ausgabe: `efficiencies.csv` (Spalten: lambda_um, phi, psi, delta, side, n, m, efficiency,
-amp_s_re, amp_s_im, amp_p_re, amp_p_im), `diagnostics.json`, Nahfeld je Schnitt in
+eff_s, eff_p, amp_s_re, amp_s_im, amp_p_re, amp_p_im; s/p nur in isotropen Medien), `diagnostics.json`, Nahfeld je Schnitt in
 `nearfield_<schnitt>/` (`*.npy`, `meta.json`).

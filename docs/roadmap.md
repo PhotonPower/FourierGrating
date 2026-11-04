@@ -19,8 +19,10 @@ Abnahme = alle genannten Tests grün (`ctest`), Details im Plan, Abschnitt „Me
   - [x] Lamellen und homogene Schichten konisch (mit M2 erledigt, V1–V3 konisch grün)
   - [x] Profilschichten konisch: RK = RCWA auf 1e-4, Energie auf 5e-4
   - [ ] s/p-Ausgabe gegen Buch Abb. IV.4 prüfen (optional)
-- [ ] **M5** 1D anisotrop: FFF_A, FFF_B, anisotrope Substrate (4×4-Moden)
-  - Abnahme: V7, V8
+- [x] **M5** 1D anisotrop: FFF_A, FFF_B, anisotrope Substrate/Schichten (4×4-Moden), Hauptachsen + Euler-Winkel
+  - Abnahme: V7 (Kobalt), V8 (isotroper Tensor: Lamellen exakt, Profil 1e-3), einachsiges Substrat analytisch,
+    biaxiale Schicht (Energie, Pfadgleichheit) – `tests/validation/test_v7_v8.cpp`
+  - Offen: Literaturvergleich für Variante B
 - [ ] **M6** Nahfeld 1D (horizontale Linie, vertikale x–y-Karte), direkt/FFF-Rekonstruktion, Plot-Skript
   - Abnahme: V12 (1D)
 - [ ] **M7** 2D isotrop: Polygon-Schichten, Normalenfeld (Algorithmus NF), RCWA; RK für Profile2D

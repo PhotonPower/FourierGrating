@@ -14,6 +14,14 @@ namespace fg::fourier {
 std::vector<cplx> sampledCoefficients1D(const std::function<cplx(double)>& f, double period,
                                         int pmax, int samples);
 
+/// Coefficients of K piecewise-smooth functions on the intervals [breaks_k, breaks_k+1] of one
+/// period (breaks from 0 to period). f(x, k, out) writes the K values at x in interval k.
+/// Composite 8-point Gauss-Legendre quadrature with |p K| h <= 1 per sub-interval (exact for
+/// constants up to rounding; error ~1e-15 for smooth integrands). Result[i][p + pmax].
+std::vector<std::vector<cplx>> piecewiseSmoothCoefficients(
+    const std::vector<double>& breaks, int K,
+    const std::function<void(double, int, cplx*)>& f, double period, int pmax);
+
 /// 2D coefficient grid |p| <= Px, |q| <= Pz from Mx x Mz samples of f(x, z).
 CoefficientGrid sampledCoefficients2D(const std::function<cplx(double, double)>& f, double dx,
                                       double dz, int Px, int Pz, int Mx, int Mz);

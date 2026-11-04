@@ -12,6 +12,7 @@ set(FG_UNIT_TESTS
   test_rcwa_rk
   test_profile
   test_fff_pairing
+  test_anisotropic
 )
 foreach(t ${FG_UNIT_TESTS})
   add_executable(${t} unit/${t}.cpp)
@@ -30,12 +31,15 @@ gtest_discover_tests(test_validation_v1_v3 PROPERTIES LABELS "validation")
 add_executable(test_validation_v4_v6 validation/test_v4_v6.cpp)
 target_link_libraries(test_validation_v4_v6 PRIVATE fg_core GTest::gtest_main)
 gtest_discover_tests(test_validation_v4_v6 PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)
+add_executable(test_validation_v7_v8 validation/test_v7_v8.cpp)
+target_link_libraries(test_validation_v7_v8 PRIVATE fg_core GTest::gtest_main)
+gtest_discover_tests(test_validation_v7_v8 PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)
 add_executable(test_validation_v13_v14 validation/test_v13_gold.cpp)
 target_link_libraries(test_validation_v13_v14 PRIVATE fg_core GTest::gtest_main)
 gtest_discover_tests(test_validation_v13_v14 PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)
 
 # ---- command line smoke tests on example configurations ----
-foreach(ex v1_fresnel_interface v3_lamellar_dielectric v3_lamellar_rk_scan v5_glass_deep_te echelette_au_scan)
+foreach(ex v1_fresnel_interface v3_lamellar_dielectric v3_lamellar_rk_scan v5_glass_deep_te echelette_au_scan v7_cobalt_anisotropic)
   add_test(NAME example_${ex}
            COMMAND fgsolve ${PROJECT_SOURCE_DIR}/examples/${ex}.json
            WORKING_DIRECTORY ${CMAKE_BINARY_DIR})

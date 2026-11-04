@@ -138,9 +138,17 @@ oder Laurent). \textbf{Achtung:} $C_\varepsilon$ hängt über $\overline{\overli
 $y$-invarianten Schichten -- $\tp{C_\varepsilon}$ muss für jede Höhe neu berechnet werden (Buch S.\,108
 behauptet Gegenteiliges).
 
-\subsection{Anisotrope Materialien, Variante B (vorzeichenunabhängig, empfohlen für $y$-invariante Schichten)}
-Variante A verlangt ein stetiges $\mathbf N$ \emph{mit Vorzeichen}; bei Lamellen kippt $\mathbf N$ zwischen
-$+\hat x$ und $-\hat x$, wodurch $E_{T_1}$, $D_N$ im Inneren einer Lamelle springen würden. Variante B
+\paragraph{Lamellen mit Variante A.} Für 1D-Lamellen genügt das \emph{konstante} Feld $\mathbf N=\hat x$:
+An jeder Wand ist es bis auf das Vorzeichen die Normale, und das Vorzeichen ist überall gleich, also ist
+$\mathbf F_\varepsilon$ stetig. Mit isotropem Tensor reproduziert Variante A dann exakt die Li-Lamellenformel
+(V8, $10^{-10}$). Standard für anisotrope Lamellen und Profile ist \verb|FFF_A|.
+\paragraph{Fourierkoeffizienten.} $C_\varepsilon(x)$ und $\overline{\overline\varepsilon}C_\varepsilon(x)$ sind stückweise glatt
+(Tensor stückweise konstant, $\mathbf N$ glatt). Koeffizienten per zusammengesetzter 8-Punkt-Gauß-Quadratur je
+Intervall mit $|pK|h\le1$ (\verb|piecewiseSmoothCoefficients|); für konstante Funktionen exakt bis auf Rundung.
+
+\subsection{Anisotrope Materialien, Variante B (vorzeichenunabhängig)}
+Variante A verlangt ein stetiges $\mathbf N$ \emph{mit Vorzeichen}. Bei 2D-Querschnitten (Löcher, Säulen)
+gibt es kein solches Feld; dort würden $E_{T_1}$, $D_N$ im Inneren eines homogenen Gebiets springen. Variante B
 verwendet nur die Projektoren $P_N=\mathbf N\mathbf N^T$, $P_T=\mathbb 1-P_N$ und die stetigen
 \emph{Vektoren} $\mathbf e_t=P_T\mathbf E$, $\mathbf d_n=P_N\mathbf D$:
 aus $\mathbf N^T\mathbf D=\mathbf N^T\overline{\overline\varepsilon}\mathbf e_t+\xi\,\mathbf N^T\mathbf E$ folgt
@@ -163,8 +171,9 @@ mit $\tp{\xi^{-1}}$ = blockdiagonal ($3\times$ dieselbe skalare Toeplitz-Matrix)
 reduziert sich \eqref{eq:QaniB} bis auf Abschneideeffekte ($\tp{P_T}\tp{P_T}\approx\tp{P_T}$) auf
 \eqref{eq:Qiso}. \textbf{Test:} Variante A und B müssen auf Profilschichten mit $N$ gegen dieselben
 Effizienzen konvergieren; Variante B mit isotropem Tensor gegen \eqref{eq:Qiso}.
-\emph{Hinweis:} Variante B ist eine Eigenherleitung dieses Plans (nicht im Buch); sie ist in M5 vor
-Gebrauch gegen Variante A und gegen die Literatur (Li, J.\ Mod.\ Opt.\ 45, 1313 (1998)) zu prüfen.
+\emph{Hinweis:} Variante B ist eine Eigenherleitung dieses Plans (nicht im Buch). M5-Befund: am Kobalt-Gitter
+(V7) stimmt sie mit Variante A auf 1--3\,\% (TM-Anteile) bzw.\ 2--15\,\% (sehr kleine TE-Anteile) überein; ein
+Literaturvergleich (Li, J.\ Mod.\ Opt.\ 45, 1313 (1998)) steht noch aus. Sie ist für 2D-Querschnitte (M8) gedacht.
 
 \subsection{Weitere Faktorisierungsoptionen (für Vergleiche)}
 \verb|Laurent| ($Q_{ij}=\tp{\varepsilon_{ij}}$), \verb|LiLamellar| (nur 1D-Lamellen, Buch (IV.5)/(IV.6)),
