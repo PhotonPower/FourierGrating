@@ -197,9 +197,12 @@ RunConfig parseConfig(const std::string& text) {
   for (const auto& lj : j.value("layers", json::array())) cfg.stack.layers.push_back(parseLayer(lj));
 
   const json& inc = j.at("incidence");
+  // scan: cartesian product lambda x phi x psi x delta (each a number, an array or a range)
   for (double lam : parseRange(inc.at("lambda_um")))
     for (double phi : parseRange(inc.value("phi_deg", json(0.0))))
-      cfg.scan.push_back({lam, phi * DEG, inc.value("psi_deg", 0.0) * DEG, inc.value("delta_deg", 0.0) * DEG});
+      for (double psi : parseRange(inc.value("psi_deg", json(0.0))))
+        for (double delta : parseRange(inc.value("delta_deg", json(0.0))))
+          cfg.scan.push_back({lam, phi * DEG, psi * DEG, delta * DEG});
 
   if (j.contains("nearfield") && j["nearfield"].value("enabled", false)) {
     cfg.nearField = true;
@@ -233,26 +236,84 @@ RunConfig loadConfig(const std::string& path) {
   return parseConfig(ss.str());
 }
 
-void writeEfficiencies(const std::string& file, const std::vector<Wavelength>& scan,
-                       const std::vector<Result>& results) {
-  const auto dir = std::filesystem::path(file).parent_path();
-  if (!dir.empty()) std::filesystem::create_directories(dir);
-  std::ofstream out(file);
-  FG_REQUIRE(out.good(), "cannot write " + file);
+namespace {
+void writeHeader(std::ofstream& out, bool sweep) {
+  if (sweep) out << "sweep_parameter,sweep_value,";
   out << "lambda_um,phi_deg,psi_deg,delta_deg,side,n,m,efficiency,eff_s,eff_p,amp_s_re,amp_s_im,amp_p_re,"
          "amp_p_im\n";
   out << std::setprecision(12);
+}
+void writeRows(std::ofstream& out, const std::string& prefix, const std::vector<Wavelength>& scan,
+               const std::vector<Result>& results) {
   for (std::size_t k = 0; k < results.size(); ++k) {
     const auto& w = scan[k];
     auto row = [&](const char* side, const OrderEfficiency& o) {
-      out << w.lambda_um << ',' << w.phi / DEG << ',' << w.psi / DEG << ',' << w.delta / DEG << ','
-          << side << ',' << o.n << ',' << o.m << ',' << o.efficiency << ',' << o.eff_s << ',' << o.eff_p
-          << ',' << o.amp_s.real() << ',' << o.amp_s.imag() << ',' << o.amp_p.real() << ','
-          << o.amp_p.imag() << '\n';
+      out << prefix << w.lambda_um << ',' << w.phi / DEG << ',' << w.psi / DEG << ',' << w.delta / DEG << ','
+          << side << ',' << o.n << ',' << o.m << ',' << o.efficiency << ',' << o.eff_s << ',' << o.eff_p << ','
+          << o.amp_s.real() << ',' << o.amp_s.imag() << ',' << o.amp_p.real() << ',' << o.amp_p.imag() << '\n';
     };
     for (const auto& o : results[k].reflected) row("R", o);
     for (const auto& o : results[k].transmitted) row("T", o);
   }
+}
+std::ofstream openCsv(const std::string& file) {
+  const auto dir = std::filesystem::path(file).parent_path();
+  if (!dir.empty()) std::filesystem::create_directories(dir);
+  std::ofstream out(file);
+  FG_REQUIRE(out.good(), "cannot write " + file);
+  return out;
+}
+}  // namespace
+
+void writeEfficiencies(const std::string& file, const std::vector<Wavelength>& scan,
+                       const std::vector<Result>& results) {
+  std::ofstream out = openCsv(file);
+  writeHeader(out, false);
+  writeRows(out, "", scan, results);
+}
+
+void writeEfficiencies(const std::string& file, const std::vector<RunConfig>& runs,
+                       const std::vector<std::vector<Result>>& results) {
+  FG_REQUIRE(runs.size() == results.size(), "writeEfficiencies: size mismatch");
+  const bool sweep = !runs.empty() && !runs.front().sweepParameter.empty();
+  std::ofstream out = openCsv(file);
+  writeHeader(out, sweep);
+  for (std::size_t r = 0; r < runs.size(); ++r) {
+    std::ostringstream pre;
+    pre << std::setprecision(12);
+    if (sweep) pre << runs[r].sweepParameter << ',' << runs[r].sweepValue << ',';
+    writeRows(out, pre.str(), runs[r].scan, results[r]);
+  }
+}
+
+std::vector<RunConfig> parseSweep(const std::string& text) {
+  const json j = json::parse(text);
+  if (!j.contains("sweep")) return {parseConfig(text)};
+  const json& sw = j["sweep"];
+  const std::string param = sw.at("parameter").get<std::string>();
+  const json::json_pointer ptr(param);
+  FG_REQUIRE(j.contains(ptr), "sweep: parameter '" + param + "' not found in the configuration");
+  FG_REQUIRE(j.at(ptr).is_number(), "sweep: parameter '" + param + "' is not a number");
+  std::vector<RunConfig> out;
+  for (double v : parseRange(sw.at("values"))) {
+    json jk = j;
+    jk.erase("sweep");
+    jk[ptr] = v;
+    RunConfig c = parseConfig(jk.dump());
+    c.sweepParameter = param;
+    c.sweepValue = v;
+    out.push_back(std::move(c));
+  }
+  FG_REQUIRE(!out.empty(), "sweep: no values");
+  return out;
+}
+
+std::vector<RunConfig> loadSweep(const std::string& path) {
+  std::ifstream in(path);
+  FG_REQUIRE(in.good(), "cannot open configuration file " + path);
+  std::stringstream ss;
+  ss << in.rdbuf();
+  return parseSweep(ss.str());
 }
 
 }  // namespace fg::io

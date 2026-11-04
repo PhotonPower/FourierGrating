@@ -15,6 +15,7 @@ set(FG_UNIT_TESTS
   test_anisotropic
   test_normal_field2d
   test_backend
+  test_scan
 )
 foreach(t ${FG_UNIT_TESTS})
   add_executable(${t} unit/${t}.cpp)
@@ -44,7 +45,7 @@ target_link_libraries(test_validation_v13_v14 PRIVATE fg_core GTest::gtest_main)
 gtest_discover_tests(test_validation_v13_v14 PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)
 
 # ---- command line smoke tests on example configurations ----
-foreach(ex v1_fresnel_interface v3_lamellar_dielectric v3_lamellar_rk_scan v5_glass_deep_te echelette_au_scan v7_cobalt_anisotropic nearfield_lamellar_1d nearfield_pillars_2d)
+foreach(ex v1_fresnel_interface v3_lamellar_dielectric v3_lamellar_rk_scan v5_glass_deep_te echelette_au_scan v7_cobalt_anisotropic nearfield_lamellar_1d nearfield_pillars_2d sweep_lamellar_depth)
   add_test(NAME example_${ex}
            COMMAND fgsolve ${PROJECT_SOURCE_DIR}/examples/${ex}.json
            WORKING_DIRECTORY ${CMAKE_BINARY_DIR})

@@ -1,7 +1,8 @@
 # Konfigurationsformat (JSON)
 
 Einheiten: Längen in µm, Winkel in Grad. Brechzahlen als Zahl oder `[Re, Im]`.
-Die Implementierung erfolgt in M2 (`fg::io::loadConfig`); dieses Dokument ist die Spezifikation.
+Eingelesen von `fg::io::loadConfig` bzw. `fg::io::loadSweep`; dieses Dokument ist die Spezifikation.
+Eine Einführung mit Beispielen steht im Anwenderhandbuch `docs/user_guide.md`.
 
 ```json
 {
@@ -10,9 +11,13 @@ Die Implementierung erfolgt in M2 (`fg::io::loadConfig`); dieses Dokument ist di
   "truncation": { "Nx": 15, "Nz": 0 },
   "period_um": { "x": 0.5, "z": 0.0 },
   "incidence": {
-    "lambda_um": 0.6328,                 // Zahl oder {"from":..,"to":..,"steps":..}
-    "phi_deg": 30, "psi_deg": 0,         // Polarwinkel zur y-Achse, Azimut gegen x
-    "delta_deg": 90                      // 0 = s (TE), 90 = p (TM)
+    "lambda_um": 0.6328,                 // Zahl, Liste [..] oder {"from":..,"to":..,"steps":..}
+    "phi_deg": 30, "psi_deg": 0,         // Polarwinkel zur y-Achse, Azimut gegen x (ebenso Zahl/Liste/Bereich)
+    "delta_deg": 90                      // 0 = s (TE), 90 = p (TM); Scan = kartesisches Produkt λ × φ × ψ × δ
+  },
+  "sweep": {                             // optional (M11): Parameter-Sweep über einen beliebigen Zahlenwert
+    "parameter": "/layers/0/thickness_um",   // JSON-Pointer (RFC 6901) in diese Datei
+    "values": { "from": 0.1, "to": 0.5, "steps": 9 }  // Zahl, Liste oder Bereich
   },
   "materials": {
     "air":   { "n": 1.0 },
@@ -66,6 +71,10 @@ Formen für `profile2d.shape`: `egg_crate` (g = a/4 (1 + cos Kx(x−x0)) (1 + co
 dürfen sich nicht überlappen); Einschlüsse dürfen sich nicht überlappen. Bei `"dimension": "2D"` ist
 `period_um.z > 0` Pflicht; `lamellar1d`- und isotrope `profile1d`-Schichten sind in 2D-Stapeln erlaubt (z-invariant).
 Kommentare (`//`) dienen nur der Erläuterung; echte Dateien sind reines JSON.
+
+Scanpunkte werden parallel gerechnet (OpenMP-Threads, `OMP_NUM_THREADS`); Sweep-Werte nacheinander.
+Bei einem Sweep beginnen die CSV-Zeilen mit `sweep_parameter, sweep_value`; das Nahfeld wird für den ersten
+Scanpunkt des ersten Sweep-Werts berechnet. Darstellung: `scripts/plot_efficiencies.py`.
 
 Ausgabe: `efficiencies.csv` (Spalten: lambda_um, phi, psi, delta, side, n, m, efficiency,
 eff_s, eff_p, amp_s_re, amp_s_im, amp_p_re, amp_p_im; s/p nur in isotropen Medien), `diagnostics.json`, Nahfeld je Schnitt in

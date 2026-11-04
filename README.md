@@ -19,20 +19,16 @@ dokumentierten Korrekturen.
 | **Nahfeld** (horizontaler + vertikaler Schnitt) | M6 (1D), M9 (2D) | M6, M9 |
 | **CUDA** (RTX 6000 Ada, sm_89) | M10 | M10 |
 
-> **Status (v0.5):** M0–M6 erledigt (1D vollständig: isotrop, anisotrop, Nahfeld). Isotrope 1D-Gitter (homogene Schichten, Lamellen, Profile
-> y = g(x): Sinus, Dreieck/Echelette, Stützstellen, Funktionen; in-plane und konisch) lassen sich mit
-> **beiden Lösern** rechnen. Validierung V1–V6 und V13 grün, u. a. gegen die C-Methode
-> (Al-Sinus TM 0,8696, Gold-Sinus). Befund: die FFF-Formel des Buches (IV.32) versagt bei schwach
-> absorbierenden Metallen – zwei korrigierte Varianten sind implementiert. Anisotrope Gitter (voller
-> komplexer ε-Tensor) mit FFF nach Buch Kap. V/VIII, validiert am Kobalt-Gitter. Nahfeld: horizontaler und
-> vertikaler Schnitt, direkte oder FFF-konsistente Rekonstruktion, Ausgabe als `.npy` + `meta.json`
-> (`scripts/plot_nearfield.py`). Als Nächstes: M7 (2D isotrop). Nicht implementierte Teile werfen
-> `fg::NotImplemented` mit Verweis auf den Meilenstein. Fortschritt: `docs/roadmap.md`.
+> **Status (v0.10):** M0–M11 umgesetzt: 1D und 2D, isotrop und anisotrop, RK und RCWA, Nahfeld, CUDA-Backend,
+> Scans/Sweeps, Anwenderhandbuch (`docs/user_guide.md`). Offen auf dem Zielsystem: GPU-Abnahme (M10) und die
+> quantitative V10-Konvergenzstudie (siehe `docs/roadmap.md`).
 
 ## Dokumentation
 
 | Dokument | Inhalt |
 |---|---|
+| [`docs/user_guide.md`](docs/user_guide.md) | **Anwenderhandbuch**: Installation, Konfiguration, Löserwahl, Scans, Nahfeld, Laufzeiten |
+| [`docs/benchmarks.md`](docs/benchmarks.md) | Laufzeiten CPU/GPU (`fgbench`) |
 | [`docs/implementation_plan/main.pdf`](docs/implementation_plan/main.pdf) | **Verbindliche Spezifikation**: alle Formeln mit Herleitungen, Algorithmen, Tests, Meilensteine (LaTeX-Quelle daneben) |
 | [`AGENTS.md`](AGENTS.md) | Arbeitsregeln für KI-Agenten und Entwickler |
 | [`docs/architecture.md`](docs/architecture.md) | Module, Datenfluss, Schnittstellen |
@@ -63,11 +59,11 @@ Plan als PDF neu erzeugen: `./scripts/build_docs.sh`.
 
 ```
 include/fg/   öffentliche Header (core, fourier, geometry, physics, smatrix, solvers, field, linalg, io)
-src/          Implementierungen, src/cuda/ CUDA-Kernel und -Backend
-apps/         Kommandozeilenprogramm fgsolve
+src/          Implementierungen, src/cuda/ CUDA-Backend (cuBLAS/cuSOLVER)
+apps/         Kommandozeilenprogramme fgsolve (Rechnung), fgbench (Benchmarks)
 tests/        GoogleTest-Unit-Tests, Validierungsfälle
 examples/     JSON-Konfigurationen der Referenzfälle
-scripts/      Setup, Doku-Build, Plot-Skripte (Python)
+scripts/      Setup, Doku-Build, Plot-Skripte (plot_efficiencies.py, plot_nearfield.py)
 docs/         Spezifikation und Begleitdokumente
 ```
 

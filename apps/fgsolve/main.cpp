@@ -1,7 +1,8 @@
 // fgsolve - command line front end of FourierGrating.
 //   fgsolve --version
 //   fgsolve --info                 (backends, build options)
-//   fgsolve <config.json>          (diffraction efficiencies, optional near fields)
+//   fgsolve <config.json>          (diffraction efficiencies, scans and sweeps, optional near fields;
+//                                   near fields for the first scan point of the first sweep value)
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -49,12 +50,18 @@ int main(int argc, char** argv) {
 #endif
       return 0;
     }
-    const auto cfg = fg::io::loadConfig(argv[1]);
+    // one configuration, or one per value of a parameter sweep (M11); scan points run in parallel
+    const auto runs = fg::io::loadSweep(argv[1]);
+    const auto& cfg = runs.front();
     auto solver = fg::makeSolver(cfg.solver);
-    const std::vector<fg::Result> results = fg::solveScan(cfg.solver, cfg.stack, cfg.scan);  // parallel scan
-    for (std::size_t i = 0; i < results.size(); ++i) printResult(cfg.scan[i], results[i]);
+    std::vector<std::vector<fg::Result>> all;
+    for (const auto& run : runs) {
+      all.push_back(fg::solveScan(run.solver, run.stack, run.scan));
+      if (!run.sweepParameter.empty()) std::printf("== sweep %s = %.10g\n", run.sweepParameter.c_str(), run.sweepValue);
+      for (std::size_t i = 0; i < all.back().size(); ++i) printResult(run.scan[i], all.back()[i]);
+    }
     const auto file = (std::filesystem::path(cfg.outputDir) / cfg.efficiencyFile).string();
-    fg::io::writeEfficiencies(file, cfg.scan, results);
+    fg::io::writeEfficiencies(file, runs, all);
     std::cout << "written: " << file << "\n";
     if (cfg.nearField && !cfg.scan.empty()) {
       const auto nf = solver->nearField(cfg.stack, cfg.scan.front(), cfg.field);

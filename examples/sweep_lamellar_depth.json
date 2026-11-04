@@ -1,0 +1,15 @@
+{
+  "dimension": "1D",
+  "solver": "rcwa",
+  "truncation": { "Nx": 15 },
+  "period_um": { "x": 1.0 },
+  "incidence": { "lambda_um": 0.6328, "phi_deg": 18.45, "psi_deg": 0, "delta_deg": [0, 90] },
+  "materials": { "air": { "n": 1.0 }, "glass": { "n": 1.5 } },
+  "superstrate": "air",
+  "substrate": "glass",
+  "layers": [
+    { "type": "lamellar1d", "thickness_um": 0.3, "breakpoints_um": [0.0, 0.5, 1.0], "materials": ["glass", "air"] }
+  ],
+  "sweep": { "parameter": "/layers/0/thickness_um", "values": { "from": 0.05, "to": 1.2, "steps": 24 } },
+  "output": { "dir": "out/sweep_lamellar_depth" }
+}

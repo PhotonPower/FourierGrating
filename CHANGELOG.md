@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.0] – M11 (Scans, Sweeps, Anwenderdoku)
+
+### Hinzugefügt
+- Scans über λ, φ, ψ und δ (Zahl, Liste oder Bereich; kartesisches Produkt), parallel über `solveScan`.
+- Parameter-Sweeps über beliebige Zahlenwerte der Konfiguration (`"sweep": {"parameter": <JSON-Pointer>,
+  "values": ...}`), `fg::io::parseSweep`/`loadSweep`, CSV mit `sweep_parameter`, `sweep_value`.
+- `scripts/plot_efficiencies.py` (Spektren und Sweeps aus `efficiencies.csv`).
+- Beispiel `examples/sweep_lamellar_depth.json` (Smoke-Test), Tests `Scan.*`.
+- Anwenderhandbuch `docs/user_guide.md` mit Laufzeittabelle; README-Status aktualisiert.
+
+### Geändert
+- `fgsolve` rechnet Sweeps (ein Block je Wert) und Scans parallel.
+- Plan v1.9.
+
 ## [0.9.0] – M10 (CUDA-Backend, ohne GPU-Abnahme)
 
 ### Hinzugefügt

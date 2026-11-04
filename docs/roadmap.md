@@ -48,4 +48,9 @@ Abnahme = alle genannten Tests grün (`ctest`), Details im Plan, Abschnitt „Me
     `Backend.*`, GPU-Tests übersprungen)
   - **Offen (Zielsystem):** `ctest -R Backend` mit GPU, Benchmark-Tabelle, Schwelle festlegen; cuFFT/eigene
     Kernel nur bei Bedarf (M11)
-- [ ] **M11** Parameter-Scans, Performance, Anwenderdoku
+- [x] **M11** Parameter-Scans, Performance, Anwenderdoku
+  - Scans: kartesisches Produkt λ × φ × ψ × δ (Zahl/Liste/Bereich), parallel (`solveScan`);
+    Sweeps über beliebige Zahlenwerte per JSON-Pointer (`"sweep"`), CSV-Spalten `sweep_parameter`, `sweep_value`
+    – `tests/unit/test_scan.cpp`, Beispiel `examples/sweep_lamellar_depth.json` (Smoke-Test)
+  - `scripts/plot_efficiencies.py` (Spektren, Sweeps), Anwenderhandbuch `docs/user_guide.md` mit Laufzeittabelle
+  - Performance: CPU-Referenzwerte in `docs/benchmarks.md`; GPU-Werte und Schwelle auf dem Zielsystem (M10)
