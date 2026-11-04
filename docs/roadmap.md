@@ -29,8 +29,9 @@ Abnahme = alle genannten Tests grün (`ctest`), Details im Plan, Abschnitt „Me
   - Abnahme: V9 (exakt, 1e-12 / 1e-10), V10 qualitativ (Peak oberhalb des SPP-Pols, Polarisationsunabhängigkeit)
     – `tests/validation/test_v9_v10.cpp`, `tests/unit/test_normal_field2d.cpp`
   - Befund: Algorithmus NF als Tensorglättung (Plan v1.5); Profile2D zeilenweise exakt statt Marching Squares
-  - **Offen:** V10 quantitativ (Buch 7,5 % bei 1,388 µm): Peak wandert bis N = 8 nach Rot, Höhe schwankt;
-    Konvergenzstudie N = 10–15 auf dem Zielsystem (M10/M11), Vergleich Tensor/Vektor/Laurent
+  - V10 quantitativ (Buch 7,5 % bei 1,388 µm): Peak bis N = 8 unruhig, ab N = 9 bei 1,388 µm
+    (N = 9: 4,2 %, N = 10: 6,2 %); Tensor- und Vektorvariante gleichwertig (N = 7, 8)
+  - **Offen:** N = 11–15 auf dem Zielsystem (Konvergenz der Peakhöhe gegen ≈ 7,5 %?), Einfluss von σ
 - [x] **M8** 2D anisotrop
   - Abnahme: V8 (2D) – `tests/validation/test_v8_2d.cpp`; Konvergenzstudie in `docs/validation.md`
   - `Polygon2D`: Laurent (exakt) und `FFF_B` (Rang-1-Feld aus Algorithmus NF, Faltung mit exakten

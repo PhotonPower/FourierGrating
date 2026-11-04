@@ -2,6 +2,10 @@
 
 ## [0.10.0] – M11 (Scans, Sweeps, Anwenderdoku)
 
+### Validierung (nachgetragen)
+- V10 bei N = 9 und 10: Transmissionspeak bei 1,3876 / 1,3889 µm (Buch: 1,388 µm), Höhe 4,2 / 6,2 %
+  (Buch 7,5 %); Tensor- und Vektorvariante von Algorithmus NF gleichwertig (N = 7, 8).
+
 ### Hinzugefügt
 - Scans über λ, φ, ψ und δ (Zahl, Liste oder Bereich; kartesisches Produkt), parallel über `solveScan`.
 - Parameter-Sweeps über beliebige Zahlenwerte der Konfiguration (`"sweep": {"parameter": <JSON-Pointer>,
