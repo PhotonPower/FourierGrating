@@ -28,13 +28,13 @@ JSON-Konfiguration (µm, Grad)
 |---|---|---|
 | `core` | Typen, Fehler, `IndexMap` | fertig |
 | `fourier` | Koeffizienten (Intervall, Rechteck, Polygon), Toeplitz 1D/2D | fertig (FFT-Pfad fehlt, M3/M7) |
-| `geometry` | Material, Schichttypen, Stapel, Normalenfelder | Typen fertig, Normalenfelder M3/M7 |
+| `geometry` | Material, Schichttypen, Stapel, Normalenfelder (1D-Profile, Algorithmus NF, 2D-Profile) | fertig (isotrop) |
 | `physics` | Einfall, `M`, isotrope Moden, Q-Matrizen, anisotrope Moden, Effizienzen | fertig bis auf FFF_A/B, anisotrope Moden (M5) |
 | `smatrix` | T→S, Sternprodukt, interne Amplituden | fertig |
-| `solvers` | Butcher, RK-Transfer, RCWA-Moden + stabile S, Schichtmodelle (`detail::LayerModel`), Stapellöser mit Aufzeichnung, Feldkoeffizienten, Schnitte | fertig für 1D |
+| `solvers` | Butcher, RK-Transfer, RCWA-Moden + stabile S, Schichtmodelle (`detail::LayerModel`, inkl. `Polygon2D`, `Profile2D`), Stapellöser mit Aufzeichnung, Feldkoeffizienten, Schnitte | 1D fertig, 2D isotrop ohne Nahfeld (M7) |
 | `field` | Schnitte (`FieldCut`), NPY/JSON-Ausgabe | 1D fertig, 2D M9 |
 | `linalg` | Backend-Schnittstelle, CPU (Eigen), CUDA | CPU fertig, CUDA M10 |
-| `io` | JSON-Konfiguration, CSV-Ausgabe | fertig für M2-Schichttypen |
+| `io` | JSON-Konfiguration, CSV-Ausgabe | alle Schichttypen |
 
 ## Größenordnungen
 

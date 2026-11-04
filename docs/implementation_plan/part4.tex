@@ -177,10 +177,17 @@ V7 & Kobalt-Sinusgitter anisotrop (Buch Kap.\ VIII): $d=0{,}6$, $a=0{,}5\,\mu$m,
 V7b & einachsiges Substrat, Achse $\parallel y$, $\varepsilon_o=2{,}4$, $\varepsilon_e=3{,}1$ & analytisch ($r_s$, $r_p$ s.\ Text), $10^{-12}$ \\
 V7c & verlustfreie biaxiale gedrehte Schicht, konisch & Energie $10^{-12}$; homogener Pfad = Lamellenpfad (RCWA $10^{-10}$, RK $10^{-8}$) \\
 V8 & Anisotroper Code mit isotropem Tensor & identisch mit isotropem Code ($10^{-10}$ bei gleicher Faktorisierung) \\
-V9 & 2D-Code mit $z$-invarianter Struktur ($g(x,z)=g(x)$, $N_z=0$) & identisch mit 1D-konisch \\
+V9 & 2D-Code mit $z$-invarianter Struktur ($g(x,z)=g(x)$, $N_z=0$) & identisch mit 1D-konisch.
+     M7: Lamellen, \texttt{Polygon2D}-Streifen (NF-Tensor, \verb|FFF_sym|/\verb|FFF_iso| = Li),
+     \verb|sinus_x| und 1D-Profil im 2D-Stapel, RK und RCWA: $10^{-12}$ ($N_z=0$); RCWA mit $N_z>0$: Ordnungen
+     $(n,0)$ $10^{-10}$, übrige Ordnungen leistungsfrei; RK mit $N_z>0$ nur auf RK-Toleranz (Schrittweitensteuerung
+     sieht die entkoppelten Blöcke) \\
 V10 & Lochgitter (Buch IX.1.7): Ag-Film $0{,}2\,\mu$m auf Glas, quadratische Löcher $0{,}25\,\mu$m,
       Periode $0{,}9\,\mu$m, $\nu_{\text{Ag}}=0{,}1+8{,}94i$, Normaleinfall & $T(\lambda=1{,}388\,\mu$m$)\approx7{,}5\,\%$
-      (Buch); Plasmonpol der ebenen Grenzfläche bei $1{,}369406\,\mu$m \\
+      (Buch); Plasmonpol der ebenen Grenzfläche bei $1{,}369406\,\mu$m. M7 (RCWA, \verb|FFF_sym|, NF-Tensor):
+      Peak stets oberhalb des Pols, aber $\lambda_{\text{Peak}}=1{,}383/1{,}386/1{,}391/1{,}404\,\mu$m und
+      $T_{\max}=4{,}1/3{,}4/10{,}3/5{,}3\,\%$ für $N=5\ldots8$; quantitativ \textbf{offen} (Konvergenzstudie
+      $N\ge10$ auf dem Zielsystem). Test: qualitativ, Polarisationsunabhängigkeit $10^{-9}$ \\
 V11 & Fig.\ VI.10 (Al, $40^\circ$, $\nu=1{,}3+7{,}6i$): Li-Lamellentreppe vs.\ FFF & qualitativ: Treppe mit
       Li-Formel konvergiert langsam, FFF schnell \\
 V13 & Gold-Sinus TM: $d=1$, $a=0{,}25\,\mu$m, $\nu=0{,}2+3{,}4i$, $20^\circ$ &
@@ -214,7 +221,8 @@ M3 & 1D Profile: Nullstellen-Schnitte, Normalenfeld, FFF\_iso; RK-Löser (Gauß 
 M4 & 1D konisch ($4n_f$): volle $M$, Polarisation, s/p-Ausgabe & V1/V2 konisch, V3 konisch, Reziprozität \\
 M5 & 1D anisotrop: Tensoren, FFF\_A, FFF\_B, anisotrope Substrate (4×4-Moden, Klassifikation) & V7, V8, Unit-Test 7 \\
 M6 & Nahfeld 1D: interne Amplituden, RCWA/RK-Rekonstruktion, direkt/FFF, Schnitte, Plot-Skript & V12 (1D) \\
-M7 & 2D isotrop: IndexMap 2D, Polygon-Koeffizienten, Normalenfeld (Alg.\ NF), RCWA; RK für Profile2D & V9, V10 \\
+M7 & 2D isotrop: IndexMap 2D, Polygon-Koeffizienten, Normalenfeld (Alg.\ NF), RCWA; RK für Profile2D & V9, V10
+  (erledigt v0.6; V10 nur qualitativ, quantitativ offen) \\
 M8 & 2D anisotrop & V8 (2D), Konvergenzstudie \\
 M9 & Nahfeld 2D (horizontal $x$--$z$, vertikal $x$--$y$) & V12 (2D) \\
 M10 & CUDA-Backend (cuBLAS, cuSOLVER getrf/geev, cuFFT), Batching über Wellenlängen, Benchmarks & GPU = CPU auf $10^{-10}$; Benchmark-Bericht \\

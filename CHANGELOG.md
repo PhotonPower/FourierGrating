@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.6.0] – M7 (2D isotrop)
+
+### Hinzugefügt
+- `Polygon2D`-Schichten: exakte Polygon-Koeffizienten von ε und 1/ε (Polygone dürfen den Zellrand kreuzen,
+  Orientierung wird normalisiert); Faktorisierung `FFF_sym` (Standard), `FFF_iso`, Laurent.
+- Algorithmus NF (Plan alg:nfield, v1.5): exakte Abstände zu den Materialgrenzen (periodische Bilder, innere
+  Kanten entfernt, Mittelachsen gemittelt), periodische Gaußglättung, DFT; Tensorvariante (Standard) und
+  Vektorvariante (v1.4) wählbar (`normal_field.method`).
+- `Profile2D`-Schichten (`egg_crate`, `sinus_x`, Funktion): ε(y) zeilenweise exakt in x, in z Trapezregel bzw.
+  Gauß–Legendre zwischen kritischen Linien; Normalenfeld nach eq:N2d (vorzeichenbehaftet, `FFF_rig` Standard).
+  RK (M(y)) und RCWA-Treppe.
+- Isotrope `profile1d`-Schichten in 2D-Stapeln (z-invariant).
+- JSON: `polygon2d` (`vertices_um`, `rectangle_um`, `normal_field`), `profile2d`; Prüfung `period_um.z > 0` in 2D.
+- `fourier::gridCoefficients2D` (separable DFT eines Rasters).
+- Validierung V9 (z-invariante Strukturen = 1D konisch), V10 (Ag-Lochgitter, qualitativ), Spiegeltest x↔z,
+  Eierkarton (Energie, RK = RCWA); Unit-Tests Algorithmus NF und 2D-Schichtmodelle.
+
+### Geändert
+- Plan v1.5: Algorithmus NF mit Tensorglättung (Befund: die Vektorglättung fällt an Mittelachsen auf ½ zurück
+  und reproduziert Lamellen nicht exakt); Profile2D ohne Marching Squares.
+- RK-Spektralradius für die Scheibenzerlegung: oberhalb n = 800 Potenziteration statt voller Eigenzerlegung.
+
+### Befund
+- V10 (Ag, ε = −79,9 + 1,79i): `FFF_iso` liefert R > 1 (N = 3, 6); der Transmissionspeak oberhalb des
+  SPP-Pols wandert mit N nach Rot (1,383 → 1,386 → 1,391 → 1,404 µm für N = 5…8), Höhe 3–10 %;
+  quantitativer Vergleich mit dem Buch (7,5 %) offen.
+
 ## [0.5.0] – M6 (Nahfeld 1D)
 
 ### Hinzugefügt

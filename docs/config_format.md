@@ -32,10 +32,15 @@ Die Implementierung erfolgt in M2 (`fg::io::loadConfig`); dieses Dokument ist di
     { "type": "homogeneous", "thickness_um": 0.05, "material": "air" },
     { "type": "lamellar1d", "thickness_um": 0.3,
       "breakpoints_um": [0.0, 0.2, 0.5], "materials": ["al", "air"] },
-    { "type": "polygon2d", "thickness_um": 0.2, "background": "ag",
-      "inclusions": [ { "material": "air",
-                        "vertices_um": [[0.325,0.325],[0.575,0.325],[0.575,0.575],[0.325,0.575]] } ] },
-    { "type": "profile2d", "shape": "egg_crate", "depth_um": 0.1, "below": "si", "above": "air" }
+    { "type": "polygon2d", "thickness_um": 0.2, "background": "ag",   // nur "dimension": "2D"
+      "inclusions": [ { "material": "air",                           // Polygon (x, z), beliebige Orientierung,
+                        "vertices_um": [[0.325,0.325],[0.575,0.325],[0.575,0.575],[0.325,0.575]] },
+                      { "material": "air", "rectangle_um": { "center": [0.0, 0.0], "size": [0.2, 0.1] } } ],
+      "normal_field": { "method": "tensor", "grid": 512, "sigma": 3 },  // Algorithmus NF; method: tensor | vector
+      "factorization": "auto" },                                    // auto (= FFF_sym) | FFF_sym | FFF_iso | laurent
+    { "type": "profile2d", "shape": "egg_crate", "depth_um": 0.1,     // egg_crate | sinus_x
+      "below": "si", "above": "air", "x0_um": 0, "z0_um": 0,
+      "slices": 0, "z_samples": 0, "factorization": "auto" }        // auto: FFF_rig
   ],
   "rk":   { "tableau": "gauss2", "tol": 1e-8 },
   "rcwa": { "slices": 60 },
@@ -55,6 +60,10 @@ Die Implementierung erfolgt in M2 (`fg::io::loadConfig`); dieses Dokument ist di
 
 Formen für `profile1d.shape`: `sinus` (g = a/2 (1 + cos Kx)), `triangle` (Parameter
 `blaze_deg`, `apex_deg`), `points` (Stützstellen `x_um`, `y_um`, periodischer kubischer Spline).
+Formen für `profile2d.shape`: `egg_crate` (g = a/4 (1 + cos Kx(x−x0)) (1 + cos Kz(z−z0))), `sinus_x`
+(g = a/2 (1 + cos Kx(x−x0)), z-invariant). Polygone dürfen über den Zellrand hinausragen (periodische Bilder
+dürfen sich nicht überlappen); Einschlüsse dürfen sich nicht überlappen. Bei `"dimension": "2D"` ist
+`period_um.z > 0` Pflicht; `lamellar1d`- und isotrope `profile1d`-Schichten sind in 2D-Stapeln erlaubt (z-invariant).
 Kommentare (`//`) dienen nur der Erläuterung; echte Dateien sind reines JSON.
 
 Ausgabe: `efficiencies.csv` (Spalten: lambda_um, phi, psi, delta, side, n, m, efficiency,

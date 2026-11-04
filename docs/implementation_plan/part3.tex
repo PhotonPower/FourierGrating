@@ -15,8 +15,8 @@ Typ & Beschreibung & $\varepsilon$ bei Höhe $y$ / Normalenfeld \\
  Schnittpunkte $g(x)=y$ per Nullstellensuche $\Rightarrow$ Intervalle; $\mathbf N$ aus \eqref{eq:N1d} \\
 \verb|Polygon2D| & $y$-invarianter Querschnitt aus Polygonen/Rechtecken/Kreisen, Dicke $h$ &
  \eqref{eq:polygon}; $\mathbf N$ nach Algorithmus NF \\
-\verb|Profile2D| & $y=g(x,z)$, Material unten/oben, Tiefe $a$ & Abtastung von $\{g>y\}$ + Polygonisierung
- (Marching Squares) oder feines FFT-Raster; $\mathbf N$ aus \eqref{eq:N2d} \\
+\verb|Profile2D| & $y=g(x,z)$ (\verb|sinus_x|, \verb|egg_crate|, Funktion), Material unten/oben, Tiefe $a$ &
+ zeilenweise exakt in $x$, Quadratur in $z$ (s.\,u.); $\mathbf N$ aus \eqref{eq:N2d} \\
 \verb|Function| & benutzerdefiniertes $\overline{\overline\varepsilon}(x,y,z)$ & Abtastung + FFT (nur Tests) \\
 \bottomrule
 \end{tabular}
@@ -35,7 +35,7 @@ von $g$). Kriterium gegen Kontamination (Buch III.6, mit Sicherheitsabstand):
 mit $\varepsilon_{\min}$ = Material mit dem kleinsten $\operatorname{Re}\varepsilon$ (Metalle: großes $|\rho|$).
 \textbf{Achtung (Befund M3):} Die abgeschnittene FFF-Matrix kann Eigenwerte weit über dieser
 Materialschätzung haben (Gold-Sinus: $|\lambda|\approx170$ statt $\approx6$). Der RK-Löser verwendet daher
-$\rho_{\max}=\max(\text{Schätzung},\ \max_k|\lambda(M(y_k))|)$ an fünf Höhen $y_k$ und halbiert eine Scheibe
+$\rho_{\max}=\max(\text{Schätzung},\ \max_k|\lambda(M(y_k))|)$ an fünf Höhen $y_k$ (exakte Eigenwerte bis $n=800$; darüber, also in 2D, 60 Schritte Potenziteration, M7) und halbiert eine Scheibe
 zusätzlich, solange $\max|T_F|>10^{8}$ (a-posteriori-Kontrolle).
 RCWA: zusätzlich Treppenfehler $\Rightarrow$ $K$ per Konvergenztest. RK: Scheiben nur zur Stabilisierung,
 die Genauigkeit regelt die Schrittweite.
@@ -44,8 +44,13 @@ die Genauigkeit regelt die Schrittweite.
 Der RK-Löser braucht $\tp{\varepsilon}(y)$, $\tp{1/\varepsilon}(y)$ bzw.\ $\tp{C_\varepsilon}(y)$ an den
 Stufenknoten $y+c_ih$. \verb|Profile1D|: Nullstellen von $g(x)-y$ im Intervall $[0,d_x)$ (Abtasten auf
 feinem Gitter, Vorzeichenwechsel, dann Brent/Newton), daraus Intervalle und exakte Koeffizienten
-\eqref{eq:interval}. \verb|Profile2D|: Höhenlinie $g=y$ per Marching Squares als Polygon, dann
-\eqref{eq:polygon}; Fallback FFT mit Oversampling. Cache: Koeffizienten je (Schicht, $y$) speichern, da
+\eqref{eq:interval}. \verb|Profile2D| (v1.5, statt Marching Squares): Auf Linien $z=\text{const}$ ergeben die Schnittpunkte von
+$g(\cdot,z)=y$ Intervalle mit exakten Koeffizienten \eqref{eq:interval}; die Linienkoeffizienten $c_p(z)$ sind in $z$
+stetig und werden integriert: ohne kritische Linien (Änderung der Schnittpunktzahl, Höhenlinie tangential) mit der
+Trapezregel ($M_z=\max(128,16(2N_z+1))$ Knoten, periodisch glatt; exakt für $z$-invariante Profile, V9), sonst
+mit Gauß--Legendre (16 Punkte je Teilstück) zwischen den per Bisektion bestimmten kritischen Linien und der
+Substitution $z=z_a+\tfrac L2(1-\cos\pi t)$, die das $\sqrt{z-z_c}$-Verhalten glättet (Eierkarton: $10^{-7}$
+gegen eine semianalytische Referenz). \verb|sinus_x| ist bitgleich zum 1D-Sinus. Cache: Koeffizienten je (Schicht, $y$) speichern, da
 bei Feldrekonstruktion dieselben Knoten erneut gebraucht werden.
 
 %=====================================================================

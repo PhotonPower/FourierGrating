@@ -26,4 +26,8 @@ std::vector<std::vector<cplx>> piecewiseSmoothCoefficients(
 CoefficientGrid sampledCoefficients2D(const std::function<cplx(double, double)>& f, double dx,
                                       double dz, int Px, int Pz, int Mx, int Mz);
 
+/// 2D coefficient grid |p| <= Px, |q| <= Pz from samples f[i Mz + k] = f(dx i/Mx, dz k/Mz)
+/// (separable DFT, Plan alg:nfield step 5). Requires Mx > 2 Px, Mz > 2 Pz.
+CoefficientGrid gridCoefficients2D(const std::vector<double>& f, int Mx, int Mz, int Px, int Pz);
+
 }  // namespace fg::fourier

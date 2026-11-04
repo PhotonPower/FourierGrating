@@ -39,18 +39,41 @@ struct Profile1DLayer {             ///< region y < g(x) is 'below', y > g(x) is
   int slices = 0;                      ///< RCWA staircase slices (0 = solver default)
 };
 
+/// Settings of Algorithm NF (Plan alg:nfield) for y-invariant 2D cross-sections.
+/// Tensor (default, Plan v1.5): the projector field n n^T of the nearest-boundary direction is
+/// smoothed (sign-free, exact for z-invariant lamellae). Vector: the signed-distance gradient is
+/// smoothed and normalized (original Plan v1.4 formulation, binary layouts only).
+struct NormalFieldOptions {
+  enum class Method { Tensor, Vector };
+  Method method = Method::Tensor;
+  int grid = 512;      ///< raster points per period (at least 8 (2N+1) are used)
+  double sigma = 3.0;  ///< Gaussian width in raster points (along the shorter period)
+  double tau = 1e-3;   ///< Vector method: fallback threshold relative to max |g|
+};
+
 struct Polygon2DLayer {             ///< y-invariant cross-section in the (x, z) cell
   double thickness_um = 0;
   std::string background;
+  /// Simple polygon (x, z) in micrometres; may cross the cell boundary (periodic images must
+  /// not overlap). Orientation is normalized to counter-clockwise internally.
   struct Inclusion { std::vector<std::array<double, 2>> vertices; std::string material; };
-  std::vector<Inclusion> inclusions;   ///< non-overlapping, counter-clockwise
+  std::vector<Inclusion> inclusions;   ///< non-overlapping
+  NormalFieldOptions normalField;
 };
 
-struct Profile2DLayer {
-  double depth_um = 0;
+struct Profile2DLayer {             ///< region y < g(x, z) is 'below', y > g(x, z) is 'above'
+  /// SinusX: g = a/2 (1 + cos Kx (x - x0)) (z-invariant, V9);
+  /// EggCrate: g = a/4 (1 + cos Kx (x - x0)) (1 + cos Kz (z - z0));
+  /// Function: user g(x, z) in [0, a] (periodic), optional gradient.
+  enum class Shape { SinusX, EggCrate, Function };
+  double depth_um = 0;                 ///< a; g in [0, a]
+  Shape shape = Shape::Function;
+  double x0_um = 0, z0_um = 0;
   std::function<double(double, double)> g;
+  std::function<std::array<double, 2>(double, double)> grad;  ///< (dg/dx, dg/dz), optional
   std::string below, above;
-  int slices = 0;
+  int slices = 0;                      ///< RCWA staircase slices (0 = solver default)
+  int zSamples = 0;                    ///< trapezoid nodes in z for eps(y) (0 = default)
 };
 
 using LayerSpec = std::variant<HomogeneousLayer, Lamellar1DLayer, Profile1DLayer, Polygon2DLayer,

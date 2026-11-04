@@ -85,4 +85,36 @@ CoefficientGrid sampledCoefficients2D(const std::function<cplx(double, double)>&
   return g;
 }
 
+CoefficientGrid gridCoefficients2D(const std::vector<double>& f, int Mx, int Mz, int Px, int Pz) {
+  FG_REQUIRE(Mx > 2 * Px && Mz > 2 * Pz, "too few samples for the requested Fourier orders");
+  FG_REQUIRE(f.size() == static_cast<std::size_t>(Mx) * static_cast<std::size_t>(Mz), "sample array size");
+  const int nq = 2 * Pz + 1;
+  std::vector<cplx> wz(static_cast<std::size_t>(Mz) * static_cast<std::size_t>(nq));
+  for (int k = 0; k < Mz; ++k)
+    for (int q = -Pz; q <= Pz; ++q)
+      wz[static_cast<std::size_t>(k) * static_cast<std::size_t>(nq) + static_cast<std::size_t>(q + Pz)] =
+          std::exp(-I * (2.0 * PI * static_cast<double>((static_cast<long>(q) * k) % Mz) / Mz));
+  // pass 1: along z for every x row
+  std::vector<cplx> rows(static_cast<std::size_t>(Mx) * static_cast<std::size_t>(nq), 0.0);
+  for (int i = 0; i < Mx; ++i) {
+    cplx* r = &rows[static_cast<std::size_t>(i) * static_cast<std::size_t>(nq)];
+    const double* fi = &f[static_cast<std::size_t>(i) * static_cast<std::size_t>(Mz)];
+    for (int k = 0; k < Mz; ++k) {
+      const cplx* w = &wz[static_cast<std::size_t>(k) * static_cast<std::size_t>(nq)];
+      for (int q = 0; q < nq; ++q) r[q] += fi[k] * w[q];
+    }
+  }
+  // pass 2: along x
+  CoefficientGrid g(Px, Pz);
+  for (int p = -Px; p <= Px; ++p)
+    for (int q = 0; q < nq; ++q) {
+      cplx s = 0.0;
+      for (int i = 0; i < Mx; ++i)
+        s += rows[static_cast<std::size_t>(i) * static_cast<std::size_t>(nq) + static_cast<std::size_t>(q)] *
+             std::exp(-I * (2.0 * PI * static_cast<double>((static_cast<long>(p) * i) % Mx) / Mx));
+      g(p, q - Pz) = s / (static_cast<double>(Mx) * static_cast<double>(Mz));
+    }
+  return g;
+}
+
 }  // namespace fg::fourier

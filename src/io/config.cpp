@@ -99,8 +99,54 @@ LayerEntry parseLayer(const json& j) {
       throw Error("unknown profile shape '" + shape + "'");
     }
     le.spec = p;
-  } else if (type == "polygon2d" || type == "profile2d") {
-    throw NotImplemented("layer type '" + type + "' in configuration (milestone M7)");
+  } else if (type == "polygon2d") {
+    Polygon2DLayer g;
+    g.thickness_um = j.at("thickness_um").get<double>();
+    g.background = j.at("background").get<std::string>();
+    for (const auto& ij : j.value("inclusions", json::array())) {
+      Polygon2DLayer::Inclusion inc;
+      inc.material = ij.at("material").get<std::string>();
+      if (ij.contains("vertices_um")) {
+        for (const auto& v : ij["vertices_um"]) {
+          FG_REQUIRE(v.is_array() && v.size() == 2, "polygon2d: vertices_um entries are [x, z]");
+          inc.vertices.push_back({v[0].get<double>(), v[1].get<double>()});
+        }
+      } else if (ij.contains("rectangle_um")) {
+        const auto c = ij["rectangle_um"].at("center").get<std::vector<double>>();
+        const auto w = ij["rectangle_um"].at("size").get<std::vector<double>>();
+        FG_REQUIRE(c.size() == 2 && w.size() == 2, "polygon2d: rectangle_um needs center [x, z] and size [wx, wz]");
+        const double x0 = c[0] - 0.5 * w[0], x1 = c[0] + 0.5 * w[0], z0 = c[1] - 0.5 * w[1], z1 = c[1] + 0.5 * w[1];
+        inc.vertices = {{x0, z0}, {x1, z0}, {x1, z1}, {x0, z1}};
+      } else {
+        throw Error("polygon2d: inclusion needs 'vertices_um' or 'rectangle_um'");
+      }
+      FG_REQUIRE(inc.vertices.size() >= 3, "polygon2d: inclusion needs at least 3 vertices");
+      g.inclusions.push_back(std::move(inc));
+    }
+    if (j.contains("normal_field")) {
+      const json& nf = j["normal_field"];
+      const std::string m = nf.value("method", std::string("tensor"));
+      FG_REQUIRE(m == "tensor" || m == "vector", "normal_field.method must be \"tensor\" or \"vector\"");
+      g.normalField.method = m == "vector" ? NormalFieldOptions::Method::Vector : NormalFieldOptions::Method::Tensor;
+      g.normalField.grid = nf.value("grid", g.normalField.grid);
+      g.normalField.sigma = nf.value("sigma", g.normalField.sigma);
+      g.normalField.tau = nf.value("tau", g.normalField.tau);
+    }
+    le.spec = g;
+  } else if (type == "profile2d") {
+    Profile2DLayer p;
+    p.depth_um = j.at("depth_um").get<double>();
+    p.below = j.at("below").get<std::string>();
+    p.above = j.at("above").get<std::string>();
+    p.slices = j.value("slices", 0);
+    p.zSamples = j.value("z_samples", 0);
+    p.x0_um = j.value("x0_um", 0.0);
+    p.z0_um = j.value("z0_um", 0.0);
+    const std::string shape = j.value("shape", std::string("egg_crate"));
+    if (shape == "egg_crate") p.shape = Profile2DLayer::Shape::EggCrate;
+    else if (shape == "sinus_x") p.shape = Profile2DLayer::Shape::SinusX;
+    else throw Error("unknown profile2d shape '" + shape + "' (egg_crate | sinus_x)");
+    le.spec = p;
   } else {
     throw Error("unknown layer type '" + type + "'");
   }
@@ -138,6 +184,7 @@ RunConfig parseConfig(const std::string& text) {
 
   cfg.stack.dx_um = j.at("period_um").at("x").get<double>();
   cfg.stack.dz_um = dim == "2D" ? j.at("period_um").at("z").get<double>() : 0.0;
+  FG_REQUIRE(dim == "1D" || cfg.stack.dz_um > 0, "2D gratings need period_um.z > 0");
   for (const auto& [name, mj] : j.at("materials").items()) cfg.stack.materials[name] = parseMaterial(name, mj);
   cfg.stack.superstrate = j.at("superstrate").get<std::string>();
   cfg.stack.substrate = j.at("substrate").get<std::string>();

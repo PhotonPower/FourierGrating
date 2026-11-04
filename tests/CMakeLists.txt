@@ -13,6 +13,7 @@ set(FG_UNIT_TESTS
   test_profile
   test_fff_pairing
   test_anisotropic
+  test_normal_field2d
 )
 foreach(t ${FG_UNIT_TESTS})
   add_executable(${t} unit/${t}.cpp)
@@ -48,3 +49,7 @@ foreach(ex v1_fresnel_interface v3_lamellar_dielectric v3_lamellar_rk_scan v5_gl
            WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
   set_tests_properties(example_${ex} PROPERTIES LABELS "validation")
 endforeach()
+add_executable(test_validation_v9_v10 validation/test_v9_v10.cpp)
+target_link_libraries(test_validation_v9_v10 PRIVATE fg_core GTest::gtest_main)
+target_compile_definitions(test_validation_v9_v10 PRIVATE FG_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+gtest_discover_tests(test_validation_v9_v10 PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)

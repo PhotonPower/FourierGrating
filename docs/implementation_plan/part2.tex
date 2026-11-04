@@ -22,20 +22,40 @@ $y=g(x,z)$ beschrieben wird (Normale in $(x,y,z)$ parallel zur Normale im Profil
   \text{lamellar 1D}:\quad &N_x^2=1,\ N_y=N_z=0\ \text{(nur $\mathbf N\mathbf N^T$ wird gebraucht)},\label{eq:Nlam}\\
   \text{$y$-invarianter Querschnitt (2D)}:\quad &\mathbf N=(N_x,0,N_z)\ \text{aus Algorithmus \ref{alg:nfield}}.\notag
 \end{align}
-\begin{tcolorbox}[title=Algorithmus NF: Normalenfeld für $y$-invariante 2D-Querschnitte\label{alg:nfield}]
+\begin{tcolorbox}[title=Algorithmus NF: Normalenfeld für $y$-invariante 2D-Querschnitte (v1.5)\label{alg:nfield}]
 \begin{enumerate}[nosep]
-  \item Rasterisiere die Materialverteilung der Einheitszelle auf $G\times G$ Punkte ($G\ge 8(2N+1)$,
-        Standard 512), periodisch.
-  \item Berechne die vorzeichenbehaftete Abstandsfunktion $\phi$ zur nächsten Materialgrenze
-        (exakt aus Polygonen oder per Distanztransformation), periodisch fortgesetzt.
-  \item Glätte $\nabla\phi$ mit einem periodischen Gaußfilter (Breite $\sigma\approx$ 2--4 Gitterpunkte):
-        $\mathbf g=G_\sigma*\nabla\phi$.
-  \item $\mathbf N=\mathbf g/|\mathbf g|$, wo $|\mathbf g|>\tau$ (Standard $\tau=10^{-3}\max|\mathbf g|$); sonst
-        $N_xN_x=N_zN_z=\tfrac12$, $N_xN_z=0$ (nur dort, wo $\varepsilon$ stetig ist).
-  \item Fourierkoeffizienten von $N_x^2$, $N_xN_z$, $N_z^2$ per FFT (glatte Funktionen).
+  \item Raster der Einheitszelle mit $G_x\times G_z$ Punkten $x_i=d_xi/G_x$, $z_k=d_zk/G_z$,
+        $G_{x,z}=\max(G,8(2N_{x,z}+1))$, Standard $G=512$.
+  \item \textbf{Materialgrenzen} exakt aus den Polygonen: jede Kante wird in 64 Stücke geteilt; ein Stück ist
+        Grenze, wenn die Materialien beidseits (periodische Punktsuche, Abstand $10^{-9}d$) verschieden sind.
+        Damit entfallen Kanten auf dem Zellrand, die an ein periodisches Bild desselben Materials stoßen,
+        innere Kanten aneinanderstoßender Einschlüsse gleichen Materials und Einschlüsse aus Hintergrundmaterial.
+        Für jeden Rasterpunkt $\mathbf r$: nächster Grenzpunkt $\mathbf p$ (Grenzstücke mit Bildern $\pm d_x,\pm d_z$),
+        Richtung $\mathbf n=(\mathbf r-\mathbf p)/|\mathbf r-\mathbf p|$ (auf der Grenze: Kantennormale).
+        Gleich weit entfernte Kandidaten (Mittelachse, Toleranz $10^{-12}d$) werden gemittelt (Symmetrie).
+  \item \textbf{Glättung} mit periodischem Gaußfilter gleicher \emph{physikalischer} Breite in $x$ und $z$
+        ($\sigma$ Rasterpunkte entlang der kürzeren Periode, Standard 3).
+  \item \textbf{Tensorvariante (Standard):} geglättet wird das Projektorfeld $\mathbf n\mathbf n^T$; das Ergebnis
+        ist direkt $\tp{\cdot}$-Quelle für $N_iN_j$ (symmetrisch, Spur 1, stetig, an geraden Grenzen $=\mathbf n\mathbf n^T$).
+        \textbf{Vektorvariante} (Fassung v1.4): geglättet wird $\nabla\phi$ der vorzeichenbehafteten Abstandsfunktion
+        ($\phi>0$ im Hintergrund), $\mathbf N=\mathbf g/|\mathbf g|$ wo $|\mathbf g|>\tau\max|\mathbf g|$ ($\tau=10^{-3}$),
+        sonst $N_xN_x=N_zN_z=\tfrac12$, $N_xN_z=0$.
+  \item Fourierkoeffizienten von $N_x^2$, $N_xN_z$, $N_z^2$ per DFT des Rasters (glatte Funktionen).
 \end{enumerate}
 Literatur: Schuster et al.\ (JOSA A 24, 2880, 2007); Götz et al.\ (Opt.\ Express 16, 17295, 2008).
 \end{tcolorbox}
+\textbf{Begründung der Tensorvariante (Befund M7).} Für die FFF-Herleitung \eqref{eq:Qiso} genügt
+\emph{irgendeine} stetige Zerlegung $\mathbf E=(\mathbb 1-P)\mathbf E+P\mathbf E$, deren Matrixfeld $P$ an den
+Unstetigkeitsstellen von $\varepsilon$ gleich $\mathbf n\mathbf n^T$ ist; $P$ muss weder Projektor noch aus einem
+Vektorfeld gebildet sein. An Mittelachsen zwischen gegenüberliegenden Wänden (Lamellenmitte, Steg zwischen zwei
+Löchern) kehrt $\nabla\phi$ das Vorzeichen um; die Vektorglättung läuft dort durch null und fällt auf $\tfrac12$
+zurück. Liegt die Mittelachse auf Rasterpunkten, weicht $N_x^2$ einer $z$-invarianten Lamelle in den Koeffizienten um
+$\approx2\cdot10^{-3}$ von 1 ab (Unit-Test \texttt{VectorMethodFallbackOnMedialAxis}); V9 wäre nicht exakt. Die
+Tensorvariante ist vorzeichenfrei, singularitätsfrei und reproduziert Lamellen exakt ($10^{-14}$). Sie ist
+auch für die Projektorform \eqref{eq:QaniB} (Variante B, M8) direkt verwendbar. An konvexen Ecken liefert sie
+gemischte (Rang-2-)Tensoren statt gedrehter Normalen; beide Varianten weichen dort von $\mathbf n\mathbf n^T$ ab.
+Ein stetiges \emph{vorzeichenbehaftetes} Feld existiert für Löcher nicht; \texttt{FFF\_rig} ist für
+\texttt{Polygon2D} daher nicht zulässig.
 Tangentenvektoren für Variante~A (unten) mit $\mathbf T_2\times\mathbf T_1=\mathbf N$:
 \begin{align}
   \text{Profilschichten }(N_y>0):\quad&\mathbf T_1=\frac{(N_y,-N_x,0)}{\sqrt{N_x^2+N_y^2}},\quad
@@ -100,6 +120,12 @@ Referenz & $0{,}26614$ & $0{,}8696$ \\
   \item Keine der FFF-Varianten erhält bei verlustfreien Medien die Energie exakt (Abweichung
         $10^{-5}$--$5\cdot10^{-4}$), Laurent schon. Tests prüfen die Energie bei Profilen daher mit Toleranz.
 \end{itemize}
+\textbf{2D (M7):} Für \texttt{Polygon2D} (Querschnitte mit Löchern/Säulen) ist \verb|FFF_sym| Standard;
+\verb|FFF_iso| liefert beim Ag-Lochgitter (V10, $\varepsilon=-79{,}9+1{,}79i$) bei $N=3$ und $N=6$ $R>1$
+(dieselbe Ursache wie bei Gold in 1D), \verb|FFF_rig| ist mangels stetigem Vorzeichenfeld nicht anwendbar.
+\texttt{Profile2D} verwendet wie in 1D \verb|FFF_rig| (analytische Formen) bzw.\ \verb|FFF_sym| (Funktionen);
+$\mathbf N$ aus \eqref{eq:N2d} ist dort stetig und vorzeichenbehaftet.
+
 \textbf{Standard (\texttt{Factorization::Auto})} für isotrope Profilschichten: \verb|FFF_rig| bei glatten
 Profilen (Sinus), \verb|FFF_sym| bei Profilen mit Ecken (stückweise linear) und bei benutzerdefinierten
 Funktionen. \verb|FFF_iso| bleibt als Buchvariante wählbar. Beide neuen Varianten sind Eigenherleitungen
@@ -179,8 +205,9 @@ Literaturvergleich (Li, J.\ Mod.\ Opt.\ 45, 1313 (1998)) steht noch aus. Sie ist
 \verb|Laurent| ($Q_{ij}=\tp{\varepsilon_{ij}}$), \verb|LiLamellar| (nur 1D-Lamellen, Buch (IV.5)/(IV.6)),
 \verb|FFF_iso| \eqref{eq:Qiso}, \verb|FFF_sym| \eqref{eq:Qsym}, \verb|FFF_rig| \eqref{eq:Qrig},
 \verb|FFF_A| \eqref{eq:QaniA}, \verb|FFF_B| \eqref{eq:QaniB}.
-Die Option wird je Schicht gewählt; Standard: isotrope Lamellen \verb|LiLamellar|, isotrope Profile siehe
-Abschnitt~\ref{sec:fffvariants}, anisotrop Profil \verb|FFF_A|, anisotrop $y$-invariant \verb|FFF_B|.
+Die Option wird je Schicht gewählt; Standard: isotrope Lamellen \verb|LiLamellar|, isotrope Profile (1D und 2D) siehe
+Abschnitt~\ref{sec:fffvariants}, isotrope \texttt{Polygon2D} \verb|FFF_sym|, anisotrop Profil \verb|FFF_A|,
+anisotrop $y$-invariant \verb|FFF_B|.
 
 %=====================================================================
 \section{Homogene Medien: Modenbasen}\label{sec:homog}

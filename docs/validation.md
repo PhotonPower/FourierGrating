@@ -16,8 +16,8 @@ der Literatur. Konfigurationen liegen in `examples/`.
 | V8 | anisotroper Code, isotroper Tensor | Lamellen: = isotroper Code; Profil (Al-Sinus, N = 20): FFF_A = FFF_rig | 1e-10 / 1e-3 |
 | V7b | einachsiges Substrat (Achse ∥ y, ε_o = 2,4, ε_e = 3,1), TE/TM, alle Winkel | r_s = (β₀ − k_o)/(β₀ + k_o), r_p = (β₀ − k_e/ε_o)/(β₀ + k_e/ε_o) | 1e-12 |
 | V7c | gedrehte biaxiale verlustfreie Schicht, konisch | Energie; homogener Pfad = Lamellenpfad (RCWA, RK) | 1e-12 / 1e-10 / 1e-8 |
-| V9 | 2D-Code, z-invariante Struktur | = 1D konisch | 1e-10 |
-| V10 | Ag-Lochgitter: Film 0,2 µm auf Glas, Quadratlöcher 0,25 µm, Periode 0,9 µm, ν_Ag = 0,1+8,94i, Normaleinfall | T(1,388 µm) ≈ 7,5 % (Buch); SPP-Pol eben: λ = 1,369406 µm | 10 % |
+| V9 | 2D-Code, z-invariante Struktur (Lamellen, Polygon-Streifen, `sinus_x`, 1D-Profil im 2D-Stapel), RK und RCWA | = 1D konisch (M7: N_z = 0 1e-12; RCWA N_z > 0 1e-10; RK N_z > 0 auf RK-Toleranz) | 1e-10 |
+| V10 | Ag-Lochgitter: Film 0,2 µm auf Glas, Quadratlöcher 0,25 µm, Periode 0,9 µm, ν_Ag = 0,1+8,94i, Normaleinfall | T(1,388 µm) ≈ 7,5 % (Buch); SPP-Pol eben: λ = 1,369406 µm. M7: Test qualitativ (Peak oberhalb des Pols, ≥ 10× Untergrund, polarisationsunabhängig) | 10 % (offen) |
 | V11 | Al-Sinus 40°, ν = 1,3+7,6i: Li-Lamellentreppe vs. FFF (Buch Abb. VI.10) | Treppe langsam, FFF schnell | qualitativ |
 | V13 | Gold-Sinus TM: d = 1 µm, a = 0,25 µm, λ = 0,6328 µm, ν = 0,2+3,4i, Φ = 20°, Ordnung −1 und 0 | C-Methode (intern): e₋₁ = 0,26614, e₀ = 0,02362 | FFF_rig 1e-3, FFF_sym 3e-3; Buchvariante versagt |
 | V14 | Gold-Dreieck TM (Spitze bei x = 0,7 µm), sonst wie V13 | **offen** – keine belastbare Referenz; geprüft: Σe < 1 | – |
@@ -37,3 +37,16 @@ V5 TE: 0,81996 (RCWA), 0,81997 (RK).
 **Nahfeld in FFF-Profilschichten:** Der Leistungsfluss ist innerhalb einer FFF-Profilschicht nur auf etwa
 3e-4 konstant (dieselbe Ursache wie die nicht exakte Energiebilanz der FFF); in homogenen Schichten und
 Lamellen exakt.
+
+**V10 (M7, RCWA, `FFF_sym`, NF-Tensor, σ = 3, G = 512):** Transmissionspeak (golden-section-Suche)
+
+| N | λ_Peak (µm) | T_max | T(1,388 µm) | Rechenzeit je λ (1 Kern) |
+|---|---|---|---|---|
+| 5 | 1,3828 | 4,1 % | 1,2 % | 2 s |
+| 6 | 1,3860 | 3,4 % | 2,4 % | 4,5 s |
+| 7 | 1,3906 | 10,3 % | 3,9 % | 10 s |
+| 8 | 1,404 | 5,3 % | 0,3 % | 21 s |
+
+Der Peak liegt stets oberhalb des SPP-Pols der Ag/Glas-Grenzfläche (1,3694 µm), wandert aber mit N nach Rot
+und seine Höhe schwankt; die Buchangabe liegt im Streubereich, ist aber nicht bestätigt. Laurent schwankt
+stärker, `FFF_iso` liefert R > 1. Offene Konvergenzstudie (N = 10–15, Tensor/Vektor, σ) auf dem Zielsystem.

@@ -40,9 +40,26 @@ double rhoEstimate(const Setup& s, const std::vector<cplx>& eps) {
   return rho;
 }
 
+/// Spectral radius for the slice criterion (Plan eq:slicecrit). Exact eigenvalues up to
+/// n = 800 (all 1D cases); above (2D) a deterministic power iteration, which is cheap and errs on
+/// the safe side (transient growth); the a-posteriori growth check bisects slices if needed.
 double spectralRadius(const MatC& M) {
-  Eigen::ComplexEigenSolver<MatC> es(M, false);
-  return es.eigenvalues().cwiseAbs().maxCoeff();
+  if (M.rows() <= 800) {
+    Eigen::ComplexEigenSolver<MatC> es(M, false);
+    return es.eigenvalues().cwiseAbs().maxCoeff();
+  }
+  VecC v(M.rows());
+  for (Eigen::Index k = 0; k < v.size(); ++k) v(k) = std::exp(I * (0.7 * static_cast<double>(k)));
+  v.normalize();
+  double rho = 0;
+  for (int it = 0; it < 60; ++it) {
+    VecC w = M * v;
+    const double nw = w.norm();
+    if (nw == 0) break;
+    if (it >= 40) rho = std::max(rho, nw);
+    v = w / nw;
+  }
+  return rho;
 }
 
 /// One element of the assembled stack (interface, modal slice or RK slice), normalized y.

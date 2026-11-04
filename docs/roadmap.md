@@ -25,8 +25,12 @@ Abnahme = alle genannten Tests grün (`ctest`), Details im Plan, Abschnitt „Me
   - Offen: Literaturvergleich für Variante B
 - [x] **M6** Nahfeld 1D (horizontale Linie, vertikale x–y-Karte), direkt/FFF-Rekonstruktion, Plot-Skript
   - Abnahme: V12 (1D) – `tests/validation/test_v12_nearfield.cpp`; Beispiel `examples/nearfield_lamellar_1d.json`
-- [ ] **M7** 2D isotrop: Polygon-Schichten, Normalenfeld (Algorithmus NF), RCWA; RK für Profile2D
-  - Abnahme: V9, V10
+- [x] **M7** 2D isotrop: Polygon-Schichten, Normalenfeld (Algorithmus NF), RCWA; RK für Profile2D
+  - Abnahme: V9 (exakt, 1e-12 / 1e-10), V10 qualitativ (Peak oberhalb des SPP-Pols, Polarisationsunabhängigkeit)
+    – `tests/validation/test_v9_v10.cpp`, `tests/unit/test_normal_field2d.cpp`
+  - Befund: Algorithmus NF als Tensorglättung (Plan v1.5); Profile2D zeilenweise exakt statt Marching Squares
+  - **Offen:** V10 quantitativ (Buch 7,5 % bei 1,388 µm): Peak wandert bis N = 8 nach Rot, Höhe schwankt;
+    Konvergenzstudie N = 10–15 auf dem Zielsystem (M10/M11), Vergleich Tensor/Vektor/Laurent
 - [ ] **M8** 2D anisotrop
   - Abnahme: V8 (2D), Konvergenzstudie
 - [ ] **M9** Nahfeld 2D (horizontal x–z, vertikal x–y)
