@@ -14,6 +14,7 @@ set(FG_UNIT_TESTS
   test_fff_pairing
   test_anisotropic
   test_normal_field2d
+  test_backend
 )
 foreach(t ${FG_UNIT_TESTS})
   add_executable(${t} unit/${t}.cpp)

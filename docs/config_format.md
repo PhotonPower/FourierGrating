@@ -44,7 +44,8 @@ Die Implementierung erfolgt in M2 (`fg::io::loadConfig`); dieses Dokument ist di
   ],
   "rk":   { "tableau": "gauss2", "tol": 1e-8 },
   "rcwa": { "slices": 60 },
-  "backend": "auto",                     // "auto" | "cpu" | "cuda"
+  "backend": "auto",                     // "auto" | "cpu" | "cuda" (auto: CUDA ab backend_threshold, falls vorhanden)
+  "backend_threshold": 1000,             // Matrixgröße, ab der auto die GPU nutzt
   "nearfield": {
     "enabled": true,
     "horizontal_y_um": 0.1,              // horizontaler Schnitt (1D: Linie in x; 2D: Karte x-z, nz Punkte je Periode)

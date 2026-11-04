@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.9.0] – M10 (CUDA-Backend, ohne GPU-Abnahme)
+
+### Hinzugefügt
+- `CudaBackend` (`src/cuda/cuda_backend.cpp`): cuBLAS `Zgemm`, cuSOLVER `Xgetrf`/`Xgetrs` (64 Bit) und
+  `Xgeev` über die Host-API; RAII für Device- und Pinned-Speicher, Stream je Backend. Kein `nvcc` nötig.
+- Dispatch (`linalg::setPreference`, `offload`, `device`): RCWA-Eigenprobleme, stabile Schicht-S-Matrix,
+  Sternprodukt, T→S und RK-Schrittpropagator laufen ab der Schwelle auf der GPU; CPU-Pfad unverändert.
+- `SolverOptions::backend` / `backendThreshold`, JSON `"backend"`, `"backend_threshold"`.
+- `solveScan`: paralleler Wellenlängen-/Winkelscan (OpenMP, ein Löser und Stream je Thread); `fgsolve` nutzt ihn.
+- `fgbench` (Benchmark-Tabellen), `docs/benchmarks.md` (Sandbox-Referenz, Zielsystem offen).
+- `fgsolve --info` meldet „CUDA gebaut, kein Gerät“ statt abzubrechen.
+- Tests `Backend.*` (GPU-Vergleiche werden ohne Gerät übersprungen).
+
+### Geändert
+- CMake: CUDA ohne `enable_language(CUDA)` (nur `find_package(CUDAToolkit 12.6)`), `cuda_backend.cu` → `.cpp`.
+- Plan v1.8.
+
 ## [0.8.0] – M9 (Nahfeld 2D)
 
 ### Hinzugefügt

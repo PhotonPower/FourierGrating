@@ -40,6 +40,12 @@ Abnahme = alle genannten Tests grün (`ctest`), Details im Plan, Abschnitt „Me
   - FFF-konsistente Rekonstruktion in 2D: isotrope Polygone mit dem Tensorfeld (E = e_t + d_n/ε gilt für
     jedes P), Variante B/anisotrop mit dem Rang-1-Feld; Felder aus dem NF-Raster (bilinear)
   - Abnahme: V12 (2D)
-- [ ] **M10** CUDA-Backend (cuBLAS, cuSOLVER Xgetrf/Xgeev, cuFFT), Batching, Benchmarks
+- [~] **M10** CUDA-Backend (cuBLAS, cuSOLVER Xgetrf/Xgeev, cuFFT), Batching, Benchmarks
   - Abnahme: GPU = CPU auf 1e-10, Benchmark-Bericht in `docs/benchmarks.md`
+  - Stand v0.9: `CudaBackend` (Host-API Zgemm, Xgetrf/Xgetrs, Xgeev), Dispatch der O(n³)-Stellen
+    (`SolverOptions::backend`, Schwelle), paralleler Scan `solveScan` (OpenMP, ein Stream je Thread),
+    `fgbench`; gegen CUDA 12.8 gebaut und gelinkt, ohne GPU laufen die CPU-Pfade (Tests
+    `Backend.*`, GPU-Tests übersprungen)
+  - **Offen (Zielsystem):** `ctest -R Backend` mit GPU, Benchmark-Tabelle, Schwelle festlegen; cuFFT/eigene
+    Kernel nur bei Bedarf (M11)
 - [ ] **M11** Parameter-Scans, Performance, Anwenderdoku

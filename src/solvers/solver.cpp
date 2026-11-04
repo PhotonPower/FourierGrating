@@ -1,17 +1,23 @@
 // FourierGrating - stack assembly shared by the RK and RCWA solvers, efficiencies and near fields
 // (Plan sections "S-Matrix-Formalismus", "Loeser A/B", "Nahfeld").
 #include <algorithm>
+#include <exception>
 #include <cmath>
 #include <functional>
 
 #include "fg/core/error.hpp"
 #include "fg/fourier/toeplitz.hpp"
+#include "fg/linalg/backend.hpp"
 #include "fg/physics/anisotropic.hpp"
 #include "fg/physics/efficiency.hpp"
 #include "fg/physics/modes.hpp"
 #include "fg/solvers/rcwa.hpp"
 #include "fg/solvers/rk.hpp"
 #include "fg/solvers/solver.hpp"
+
+#include <exception>
+
+#include "fg/linalg/backend.hpp"
 #include "layer_model.hpp"
 
 namespace fg {
@@ -138,6 +144,7 @@ class StackSolver final : public Solver {
  private:
   // ------------------------------------------------------------------ setup
   Setup setup(const Stack& stack, const Wavelength& wl) const {
+    linalg::setPreference(opt_.backend, opt_.backendThreshold);  // thread-local (M10)
     Setup s;
     s.map = IndexMap(opt_.Nx, stack.is2D() ? opt_.Nz : 0);
     s.k0 = 2.0 * PI / wl.lambda_um;
@@ -533,5 +540,26 @@ class StackSolver final : public Solver {
 }  // namespace
 
 std::unique_ptr<Solver> makeSolver(const SolverOptions& opt) { return std::make_unique<StackSolver>(opt); }
+
+std::vector<Result> solveScan(const SolverOptions& opt, const Stack& stack, const std::vector<Wavelength>& scan) {
+  std::vector<Result> out(scan.size());
+  std::vector<std::exception_ptr> err(scan.size());
+  const long n = static_cast<long>(scan.size());
+#pragma omp parallel
+  {
+    auto solver = makeSolver(opt);
+#pragma omp for schedule(dynamic, 1)
+    for (long i = 0; i < n; ++i) {
+      try {
+        out[static_cast<std::size_t>(i)] = solver->solve(stack, scan[static_cast<std::size_t>(i)]);
+      } catch (...) {
+        err[static_cast<std::size_t>(i)] = std::current_exception();
+      }
+    }
+  }
+  for (const auto& e : err)
+    if (e) std::rethrow_exception(e);
+  return out;
+}
 
 }  // namespace fg

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(FourierGrating VERSION 0.8.0 DESCRIPTION "Fourier modal method: differential method (implicit RK) and RCWA" LANGUAGES CXX)
+project(FourierGrating VERSION 0.9.0 DESCRIPTION "Fourier modal method: differential method (implicit RK) and RCWA" LANGUAGES CXX)
 
 option(FG_ENABLE_CUDA   "Build the CUDA backend (RTX 6000 Ada, sm_89)" OFF)
 option(FG_ENABLE_OPENMP "Use OpenMP for parameter sweeps"              ON)
@@ -21,10 +21,8 @@ include(FGCompilerFlags)
 include(FGDependencies)
 
 if(FG_ENABLE_CUDA)
-  if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-    set(CMAKE_CUDA_ARCHITECTURES 89)   # RTX 6000 Ada
-  endif()
-  enable_language(CUDA)
+  # M10: host API of cuBLAS/cuSOLVER only (no device kernels yet) -> no CUDA language/nvcc needed.
+  # CMAKE_CUDA_ARCHITECTURES (89, RTX 6000 Ada) becomes relevant once own kernels are added.
   find_package(CUDAToolkit 12.6 REQUIRED)   # cusolverDnXgeev requires CUDA >= 12.6 Update 2
 endif()
 

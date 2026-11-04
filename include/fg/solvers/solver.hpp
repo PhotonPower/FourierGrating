@@ -25,6 +25,8 @@ struct SolverOptions {
   int rcwaSlices = 40;                ///< staircase slices per profile layer
   double growthLimit = 1e8;           ///< slice criterion (Plan eq:slicecrit)
   bool storeInternal = false;         ///< keep S_L / S_U and slice records for near fields
+  std::string backend = "auto";       ///< "auto" | "cpu" | "cuda" (Plan section "CUDA-Backend", M10)
+  int backendThreshold = 1000;        ///< auto: matrix size from which the CUDA backend is used
 };
 
 struct OrderEfficiency {
@@ -75,5 +77,10 @@ class Solver {
 };
 
 std::unique_ptr<Solver> makeSolver(const SolverOptions& opt);
+
+/// Wavelength/angle scan, parallel over the scan points (OpenMP threads, one solver and - with the
+/// CUDA backend - one stream per thread: batching over wavelengths, M10). Results in scan order,
+/// identical to sequential solve() calls.
+std::vector<Result> solveScan(const SolverOptions& opt, const Stack& stack, const std::vector<Wavelength>& scan);
 
 }  // namespace fg

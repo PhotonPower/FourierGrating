@@ -33,7 +33,7 @@ JSON-Konfiguration (µm, Grad)
 | `smatrix` | T→S, Sternprodukt, interne Amplituden | fertig |
 | `solvers` | Butcher, RK-Transfer, RCWA-Moden + stabile S, Schichtmodelle (`detail::LayerModel`, inkl. `Polygon2D`, `Profile2D`), Stapellöser mit Aufzeichnung, Feldkoeffizienten, Schnitte | 1D und 2D fertig (inkl. Nahfeld, M9) |
 | `field` | Schnitte (`FieldCut`), NPY/JSON-Ausgabe | 1D und 2D fertig |
-| `linalg` | Backend-Schnittstelle, CPU (Eigen), CUDA | CPU fertig, CUDA M10 |
+| `linalg`, `cuda` | Backend-Schnittstelle, CPU (Eigen), CUDA (cuBLAS/cuSOLVER Host-API), Dispatch | fertig; GPU-Abnahme auf dem Zielsystem offen |
 | `io` | JSON-Konfiguration, CSV-Ausgabe | alle Schichttypen |
 
 ## Größenordnungen

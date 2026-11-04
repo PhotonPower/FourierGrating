@@ -181,6 +181,10 @@ RunConfig parseConfig(const std::string& text) {
     cfg.solver.rkTol = j["rk"].value("tol", cfg.solver.rkTol);
   }
   if (j.contains("rcwa")) cfg.solver.rcwaSlices = j["rcwa"].value("slices", cfg.solver.rcwaSlices);
+  cfg.solver.backend = j.value("backend", cfg.solver.backend);
+  FG_REQUIRE(cfg.solver.backend == "auto" || cfg.solver.backend == "cpu" || cfg.solver.backend == "cuda",
+             "backend must be \"auto\", \"cpu\" or \"cuda\"");
+  cfg.solver.backendThreshold = j.value("backend_threshold", cfg.solver.backendThreshold);
 
   cfg.stack.dx_um = j.at("period_um").at("x").get<double>();
   cfg.stack.dz_um = dim == "2D" ? j.at("period_um").at("z").get<double>() : 0.0;

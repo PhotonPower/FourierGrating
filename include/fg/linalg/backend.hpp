@@ -25,9 +25,22 @@ class Backend {
 
 /// CPU backend (Eigen). Always available.
 std::unique_ptr<Backend> makeCpuBackend();
-/// CUDA backend (cuBLAS/cuSOLVER); throws if built without FG_ENABLE_CUDA. TODO(M10).
+/// CUDA backend (cuBLAS/cuSOLVER host API: Zgemm, Xgetrf/Xgetrs, Xgeev); throws if built without
+/// FG_ENABLE_CUDA or if no device is available.
 std::unique_ptr<Backend> makeCudaBackend(int device = 0);
 /// Picks CUDA above a size threshold if available, CPU otherwise.
 std::unique_ptr<Backend> makeBackend(const std::string& preference, Eigen::Index problemSize);
+/// True if this build contains the CUDA backend and a device is usable.
+bool cudaAvailable();
+
+// ---- dispatch for the physics code (Plan section "CUDA-Backend", M10) ----
+// The O(n^3) operations (RCWA eigenproblems, stable layer S-matrix, star products, T -> S, RK step
+// propagators) ask offload(n); if false they run their original Eigen code (CPU reference, bitwise
+// unchanged), otherwise they use device(). Settings are thread-local (one solver per thread).
+/// preference: "cpu" | "cuda" | "auto" (CUDA from matrix size `threshold` on, if available).
+void setPreference(const std::string& preference, Eigen::Index threshold = 1000);
+bool offload(Eigen::Index n);
+/// Thread-local device backend (created on first use).
+Backend& device();
 
 }  // namespace fg::linalg

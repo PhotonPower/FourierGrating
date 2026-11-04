@@ -63,6 +63,25 @@ Der Physikcode ruft nur die abstrakte Schnittstelle \verb|fg::linalg::Backend| (
 FFT, Speichertransfers) auf. Implementierungen: \verb|CpuBackend| (Pflicht, zuerst), \verb|CudaBackend|
 (M10). Kein CUDA-Code außerhalb von \verb|src/cuda/| und \verb|src/linalg/cuda_backend.*|.
 
+\subsection{Umsetzung (M10, v1.8)}
+\begin{itemize}[nosep]
+  \item \verb|CudaBackend| (\verb|src/cuda/cuda_backend.cpp|) nutzt nur die Host-API: \verb|cublasZgemm|,
+        \verb|cusolverDnXgetrf|/\verb|Xgetrs| (64 Bit), \verb|cusolverDnXgeev| (rechte Eigenvektoren, auf
+        Einheitsnorm normiert wie Eigen; Host-Workspace gepinnt). RAII für Device-/Pinned-Speicher, je Backend
+        ein Stream, Fehlerprüfung per Makro. Ohne eigene Kernel ist kein \verb|nvcc| nötig
+        (\verb|find_package(CUDAToolkit 12.6)|, \verb|CUDA::cudart|, \verb|cublas|, \verb|cusolver|); eigene
+        Kernel (Toeplitz-Aufbau, Synthese) und cuFFT folgen bei Bedarf (M11).
+  \item Dispatch: Die $O(n^3)$-Stellen (RCWA-Eigenprobleme, stabile Schicht-S-Matrix, Sternprodukt, $T\to S$,
+        RK-Schrittpropagator) fragen \verb|linalg::offload(n)|; ist es falsch, läuft der unveränderte
+        Eigen-Code (CPU-Referenz bitgleich), sonst \verb|linalg::device()|. Einstellung thread-lokal über
+        \verb|SolverOptions::backend| (\verb|auto|, \verb|cpu|, \verb|cuda|) und \verb|backendThreshold| (1000).
+  \item Batching über Wellenlängen: \verb|solveScan| verteilt die Scanpunkte auf OpenMP-Threads, jeder mit
+        eigenem Löser und (GPU) eigenem Backend/Stream; Ergebnisse identisch mit sequentiellen Rechnungen.
+  \item Ohne GPU (Sandbox) werden die GPU-Tests übersprungen; Bau und Linken gegen CUDA 12.8 sind geprüft,
+        die Abnahme GPU $=$ CPU ($10^{-10}$) und der Benchmark-Bericht (\verb|docs/benchmarks.md|) erfolgen auf
+        dem Zielsystem.
+\end{itemize}
+
 %=====================================================================
 \section{Software-Architektur}\label{sec:arch}
 %=====================================================================
@@ -232,7 +251,8 @@ M7 & 2D isotrop: IndexMap 2D, Polygon-Koeffizienten, Normalenfeld (Alg.\ NF), RC
   (erledigt v0.6; V10 nur qualitativ, quantitativ offen) \\
 M8 & 2D anisotrop & V8 (2D), Konvergenzstudie (erledigt v0.7) \\
 M9 & Nahfeld 2D (horizontal $x$--$z$, vertikal $x$--$y$) & V12 (2D) (erledigt v0.8) \\
-M10 & CUDA-Backend (cuBLAS, cuSOLVER getrf/geev, cuFFT), Batching über Wellenlängen, Benchmarks & GPU = CPU auf $10^{-10}$; Benchmark-Bericht \\
+M10 & CUDA-Backend (cuBLAS, cuSOLVER getrf/geev, cuFFT), Batching über Wellenlängen, Benchmarks & GPU = CPU auf $10^{-10}$; Benchmark-Bericht
+  (v0.9: implementiert, gebaut und gelinkt; GPU-Abnahme auf dem Zielsystem offen) \\
 M11 & Parameter-Scans, Performance, Doku für Anwender & Beispielskripte, Laufzeittabelle \\
 \bottomrule
 \end{longtable}

@@ -40,7 +40,10 @@ int main(int argc, char** argv) {
       std::cout << "FourierGrating " << FG_VERSION << "\n"
                 << "cpu backend : " << fg::linalg::makeCpuBackend()->name() << "\n";
 #ifdef FG_HAVE_CUDA
-      std::cout << "cuda backend: " << fg::linalg::makeCudaBackend(0)->name() << "\n";
+      if (fg::linalg::cudaAvailable())
+        std::cout << "cuda backend: " << fg::linalg::makeCudaBackend(0)->name() << "\n";
+      else
+        std::cout << "cuda backend: built, but no CUDA device available (CPU is used)\n";
 #else
       std::cout << "cuda backend: not built\n";
 #endif
@@ -48,11 +51,8 @@ int main(int argc, char** argv) {
     }
     const auto cfg = fg::io::loadConfig(argv[1]);
     auto solver = fg::makeSolver(cfg.solver);
-    std::vector<fg::Result> results;
-    for (const auto& w : cfg.scan) {
-      results.push_back(solver->solve(cfg.stack, w));
-      printResult(w, results.back());
-    }
+    const std::vector<fg::Result> results = fg::solveScan(cfg.solver, cfg.stack, cfg.scan);  // parallel scan
+    for (std::size_t i = 0; i < results.size(); ++i) printResult(cfg.scan[i], results[i]);
     const auto file = (std::filesystem::path(cfg.outputDir) / cfg.efficiencyFile).string();
     fg::io::writeEfficiencies(file, cfg.scan, results);
     std::cout << "written: " << file << "\n";

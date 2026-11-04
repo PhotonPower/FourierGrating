@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "fg/core/error.hpp"
+#include "fg/linalg/backend.hpp"
 
 namespace fg {
 
@@ -70,7 +71,7 @@ MatC rkStepPropagator(const std::vector<MatC>& M_nodes, double h, const ButcherT
       Abig.block(i * n, j * n, n, n) -= (h * tab.A(i, j)) * M_nodes[static_cast<std::size_t>(i)];
     Mstack.block(i * n, 0, n, n) = M_nodes[static_cast<std::size_t>(i)];
   }
-  const MatC X = Abig.partialPivLu().solve(Mstack);
+  const MatC X = linalg::offload(s * n) ? linalg::device().solve(Abig, Mstack) : MatC(Abig.partialPivLu().solve(Mstack));
   MatC P = MatC::Identity(n, n);
   for (int i = 0; i < s; ++i) P += (h * tab.b(i)) * X.block(i * n, 0, n, n);
   return P;
