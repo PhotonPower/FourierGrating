@@ -47,4 +47,13 @@ if(FG_ENABLE_CUDA)
   target_sources(fg_core PRIVATE cuda/cuda_backend.cpp)
   target_link_libraries(fg_core PUBLIC CUDA::cudart CUDA::cublas CUDA::cusolver)
   target_compile_definitions(fg_core PUBLIC FG_HAVE_CUDA)
+  if(MINGW)
+    # See cmake/mingw_cuda_security_stub.cpp: the import libs above need MSVC CRT symbols that
+    # MinGW lacks. Deliberately NOT linked into fg_core: fg_core is a static library, and CMake
+    # merges an OBJECT library linked to a static library into its archive -- which makes the
+    # stub an archive member again, only pulled in if ld already needs it by the time it scans
+    # fg_core.a, i.e. before it reaches cudart.lib later on the link line. It must instead reach
+    # each final executable's own link line as a plain object (see top-level CMakeLists.txt).
+    add_library(fg_cuda_mingw_abi_shim OBJECT ${PROJECT_SOURCE_DIR}/cmake/mingw_cuda_security_stub.cpp)
+  endif()
 endif()

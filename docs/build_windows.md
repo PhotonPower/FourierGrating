@@ -1,8 +1,9 @@
 # Build auf Windows
 
-Inoffizieller CPU-Pfad für Windows-Entwickler (MSYS2/MinGW-w64, UCRT64). Zielsystem laut
-[`AGENTS.md`](../AGENTS.md), Abschnitt 7, bleibt AlmaLinux 10/GCC 14 (CI baut nur CPU dort); dieser
-Pfad verzichtet auf CUDA, der CPU-Referenzpfad muss aber auch hier immer funktionieren.
+Inoffizieller Pfad für Windows-Entwickler (MSYS2/MinGW-w64, UCRT64). Zielsystem laut
+[`AGENTS.md`](../AGENTS.md), Abschnitt 7, bleibt AlmaLinux 10/GCC 14 (CI baut nur CPU dort); der
+CPU-Referenzpfad (Preset `win-release`) muss aber auch hier immer funktionieren. CUDA
+(Preset `win-cuda`, Abschnitt 3) ist experimentell und nicht Teil der CI.
 
 ## 1. Pakete
 
@@ -38,10 +39,29 @@ $env:PATH = "C:\msys64\ucrt64\bin;" + $env:PATH
 .\build\win-release\apps\fgsolve.exe examples\v3_lamellar_dielectric.json   # schreibt out/v3/efficiencies.csv
 ```
 
-## 3. Einschränkungen
+## 3. CUDA (experimentell)
 
-* **Kein CUDA-Backend.** `FG_ENABLE_CUDA` ist im Preset `win-release` fest auf `OFF`; für GPU-Läufe
-  (M10) siehe [`docs/build_almalinux10.md`](build_almalinux10.md).
+```powershell
+cmake --preset win-cuda
+cmake --build --preset win-cuda
+ctest --preset win-cuda
+```
+
+NVIDIAs Windows-Importbibliotheken (`cudart.lib`, `cusolver.lib`, ...) sind MSVC-gebaut und
+referenzieren MSVC-CRT-Symbole für /GS-Stack-Cookies und SEH (`__security_check_cookie`,
+`__GSHandlerCheck`, `__security_cookie`), die MinGW nicht mitbringt — Linken schlägt sonst mit
+`undefined reference` fehl. `cmake/mingw_cuda_security_stub.cpp` stellt diese drei Symbole als
+No-ops bereit (sicher: MinGW nutzt die zugehörigen Codepfade nie); `CMakeLists.txt` hängt sie bei
+`FG_ENABLE_CUDA AND MINGW` per `link_libraries()` direkt an jede Executable (nicht an `fg_core`,
+da ein über eine statische Bibliothek verlinktes Objekt zu einem Archiv-Member würde, das vor
+Erreichen von `cudart.lib` in der Link-Zeile schon abgehakt ist und so nie gezogen wird).
+
+Getestet mit CUDA Toolkit 13.4 und einer RTX 3090 (sm_86) — abweichend vom spezifizierten
+Zielsystem (RTX 6000 Ada, sm_89, AlmaLinux 10). `Backend.CudaEqualsCpu`/`CudaSolverEqualsCpu`
+laufen dabei gegen die echte GPU statt übersprungen zu werden.
+
+## 4. Einschränkungen
+
 * **Kein LaTeX-Setup.** `./scripts/build_docs.sh` (PDF des Plans) ist für Linux/`pdflatex`
   geschrieben; unter Windows z. B. über eine MiKTeX-Installation und Anpassung des Skripts möglich,
   aber nicht Teil dieser Anleitung.

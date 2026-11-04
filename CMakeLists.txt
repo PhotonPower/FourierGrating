@@ -23,10 +23,24 @@ include(FGDependencies)
 if(FG_ENABLE_CUDA)
   # M10: host API of cuBLAS/cuSOLVER only (no device kernels yet) -> no CUDA language/nvcc needed.
   # CMAKE_CUDA_ARCHITECTURES (89, RTX 6000 Ada) becomes relevant once own kernels are added.
+  if(MINGW AND DEFINED ENV{CUDA_PATH})
+    # FindCUDAToolkit only picks the "lib/x64" search suffix for an MSVC-style architecture id
+    # (AMD64/x64); GCC reports "x86_64", so it never finds cudart.lib without this hint on
+    # Windows/MinGW (see docs/build_windows.md).
+    list(APPEND CMAKE_LIBRARY_PATH "$ENV{CUDA_PATH}/lib/x64")
+  endif()
   find_package(CUDAToolkit 12.6 REQUIRED)   # cusolverDnXgeev requires CUDA >= 12.6 Update 2
 endif()
 
 add_subdirectory(src)
+
+if(FG_ENABLE_CUDA AND MINGW)
+  # fg_cuda_mingw_abi_shim (src/CMakeLists.txt) must reach every executable's own link line as a
+  # plain object, not fg_core's archive -- see the comment there. link_libraries() applies to all
+  # targets defined from here on (apps, tests), which are executables, not static libraries.
+  link_libraries(fg_cuda_mingw_abi_shim)
+endif()
+
 if(FG_BUILD_APPS)
   add_subdirectory(apps)
 endif()
