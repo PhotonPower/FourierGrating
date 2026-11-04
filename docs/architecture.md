@@ -31,8 +31,8 @@ JSON-Konfiguration (µm, Grad)
 | `geometry` | Material, Schichttypen, Stapel, Normalenfelder (1D-Profile, Algorithmus NF inkl. Rang-1-Feld, 2D-Profile) | fertig |
 | `physics` | Einfall, `M`, isotrope Moden, Q-Matrizen, anisotrope Moden, Effizienzen | fertig bis auf FFF_A/B, anisotrope Moden (M5) |
 | `smatrix` | T→S, Sternprodukt, interne Amplituden | fertig |
-| `solvers` | Butcher, RK-Transfer, RCWA-Moden + stabile S, Schichtmodelle (`detail::LayerModel`, inkl. `Polygon2D`, `Profile2D`), Stapellöser mit Aufzeichnung, Feldkoeffizienten, Schnitte | 1D fertig, 2D isotrop/anisotrop ohne Nahfeld (M7/M8) |
-| `field` | Schnitte (`FieldCut`), NPY/JSON-Ausgabe | 1D fertig, 2D M9 |
+| `solvers` | Butcher, RK-Transfer, RCWA-Moden + stabile S, Schichtmodelle (`detail::LayerModel`, inkl. `Polygon2D`, `Profile2D`), Stapellöser mit Aufzeichnung, Feldkoeffizienten, Schnitte | 1D und 2D fertig (inkl. Nahfeld, M9) |
+| `field` | Schnitte (`FieldCut`), NPY/JSON-Ausgabe | 1D und 2D fertig |
 | `linalg` | Backend-Schnittstelle, CPU (Eigen), CUDA | CPU fertig, CUDA M10 |
 | `io` | JSON-Konfiguration, CSV-Ausgabe | alle Schichttypen |
 

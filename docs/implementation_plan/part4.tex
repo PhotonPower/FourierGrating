@@ -201,7 +201,10 @@ V14 & Gold-Dreieck TM (Spitze bei $0{,}7\,\mu$m, sonst wie V13) & offen: nur phy
       ($\sum e<1$); Laurent bei $N\le64$ noch nicht konvergiert \\
 V12 & Nahfeld: Airy-Schicht analytisch; Stetigkeit an allen Element-/Scheibengrenzen (RK, RCWA, TE/TM);
       Flusskonstanz (verlustfreie Lamellen); RK-Feld = RCWA-Feld; $D_x$-Stetigkeit direkt vs.\ FFF &
-      $10^{-12}$; $10^{-6}$; $10^{-12}$/$10^{-8}$; $10^{-7}$; FFF $<0{,}1$, direkt $>1$ \\
+      $10^{-12}$; $10^{-6}$; $10^{-12}$/$10^{-8}$; $10^{-7}$; FFF $<0{,}1$, direkt $>1$.
+      2D (M9): $z$-invariante Strukturen = 1D-Nahfeld ($10^{-9}$, Karten = Linie $\cdot e^{i\gamma_0(z-z_0)}$),
+      Stetigkeit (RK, RCWA) $10^{-6}$, Flusskonstanz $10^{-12}$, RK = RCWA $10^{-7}$, $D_x$-Sprung an der
+      Säulenwand direkt 293\,\%, FFF 5\,\% / 3\,\% (anisotrop) \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -228,7 +231,7 @@ M6 & Nahfeld 1D: interne Amplituden, RCWA/RK-Rekonstruktion, direkt/FFF, Schnitt
 M7 & 2D isotrop: IndexMap 2D, Polygon-Koeffizienten, Normalenfeld (Alg.\ NF), RCWA; RK für Profile2D & V9, V10
   (erledigt v0.6; V10 nur qualitativ, quantitativ offen) \\
 M8 & 2D anisotrop & V8 (2D), Konvergenzstudie (erledigt v0.7) \\
-M9 & Nahfeld 2D (horizontal $x$--$z$, vertikal $x$--$y$) & V12 (2D) \\
+M9 & Nahfeld 2D (horizontal $x$--$z$, vertikal $x$--$y$) & V12 (2D) (erledigt v0.8) \\
 M10 & CUDA-Backend (cuBLAS, cuSOLVER getrf/geev, cuFFT), Batching über Wellenlängen, Benchmarks & GPU = CPU auf $10^{-10}$; Benchmark-Bericht \\
 M11 & Parameter-Scans, Performance, Doku für Anwender & Beispielskripte, Laufzeittabelle \\
 \bottomrule

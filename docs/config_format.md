@@ -47,7 +47,7 @@ Die Implementierung erfolgt in M2 (`fg::io::loadConfig`); dieses Dokument ist di
   "backend": "auto",                     // "auto" | "cpu" | "cuda"
   "nearfield": {
     "enabled": true,
-    "horizontal_y_um": 0.1,              // horizontaler Schnitt
+    "horizontal_y_um": 0.1,              // horizontaler Schnitt (1D: Linie in x; 2D: Karte x-z, nz Punkte je Periode)
     "vertical_z_um": 0.0,                // vertikaler Schnitt (x-y-Ebene)
     "y_range_um": [-0.2, 0.5],
     "nx": 400, "ny": 300, "nz": 200, "periods": 2,

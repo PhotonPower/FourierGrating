@@ -153,8 +153,8 @@ class HomogeneousModel final : public LayerModel {
   QBlocks Q(double) const override {
     return mat_.isotropic ? homogeneousIsotropicQ(mat_.eps, map_.size()) : homogeneousTensorQ(mat_.epsTensor, map_.size());
   }
-  Mat3C epsAt(double, double) const override { return mat_.tensor(); }
-  Vec3D normalAt(double) const override { return Vec3D(0, 1, 0); }
+  Mat3C epsAt(double, double, double) const override { return mat_.tensor(); }
+  Vec3D normalAt(double, double) const override { return Vec3D(0, 1, 0); }
   const NormalFieldCoefficients& NN() const override { return nn_; }
 
  private:
@@ -196,13 +196,13 @@ class LamellarModel final : public LayerModel {
   }
   double thickness_um() const override { return l_.thickness_um; }
   QBlocks Q(double) const override { return Q_; }
-  Mat3C epsAt(double x, double) const override {
+  Mat3C epsAt(double x, double, double) const override {
     const double xr = std::fmod(std::fmod(x, dx_) + dx_, dx_);
     std::size_t k = 0;
     while (k + 1 < tensors_.size() && xr >= l_.breakpoints_um[k + 1]) ++k;
     return tensors_[k];
   }
-  Vec3D normalAt(double) const override { return Vec3D(1, 0, 0); }
+  Vec3D normalAt(double, double) const override { return Vec3D(1, 0, 0); }
   const NormalFieldCoefficients& NN() const override { return nn_; }
 
  private:
@@ -253,7 +253,7 @@ class ProfileModel final : public LayerModel {
     if (aniso_) {
       std::vector<Mat3C> tens;
       for (bool b : below) tens.push_back(b ? tb_ : ta_);
-      return anisotropicQ(br, tens, [this](double x) { return normalAt(x); }, fac_, dx_, map_);
+      return anisotropicQ(br, tens, [this](double x) { return normalAt(x, 0.0); }, fac_, dx_, map_);
     }
     std::vector<cplx> ve;
     for (bool b : below) ve.push_back(b ? epsB_ : epsA_);
@@ -264,8 +264,8 @@ class ProfileModel final : public LayerModel {
            : fac_ == Factorization::FFF_rig ? qFFFIsotropicRigorous(sc, map_)
                                             : qFFFIsotropic(sc, map_, fac_ == Factorization::FFF_sym);
   }
-  Mat3C epsAt(double x, double y) const override { return profileValue(p_, x, dx_) > y ? tb_ : ta_; }
-  Vec3D normalAt(double x) const override {
+  Mat3C epsAt(double x, double y, double) const override { return profileValue(p_, x, dx_) > y ? tb_ : ta_; }
+  Vec3D normalAt(double x, double) const override {
     const double sl = profileSlope(p_, x, dx_);
     return Vec3D(-sl, 1.0, 0.0) / std::sqrt(1.0 + sl * sl);
   }
@@ -306,7 +306,7 @@ QBlocks isotropicQ(Factorization f, const SliceCoefficients& sc, const IndexMap&
 class Polygon2DModel final : public LayerModel {
  public:
   Polygon2DModel(const Stack& st, const Polygon2DLayer& l, Factorization fac, const IndexMap& map)
-      : l_(l), dx_(st.dx_um), dz_(st.dz_um) {
+      : l_(l), dx_(st.dx_um), dz_(st.dz_um), map_(map) {
     FG_REQUIRE(st.is2D(), "polygon2d layers need a 2D stack (period_um.z > 0)");
     std::vector<const Material*> mats{&st.material(l.background)};
     for (auto& inc : l_.inclusions) {
@@ -337,6 +337,7 @@ class Polygon2DModel final : public LayerModel {
                      : "polygon2d: factorization must be laurent, FFF_iso, FFF_sym or FFF_B (FFF_rig/FFF_A need a "
                        "continuous signed normal field, which does not exist for general cross-sections)");
     warnFFFiso(fac_, mats, warnings);
+    rank1_ = aniso || fac_ == Factorization::FFF_B;
     const int Px = 2 * map.Nx(), Pz = 2 * map.Nz();
     if (fac_ == Factorization::FFF_B) {
       Q_ = projectorQ(map);
@@ -371,21 +372,62 @@ class Polygon2DModel final : public LayerModel {
             sc.invEps(p, q) += (1.0 / ek - 1.0 / eb) * chi(p, q);
           }
       }
-      if (fac_ != Factorization::Laurent) nf_ = normalField(l_, dx_, dz_, map);
+      if (fac_ != Factorization::Laurent) {
+        nf_ = normalField(l_, dx_, dz_, map);
+        nfReady_ = true;
+      }
       sc.normal = &nf_;
       Q_ = isotropicQ(fac_, sc, map);
     }
   }
   double thickness_um() const override { return l_.thickness_um; }
   QBlocks Q(double) const override { return Q_; }
-  /// Permittivity in the plane z = 0 (vertical cut; full (x, z) dependence: M9).
-  Mat3C epsAt(double x, double) const override {
-    return tensors_[static_cast<std::size_t>(polygonRegion(l_, dx_, dz_, x, 0.0) + 1)];
+  Mat3C epsAt(double x, double, double z) const override {
+    return tensors_[static_cast<std::size_t>(polygonRegion(l_, dx_, dz_, x, z) + 1)];
   }
-  Vec3D normalAt(double) const override {
-    throw NotImplemented("real-space normal field of 2D cross-sections (near field 2D, milestone M9)");
+  /// Rank-1 field of Algorithm NF (variant B, anisotropic reconstruction): principal axis of the
+  /// bilinearly interpolated projector b b^T (sign-free interpolation).
+  Vec3D normalAt(double x, double z) const override {
+    const auto P = interpolate(x, z, true);
+    const double th = 0.5 * std::atan2(2 * P[1], P[0] - P[2]);
+    return Vec3D(std::cos(th), 0.0, std::sin(th));
   }
-  const NormalFieldCoefficients& NN() const override { return nf_; }
+  Eigen::Matrix3d projectorAt(double x, double z) const override {
+    if (rank1_) return LayerModel::projectorAt(x, z);
+    const auto P = interpolate(x, z, false);
+    Eigen::Matrix3d M = Eigen::Matrix3d::Zero();
+    M(0, 0) = P[0];
+    M(0, 2) = M(2, 0) = P[1];
+    M(2, 2) = P[2];
+    return M;
+  }
+  bool rank1Projector() const override { return rank1_; }
+  /// Coefficients of the reconstruction projector: tensor field (isotropic) or b b^T (variant B).
+  const NormalFieldCoefficients& NN() const override {
+    if (nfReady_) return nf_;
+    if (!rank1_) {
+      nf_ = normalField(l_, dx_, dz_, map_);
+    } else {
+      const NormalFieldRaster& R = raster();
+      const std::size_t n = R.nx.size();
+      std::vector<double> xx(n), xz(n), zz(n);
+      for (std::size_t j = 0; j < n; ++j) {
+        xx[j] = R.nx[j] * R.nx[j];
+        xz[j] = R.nx[j] * R.nz[j];
+        zz[j] = R.nz[j] * R.nz[j];
+      }
+      const int Px = 2 * map_.Nx(), Pz = 2 * map_.Nz();
+      for (auto& row : nf_.NN)
+        for (auto& g : row) g = Grid(Px, Pz);
+      for (auto& g : nf_.N) g = Grid(Px, Pz);
+      nf_.NN[0][0] = fourier::gridCoefficients2D(xx, R.Gx, R.Gz, Px, Pz);
+      nf_.NN[0][2] = fourier::gridCoefficients2D(xz, R.Gx, R.Gz, Px, Pz);
+      nf_.NN[2][0] = nf_.NN[0][2];
+      nf_.NN[2][2] = fourier::gridCoefficients2D(zz, R.Gx, R.Gz, Px, Pz);
+    }
+    nfReady_ = true;
+    return nf_;
+  }
 
  private:
   /// Exact coefficients of the indicator of inclusion k, |p| <= Px, |q| <= Pz.
@@ -404,9 +446,9 @@ class Polygon2DModel final : public LayerModel {
   /// smooth factor). Exact when N is constant (z-invariant strips: Li formula).
   QBlocks projectorQ(const IndexMap& map) const {
     const int Px = 2 * map.Nx(), Pz = 2 * map.Nz(), Pfx = 2 * Px, Pfz = 2 * Pz;
-    const int Gx = normalFieldGrid(l_.normalField, map.Nx()), Gz = normalFieldGrid(l_.normalField, map.Nz());
+    const NormalFieldRaster& R = raster();
+    const int Gx = R.Gx, Gz = R.Gz;
     FG_REQUIRE(Gx > 2 * Pfx && Gz > 2 * Pfz, "polygon2d FFF_B: normal field raster too coarse");
-    const NormalFieldRaster R = normalFieldRaster(l_, dx_, dz_, Gx, Gz);
     const std::size_t n = R.nx.size();
     const std::size_t K = l_.inclusions.size();
     std::vector<Grid> chi;
@@ -452,11 +494,48 @@ class Polygon2DModel final : public LayerModel {
     return anisoQFromGrids(Factorization::FFF_B, g, map);
   }
 
+  /// Algorithm NF raster (computed once, also for the real-space reconstruction).
+  const NormalFieldRaster& raster() const {
+    if (R_.nx.empty())
+      R_ = normalFieldRaster(l_, dx_, dz_, normalFieldGrid(l_.normalField, map_.Nx()),
+                             normalFieldGrid(l_.normalField, map_.Nz()));
+    return R_;
+  }
+  /// Bilinear periodic interpolation of (P_xx, P_xz, P_zz): rank-1 b b^T or the tensor field.
+  std::array<double, 3> interpolate(double x, double z, bool rank1) const {
+    const NormalFieldRaster& R = raster();
+    const double u = x / dx_ * R.Gx, w = z / dz_ * R.Gz;
+    const double fu = std::floor(u), fw = std::floor(w);
+    const double tu = u - fu, tw = w - fw;
+    std::array<double, 3> out{0, 0, 0};
+    for (int a = 0; a < 2; ++a)
+      for (int b = 0; b < 2; ++b) {
+        const long i = ((static_cast<long>(fu) + a) % R.Gx + R.Gx) % R.Gx;
+        const long k = ((static_cast<long>(fw) + b) % R.Gz + R.Gz) % R.Gz;
+        const std::size_t j = static_cast<std::size_t>(i * R.Gz + k);
+        const double wt = (a ? tu : 1 - tu) * (b ? tw : 1 - tw);
+        if (rank1) {
+          out[0] += wt * R.nx[j] * R.nx[j];
+          out[1] += wt * R.nx[j] * R.nz[j];
+          out[2] += wt * R.nz[j] * R.nz[j];
+        } else {
+          out[0] += wt * R.nxx[j];
+          out[1] += wt * R.nxz[j];
+          out[2] += wt * R.nzz[j];
+        }
+      }
+    return out;
+  }
+
   Polygon2DLayer l_;
   double dx_, dz_;
+  IndexMap map_;
   std::vector<Mat3C> tensors_;  ///< background, inclusions
   Factorization fac_ = Factorization::Auto;
-  NormalFieldCoefficients nf_;
+  bool rank1_ = false;
+  mutable bool nfReady_ = false;
+  mutable NormalFieldCoefficients nf_;
+  mutable NormalFieldRaster R_;
   QBlocks Q_;
 };
 
@@ -490,7 +569,7 @@ class Profile2DModel final : public LayerModel {
                "profile2d: factorization not applicable");
     tensorPath_ = aniso_ || fac_ == Factorization::FFF_A || fac_ == Factorization::FFF_B;
     warnFFFiso(fac_, {&mb, &ma}, warnings);
-    if (!tensorPath_) nf_ = normalField(p_, dx_, dz_, map);
+    nf_ = normalField(p_, dx_, dz_, map);  // isotropic FFF and the FFF-consistent reconstruction
     const int Pz = 2 * map.Nz();
     Mz_ = p.zSamples > 0 ? p.zSamples : std::max(128, 16 * (Pz + 1));
     FG_REQUIRE(Mz_ > 2 * Pz, "profile2d: z_samples must exceed 4 Nz");
@@ -554,11 +633,10 @@ class Profile2DModel final : public LayerModel {
     sc.normal = &nf_;
     return isotropicQ(fac_, sc, map_);
   }
-  /// Permittivity in the plane z = 0 (vertical cut; full (x, z) dependence: M9).
-  Mat3C epsAt(double x, double y) const override { return profileValue(line(0.0), x, dx_) > y ? tb_ : ta_; }
-  Vec3D normalAt(double) const override {
-    throw NotImplemented("real-space normal field of 2D profiles (near field 2D, milestone M9)");
+  Mat3C epsAt(double x, double y, double z) const override {
+    return profileValue(line(z), x, dx_) > y ? tb_ : ta_;
   }
+  Vec3D normalAt(double x, double z) const override { return profile2DNormal(p_, dx_, dz_, x, z); }
   const NormalFieldCoefficients& NN() const override { return nf_; }
 
  private:

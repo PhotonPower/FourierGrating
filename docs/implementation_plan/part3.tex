@@ -254,6 +254,15 @@ $\mathbf E=\mathbf e_t+\mathbf d_n/\varepsilon$. Befund (V12): an einer Lamellen
 direkter Synthese um 270\,\%, FFF-konsistent um 3\,\% (Gitterabstand 2\,nm). $\mathbf H$ ist überall stetig ($\mu=1$) und wird direkt synthetisiert.
 Beide Varianten (direkt / FFF-konsistent) sind auswählbar (\verb|reconstruction: direct \| fff|).
 
+\textbf{2D (M9, v1.7).} $\tp{P}$ ist das Feld, mit dem faktorisiert wurde: isotrope \texttt{Polygon2D} das
+Tensorfeld von Algorithmus NF (kein Projektor; die punktweise Rückrechnung $\mathbf E=\mathbf e_t+\mathbf d_n/\varepsilon$
+gilt wegen $\mathbf e_t+P\varepsilon\mathbf E/\varepsilon=\mathbf E$ für \emph{jedes} $P$), Variante B und anisotrope Polygone das
+Rang-1-Feld (punktweise $H_1$, $\xi^{-1}$ mit der Hauptachse des bilinear interpolierten $\mathbf b\mathbf b^T$),
+\texttt{Profile2D} $\mathbf N$ aus \eqref{eq:N2d}. Punktwerte von $P$ und $\mathbf N$ stammen aus dem NF-Raster
+(bilineare Interpolation). Synthese direkt mit separierten Phasen $e^{i\alpha_rx}e^{i\gamma_rz}$.
+Befund (V12-2D): Si-ähnliche Säule $\varepsilon=4$, Wand bei $x=0{,}2\,\mu$m, $N=6$: Sprung von $D_x$ direkt
+293\,\%, FFF-konsistent 5\,\% (isotrop) bzw.\ 3\,\% (anisotrop, \verb|FFF_B|).
+
 \subsection{Schnitte und Ausgabe}
 \begin{center}
 \small

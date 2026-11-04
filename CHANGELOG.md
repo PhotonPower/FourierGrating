@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.8.0] – M9 (Nahfeld 2D)
+
+### Hinzugefügt
+- `Solver::nearField` für 2D-Gitter: horizontale Karte u(x, y0, z) (`nz` Punkte je Periode, Achse `z`) und
+  vertikaler Schnitt u(x, y, z0); Synthese mit separierten Phasen.
+- FFF-konsistente Rekonstruktion in 2D: `LayerModel::projectorAt(x, z)`, `rank1Projector()`;
+  isotrope Polygone mit dem Tensorfeld (E = e_t + d_n/ε), Variante B / anisotrop mit dem Rang-1-Feld,
+  Profile2D mit eq:N2d; Punktwerte aus dem NF-Raster (bilinear, vorzeichenfrei).
+- `epsAt(x, y, z)` und `normalAt(x, z)` für alle Schichtmodelle (Materialkarten der 2D-Schnitte).
+- Validierung V12 (2D): z-invariant = 1D, Stetigkeit, Flusskonstanz, RK = RCWA, D_x-Sprung an Säulenwänden
+  (isotrop und anisotrop), Schnitte und Dateien; Beispiel `examples/nearfield_pillars_2d.json` (Smoke-Test).
+
+### Geändert
+- Plan v1.7.
+
 ## [0.7.0] – M8 (2D anisotrop)
 
 ### Hinzugefügt

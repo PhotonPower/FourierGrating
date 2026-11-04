@@ -12,3 +12,4 @@ Sollwerte aus `docs/validation.md`; Validierungstests (`tests/validation/`) lese
 | `v7_cobalt_anisotropic.json` | V7, anisotropes Co-Gitter |
 | `v10_hole_array.json` | V10, Ag-Lochgitter (2D) |
 | `nearfield_lamellar_1d.json` | Nahfeld-Beispiel 1D (horizontaler + vertikaler Schnitt) |
+| `nearfield_pillars_2d.json` | Nahfeld-Beispiel 2D: Si-Säulen, horizontale Karte (x, z) und vertikaler Schnitt (x, y) |

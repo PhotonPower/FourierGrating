@@ -109,7 +109,6 @@ class StackSolver final : public Solver {
 
   // ------------------------------------------------------------------ near field cuts
   NearFieldResult nearField(const Stack& stack, const Wavelength& wl, const NearFieldRequest& req) override {
-    FG_REQUIRE(!stack.is2D(), "near fields of 2D gratings: milestone M9");
     const Setup s = setup(stack, wl);
     const auto models = detail::buildLayerModels(stack, s.map, opt_.rcwaSlices);
     std::vector<double> ys;
@@ -118,12 +117,21 @@ class StackSolver final : public Solver {
     ys.push_back(req.horizontal_y_um);
     std::vector<const Element*> where;
     const FieldSampleSet fs = samples(s, models, ys, &where);
-    std::vector<double> xs;
+    std::vector<double> xs, zs;
     for (int k = 0; k < req.nx; ++k) xs.push_back(stack.dx_um * req.periods * k / req.nx);
+    if (stack.is2D())
+      for (int k = 0; k < req.nz; ++k) zs.push_back(stack.dz_um * req.periods * k / req.nz);
     NearFieldResult out;
-    out.vertical = synthesize(stack, s, fs, where, xs, 0, req.ny, req, "vertical");
-    out.horizontal = synthesize(stack, s, fs, where, xs, req.ny, req.ny + 1, req, "horizontal");
-    out.horizontal.axis2_um.clear();
+    // vertical cut: map (x, y) at z = z0; horizontal cut: line u(x) (1D) or map (x, z) (2D) at y = y0
+    out.vertical = synthesize(stack, s, fs, where, xs, {req.vertical_z_um}, 0, req.ny, req, "vertical");
+    out.horizontal = synthesize(stack, s, fs, where, xs, stack.is2D() ? zs : std::vector<double>{req.vertical_z_um}, req.ny,
+                                req.ny + 1, req, "horizontal");
+    if (stack.is2D()) {
+      out.horizontal.axis2Name = "z";
+      out.horizontal.axis2_um = zs;
+    } else {
+      out.horizontal.axis2_um.clear();
+    }
     return out;
   }
 
@@ -430,16 +438,30 @@ class StackSolver final : public Solver {
   }
 
   // ------------------------------------------------------------------ synthesis
+  /// Real-space field on the points (x, z) of every sample i0..i1-1 (Plan section "Nahfeld");
+  /// row-major with the outer index running over samples (vertical cut) or z (horizontal cut).
   FieldCut synthesize(const Stack& stack, const Setup& s, const FieldSampleSet& fs,
-                      const std::vector<const Element*>& where, const std::vector<double>& xs, int i0, int i1,
-                      const NearFieldRequest& req, const std::string& name) const {
+                      const std::vector<const Element*>& where, const std::vector<double>& xs,
+                      const std::vector<double>& zs, int i0, int i1, const NearFieldRequest& req,
+                      const std::string& name) const {
     FieldCut cut;
     cut.cut = name;
     cut.lambda_um = 2 * PI / s.k0;
     cut.axis1_um = xs;
     const int nf = s.map.size();
-    const double z = req.vertical_z_um * s.k0;
     for (int i = i0; i < i1; ++i) cut.axis2_um.push_back(fs.samples[static_cast<std::size_t>(i)].y_um);
+    // phase factors exp(i alpha_r x), exp(i gamma_r z)
+    std::vector<VecC> px, pz;
+    for (double x_um : xs) {
+      VecC v(nf);
+      for (int r = 0; r < nf; ++r) v(r) = std::exp(I * (s.alpha(r) * x_um * s.k0));
+      px.push_back(v);
+    }
+    for (double z_um : zs) {
+      VecC v(nf);
+      for (int r = 0; r < nf; ++r) v(r) = std::exp(I * (s.gamma(r) * z_um * s.k0));
+      pz.push_back(v);
+    }
     for (int i = i0; i < i1; ++i) {
       const FieldSample& f = fs.samples[static_cast<std::size_t>(i)];
       const Element* e = where[static_cast<std::size_t>(i)];
@@ -459,41 +481,49 @@ class StackSolver final : public Solver {
           dn[a] = VecC::Zero(nf);
           et[a] = E[a];
           for (int b = 0; b < 3; ++b) {
-            const MatC P = fourier::toeplitz(s.map, nn.NN[static_cast<std::size_t>(a)][static_cast<std::size_t>(b)]);
+            const auto& g = nn.NN[static_cast<std::size_t>(a)][static_cast<std::size_t>(b)];
+            if (g.Px() < 2 * s.map.Nx() || g.Pz() < 2 * s.map.Nz()) continue;  // zero entry
+            const MatC P = fourier::toeplitz(s.map, g);
             dn[a] += P * D[b];
             et[a] -= P * E[b];
           }
         }
       }
-      for (double x_um : xs) {
-        const double x = x_um * s.k0;
-        VecC ph(nf);
-        for (int r = 0; r < nf; ++r) ph(r) = std::exp(I * (s.alpha(r) * x + s.gamma(r) * z));
-        for (int c = 0; c < 3; ++c) cut.H[c].push_back(ph.transpose() * Hc[c]);
-        if (fff) {
-          Vec3C etx, dnx;
-          for (int a = 0; a < 3; ++a) {
-            etx(a) = ph.transpose() * et[a];
-            dnx(a) = ph.transpose() * dn[a];
+      for (std::size_t iz = 0; iz < zs.size(); ++iz)
+        for (std::size_t ix = 0; ix < xs.size(); ++ix) {
+          const VecC ph = px[ix].cwiseProduct(pz[iz]);
+          const double x_um = xs[ix], z_um = zs[iz];
+          for (int c = 0; c < 3; ++c) cut.H[c].push_back(ph.transpose() * Hc[c]);
+          if (fff) {
+            Vec3C etx, dnx;
+            for (int a = 0; a < 3; ++a) {
+              etx(a) = ph.transpose() * et[a];
+              dnx(a) = ph.transpose() * dn[a];
+            }
+            const Mat3C eps = e->model->epsAt(x_um, yq, z_um);
+            Vec3C Ex;
+            if (e->model->rank1Projector()) {
+              const ProjectorSet ps = projectorMatrices(eps, e->model->normalAt(x_um, z_um));
+              Ex = ps.H1 * etx + ps.invXi * dnx;
+            } else {
+              // isotropic, general projector field P: E = e_t + d_n / eps holds for any P
+              Ex = etx + dnx / eps(0, 0);
+            }
+            for (int c = 0; c < 3; ++c) cut.E[c].push_back(Ex(c));
+          } else {
+            for (int c = 0; c < 3; ++c) cut.E[c].push_back(ph.transpose() * E[c]);
           }
-          const ProjectorSet ps = projectorMatrices(e->model->epsAt(x_um, yq), e->model->normalAt(x_um));
-          const Vec3C Ex = ps.H1 * etx + ps.invXi * dnx;
-          for (int c = 0; c < 3; ++c) cut.E[c].push_back(Ex(c));
-        } else {
-          for (int c = 0; c < 3; ++c) cut.E[c].push_back(ph.transpose() * E[c]);
+          cut.material.push_back(materialAt(stack, f, e, x_um, yq, z_um).real());
         }
-        cut.material.push_back(materialAt(stack, s, f, e, x_um, yq).real());
-      }
     }
     return cut;
   }
 
-  static cplx materialAt(const Stack& stack, const Setup& s, const FieldSample& f, const Element* e, double x_um,
-                         double yq) {
-    (void)s;
+  static cplx materialAt(const Stack& stack, const FieldSample& f, const Element* e, double x_um, double yq,
+                         double z_um) {
     if (f.region < 0) return stack.material(stack.substrate).tensor()(0, 0);
     if (f.region > 0 || !e || !e->model) return stack.material(stack.superstrate).tensor()(0, 0);
-    return e->model->epsAt(x_um, yq)(0, 0);
+    return e->model->epsAt(x_um, yq, z_um)(0, 0);
   }
 
   SolverOptions opt_;

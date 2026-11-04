@@ -1,0 +1,35 @@
+{
+  "dimension": "2D",
+  "solver": "rcwa",
+  "truncation": { "Nx": 4, "Nz": 4 },
+  "period_um": { "x": 0.6, "z": 0.6 },
+  "incidence": { "lambda_um": 0.6328, "phi_deg": 10, "psi_deg": 0, "delta_deg": 90 },
+  "materials": {
+    "air": { "n": 1.0 },
+    "glass": { "n": 1.5 },
+    "si": { "n": [3.88, 0.02] }
+  },
+  "superstrate": "air",
+  "substrate": "glass",
+  "layers": [
+    {
+      "type": "polygon2d",
+      "thickness_um": 0.15,
+      "background": "air",
+      "inclusions": [ { "material": "si", "rectangle_um": { "center": [0.3, 0.3], "size": [0.3, 0.3] } } ]
+    }
+  ],
+  "nearfield": {
+    "enabled": true,
+    "horizontal_y_um": 0.075,
+    "vertical_z_um": 0.3,
+    "y_range_um": [-0.2, 0.35],
+    "nx": 120,
+    "ny": 110,
+    "nz": 120,
+    "periods": 2,
+    "quantities": ["E", "H", "absE2"],
+    "reconstruction": "fff"
+  },
+  "output": { "dir": "out/nearfield_pillars_2d" }
+}
