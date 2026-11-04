@@ -262,25 +262,35 @@ NormalFieldRaster normalFieldRaster(const Polygon2DLayer& l, double dx, double d
       vx[idx] = ax / cnt;
       vz[idx] = az / cnt;
     }
+  R.nx.assign(n, 1.0);
+  R.nz.assign(n, 0.0);
   if (segs.empty()) return R;
   // step 3: periodic Gaussian with the same physical width along x and z
   const double hphys = l.normalField.sigma * std::min(dx / Gx, dz / Gz);
   const double sx = hphys * Gx / dx, sz = hphys * Gz / dz;
-  if (!vec) {
-    for (auto* f : {&R.nxx, &R.nxz, &R.nzz}) gaussSmooth(*f, Gx, Gz, sx, sz);
-    return R;
-  }
+  for (auto* f : {&R.nxx, &R.nxz, &R.nzz}) gaussSmooth(*f, Gx, Gz, sx, sz);
   gaussSmooth(vx, Gx, Gz, sx, sz);
   gaussSmooth(vz, Gx, Gz, sx, sz);
   double gmax = 0;
   for (std::size_t j = 0; j < n; ++j) gmax = std::max(gmax, std::hypot(vx[j], vz[j]));
-  R.nx.assign(n, 0.0);
-  R.nz.assign(n, 0.0);
+  // rank-1 field for the projector variant B (M8): normalized smoothed signed gradient; where it
+  // vanishes, the principal eigenvector of the smoothed tensor
   for (std::size_t j = 0; j < n; ++j) {
     const double gn = std::hypot(vx[j], vz[j]);
-    if (gn > l.normalField.tau * gmax) {  // step 4
+    if (gn > l.normalField.tau * gmax) {
       R.nx[j] = vx[j] / gn;
       R.nz[j] = vz[j] / gn;
+    } else {
+      const double a = R.nxx[j], b = R.nxz[j], c = R.nzz[j];
+      const double th = 0.5 * std::atan2(2 * b, a - c);  // principal axis of [[a, b], [b, c]]
+      R.nx[j] = std::cos(th);
+      R.nz[j] = std::sin(th);
+    }
+  }
+  if (!vec) return R;
+  for (std::size_t j = 0; j < n; ++j) {
+    const double gn = std::hypot(vx[j], vz[j]);
+    if (gn > l.normalField.tau * gmax) {  // step 4, vector method
       R.nxx[j] = R.nx[j] * R.nx[j];
       R.nxz[j] = R.nx[j] * R.nz[j];
       R.nzz[j] = R.nz[j] * R.nz[j];
@@ -293,10 +303,17 @@ NormalFieldRaster normalFieldRaster(const Polygon2DLayer& l, double dx, double d
   return R;
 }
 
+int normalFieldGrid(const NormalFieldOptions& o, int N) {
+  int G = std::max(o.grid, 8 * (2 * N + 1));
+  int p = 1;
+  while (p < G) p <<= 1;  // power of two (FFT)
+  return p;
+}
+
 NormalFieldCoefficients normalField(const Polygon2DLayer& l, double dx, double dz, const IndexMap& map) {
   const int Px = 2 * map.Nx(), Pz = 2 * map.Nz();
-  const int Gx = std::max(l.normalField.grid, 8 * (2 * map.Nx() + 1));
-  const int Gz = std::max(l.normalField.grid, 8 * (2 * map.Nz() + 1));
+  const int Gx = normalFieldGrid(l.normalField, map.Nx());
+  const int Gz = normalFieldGrid(l.normalField, map.Nz());
   const NormalFieldRaster R = normalFieldRaster(l, dx, dz, Gx, Gz);
   NormalFieldCoefficients nf;
   for (auto& row : nf.NN)
@@ -311,6 +328,30 @@ NormalFieldCoefficients normalField(const Polygon2DLayer& l, double dx, double d
   return nf;
 }
 
+std::array<double, 2> profile2DGradient(const Profile2DLayer& l, double dx, double dz, double x, double z) {
+  const double Kx = 2 * PI / dx, Kz = 2 * PI / dz, a = l.depth_um;
+  switch (l.shape) {
+    case Profile2DLayer::Shape::SinusX:
+      return {-0.5 * a * Kx * std::sin(Kx * (x - l.x0_um)), 0.0};
+    case Profile2DLayer::Shape::EggCrate: {
+      const double cx = 1 + std::cos(Kx * (x - l.x0_um)), cz = 1 + std::cos(Kz * (z - l.z0_um));
+      return {-0.25 * a * Kx * std::sin(Kx * (x - l.x0_um)) * cz, -0.25 * a * Kz * std::sin(Kz * (z - l.z0_um)) * cx};
+    }
+    case Profile2DLayer::Shape::Function:
+      break;
+  }
+  FG_REQUIRE(static_cast<bool>(l.g), "profile2d: function missing");
+  if (l.grad) return l.grad(x, z);
+  const double hx = 1e-6 * dx, hz = 1e-6 * dz;
+  auto gw = [&](double u, double w) { return l.g(std::fmod(std::fmod(u, dx) + dx, dx), std::fmod(std::fmod(w, dz) + dz, dz)); };
+  return {(gw(x + hx, z) - gw(x - hx, z)) / (2 * hx), (gw(x, z + hz) - gw(x, z - hz)) / (2 * hz)};
+}
+
+Vec3D profile2DNormal(const Profile2DLayer& l, double dx, double dz, double x, double z) {
+  const auto g = profile2DGradient(l, dx, dz, x, z);
+  return Vec3D(-g[0], 1.0, -g[1]) / std::sqrt(1.0 + g[0] * g[0] + g[1] * g[1]);
+}
+
 NormalFieldCoefficients normalField(const Profile2DLayer& l, double dx, double dz, const IndexMap& map) {
   if (l.shape == Profile2DLayer::Shape::SinusX) {
     // z-invariant: identical to the 1D sinus (V9)
@@ -322,18 +363,7 @@ NormalFieldCoefficients normalField(const Profile2DLayer& l, double dx, double d
   }
   const int Px = 2 * map.Nx(), Pz = 2 * map.Nz();
   const int Mx = std::max(256, 16 * (Px + 1)), Mz = std::max(256, 16 * (Pz + 1));
-  const double Kx = 2 * PI / dx, Kz = 2 * PI / dz, a = l.depth_um;
-  auto grad = [&](double x, double z) -> std::array<double, 2> {
-    if (l.shape == Profile2DLayer::Shape::EggCrate) {
-      const double cx = 1 + std::cos(Kx * (x - l.x0_um)), cz = 1 + std::cos(Kz * (z - l.z0_um));
-      return {-0.25 * a * Kx * std::sin(Kx * (x - l.x0_um)) * cz, -0.25 * a * Kz * std::sin(Kz * (z - l.z0_um)) * cx};
-    }
-    FG_REQUIRE(static_cast<bool>(l.g), "profile2d: function missing");
-    if (l.grad) return l.grad(x, z);
-    const double hx = 1e-6 * dx, hz = 1e-6 * dz;
-    auto gw = [&](double u, double w) { return l.g(std::fmod(std::fmod(u, dx) + dx, dx), std::fmod(std::fmod(w, dz) + dz, dz)); };
-    return {(gw(x + hx, z) - gw(x - hx, z)) / (2 * hx), (gw(x, z + hz) - gw(x, z - hz)) / (2 * hz)};
-  };
+  auto grad = [&](double x, double z) { return profile2DGradient(l, dx, dz, x, z); };
   const std::size_t n = static_cast<std::size_t>(Mx) * static_cast<std::size_t>(Mz);
   std::array<std::vector<double>, 3> N;
   for (auto& v : N) v.resize(n);

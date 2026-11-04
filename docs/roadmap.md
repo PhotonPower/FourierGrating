@@ -31,8 +31,10 @@ Abnahme = alle genannten Tests grün (`ctest`), Details im Plan, Abschnitt „Me
   - Befund: Algorithmus NF als Tensorglättung (Plan v1.5); Profile2D zeilenweise exakt statt Marching Squares
   - **Offen:** V10 quantitativ (Buch 7,5 % bei 1,388 µm): Peak wandert bis N = 8 nach Rot, Höhe schwankt;
     Konvergenzstudie N = 10–15 auf dem Zielsystem (M10/M11), Vergleich Tensor/Vektor/Laurent
-- [ ] **M8** 2D anisotrop
-  - Abnahme: V8 (2D), Konvergenzstudie
+- [x] **M8** 2D anisotrop
+  - Abnahme: V8 (2D) – `tests/validation/test_v8_2d.cpp`; Konvergenzstudie in `docs/validation.md`
+  - `Polygon2D`: Laurent (exakt) und `FFF_B` (Rang-1-Feld aus Algorithmus NF, Faltung mit exakten
+    Polygonkoeffizienten); `Profile2D`: `FFF_A` (Standard), `FFF_B`, Laurent
 - [ ] **M9** Nahfeld 2D (horizontal x–z, vertikal x–y)
   - Abnahme: V12 (2D)
 - [ ] **M10** CUDA-Backend (cuBLAS, cuSOLVER Xgetrf/Xgeev, cuFFT), Batching, Benchmarks

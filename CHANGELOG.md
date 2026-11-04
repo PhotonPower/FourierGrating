@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.0] – M8 (2D anisotrop)
+
+### Hinzugefügt
+- Anisotrope Materialien in `Polygon2D` (Laurent exakt; `FFF_B`, Standard) und `Profile2D`
+  (`FFF_A`, Standard; `FFF_B`; Laurent); anisotrope 1D-Profile in 2D-Stapeln.
+- Variante B für Querschnitte: Rang-1-Normalenfeld aus Algorithmus NF (normierter geglätteter Gradient,
+  Hauptachse des Tensors als Rückfall), Koeffizienten als glatter Anteil (FFT) plus Faltung der
+  Materialdifferenz mit den exakten Polygonkoeffizienten (`fourier::convolveCoefficients`).
+- `FFF_B` auch für isotrope `Polygon2D`, `FFF_A`/`FFF_B` auch für isotrope `Profile2D` (Vergleiche).
+- Radix-2-FFT in `gridCoefficients2D` (komplexe Variante); NF-Raster auf Zweierpotenzen.
+- Validierung V8 (2D), Spiegeltest mit anisotropem Tensor, Konvergenzstudie Co-Säulen und
+  anisotroper Eierkarton.
+
+### Geändert
+- Anisotrope Faktorisierungen intern vereinheitlicht (`anisoEval`, `anisoQFromGrids`), 1D unverändert.
+- Plan v1.6.
+
 ## [0.6.0] – M7 (2D isotrop)
 
 ### Hinzugefügt

@@ -50,7 +50,10 @@ stetig und werden integriert: ohne kritische Linien (Änderung der Schnittpunktz
 Trapezregel ($M_z=\max(128,16(2N_z+1))$ Knoten, periodisch glatt; exakt für $z$-invariante Profile, V9), sonst
 mit Gauß--Legendre (16 Punkte je Teilstück) zwischen den per Bisektion bestimmten kritischen Linien und der
 Substitution $z=z_a+\tfrac L2(1-\cos\pi t)$, die das $\sqrt{z-z_c}$-Verhalten glättet (Eierkarton: $10^{-7}$
-gegen eine semianalytische Referenz). \verb|sinus_x| ist bitgleich zum 1D-Sinus. Cache: Koeffizienten je (Schicht, $y$) speichern, da
+gegen eine semianalytische Referenz). \verb|sinus_x| ist bitgleich zum 1D-Sinus.
+Anisotrop (M8): auf jeder Linie Koeffizienten der Funktionen $C_\varepsilon$, $\overline{\overline\varepsilon}C_\varepsilon$
+(Variante A) bzw.\ $G_1,G_2,H_1,P_T,\xi^{-1}$ (B) per \verb|piecewiseSmoothCoefficients| mit $\mathbf N(x,z)$ aus
+\eqref{eq:N2d}, dann dieselbe Quadratur in $z$. Cache: Koeffizienten je (Schicht, $y$) speichern, da
 bei Feldrekonstruktion dieselben Knoten erneut gebraucht werden.
 
 %=====================================================================

@@ -37,10 +37,10 @@ Die Implementierung erfolgt in M2 (`fg::io::loadConfig`); dieses Dokument ist di
                         "vertices_um": [[0.325,0.325],[0.575,0.325],[0.575,0.575],[0.325,0.575]] },
                       { "material": "air", "rectangle_um": { "center": [0.0, 0.0], "size": [0.2, 0.1] } } ],
       "normal_field": { "method": "tensor", "grid": 512, "sigma": 3 },  // Algorithmus NF; method: tensor | vector
-      "factorization": "auto" },                                    // auto (= FFF_sym) | FFF_sym | FFF_iso | laurent
+      "factorization": "auto" },     // auto: FFF_sym (isotrop) / FFF_B (anisotrop) | FFF_sym | FFF_iso | FFF_B | laurent
     { "type": "profile2d", "shape": "egg_crate", "depth_um": 0.1,     // egg_crate | sinus_x
       "below": "si", "above": "air", "x0_um": 0, "z0_um": 0,
-      "slices": 0, "z_samples": 0, "factorization": "auto" }        // auto: FFF_rig
+      "slices": 0, "z_samples": 0, "factorization": "auto" }        // auto: FFF_rig (isotrop) / FFF_A (anisotrop)
   ],
   "rk":   { "tableau": "gauss2", "tol": 1e-8 },
   "rcwa": { "slices": 60 },

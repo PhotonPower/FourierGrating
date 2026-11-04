@@ -29,5 +29,12 @@ CoefficientGrid sampledCoefficients2D(const std::function<cplx(double, double)>&
 /// 2D coefficient grid |p| <= Px, |q| <= Pz from samples f[i Mz + k] = f(dx i/Mx, dz k/Mz)
 /// (separable DFT, Plan alg:nfield step 5). Requires Mx > 2 Px, Mz > 2 Pz.
 CoefficientGrid gridCoefficients2D(const std::vector<double>& f, int Mx, int Mz, int Px, int Pz);
+/// Complex samples; radix-2 FFT when Mx and Mz are powers of two, separable DFT otherwise.
+CoefficientGrid gridCoefficients2D(const std::vector<cplx>& f, int Mx, int Mz, int Px, int Pz);
+
+/// Coefficients of a product of a smooth function (coefficients a, |p'| <= a.Px()) and a
+/// discontinuous function with exact coefficients b: c_pq = sum a_p'q' b_(p-p')(q-q'), |p| <= Px,
+/// |q| <= Pz. b must cover |p| <= Px + a.Px(), |q| <= Pz + a.Pz() (Plan section FFF_B, 2D).
+CoefficientGrid convolveCoefficients(const CoefficientGrid& a, const CoefficientGrid& b, int Px, int Pz);
 
 }  // namespace fg::fourier

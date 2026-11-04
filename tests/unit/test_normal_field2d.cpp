@@ -63,11 +63,10 @@ TEST(NormalField2D, InternalEdgesAreRemoved) {
 }
 
 // Befund M7: the vector formulation of Plan v1.4 falls back to N_x^2 = 1/2 on medial lines that
-// hit raster points (here x = 0.4 and x = 0.9 with G = 520), so a lamella is not reproduced exactly.
+// hit raster points (here x = 0.5 and x = 0), so a lamella is not reproduced exactly.
 TEST(NormalField2D, VectorMethodFallbackOnMedialAxis) {
-  fg::Polygon2DLayer l = strip(0.2, 0.6, 0.8, Method::Vector);
-  l.normalField.grid = 520;
-  const auto R = fg::normalFieldRaster(l, 1.0, 0.8, 520, 520);
+  fg::Polygon2DLayer l = strip(0.25, 0.75, 0.8, Method::Vector);
+  const auto R = fg::normalFieldRaster(l, 1.0, 0.8, 512, 512);
   double mn = 1;
   for (double v : R.nxx) mn = std::min(mn, v);
   EXPECT_NEAR(mn, 0.5, 1e-15);
@@ -76,6 +75,10 @@ TEST(NormalField2D, VectorMethodFallbackOnMedialAxis) {
   // the tensor method on the same raster is exact
   l.normalField.method = Method::Tensor;
   EXPECT_LT(maxDev(fg::normalField(l, 1.0, 0.8, fg::IndexMap(4, 3)).NN[0][0], 1.0), 1e-14);
+  // rank-1 field for variant B (M8): exactly +-x, also on the medial lines
+  double dev = 0;
+  for (std::size_t j = 0; j < R.nx.size(); ++j) dev = std::max(dev, std::abs(std::abs(R.nx[j]) - 1.0) + std::abs(R.nz[j]));
+  EXPECT_LT(dev, 1e-13);
 }
 
 // Square hole: x <-> z symmetry, trace 1, N N^T = n n^T in the middle of the edges.

@@ -20,13 +20,17 @@ struct NormalFieldCoefficients {
 NormalFieldCoefficients normalField(const Profile1DLayer& layer, double dx_um, const IndexMap& map);
 
 /// Raster of Algorithm NF on Gx x Gz points x_i = dx i/Gx, z_k = dz k/Gz (row-major, index
-/// i Gz + k). NN = (N_x^2, N_x N_z, N_z^2); for the vector method also the signed (N_x, N_z).
+/// i Gz + k). NN = (N_x^2, N_x N_z, N_z^2) according to the method.
+/// (nx, nz): unit rank-1 field for the projector variant B (M8, sign arbitrary): normalized
+/// smoothed signed-distance gradient, principal axis of the smoothed tensor where it vanishes.
 struct NormalFieldRaster {
   int Gx = 0, Gz = 0;
   std::vector<double> nxx, nxz, nzz;
-  std::vector<double> nx, nz;  ///< Vector method only
+  std::vector<double> nx, nz;
   std::vector<int> region;     ///< -1 background, k = inclusion k (periodic lookup)
 };
+/// Raster size used for N Fourier orders: max(grid, 8 (2N + 1)), rounded up to a power of two.
+int normalFieldGrid(const NormalFieldOptions& o, int N);
 /// Algorithm NF steps 1-4 (Plan alg:nfield): exact distances to the material boundaries of the
 /// polygons (periodic images, internal edges removed), smoothing with a periodic Gaussian.
 NormalFieldRaster normalFieldRaster(const Polygon2DLayer& layer, double dx_um, double dz_um, int Gx,
@@ -42,5 +46,9 @@ int polygonRegion(const Polygon2DLayer& layer, double dx_um, double dz_um, doubl
 /// (smooth function); SinusX reproduces the 1D sinus coefficients exactly (V9).
 NormalFieldCoefficients normalField(const Profile2DLayer& layer, double dx_um, double dz_um,
                                     const IndexMap& map);
+
+/// Gradient (dg/dx, dg/dz) and unit normal (Plan eq:N2d) of a 2D profile.
+std::array<double, 2> profile2DGradient(const Profile2DLayer& l, double dx_um, double dz_um, double x, double z);
+Vec3D profile2DNormal(const Profile2DLayer& l, double dx_um, double dz_um, double x, double z);
 
 }  // namespace fg

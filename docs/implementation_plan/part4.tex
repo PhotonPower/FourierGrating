@@ -176,7 +176,11 @@ V7 & Kobalt-Sinusgitter anisotrop (Buch Kap.\ VIII): $d=0{,}6$, $a=0{,}5\,\mu$m,
      M5: $0{,}05673/0{,}14355/1{,}275\cdot10^{-7}/2{,}372\cdot10^{-6}$; RK ($N=8$) = RCWA (400 Scheiben) auf $10^{-4}$ \\
 V7b & einachsiges Substrat, Achse $\parallel y$, $\varepsilon_o=2{,}4$, $\varepsilon_e=3{,}1$ & analytisch ($r_s$, $r_p$ s.\ Text), $10^{-12}$ \\
 V7c & verlustfreie biaxiale gedrehte Schicht, konisch & Energie $10^{-12}$; homogener Pfad = Lamellenpfad (RCWA $10^{-10}$, RK $10^{-8}$) \\
-V8 & Anisotroper Code mit isotropem Tensor & identisch mit isotropem Code ($10^{-10}$ bei gleicher Faktorisierung) \\
+V8 & Anisotroper Code mit isotropem Tensor & identisch mit isotropem Code ($10^{-10}$ bei gleicher Faktorisierung).
+     2D (M8): Laurent mit Tensor = isotrop (Polygon, Eierkarton); \verb|FFF_B| auf $z$-invariantem Streifen = Li;
+     anisotrope $z$-invariante Strukturen = 1D-anisotrop ($10^{-10}$/$10^{-12}$); Spiegeltest $x\leftrightarrow z$
+     mit gespiegeltem Tensor ($10^{-9}$). Konvergenz: Co-Säulen \verb|FFF_B| $T=0{,}548\ldots0{,}551$ ($N=2\ldots7$),
+     Laurent $0{,}42\ldots0{,}49$; anisotroper Eierkarton: A, B, Laurent konsistent \\
 V9 & 2D-Code mit $z$-invarianter Struktur ($g(x,z)=g(x)$, $N_z=0$) & identisch mit 1D-konisch.
      M7: Lamellen, \texttt{Polygon2D}-Streifen (NF-Tensor, \verb|FFF_sym|/\verb|FFF_iso| = Li),
      \verb|sinus_x| und 1D-Profil im 2D-Stapel, RK und RCWA: $10^{-12}$ ($N_z=0$); RCWA mit $N_z>0$: Ordnungen
@@ -223,7 +227,7 @@ M5 & 1D anisotrop: Tensoren, FFF\_A, FFF\_B, anisotrope Substrate (4×4-Moden, K
 M6 & Nahfeld 1D: interne Amplituden, RCWA/RK-Rekonstruktion, direkt/FFF, Schnitte, Plot-Skript & V12 (1D) \\
 M7 & 2D isotrop: IndexMap 2D, Polygon-Koeffizienten, Normalenfeld (Alg.\ NF), RCWA; RK für Profile2D & V9, V10
   (erledigt v0.6; V10 nur qualitativ, quantitativ offen) \\
-M8 & 2D anisotrop & V8 (2D), Konvergenzstudie \\
+M8 & 2D anisotrop & V8 (2D), Konvergenzstudie (erledigt v0.7) \\
 M9 & Nahfeld 2D (horizontal $x$--$z$, vertikal $x$--$y$) & V12 (2D) \\
 M10 & CUDA-Backend (cuBLAS, cuSOLVER getrf/geev, cuFFT), Batching über Wellenlängen, Benchmarks & GPU = CPU auf $10^{-10}$; Benchmark-Bericht \\
 M11 & Parameter-Scans, Performance, Doku für Anwender & Beispielskripte, Laufzeittabelle \\

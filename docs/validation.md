@@ -13,7 +13,7 @@ der Literatur. Konfigurationen liegen in `examples/`.
 | V5 | Glas-Sinus: d = 0,5 µm, a = 1,0 µm, ν = 1,5, Φ = 30°, Transmission −1, TE | 0,820 (intern, 120 Scheiben; Buch Abb. III.4) | 5e-3 |
 | V6 | dielektrischer Sinus ν = 2,5, a/d = 1, d = 1 µm, 30°, TM (Buch Abb. IV.3) | FFF konvergiert ab N ≈ 8 auf 1e-4, klassisch nicht | qualitativ |
 | V7 (M5: 0,05673 / 0,14355 / 1,275e-7 / 2,372e-6) | Co-Sinus anisotrop: d = 0,6, a = 0,5 µm, λ = 0,6328 µm, 30°, TM-Einfall, ε_ii = −8,19+16,38i, ε_xz = −ε_zx = −0,495−0,106i | TM₀ 0,0567; TM₋₁ 0,1435; TE₀ 1,3e-7; TE₋₁ 2,37e-6 (intern, N = 20, 100 Scheiben) | 3 % |
-| V8 | anisotroper Code, isotroper Tensor | Lamellen: = isotroper Code; Profil (Al-Sinus, N = 20): FFF_A = FFF_rig | 1e-10 / 1e-3 |
+| V8 | anisotroper Code, isotroper Tensor | Lamellen: = isotroper Code; Profil (Al-Sinus, N = 20): FFF_A = FFF_rig. 2D (M8): Laurent mit Tensor = isotrop (Polygon, Eierkarton); `FFF_B`-Streifen = Li; z-invariante anisotrope Strukturen = 1D | 1e-10 / 1e-3 |
 | V7b | einachsiges Substrat (Achse ∥ y, ε_o = 2,4, ε_e = 3,1), TE/TM, alle Winkel | r_s = (β₀ − k_o)/(β₀ + k_o), r_p = (β₀ − k_e/ε_o)/(β₀ + k_e/ε_o) | 1e-12 |
 | V7c | gedrehte biaxiale verlustfreie Schicht, konisch | Energie; homogener Pfad = Lamellenpfad (RCWA, RK) | 1e-12 / 1e-10 / 1e-8 |
 | V9 | 2D-Code, z-invariante Struktur (Lamellen, Polygon-Streifen, `sinus_x`, 1D-Profil im 2D-Stapel), RK und RCWA | = 1D konisch (M7: N_z = 0 1e-12; RCWA N_z > 0 1e-10; RK N_z > 0 auf RK-Toleranz) | 1e-10 |
@@ -50,3 +50,22 @@ Lamellen exakt.
 Der Peak liegt stets oberhalb des SPP-Pols der Ag/Glas-Grenzfläche (1,3694 µm), wandert aber mit N nach Rot
 und seine Höhe schwankt; die Buchangabe liegt im Streubereich, ist aber nicht bestätigt. Laurent schwankt
 stärker, `FFF_iso` liefert R > 1. Offene Konvergenzstudie (N = 10–15, Tensor/Vektor, σ) auf dem Zielsystem.
+
+**Konvergenzstudie M8 (RCWA, λ = 0,6328 µm, Φ = 30°, Ψ = 20°, δ = 60°, Nx = Nz = N):**
+
+Co-Säulen (Tensor V7, Quadrat 0,3 µm, Periode 0,6 × 0,6 µm, Höhe 0,1 µm) auf Glas, Σ T:
+
+| N | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|
+| `FFF_B` | 0,5485 | 0,5431 | 0,5487 | 0,5495 | 0,5493 | 0,5508 |
+| Laurent | 0,4165 | 0,4600 | 0,4744 | 0,4765 | 0,4963 | 0,4911 |
+
+Anisotroper Eierkarton (Tiefe 0,25 µm, Periode 0,6 µm, einachsig 2,75/2,21 gedreht, verlustfrei), r(0,0), 20 Scheiben:
+
+| N | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|
+| `FFF_A` | 0,006098 | 0,006033 | 0,006022 | 0,006010 | 0,006003 |
+| `FFF_B` | 0,006089 | 0,006090 | 0,006021 | 0,006006 | – |
+| Laurent | 0,005605 | 0,005688 | 0,005742 | 0,005780 | – |
+
+Energiefehler der FFF-Varianten 1e-3 (N = 2) bis 3e-5 (N = 6). Laufzeit (1 Kern) N = 5: Säulen 3 s, Eierkarton 55 s.
