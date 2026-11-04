@@ -1,26 +1,24 @@
-// FourierGrating - stack assembly shared by the RK and RCWA solvers (Plan sections 7, 9, 10).
-#include "fg/solvers/solver.hpp"
-
+// FourierGrating - stack assembly shared by the RK and RCWA solvers, efficiencies and near fields
+// (Plan sections "S-Matrix-Formalismus", "Loeser A/B", "Nahfeld").
 #include <algorithm>
 #include <cmath>
 #include <functional>
-#include <variant>
 
 #include "fg/core/error.hpp"
-#include "fg/fourier/coefficients.hpp"
-#include "fg/fourier/sampling.hpp"
-#include "fg/geometry/normal_field.hpp"
-#include "fg/geometry/profile.hpp"
-#include "fg/physics/efficiency.hpp"
+#include "fg/fourier/toeplitz.hpp"
 #include "fg/physics/anisotropic.hpp"
+#include "fg/physics/efficiency.hpp"
 #include "fg/physics/modes.hpp"
-#include "fg/physics/qmatrix.hpp"
 #include "fg/solvers/rcwa.hpp"
 #include "fg/solvers/rk.hpp"
+#include "fg/solvers/solver.hpp"
+#include "layer_model.hpp"
 
 namespace fg {
 
 namespace {
+
+using detail::LayerModel;
 
 /// Normalized problem data for one wavelength.
 struct Setup {
@@ -28,11 +26,12 @@ struct Setup {
   double k0 = 0;
   VecC alpha, gamma;
   IncidentWave inc;
-  cplx epsSup = 1.0, epsSub = 1.0;
+  cplx epsSup = 1.0;
   ModeBasis ref;  // reference medium = superstrate
+  const Material* sub = nullptr;
+  ModeBasis subModes;
 };
 
-/// Spectral radius estimate rho_max = max_r,j |sqrt(alpha_r^2 + gamma_r^2 - eps_j)| (Plan eq:slicecrit).
 double rhoEstimate(const Setup& s, const std::vector<cplx>& eps) {
   double rho = 0;
   for (Eigen::Index r = 0; r < s.alpha.size(); ++r)
@@ -46,85 +45,73 @@ double spectralRadius(const MatC& M) {
   return es.eigenvalues().cwiseAbs().maxCoeff();
 }
 
+/// One element of the assembled stack (interface, modal slice or RK slice), normalized y.
+struct Element {
+  enum class Kind { Interface, Modes, RK } kind = Kind::Interface;
+  double y0 = 0, y1 = 0;
+  SMatrix S;
+  // modal slices (RCWA, homogeneous layers)
+  LayerModes modes;
+  MatC G;
+  // RK slices: transfer matrices from y0 to the recorded sample heights
+  std::vector<double> ys;
+  std::vector<MatC> T;
+  // for E_y / H_y and the FFF-consistent reconstruction
+  const LayerModel* model = nullptr;
+  double layerY0 = 0;       ///< normalized y of the layer bottom
+  double qHeight_um = -1;   ///< RCWA staircase: height at which Q/eps were taken (layer-relative)
+};
+
+struct Assembly {
+  SMatrix total;
+  std::vector<Element> elems;  // only filled when recording
+  double yTop = 0;             // normalized
+};
+
 class StackSolver final : public Solver {
  public:
   explicit StackSolver(SolverOptions o) : opt_(std::move(o)) {}
 
+  // ------------------------------------------------------------------ efficiencies
   Result solve(const Stack& stack, const Wavelength& wl) override {
     const Setup s = setup(stack, wl);
-    const int nf = s.map.size();
-    const int nh = 2 * nf;
+    const auto models = detail::buildLayerModels(stack, s.map, opt_.rcwaSlices);
     Result res;
-
-    // substrate -> reference interface (Plan eq:Stot)
-    const Material& sub = stack.material(stack.substrate);
-    const ModeBasis subModes = sub.isotropic ? isotropicModes(s.epsSub, s.alpha, s.gamma)
-                                             : anisotropicModes(sub.epsTensor, s.alpha, s.gamma);
-    SMatrix S = fromTransfer(s.ref.PsiInv * subModes.Psi);
-
-    for (const LayerEntry& le : stack.layers) S = star(S, layerSMatrix(stack, le, s, res.diag));
-
-    // incident wave: tangential E of the (0,0) down-going order at the top interface
-    VecC a_in = VecC::Zero(nh);
-    const int c = s.map.center();
-    a_in(c) = s.inc.A(0);
-    a_in(nf + c) = s.inc.A(2);
-    const VecC b_top = S.S12 * a_in;
-    const VecC a_sub = S.S22 * a_in;
-
-    const auto incOrder = planeWaveOrder(s.epsSup, s.alpha(c), s.gamma(c), s.ref.beta(c), -1,
-                                         a_in(c), a_in(nf + c));
-    const double Sinc = std::abs(incOrder.Sy);
-    double sumR = 0, sumT = 0;
-    const bool subLossless =
-        sub.isotropic ? (std::abs(s.epsSub.imag()) < 1e-14 && s.epsSub.real() > 0)
-                      : (sub.epsTensor - sub.epsTensor.adjoint()).cwiseAbs().maxCoeff() < 1e-14;
-    const VecC Fsub = subModes.Psi.leftCols(nh) * a_sub;  // field just below y = 0
-    auto split = [](OrderEfficiency& o, double e) {
-      o.efficiency = e;
-      const double ws = std::norm(o.amp_s), wp = std::norm(o.amp_p);
-      if (ws + wp > 0) {
-        o.eff_s = e * ws / (ws + wp);
-        o.eff_p = e * wp / (ws + wp);
-      }
-    };
-    for (int r = 0; r < nf; ++r) {
-      const auto [n, m] = s.map.orders(r);
-      const auto ro = planeWaveOrder(s.epsSup, s.alpha(r), s.gamma(r), s.ref.beta(r), +1, b_top(r),
-                                     b_top(nf + r));
-      if (ro.propagating) {
-        OrderEfficiency o{n, m, 0, ro.amp_s, ro.amp_p};
-        split(o, ro.Sy / Sinc);
-        res.reflected.push_back(o);
-        sumR += ro.Sy / Sinc;
-      }
-      if (!subLossless) continue;
-      if (sub.isotropic) {
-        const auto to = planeWaveOrder(s.epsSub, s.alpha(r), s.gamma(r), subModes.beta(r), -1,
-                                       a_sub(r), a_sub(nf + r));
-        if (to.propagating) {
-          OrderEfficiency o{n, m, 0, to.amp_s, to.amp_p};
-          split(o, -to.Sy / Sinc);
-          res.transmitted.push_back(o);
-          sumT += -to.Sy / Sinc;
-        }
-      } else {
-        // anisotropic substrate: flux of the order from the modal field (Plan eq:Sy)
-        const double sy = 0.5 * std::real(Fsub(nf + r) * std::conj(Fsub(2 * nf + r)) -
-                                          Fsub(r) * std::conj(Fsub(3 * nf + r)));
-        if (std::abs(sy) > 1e-14 * Sinc) {
-          OrderEfficiency o{n, m, -sy / Sinc, 0, 0};
-          res.transmitted.push_back(o);
-          sumT += -sy / Sinc;
-        }
-      }
-    }
-    res.absorption = 1.0 - sumR - sumT;
-    res.diag.energyBalance = sumR + sumT;
+    for (const auto& m : models) res.diag.warnings.insert(res.diag.warnings.end(), m->warnings.begin(), m->warnings.end());
+    const Assembly as = assemble(s, models, false, {}, res.diag);
+    efficiencies(s, as.total, res);
     return res;
   }
 
+  // ------------------------------------------------------------------ field coefficients
+  FieldSampleSet fieldCoefficients(const Stack& stack, const Wavelength& wl, const std::vector<double>& y_um) override {
+    const Setup s = setup(stack, wl);
+    const auto models = detail::buildLayerModels(stack, s.map, opt_.rcwaSlices);
+    return samples(s, models, y_um, nullptr);
+  }
+
+  // ------------------------------------------------------------------ near field cuts
+  NearFieldResult nearField(const Stack& stack, const Wavelength& wl, const NearFieldRequest& req) override {
+    FG_REQUIRE(!stack.is2D(), "near fields of 2D gratings: milestone M9");
+    const Setup s = setup(stack, wl);
+    const auto models = detail::buildLayerModels(stack, s.map, opt_.rcwaSlices);
+    std::vector<double> ys;
+    for (int k = 0; k < req.ny; ++k)
+      ys.push_back(req.ny == 1 ? req.y_min_um : req.y_min_um + (req.y_max_um - req.y_min_um) * k / (req.ny - 1));
+    ys.push_back(req.horizontal_y_um);
+    std::vector<const Element*> where;
+    const FieldSampleSet fs = samples(s, models, ys, &where);
+    std::vector<double> xs;
+    for (int k = 0; k < req.nx; ++k) xs.push_back(stack.dx_um * req.periods * k / req.nx);
+    NearFieldResult out;
+    out.vertical = synthesize(stack, s, fs, where, xs, 0, req.ny, req, "vertical");
+    out.horizontal = synthesize(stack, s, fs, where, xs, req.ny, req.ny + 1, req, "horizontal");
+    out.horizontal.axis2_um.clear();
+    return out;
+  }
+
  private:
+  // ------------------------------------------------------------------ setup
   Setup setup(const Stack& stack, const Wavelength& wl) const {
     Setup s;
     s.map = IndexMap(opt_.Nx, stack.is2D() ? opt_.Nz : 0);
@@ -133,7 +120,6 @@ class StackSolver final : public Solver {
     FG_REQUIRE(sup.isotropic && std::abs(sup.eps.imag()) < 1e-14 && sup.eps.real() > 0,
                "superstrate must be isotropic and lossless");
     s.epsSup = sup.eps;
-    s.epsSub = stack.material(stack.substrate).eps;
     s.inc = makeIncidence(std::sqrt(sup.eps.real()), wl.phi, wl.psi, wl.delta);
     const double Kx = 2.0 * PI / (s.k0 * stack.dx_um);
     const double Kz = stack.is2D() ? 2.0 * PI / (s.k0 * stack.dz_um) : 0.0;
@@ -146,257 +132,359 @@ class StackSolver final : public Solver {
       s.gamma(r) = s.inc.gamma0 + m * Kz;
     }
     s.ref = isotropicModes(s.epsSup, s.alpha, s.gamma);
+    s.sub = &stack.material(stack.substrate);
+    s.subModes = s.sub->isotropic ? isotropicModes(s.sub->eps, s.alpha, s.gamma)
+                                  : anisotropicModes(s.sub->epsTensor, s.alpha, s.gamma);
     return s;
   }
 
-  SMatrix layerSMatrix(const Stack& stack, const LayerEntry& le, const Setup& s, Diagnostics& diag) {
-    if (const auto* hl = std::get_if<HomogeneousLayer>(&le.spec)) {
-      const Material& mat = stack.material(hl->material);
-      const ModeBasis mb = mat.isotropic ? isotropicModes(mat.eps, s.alpha, s.gamma)
-                                         : anisotropicModes(mat.epsTensor, s.alpha, s.gamma);
-      return stableLayerSMatrix(layerModesHomogeneous(mb), hl->thickness_um * s.k0, s.ref);
-    }
-    if (const auto* ll = std::get_if<Lamellar1DLayer>(&le.spec)) return lamellar(stack, *ll, le, s, diag);
-    if (const auto* pl = std::get_if<Profile1DLayer>(&le.spec)) return profile(stack, *pl, le, s, diag);
-    throw NotImplemented("layer type (2D layers: milestone M7)");
-  }
-
-  SMatrix lamellar(const Stack& stack, const Lamellar1DLayer& ll, const LayerEntry& le,
-                   const Setup& s, Diagnostics& diag) {
-    FG_REQUIRE(ll.breakpoints_um.size() == ll.materials.size() + 1, "lamellar: breakpoints/materials");
-    std::vector<cplx> eps, inv;
-    bool iso = true;
-    for (const auto& name : ll.materials) {
-      const Material& m = stack.material(name);
-      iso = iso && m.isotropic;
-      eps.push_back(m.eps);
-      inv.push_back(1.0 / m.eps);
-    }
-    const int Px = 2 * s.map.Nx(), Pz = 2 * s.map.Nz();
-    if (!iso) {
-      std::vector<Mat3C> tens;
-      for (const auto& name : ll.materials) tens.push_back(stack.material(name).tensor());
-      const Factorization fac = le.factorization == Factorization::Auto ? Factorization::FFF_A : le.factorization;
-      const QBlocks Q = anisotropicQ(ll.breakpoints_um, tens, [](double) { return Vec3D(1, 0, 0); }, fac,
-                                     stack.dx_um, s.map);
-      return constantSlice(buildPropagationMatrix(Q, s.alpha, s.gamma), ll.thickness_um * s.k0, eps, s, diag);
-    }
-    const auto ce = fourier::piecewiseConstant1D(ll.breakpoints_um, eps, stack.dx_um, Px);
-    const auto ci = fourier::piecewiseConstant1D(ll.breakpoints_um, inv, stack.dx_um, Px);
-    SliceCoefficients sc;
-    sc.eps = fourier::CoefficientGrid(Px, Pz);
-    sc.invEps = fourier::CoefficientGrid(Px, Pz);
-    for (int p = -Px; p <= Px; ++p) {
-      sc.eps(p, 0) = ce[static_cast<std::size_t>(p + Px)];
-      sc.invEps(p, 0) = ci[static_cast<std::size_t>(p + Px)];
-    }
-    QBlocks Q;
-    switch (le.factorization) {
-      case Factorization::Laurent: Q = qLaurent(sc, s.map); break;
-      case Factorization::Auto:
-      case Factorization::LiLamellar:
-      case Factorization::FFF_iso:
-      case Factorization::FFF_sym:
-      case Factorization::FFF_rig: Q = qLiLamellar(sc, s.map); break;  // FFF with N = x (exact: NN = diag)
-      default: throw Error("factorization not applicable to an isotropic lamellar layer");
-    }
-    return constantSlice(buildPropagationMatrix(Q, s.alpha, s.gamma), ll.thickness_um * s.k0, eps, s, diag);
-  }
-
-  /// y-invariant slice of thickness h with constant M: RCWA modes, or RK sub-slices
-  /// (Plan eq:slicecrit with the spectral radius of M).
-  SMatrix constantSlice(const MatC& M, double h, const std::vector<cplx>& eps, const Setup& s, Diagnostics& diag) {
-    if (opt_.kind == SolverKind::RCWA) return stableLayerSMatrix(layerModesAuto(M), h, s.ref);
-    const double rho = std::max(rhoEstimate(s, eps), spectralRadius(M));
-    const int nsub = std::max(1, static_cast<int>(std::ceil(rho * h / std::log(opt_.growthLimit))));
-    RKStats st;
-    const MatC TF = rkTransferConstant(M, h / nsub, ButcherTableau::byName(opt_.rkTableau), opt_.rkTol, rho, st);
-    diag.rkSteps += st.steps;
-    const SMatrix Ssub = rkSliceSMatrix(TF, s.ref);
-    SMatrix S = Ssub;
-    for (int k = 1; k < nsub; ++k) S = star(S, Ssub);
-    return S;
-  }
-
-  /// Q blocks of an anisotropic slice: piecewise constant tensors on [br_k, br_k+1] and a normal
-  /// field N(x) (Plan eq:QaniA / eq:QaniB; Laurent for comparison).
-  static QBlocks anisotropicQ(const std::vector<double>& br, const std::vector<Mat3C>& eps,
-                              const std::function<Vec3D(double)>& Nfun, Factorization fac, double dx,
-                              const IndexMap& map) {
-    const int Px = 2 * map.Nx(), Pz = 2 * map.Nz();
-    SliceCoefficients sc;
-    sc.isotropic = false;
-    auto fill = [&](std::array<std::array<fourier::CoefficientGrid, 3>, 3>& g,
-                    const std::vector<std::vector<cplx>>& c, int offset) {
-      for (int i = 0; i < 3; ++i)
-        for (int j = 0; j < 3; ++j) {
-          auto& grid = g[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
-          grid = fourier::CoefficientGrid(Px, Pz);
-          for (int p = -Px; p <= Px; ++p)
-            grid(p, 0) = c[static_cast<std::size_t>(offset + 3 * i + j)][static_cast<std::size_t>(p + Px)];
+  // ------------------------------------------------------------------ assembly
+  /// Builds the total S-matrix. With record = true every element is kept (S, modes, RK transfer
+  /// matrices at the requested normalized heights 'sampleY', sorted).
+  Assembly assemble(const Setup& s, const std::vector<std::unique_ptr<LayerModel>>& models, bool record,
+                    const std::vector<double>& sampleY, Diagnostics& diag) {
+    Assembly as;
+    Element e0;
+    e0.S = fromTransfer(s.ref.PsiInv * s.subModes.Psi);  // substrate -> reference (Plan eq:Stot)
+    as.total = e0.S;
+    if (record) as.elems.push_back(std::move(e0));
+    double y = 0;
+    for (const auto& mp : models) {
+      const LayerModel& m = *mp;
+      const double H = m.thickness_um() * s.k0;
+      const double y0 = y;
+      if (m.homogeneous()) {
+        const Material& mat = m.material();
+        const ModeBasis mb = mat.isotropic ? isotropicModes(mat.eps, s.alpha, s.gamma)
+                                           : anisotropicModes(mat.epsTensor, s.alpha, s.gamma);
+        Element e;
+        e.kind = Element::Kind::Modes;
+        e.y0 = y0;
+        e.y1 = y0 + H;
+        e.model = &m;
+        e.layerY0 = y0;
+        RCWASliceRecord rec;
+        e.S = stableLayerSMatrix(layerModesHomogeneous(mb), H, s.ref, &rec);
+        e.modes = rec.modes;
+        e.G = rec.G;
+        addElement(as, std::move(e), record);
+      } else if (opt_.kind == SolverKind::RCWA) {
+        const int K = m.yInvariant() ? 1 : m.rcwaSlices;
+        for (int k = 0; k < K; ++k) {
+          const double yq = (k + 0.5) * m.thickness_um() / K;  // staircase: Q at slice centre
+          const MatC M = buildPropagationMatrix(m.Q(yq), s.alpha, s.gamma);
+          Element e;
+          e.kind = Element::Kind::Modes;
+          e.y0 = y0 + H * k / K;
+          e.y1 = y0 + H * (k + 1) / K;
+          e.model = &m;
+          e.layerY0 = y0;
+          e.qHeight_um = yq;
+          RCWASliceRecord rec;
+          e.S = stableLayerSMatrix(layerModesAuto(M), H / K, s.ref, &rec);
+          e.modes = rec.modes;
+          e.G = rec.G;
+          addElement(as, std::move(e), record);
         }
-    };
-    if (fac == Factorization::Laurent) {
-      const auto c = fourier::piecewiseSmoothCoefficients(
-          br, 9, [&](double, int k, cplx* out) { for (int q = 0; q < 9; ++q) out[q] = eps[static_cast<std::size_t>(k)](q / 3, q % 3); },
-          dx, Px);
-      fill(sc.epsTensor, c, 0);
-      return qLaurent(sc, map);
+      } else {
+        rkLayer(s, m, y0, H, record, sampleY, as, diag);
+      }
+      y += H;
     }
-    if (fac == Factorization::FFF_A) {
-      const auto c = fourier::piecewiseSmoothCoefficients(
-          br, 18,
-          [&](double x, int k, cplx* out) {
-            const Vec3D N = Nfun(x);
-            Vec3D T1, T2;
-            profileTangents(N, T1, T2);
-            const Mat3C& e = eps[static_cast<std::size_t>(k)];
-            const Mat3C C = cMatrix(e, N, T1, T2);
-            const Mat3C eC = e * C;
-            for (int q = 0; q < 9; ++q) {
-              out[q] = C(q / 3, q % 3);
-              out[9 + q] = eC(q / 3, q % 3);
-            }
-          },
-          dx, Px);
-      fill(sc.C, c, 0);
-      fill(sc.epsC, c, 9);
-      return qFFFAnisotropicA(sc, map);
-    }
-    if (fac == Factorization::FFF_B) {
-      const auto c = fourier::piecewiseSmoothCoefficients(
-          br, 37,
-          [&](double x, int k, cplx* out) {
-            const ProjectorSet ps = projectorMatrices(eps[static_cast<std::size_t>(k)], Nfun(x));
-            for (int q = 0; q < 9; ++q) {
-              out[q] = ps.G1(q / 3, q % 3);
-              out[9 + q] = ps.G2(q / 3, q % 3);
-              out[18 + q] = ps.H1(q / 3, q % 3);
-              out[27 + q] = ps.PT(q / 3, q % 3);
-            }
-            out[36] = ps.invXi;
-          },
-          dx, Px);
-      fill(sc.G1, c, 0);
-      fill(sc.G2, c, 9);
-      fill(sc.H1, c, 18);
-      fill(sc.PT, c, 27);
-      sc.invXi = fourier::CoefficientGrid(Px, Pz);
-      for (int p = -Px; p <= Px; ++p) sc.invXi(p, 0) = c[36][static_cast<std::size_t>(p + Px)];
-      return qFFFAnisotropicB(sc, map);
-    }
-    throw Error("factorization not applicable to an anisotropic layer (use FFF_A, FFF_B or Laurent)");
+    as.yTop = y;
+    return as;
   }
 
-  /// RK slice S-matrix over [y0, y1]; bisects if the transfer matrix grows beyond growthLimit.
-  SMatrix rkSlice(const std::function<MatC(double)>& M, double y0, double y1, double rho,
-                  const ButcherTableau& tab, const ModeBasis& ref, Diagnostics& diag, int depth) {
-    RKStats st;
-    const MatC TF = rkTransferAuto(M, y0, y1, tab, opt_.rkTol, rho, st);
-    diag.rkSteps += st.steps;
-    const double growth = TF.cwiseAbs().maxCoeff();
-    if ((!TF.allFinite() || growth > opt_.growthLimit) && depth < 12) {
-      const double ym = 0.5 * (y0 + y1);
-      return star(rkSlice(M, y0, ym, rho, tab, ref, diag, depth + 1),
-                  rkSlice(M, ym, y1, rho, tab, ref, diag, depth + 1));
-    }
-    FG_REQUIRE(TF.allFinite(), "RK transfer matrix not finite");
-    return rkSliceSMatrix(TF, ref);
+  void addElement(Assembly& as, Element&& e, bool record) {
+    as.total = star(as.total, e.S);
+    if (record) as.elems.push_back(std::move(e));
   }
 
-  /// Profile layer y = g(x) (Plan sections "Permittivitaet bei beliebiger Hoehe", Loeser A/B).
-  SMatrix profile(const Stack& stack, const Profile1DLayer& pl, const LayerEntry& le, const Setup& s,
-                  Diagnostics& diag) {
-    FG_REQUIRE(!stack.is2D(), "Profile1D layers are only supported in 1D stacks (2D: Profile2D, M7)");
-    const Material& mb = stack.material(pl.below);
-    const Material& ma = stack.material(pl.above);
-    const bool aniso = !mb.isotropic || !ma.isotropic;
-    const int Px = 2 * s.map.Nx(), Pz = 2 * s.map.Nz();
-    const NormalFieldCoefficients nf = normalField(pl, stack.dx_um, s.map);
-    // Default (Plan section "Varianten der isotropen FFF"): FFF_rig for smooth profiles (signed
-    // normal field continuous), FFF_sym for profiles with corners (piecewise linear, user functions).
-    Factorization fac = le.factorization;
-    if (fac == Factorization::Auto)
-      fac = aniso ? Factorization::FFF_A
-                  : (pl.shape == Profile1DLayer::Shape::Sinus ? Factorization::FFF_rig : Factorization::FFF_sym);
-    if (fac == Factorization::FFF_iso)
-      for (const Material* m : {&mb, &ma})
-        if (m->eps.real() < 0 && std::abs(m->eps.imag()) < 0.5 * std::abs(m->eps.real()))
-          diag.warnings.push_back("FFF_iso (book IV.32) with a weakly absorbing metal ('" + m->name +
-                                  "'): known to produce unphysical results, use FFF_rig or FFF_sym");
-    FG_REQUIRE(aniso ? (fac == Factorization::FFF_A || fac == Factorization::FFF_B || fac == Factorization::Laurent)
-                     : (fac == Factorization::FFF_iso || fac == Factorization::FFF_sym ||
-                        fac == Factorization::FFF_rig || fac == Factorization::Laurent),
-               "factorization not applicable to this profile layer");
-    const Mat3C tb = mb.tensor(), ta = ma.tensor();
-    auto Nfun = [&](double x) -> Vec3D {
-      const double sl = profileSlope(pl, x, stack.dx_um);
-      return Vec3D(-sl, 1.0, 0.0) / std::sqrt(1.0 + sl * sl);
-    };
-    const double a = pl.depth_um;
-    // M at height y_um inside the layer
-    auto Mat = [&](double y_um) {
-      std::vector<double> br;
-      std::vector<bool> below;
-      profileIntervals(pl, std::clamp(y_um, 1e-14 * a, a * (1 - 1e-14)), stack.dx_um, br, below);
-      if (aniso) {
-        std::vector<Mat3C> tens;
-        for (bool b : below) tens.push_back(b ? tb : ta);
-        return buildPropagationMatrix(anisotropicQ(br, tens, Nfun, fac, stack.dx_um, s.map), s.alpha, s.gamma);
-      }
-      std::vector<cplx> ve, vi;
-      for (bool b : below) {
-        const cplx e = b ? mb.eps : ma.eps;
-        ve.push_back(e);
-        vi.push_back(1.0 / e);
-      }
-      const auto ce = fourier::piecewiseConstant1D(br, ve, stack.dx_um, Px);
-      const auto ci = fourier::piecewiseConstant1D(br, vi, stack.dx_um, Px);
-      SliceCoefficients sc;
-      sc.eps = fourier::CoefficientGrid(Px, Pz);
-      sc.invEps = fourier::CoefficientGrid(Px, Pz);
-      for (int p = -Px; p <= Px; ++p) {
-        sc.eps(p, 0) = ce[static_cast<std::size_t>(p + Px)];
-        sc.invEps(p, 0) = ci[static_cast<std::size_t>(p + Px)];
-      }
-      sc.normal = &nf;
-      const QBlocks Q = fac == Factorization::Laurent  ? qLaurent(sc, s.map)
-                        : fac == Factorization::FFF_rig ? qFFFIsotropicRigorous(sc, s.map)
-                                                        : qFFFIsotropic(sc, s.map, fac == Factorization::FFF_sym);
-      return buildPropagationMatrix(Q, s.alpha, s.gamma);
-    };
-    const double h = a * s.k0;  // normalized depth
-    SMatrix S = SMatrix::identity(2 * s.map.size());
-    if (opt_.kind == SolverKind::RCWA) {
-      const int K = pl.slices > 0 ? pl.slices : opt_.rcwaSlices;
-      for (int k = 0; k < K; ++k) {
-        const MatC M = Mat((k + 0.5) * a / K);  // staircase: eps at slice centre, smooth N
-        const LayerModes lm = layerModesAuto(M);
-        S = star(S, stableLayerSMatrix(lm, h / K, s.ref));
-      }
-      return S;
+  /// RK treatment of one layer: stability sub-slices (Plan eq:slicecrit) with the spectral radius
+  /// of the truncated M, a posteriori bisection, transfer matrices at recorded heights.
+  void rkLayer(const Setup& s, const LayerModel& m, double y0, double H, bool record,
+               const std::vector<double>& sampleY, Assembly& as, Diagnostics& diag) {
+    const double a = m.thickness_um();
+    std::function<MatC(double)> Mfun;
+    MatC Mconst;
+    if (m.yInvariant()) {
+      Mconst = buildPropagationMatrix(m.Q(0.0), s.alpha, s.gamma);
+      Mfun = [&Mconst](double) { return Mconst; };
+    } else {
+      Mfun = [&](double yl) { return buildPropagationMatrix(m.Q(yl / s.k0), s.alpha, s.gamma); };
     }
-    // RK: stability sub-slices (Plan eq:slicecrit) with the spectral radius of the truncated M
-    // (FFF can create eigenvalues far above the material estimate), plus a posteriori bisection
-    // whenever the field transfer matrix grows beyond growthLimit.
-    double rho = rhoEstimate(s, {mb.eps, ma.eps});
-    for (double t : {0.02, 0.25, 0.5, 0.75, 0.98}) rho = std::max(rho, spectralRadius(Mat(t * a)));
-    const int K = std::max(pl.slices > 0 ? pl.slices : 1,
-                           static_cast<int>(std::ceil(rho * h / std::log(opt_.growthLimit))));
+    double rho = rhoEstimate(s, m.epsList);
+    if (m.yInvariant())
+      rho = std::max(rho, spectralRadius(Mconst));
+    else
+      for (double t : {0.02, 0.25, 0.5, 0.75, 0.98}) rho = std::max(rho, spectralRadius(Mfun(t * a * s.k0)));
+    const int K = std::max(1, static_cast<int>(std::ceil(rho * H / std::log(opt_.growthLimit))));
     const auto tab = ButcherTableau::byName(opt_.rkTableau);
     for (int k = 0; k < K; ++k)
-      S = star(S, rkSlice([&](double yn) { return Mat(yn / s.k0); }, h * k / K, h * (k + 1) / K, rho,
-                          tab, s.ref, diag, 0));
-    return S;
+      rkSlice(s, m, Mfun, m.yInvariant(), y0, H * k / K, H * (k + 1) / K, rho, tab, record, sampleY, as, diag, 0);
+  }
+
+  /// Field transfer over [ya, yb] (layer-local normalized y), recording the transfer matrices at
+  /// the requested heights; bisects while the growth exceeds growthLimit.
+  void rkSlice(const Setup& s, const LayerModel& m, const std::function<MatC(double)>& Mfun, bool constant,
+               double y0, double ya, double yb, double rho, const ButcherTableau& tab, bool record,
+               const std::vector<double>& sampleY, Assembly& as, Diagnostics& diag, int depth) {
+    auto transfer = [&](double from, double to) {
+      RKStats st;
+      MatC T = constant ? rkTransferConstant(Mfun(0), to - from, tab, opt_.rkTol, rho, st)
+                        : rkTransferAuto(Mfun, from, to, tab, opt_.rkTol, rho, st);
+      diag.rkSteps += st.steps;
+      return T;
+    };
+    Element e;
+    e.kind = Element::Kind::RK;
+    e.y0 = y0 + ya;
+    e.y1 = y0 + yb;
+    e.model = &m;
+    e.layerY0 = y0;
+    const Eigen::Index n = 4 * s.map.size();
+    MatC T = MatC::Identity(n, n);
+    double prev = ya;
+    if (record)
+      for (double ys : sampleY) {
+        const double yl = ys - y0;
+        if (yl > ya && yl < yb) {
+          T = transfer(prev, yl) * T;
+          prev = yl;
+          e.ys.push_back(ys);
+          e.T.push_back(T);
+        }
+      }
+    T = transfer(prev, yb) * T;
+    if ((!T.allFinite() || T.cwiseAbs().maxCoeff() > opt_.growthLimit) && depth < 12) {
+      const double ym = 0.5 * (ya + yb);
+      rkSlice(s, m, Mfun, constant, y0, ya, ym, rho, tab, record, sampleY, as, diag, depth + 1);
+      rkSlice(s, m, Mfun, constant, y0, ym, yb, rho, tab, record, sampleY, as, diag, depth + 1);
+      return;
+    }
+    FG_REQUIRE(T.allFinite(), "RK transfer matrix not finite");
+    e.S = rkSliceSMatrix(T, s.ref);
+    addElement(as, std::move(e), record);
+  }
+
+  // ------------------------------------------------------------------ efficiencies
+  void efficiencies(const Setup& s, const SMatrix& S, Result& res) const {
+    const int nf = s.map.size(), nh = 2 * nf;
+    const VecC a_in = incidentAmplitudes(s);
+    const int c = s.map.center();
+    const VecC b_top = S.S12 * a_in;
+    const VecC a_sub = S.S22 * a_in;
+    const auto incOrder = planeWaveOrder(s.epsSup, s.alpha(c), s.gamma(c), s.ref.beta(c), -1, a_in(c), a_in(nf + c));
+    const double Sinc = std::abs(incOrder.Sy);
+    const Material& sub = *s.sub;
+    const bool subLossless = sub.isotropic ? (std::abs(sub.eps.imag()) < 1e-14 && sub.eps.real() > 0)
+                                           : (sub.epsTensor - sub.epsTensor.adjoint()).cwiseAbs().maxCoeff() < 1e-14;
+    const VecC Fsub = s.subModes.Psi.leftCols(nh) * a_sub;
+    auto split = [](OrderEfficiency& o, double e) {
+      o.efficiency = e;
+      const double ws = std::norm(o.amp_s), wp = std::norm(o.amp_p);
+      if (ws + wp > 0) {
+        o.eff_s = e * ws / (ws + wp);
+        o.eff_p = e * wp / (ws + wp);
+      }
+    };
+    double sumR = 0, sumT = 0;
+    for (int r = 0; r < nf; ++r) {
+      const auto [n, m] = s.map.orders(r);
+      const auto ro = planeWaveOrder(s.epsSup, s.alpha(r), s.gamma(r), s.ref.beta(r), +1, b_top(r), b_top(nf + r));
+      if (ro.propagating) {
+        OrderEfficiency o{n, m, 0, ro.amp_s, ro.amp_p};
+        split(o, ro.Sy / Sinc);
+        res.reflected.push_back(o);
+        sumR += ro.Sy / Sinc;
+      }
+      if (!subLossless) continue;
+      if (sub.isotropic) {
+        const auto to = planeWaveOrder(sub.eps, s.alpha(r), s.gamma(r), s.subModes.beta(r), -1, a_sub(r), a_sub(nf + r));
+        if (to.propagating) {
+          OrderEfficiency o{n, m, 0, to.amp_s, to.amp_p};
+          split(o, -to.Sy / Sinc);
+          res.transmitted.push_back(o);
+          sumT += -to.Sy / Sinc;
+        }
+      } else {
+        const double sy = 0.5 * std::real(Fsub(nf + r) * std::conj(Fsub(2 * nf + r)) - Fsub(r) * std::conj(Fsub(3 * nf + r)));
+        if (std::abs(sy) > 1e-14 * Sinc) {
+          res.transmitted.push_back({n, m, -sy / Sinc, 0, 0});
+          sumT += -sy / Sinc;
+        }
+      }
+    }
+    res.absorption = 1.0 - sumR - sumT;
+    res.diag.energyBalance = sumR + sumT;
+  }
+
+  static VecC incidentAmplitudes(const Setup& s) {
+    const int nf = s.map.size();
+    VecC a_in = VecC::Zero(2 * nf);
+    a_in(s.map.center()) = s.inc.A(0);
+    a_in(nf + s.map.center()) = s.inc.A(2);
+    return a_in;
+  }
+
+  // ------------------------------------------------------------------ field coefficients
+  FieldSampleSet samples(const Setup& s, const std::vector<std::unique_ptr<LayerModel>>& models,
+                         const std::vector<double>& y_um, std::vector<const Element*>* where) {
+    std::vector<double> yn;
+    for (double y : y_um) yn.push_back(y * s.k0);
+    std::vector<double> sorted = yn;
+    std::sort(sorted.begin(), sorted.end());
+    Diagnostics diag;
+    assembly_ = assemble(s, models, true, sorted, diag);
+    const auto& el = assembly_.elems;
+    const std::size_t K = el.size() - 1;
+    const int nf = s.map.size(), nh = 2 * nf;
+    // cumulative S-matrices below (S_L) and above (S_U) every interface q (top of element q)
+    std::vector<SMatrix> SL(K + 1), SU(K + 1);
+    SL[0] = el[0].S;
+    for (std::size_t q = 1; q <= K; ++q) SL[q] = star(SL[q - 1], el[q].S);
+    SU[K] = SMatrix::identity(nh);
+    for (std::size_t q = K; q-- > 0;) SU[q] = star(el[q + 1].S, SU[q + 1]);
+    const VecC a_in = incidentAmplitudes(s);
+    const VecC b_in = VecC::Zero(nh);
+    std::vector<VecC> amp(K + 1);  // (a_q; b_q) in the reference basis (Plan eq:internal)
+    for (std::size_t q = 0; q <= K; ++q) amp[q] = interfaceAmplitudes(SL[q], SU[q], b_in, a_in);
+    const VecC a_sub = SL[K].S22 * a_in;  // substrate amplitudes at y = 0 (total = SL[K])
+
+    FieldSampleSet out;
+    out.k0 = s.k0;
+    out.alpha = s.alpha;
+    out.gamma = s.gamma;
+    if (where) where->assign(y_um.size(), nullptr);
+    for (std::size_t i = 0; i < yn.size(); ++i) {
+      const double y = yn[i];
+      FieldSample fsm;
+      fsm.y_um = y_um[i];
+      QBlocks Q;
+      if (y < 0) {
+        fsm.region = -1;
+        VecC ph(nh);
+        for (int c = 0; c < nh; ++c) ph(c) = std::exp(s.subModes.lambda(c) * y);
+        fsm.F = s.subModes.Psi.leftCols(nh) * ph.cwiseProduct(a_sub);
+        Q = s.sub->isotropic ? homogeneousIsotropicQ(s.sub->eps, nf) : homogeneousTensorQ(s.sub->epsTensor, nf);
+      } else if (y > assembly_.yTop) {
+        fsm.region = 1;
+        const double d = y - assembly_.yTop;
+        VecC v(2 * nh);
+        for (int c = 0; c < nh; ++c) {
+          v(c) = a_in(c) * std::exp(s.ref.lambda(c) * d);
+          v(nh + c) = amp[K](nh + c) * std::exp(s.ref.lambda(nh + c) * d);
+        }
+        fsm.F = s.ref.Psi * v;
+        Q = homogeneousIsotropicQ(s.epsSup, nf);
+      } else {
+        std::size_t k = 1;
+        while (k < K && y > el[k].y1) ++k;
+        const Element& e = el[k];
+        if (where) (*where)[i] = &e;
+        const VecC& lo = amp[k - 1];  // (a_{k-1}; b_{k-1}) at the bottom
+        const VecC& hi = amp[k];      // (a_k; b_k) at the top
+        if (e.kind == Element::Kind::Modes) {
+          const Eigen::Index n = e.modes.lu.size();
+          VecC rhs(2 * n);
+          rhs << lo.tail(n), hi.head(n);  // (b_bottom; a_top)
+          const VecC cc = e.G.partialPivLu().solve(rhs);
+          VecC cu = cc.head(n), cd = cc.tail(n);
+          for (Eigen::Index j = 0; j < n; ++j) {
+            cu(j) *= std::exp(e.modes.lu(j) * (y - e.y0));
+            cd(j) *= std::exp(e.modes.ld(j) * (y - e.y1));
+          }
+          fsm.F = e.modes.Wu * cu + e.modes.Wd * cd;
+          Q = e.model->Q(e.qHeight_um >= 0 ? e.qHeight_um : 0.0);
+        } else {
+          const VecC F0 = s.ref.Psi * lo;
+          fsm.F = F0;
+          for (std::size_t j = 0; j < e.ys.size(); ++j)
+            if (std::abs(e.ys[j] - y) <= 1e-14 * std::max(1.0, std::abs(y))) fsm.F = e.T[j] * F0;
+          if (y >= e.y1 - 1e-14 * std::max(1.0, std::abs(y))) fsm.F = s.ref.Psi * hi;
+          Q = e.model->Q((y - e.layerY0) / s.k0);
+        }
+      }
+      fsm.Ey = computeEy(Q, s.alpha, s.gamma, fsm.F);
+      fsm.Hy = computeHy(s.alpha, s.gamma, fsm.F);
+      out.samples.push_back(std::move(fsm));
+    }
+    return out;
+  }
+
+  // ------------------------------------------------------------------ synthesis
+  FieldCut synthesize(const Stack& stack, const Setup& s, const FieldSampleSet& fs,
+                      const std::vector<const Element*>& where, const std::vector<double>& xs, int i0, int i1,
+                      const NearFieldRequest& req, const std::string& name) const {
+    FieldCut cut;
+    cut.cut = name;
+    cut.lambda_um = 2 * PI / s.k0;
+    cut.axis1_um = xs;
+    const int nf = s.map.size();
+    const double z = req.vertical_z_um * s.k0;
+    for (int i = i0; i < i1; ++i) cut.axis2_um.push_back(fs.samples[static_cast<std::size_t>(i)].y_um);
+    for (int i = i0; i < i1; ++i) {
+      const FieldSample& f = fs.samples[static_cast<std::size_t>(i)];
+      const Element* e = where[static_cast<std::size_t>(i)];
+      const bool fff = req.reconstruction == Reconstruction::FFF && e && e->model && !e->model->homogeneous();
+      // Fourier vectors of E and H
+      VecC E[3] = {f.F.segment(0, nf), f.Ey, f.F.segment(nf, nf)};
+      VecC Hc[3] = {f.F.segment(2 * nf, nf), f.Hy, f.F.segment(3 * nf, nf)};
+      VecC et[3], dn[3];
+      const double yq = e ? (e->qHeight_um >= 0 ? e->qHeight_um : f.y_um - e->layerY0 / s.k0) : 0.0;
+      if (fff) {
+        // FFF-consistent reconstruction (Plan eq:recon): e_t = P_T E, d_n = P_N D continuous
+        const QBlocks Q = e->model->Q(yq);
+        VecC D[3];
+        for (int a = 0; a < 3; ++a) D[a] = Q(a, 0) * E[0] + Q(a, 1) * E[1] + Q(a, 2) * E[2];
+        const auto& nn = e->model->NN();
+        for (int a = 0; a < 3; ++a) {
+          dn[a] = VecC::Zero(nf);
+          et[a] = E[a];
+          for (int b = 0; b < 3; ++b) {
+            const MatC P = fourier::toeplitz(s.map, nn.NN[static_cast<std::size_t>(a)][static_cast<std::size_t>(b)]);
+            dn[a] += P * D[b];
+            et[a] -= P * E[b];
+          }
+        }
+      }
+      for (double x_um : xs) {
+        const double x = x_um * s.k0;
+        VecC ph(nf);
+        for (int r = 0; r < nf; ++r) ph(r) = std::exp(I * (s.alpha(r) * x + s.gamma(r) * z));
+        for (int c = 0; c < 3; ++c) cut.H[c].push_back(ph.transpose() * Hc[c]);
+        if (fff) {
+          Vec3C etx, dnx;
+          for (int a = 0; a < 3; ++a) {
+            etx(a) = ph.transpose() * et[a];
+            dnx(a) = ph.transpose() * dn[a];
+          }
+          const ProjectorSet ps = projectorMatrices(e->model->epsAt(x_um, yq), e->model->normalAt(x_um));
+          const Vec3C Ex = ps.H1 * etx + ps.invXi * dnx;
+          for (int c = 0; c < 3; ++c) cut.E[c].push_back(Ex(c));
+        } else {
+          for (int c = 0; c < 3; ++c) cut.E[c].push_back(ph.transpose() * E[c]);
+        }
+        cut.material.push_back(materialAt(stack, s, f, e, x_um, yq).real());
+      }
+    }
+    return cut;
+  }
+
+  static cplx materialAt(const Stack& stack, const Setup& s, const FieldSample& f, const Element* e, double x_um,
+                         double yq) {
+    (void)s;
+    if (f.region < 0) return stack.material(stack.substrate).tensor()(0, 0);
+    if (f.region > 0 || !e || !e->model) return stack.material(stack.superstrate).tensor()(0, 0);
+    return e->model->epsAt(x_um, yq)(0, 0);
   }
 
   SolverOptions opt_;
+  Assembly assembly_;  // last recorded assembly (referenced by 'where' pointers)
 };
 
 }  // namespace
 
-std::unique_ptr<Solver> makeSolver(const SolverOptions& opt) {
-  return std::make_unique<StackSolver>(opt);
-}
+std::unique_ptr<Solver> makeSolver(const SolverOptions& opt) { return std::make_unique<StackSolver>(opt); }
 
 }  // namespace fg

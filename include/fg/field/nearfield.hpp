@@ -11,7 +11,7 @@ namespace fg {
 enum class Reconstruction { Direct, FFF };
 
 struct NearFieldRequest {
-  double horizontal_y_um = 0;   ///< horizontal cut: y = const (1D: line E(x), 2D: map (x, z))
+  double horizontal_y_um = 0;   ///< horizontal cut: y = const (1D: line u(x), 2D: map (x, z))
   double vertical_z_um = 0;     ///< vertical cut: z = const, map (x, y)
   double y_min_um = -0.2, y_max_um = 0.5;
   int nx = 400, ny = 300, nz = 200;
@@ -20,18 +20,27 @@ struct NearFieldRequest {
   std::vector<std::string> quantities{"E", "H", "absE2"};
 };
 
-/// Real-space field on a cut: complex components E(3), H(3) per grid point, row-major.
+/// Real-space field on a cut. Arrays are row-major with axis2 outer (size n2 * n1);
+/// for a line (horizontal cut of a 1D grating) axis2 is empty and the arrays have n1 entries.
+/// E in units of the incident amplitude (|E_inc| = 1), H normalized as Z0 * H.
 struct FieldCut {
-  std::vector<double> axis1_um, axis2_um;   ///< axis2 empty for a 1D line
+  std::string cut;                          ///< "horizontal" | "vertical"
+  std::string axis1Name = "x", axis2Name = "y";
+  std::vector<double> axis1_um, axis2_um;
   std::vector<cplx> E[3], H[3];
-  std::vector<double> materialIndex;        ///< for contour overlays
+  std::vector<double> material;             ///< Re(eps_xx) for contour overlays
+  double lambda_um = 0;
 };
 
-/// TODO(M6/M9): computed from a solved stack with storeInternal = true.
+struct NearFieldResult {
+  FieldCut horizontal, vertical;
+};
+
 class NearFieldWriter {
  public:
-  /// Writes one .npy per quantity plus meta.json into dir (Plan "Schnitte und Ausgabe").
-  static void write(const FieldCut& cut, const std::string& dir, const std::string& name);
+  /// Writes Ex..Hz (complex128), absE2, absH2, Sy (float64), material.npy and meta.json into dir
+  /// (format read by scripts/plot_nearfield.py).
+  static void write(const FieldCut& cut, const std::string& dir);
 };
 
 }  // namespace fg

@@ -56,7 +56,14 @@ int main(int argc, char** argv) {
     const auto file = (std::filesystem::path(cfg.outputDir) / cfg.efficiencyFile).string();
     fg::io::writeEfficiencies(file, cfg.scan, results);
     std::cout << "written: " << file << "\n";
-    if (cfg.nearField) std::cerr << "fgsolve: near fields follow in milestone M6\n";
+    if (cfg.nearField && !cfg.scan.empty()) {
+      const auto nf = solver->nearField(cfg.stack, cfg.scan.front(), cfg.field);
+      const auto base = std::filesystem::path(cfg.outputDir);
+      fg::NearFieldWriter::write(nf.horizontal, (base / "nearfield_horizontal").string());
+      fg::NearFieldWriter::write(nf.vertical, (base / "nearfield_vertical").string());
+      std::cout << "written: " << (base / "nearfield_horizontal").string() << ", "
+                << (base / "nearfield_vertical").string() << "\n";
+    }
     return 0;
   } catch (const fg::NotImplemented& e) {
     std::cerr << "fgsolve: " << e.what() << "\n";

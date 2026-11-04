@@ -31,8 +31,8 @@ JSON-Konfiguration (µm, Grad)
 | `geometry` | Material, Schichttypen, Stapel, Normalenfelder | Typen fertig, Normalenfelder M3/M7 |
 | `physics` | Einfall, `M`, isotrope Moden, Q-Matrizen, anisotrope Moden, Effizienzen | fertig bis auf FFF_A/B, anisotrope Moden (M5) |
 | `smatrix` | T→S, Sternprodukt, interne Amplituden | fertig |
-| `solvers` | Butcher, RK-Transfer (konstant/adaptiv), RCWA-Moden + stabile S, Stapellöser | fertig für homogene + Lamellenschichten; Profile M3 |
-| `field` | Nahfeld | M6/M9 |
+| `solvers` | Butcher, RK-Transfer, RCWA-Moden + stabile S, Schichtmodelle (`detail::LayerModel`), Stapellöser mit Aufzeichnung, Feldkoeffizienten, Schnitte | fertig für 1D |
+| `field` | Schnitte (`FieldCut`), NPY/JSON-Ausgabe | 1D fertig, 2D M9 |
 | `linalg` | Backend-Schnittstelle, CPU (Eigen), CUDA | CPU fertig, CUDA M10 |
 | `io` | JSON-Konfiguration, CSV-Ausgabe | fertig für M2-Schichttypen |
 

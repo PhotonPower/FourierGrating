@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0] – M6 (Nahfeld 1D)
+
+### Hinzugefügt
+- Gemeinsame Schichtmodelle (`detail::LayerModel`) für Lösung und Feldrekonstruktion.
+- Aufzeichnende Assemblierung: interne Amplituden (S_L/S_U), modale Scheiben, RK-Transfermatrizen
+  an den angeforderten Höhen.
+- `Solver::fieldCoefficients` und `Solver::nearField`: horizontaler und vertikaler Schnitt,
+  direkte oder FFF-konsistente Rekonstruktion (Projektorform, iso und aniso).
+- NPY/JSON-Ausgabe (`NearFieldWriter`), `fgsolve` schreibt Schnitte bei `nearfield.enabled`.
+- Validierung V12 (Airy analytisch, Stetigkeit, Flusskonstanz, RK = RCWA, D_x-Stetigkeit).
+
 ## [0.4.0] – M5 (anisotrop, 1D)
 
 ### Hinzugefügt

@@ -18,6 +18,7 @@ add_library(fg_core
   smatrix/smatrix.cpp
   solvers/butcher.cpp
   solvers/solver.cpp
+  solvers/layer_model.cpp
   solvers/rcwa.cpp
   solvers/rk.cpp
   field/nearfield.cpp

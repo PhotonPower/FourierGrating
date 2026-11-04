@@ -21,7 +21,7 @@ der Literatur. Konfigurationen liegen in `examples/`.
 | V11 | Al-Sinus 40°, ν = 1,3+7,6i: Li-Lamellentreppe vs. FFF (Buch Abb. VI.10) | Treppe langsam, FFF schnell | qualitativ |
 | V13 | Gold-Sinus TM: d = 1 µm, a = 0,25 µm, λ = 0,6328 µm, ν = 0,2+3,4i, Φ = 20°, Ordnung −1 und 0 | C-Methode (intern): e₋₁ = 0,26614, e₀ = 0,02362 | FFF_rig 1e-3, FFF_sym 3e-3; Buchvariante versagt |
 | V14 | Gold-Dreieck TM (Spitze bei x = 0,7 µm), sonst wie V13 | **offen** – keine belastbare Referenz; geprüft: Σe < 1 | – |
-| V12 | Nahfeld: Stetigkeit tangentialer Komponenten; Feld im Superstrat = Rayleigh-Summe | Sprung < 1e-6 | 1e-6 |
+| V12 | Nahfeld: Airy-Schicht analytisch (RK, RCWA); Stetigkeit an allen Element-/Scheibengrenzen; Flusskonstanz in verlustfreien Lamellenstapeln; RK-Feld = RCWA-Feld; D_x-Stetigkeit an einer Lamellenwand | analytisch / Stetigkeit / Fluss = Σ T | 1e-12; 1e-6; 1e-12 (RCWA), 1e-8 (RK); 1e-7; FFF < 0,1 (direkt > 1) |
 
 Zusätzliche Kontrollen aus der Kapitelprüfung (Al-Sinus V4, TM, FFF-Treppe):
 60 / 150 / 300 Scheiben → 0,853 / 0,865 / 0,869. Treppe mit Li-Lamellenformel bei N = 30:
@@ -33,3 +33,7 @@ M = 1 → 0,565, M = 20 → 0,804, M = 200 → 0,774 (keine monotone Konvergenz)
 **Ergebnisse M3 (RK, Gauß 2, tol 1e-5):** V4 TM N = 20: FFF_iso 0,86951, FFF_rig 0,87075, FFF_sym 0,86565;
 N = 30 (FFF_iso): 0,87000. TE N = 20: 0,32335. RCWA 300 Scheiben N = 20: FFF_iso 0,86866, FFF_rig 0,86996.
 V5 TE: 0,81996 (RCWA), 0,81997 (RK).
+
+**Nahfeld in FFF-Profilschichten:** Der Leistungsfluss ist innerhalb einer FFF-Profilschicht nur auf etwa
+3e-4 konstant (dieselbe Ursache wie die nicht exakte Energiebilanz der FFF); in homogenen Schichten und
+Lamellen exakt.

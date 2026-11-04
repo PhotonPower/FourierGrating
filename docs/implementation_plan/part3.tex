@@ -218,6 +218,19 @@ $\to0{,}853/0{,}865/0{,}869$, Referenz $0{,}8696$ (C-Methode).
         auf einem Gitter (Zero-Padding), danach Multiplikation mit $e^{i(\alpha_0x+\gamma_0z)}$.
 \end{enumerate}
 
+\subsection{Umsetzung (M6)}
+\begin{itemize}[nosep]
+  \item Ein Lauf mit Aufzeichnung speichert jedes Element des Stapels (Grenzfläche zum Substrat, modale Scheibe
+        mit $W$, $\Lambda$, $G$, RK-Scheibe mit den Transfermatrizen $T(y_0\to y_j)$ an genau den angeforderten
+        Höhen $y_j$). Die RK-Integration hält dafür an den Abtasthöhen an; dichte Ausgabe \eqref{eq:dense}
+        ist damit nicht nötig.
+  \item Interne Amplituden aus \eqref{eq:internal} mit kumulierten $S_L$, $S_U$ je Grenzfläche.
+  \item Schnittstelle \verb|Solver::fieldCoefficients(stack, wl, y)| liefert $F$, $[E_y]$, $[H_y]$ je Höhe;
+        \verb|Solver::nearField| erzeugt die Schnitte. Gemeinsame Schichtmodelle (\verb|detail::LayerModel|:
+        $Q(y)$, $\overline{\overline\varepsilon}(x,y)$, $\mathbf N(x)$, $\tp{\mathbf N\mathbf N^T}$) sorgen dafür, dass
+        Lösung und Rekonstruktion dieselben Daten verwenden (RCWA-Treppe: $Q$ und $\varepsilon$ der Scheibenmitte).
+\end{itemize}
+
 \subsection{FFF-konsistente Rekonstruktion (empfohlen in modulierten Schichten)}
 Die direkte Synthese von $E_x,E_y$ aus abgeschnittenen Reihen zeigt Gibbs-Oszillationen an
 Materialgrenzen. Besser: stetige Größen synthetisieren und punktweise zurückrechnen:
@@ -226,8 +239,11 @@ Materialgrenzen. Besser: stetige Größen synthetisieren und punktweise zurückr
   \ \Rightarrow\ \mathbf E(x,z)=C_\varepsilon(x,z)\,\mathbf F_\varepsilon(x,z),
   \label{eq:recon}
 \end{equation}
-isotrop äquivalent: $\mathbf e_t=P_T\mathbf E$ und $\mathbf d_n=P_N\mathbf D$ synthetisieren, dann
-$\mathbf E=\mathbf e_t+\mathbf d_n/\varepsilon$. $\mathbf H$ ist überall stetig ($\mu=1$) und wird direkt synthetisiert.
+umgesetzt (für isotrope und anisotrope Schichten gleichermaßen) über die Projektorform \eqref{eq:projector}:
+$[\mathbf D]=Q[\mathbf E]$, $[\mathbf d_n]=\tp{P_N}[\mathbf D]$, $[\mathbf e_t]=[\mathbf E]-\tp{P_N}[\mathbf E]$ synthetisieren
+(stetig) und punktweise $\mathbf E(x)=H_1(x)\,\mathbf e_t(x)+\xi(x)^{-1}\mathbf d_n(x)$; isotrop ist das
+$\mathbf E=\mathbf e_t+\mathbf d_n/\varepsilon$. Befund (V12): an einer Lamellenwand springt $D_x=\varepsilon E_x$ bei
+direkter Synthese um 270\,\%, FFF-konsistent um 3\,\% (Gitterabstand 2\,nm). $\mathbf H$ ist überall stetig ($\mu=1$) und wird direkt synthetisiert.
 Beide Varianten (direkt / FFF-konsistent) sind auswählbar (\verb|reconstruction: direct \| fff|).
 
 \subsection{Schnitte und Ausgabe}
@@ -244,7 +260,8 @@ Beide Varianten (direkt / FFF-konsistent) sind auswählbar (\verb|reconstruction
 \end{center}
 Größen: alle sechs komplexen Komponenten, $|\mathbf E|^2$, $|\mathbf H|^2$, $\operatorname{Re}(\mathbf Ee^{-i\omega t})$ für
 gegebene Phase, Poynting-Vektor $\tfrac12\operatorname{Re}(\mathbf E\times\mathbf H^*)$, Materialindex-Karte (für Konturen).
-Ausgabeformat: je Schnitt eine \verb|.npy|-Datei pro Größe (komplex128 bzw.\ float64, Fortran-unabhängig,
-C-Ordnung, Achsenreihenfolge in der JSON-Metadatei) plus \verb|meta.json| (Achsen in µm, Wellenlänge,
+Ausgabeformat: je Schnitt ein Verzeichnis (\verb|nearfield_horizontal|, \verb|nearfield_vertical|) mit
+\verb|Ex|\dots\verb|Hz.npy| (complex128), \verb|absE2|, \verb|absH2|, \verb|Sy|, \verb|material.npy| (float64),
+C-Ordnung, Form $(n_y,n_x)$ bzw.\ $(n_x)$, plus \verb|meta.json|; $\mathbf H$ als $Z_0\mathbf H$, $|\mathbf E_{\text{inc}}|=1$ (Achsen in µm, Wellenlänge,
 Einfall, Komponentenliste). Optional HDF5 (\verb|FG_ENABLE_HDF5|). Das Skript
 \verb|scripts/plot_nearfield.py| erzeugt PNG/PDF.
