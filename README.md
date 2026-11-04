@@ -37,6 +37,7 @@ dokumentierten Korrekturen.
 | [`docs/conventions.md`](docs/conventions.md) | Zeitkonvention, normierte Einheiten, Koordinaten, Indizes |
 | [`docs/config_format.md`](docs/config_format.md) | JSON-Eingabeformat |
 | [`docs/build_almalinux10.md`](docs/build_almalinux10.md) | Installation auf AlmaLinux 10 mit CUDA |
+| [`docs/build_windows.md`](docs/build_windows.md) | Installation auf Windows (MSYS2/MinGW-w64, CPU only, inoffiziell) |
 | [`docs/book_errata.md`](docs/book_errata.md) | Fehler im Buch, die die Implementierung betreffen |
 
 ## Schnellstart

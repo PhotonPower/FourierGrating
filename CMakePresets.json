@@ -27,16 +27,31 @@
         "CMAKE_BUILD_TYPE": "Release", "FG_ENABLE_CUDA": "ON",
         "CMAKE_CUDA_ARCHITECTURES": "89"
       }
+    },
+    {
+      "name": "win-release",
+      "displayName": "Windows (MSYS2 UCRT64 GCC), CPU only, Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/win-release",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release", "FG_ENABLE_CUDA": "OFF",
+        "CMAKE_C_COMPILER": "C:/msys64/ucrt64/bin/gcc.exe",
+        "CMAKE_CXX_COMPILER": "C:/msys64/ucrt64/bin/g++.exe"
+      },
+      "environment": { "PATH": "C:/msys64/ucrt64/bin;$penv{PATH}" }
     }
   ],
   "buildPresets": [
     { "name": "cpu-release",  "configurePreset": "cpu-release" },
     { "name": "cpu-debug",    "configurePreset": "cpu-debug" },
-    { "name": "cuda-release", "configurePreset": "cuda-release" }
+    { "name": "cuda-release", "configurePreset": "cuda-release" },
+    { "name": "win-release",  "configurePreset": "win-release" }
   ],
   "testPresets": [
     { "name": "cpu-release", "configurePreset": "cpu-release", "output": { "outputOnFailure": true } },
     { "name": "cpu-debug",   "configurePreset": "cpu-debug",   "output": { "outputOnFailure": true } },
-    { "name": "cuda-release","configurePreset": "cuda-release","output": { "outputOnFailure": true } }
+    { "name": "cuda-release","configurePreset": "cuda-release","output": { "outputOnFailure": true } },
+    { "name": "win-release", "configurePreset": "win-release", "output": { "outputOnFailure": true } }
   ]
 }
