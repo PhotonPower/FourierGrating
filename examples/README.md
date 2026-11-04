@@ -1,0 +1,12 @@
+# Beispiele / Referenzfälle
+
+JSON-Konfigurationen nach `docs/config_format.md`. Das optionale Feld `reference` enthält die
+Sollwerte aus `docs/validation.md`; Validierungstests (`tests/validation/`) lesen es aus.
+
+| Datei | Fall |
+|---|---|
+| `v1_fresnel_interface.json` | V1, ebene Grenzfläche, konischer Einfall |
+| `v4_al_sinus_te.json`, `v4_al_sinus_tm.json` | V4, Al-Sinusgitter |
+| `v7_cobalt_anisotropic.json` | V7, anisotropes Co-Gitter |
+| `v10_hole_array.json` | V10, Ag-Lochgitter (2D) |
+| `nearfield_lamellar_1d.json` | Nahfeld-Beispiel 1D (horizontaler + vertikaler Schnitt) |

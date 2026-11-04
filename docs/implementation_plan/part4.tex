@@ -1,0 +1,259 @@
+%=====================================================================
+\section{Numerische Details und Robustheit}\label{sec:numerics}
+%=====================================================================
+\begin{itemize}
+  \item Durchgehend \verb|std::complex<double>| bzw.\ \verb|cuDoubleComplex|; keine einfache Genauigkeit
+        im Kern. (Gemischte Genauigkeit nur optional für LU mit iterativer Verfeinerung, M10.)
+  \item Matrizen nie explizit invertieren, wenn ein Gleichungssystem genügt (LU + Lösen).
+        Ausnahme: $\Li$, $\tp{C_\varepsilon}^{-1}$, $Q_{\varepsilon,yy}^{-1}$, die mehrfach gebraucht werden
+        (dann LU speichern und Produkte per Lösen bilden).
+  \item Eigenwertklassifikation mit Toleranzen relativ zu $\max|\lambda|$; entartete Eigenwerte
+        (Symmetrie, Normaleinfall) sind erlaubt -- die Eigenvektoren spannen den Raum auf, die
+        S-Matrix ist davon unabhängig.
+  \item Rayleigh-Anomalien: \eqref{eq:beta_branch}; zusätzlich Option, die Wellenlänge um
+        $10^{-12}$ relativ zu verschieben.
+  \item Diagnosen je Rechnung: Energiebilanz $\sum e^{(r)}+\sum e^{(t)}$ (verlustfrei $=1$), Konditionszahlen
+        ($T_{11}$, $G$, $Q_{\varepsilon,yy}$), Anzahl RK-Schritte, Klassifikationsreserve.
+  \item Reproduzierbarkeit: deterministische Reihenfolgen, keine Zufallszahlen im Kern.
+  \item Symmetrien (optional, später): spiegelsymmetrische Strukturen bei Normaleinfall erlauben
+        Halbierung der Ordnungen -- \emph{nicht} in der ersten Version.
+\end{itemize}
+
+%=====================================================================
+\section{CUDA-Backend (RTX 6000 Ada)}\label{sec:cuda}
+%=====================================================================
+
+\subsection{Hardwareeigenschaften und Konsequenzen}
+RTX 6000 Ada: Compute Capability 8.9 (\verb|sm_89|), 48\,GB GDDR6. Die FP64-Rate beträgt bei dieser
+Architektur nur einen kleinen Bruchteil der FP32-Rate (Größenordnung 1/64; vor M10 mit einem
+ZGEMM-Benchmark messen). Konsequenzen:
+\begin{itemize}[nosep]
+  \item Die GPU lohnt sich vor allem bei großen dichten Matrizen (2D, $n\gtrsim1000$) und bei vielen
+        unabhängigen Rechnungen (Wellenlängen-/Winkel-Scans, gebatcht).
+  \item Für 1D-Probleme ($n\le$ einige Hundert) ist der CPU-Pfad meist gleich schnell oder schneller;
+        die Backend-Auswahl erfolgt automatisch nach Problemgröße (Schwelle konfigurierbar).
+  \item Der CPU-Pfad bleibt Referenz für alle Tests (GPU-Ergebnisse müssen auf $10^{-10}$ relativ übereinstimmen).
+\end{itemize}
+
+\subsection{Bibliotheken}
+\begin{center}
+\small
+\begin{tabular}{p{2.6cm}p{6.3cm}p{5.3cm}}
+\toprule
+Operation & GPU & CPU \\
+\midrule
+GEMM & cuBLAS \verb|cublasZgemm| (+ \verb|StridedBatched|) & Eigen / BLAS (OpenBLAS, FlexiBLAS) \\
+LU / Lösen & cuSOLVER \verb|cusolverDnXgetrf|, \verb|Xgetrs| (64-Bit-API) & Eigen \verb|PartialPivLU| / LAPACK \verb|zgetrf| \\
+Eigenwerte (allgemein) & cuSOLVER \verb|cusolverDnXgeev| (ab CUDA 12.6 Update 2; hybrid CPU/GPU, gepinnter Host-Speicher) & Eigen \verb|ComplexEigenSolver| / LAPACK \verb|zgeev| \\
+FFT & cuFFT (Z2Z) & FFTW3 oder PocketFFT (header-only) \\
+\bottomrule
+\end{tabular}
+\end{center}
+Eigene Kernel: Aufbau (block-)Toeplitz-Matrizen aus Koeffizientengittern, Diagonalskalierungen
+($\alpha X$, $X\gamma$), punktweise Produkte $C_\varepsilon(x)\mathbf F(x)$, Feldsynthese-Nachbearbeitung.
+Zielarchitektur: \verb|CMAKE_CUDA_ARCHITECTURES=89|.
+Speicherverwaltung über RAII-Klassen (\verb|DeviceBuffer<T>|), Streams je Wellenlänge,
+Fehlerprüfung per Makro nach jedem Aufruf.
+
+\subsection{Schnittstelle}
+Der Physikcode ruft nur die abstrakte Schnittstelle \verb|fg::linalg::Backend| (GEMM, LU, Solve, Eig,
+FFT, Speichertransfers) auf. Implementierungen: \verb|CpuBackend| (Pflicht, zuerst), \verb|CudaBackend|
+(M10). Kein CUDA-Code außerhalb von \verb|src/cuda/| und \verb|src/linalg/cuda_backend.*|.
+
+%=====================================================================
+\section{Software-Architektur}\label{sec:arch}
+%=====================================================================
+
+\subsection{Verzeichnisse}
+{\footnotesize\begin{verbatim}
+include/fg/core      Typen, Konstanten, Fehler, IndexMap
+include/fg/fourier   Koeffizienten (Intervall/Rechteck/Polygon/FFT), Toeplitz
+include/fg/geometry  Material, Schichttypen, Stapel, Normalenfelder, Scheibenzerlegung
+include/fg/physics   Einfall, Q-Matrizen (FFF), Propagationsmatrix M, Modenbasen, Effizienzen
+include/fg/smatrix   S-Matrix, Sternprodukt, T->S, Gesamtlösung, interne Amplituden
+include/fg/solvers   Butcher-Tableaus, RK-Löser, RCWA-Löser, gemeinsame Schnittstelle
+include/fg/field     Nahfeld: Schnitte, Rekonstruktion, Synthese
+include/fg/linalg    Backend-Schnittstelle, CPU- und CUDA-Backend
+include/fg/io        JSON-Konfiguration, Ergebnis- und Feldausgabe
+src/...              Implementierungen (gleiche Gliederung), src/cuda/ Kernel
+apps/fgsolve         Kommandozeilenprogramm
+tests/unit           GoogleTest, je Modul
+tests/validation     Referenzfälle (Abschnitt Validierung), CTest-Label "validation"
+examples/            JSON-Konfigurationen der Referenzfälle
+scripts/             Setup AlmaLinux 10, Plot-Skripte, Doku-Build
+docs/                dieser Plan, Architektur, Roadmap, Validierung, Konventionen
+\end{verbatim}}
+
+\subsection{Zentrale Typen (Skizze)}
+{\footnotesize\begin{verbatim}
+using cplx = std::complex<double>;  using MatC = Eigen::MatrixXcd;  using VecC = Eigen::VectorXcd;
+struct Material { bool isotropic; cplx eps; Eigen::Matrix3cd epsTensor; };   // mu = 1
+struct Incidence { double lambda_um, phi_deg, psi_deg, delta_deg; };
+enum class Dim { D1, D2 };   enum class Factorization { Laurent, LiLamellar, FFF_iso, FFF_A, FFF_B };
+struct Truncation { int Nx, Nz; };                      // Nz = 0 im 1D-Fall
+class IndexMap;                                         // (n,m) <-> r
+struct LayerSpec { /* variant: Homogeneous, Lamellar1D, Profile1D, Polygon2D, Profile2D */ };
+struct Stack { Material substrate, superstrate; std::vector<LayerSpec> layers; double dx, dz; };
+struct QBlocks { MatC b[3][3]; };                       // Q_eps,ij
+MatC buildPropagationMatrix(const QBlocks&, const VecC& alpha, const VecC& gamma); // eq:Mgeneral
+struct ModeBasis { MatC Psi, PsiInv; VecC lambda; };    // homogene Medien
+struct SMatrix { MatC S11, S12, S21, S22; };            // Konvention eq:Sdef
+SMatrix star(const SMatrix& lower, const SMatrix& upper);
+SMatrix fromTransfer(const MatC& T);
+class Solver { virtual SMatrix sliceSMatrix(...) = 0; };  // RKSolver, RCWASolver
+struct Result { std::vector<OrderEfficiency> R, T; double absorption, energyBalance; Diagnostics diag; };
+struct NearFieldRequest { double y_horizontal; double z_vertical; GridSpec grid; Quantities q; };
+\end{verbatim}}
+
+\subsection{Konfiguration (JSON, Kurzfassung; Details in \texttt{docs/config\_format.md})}
+{\footnotesize\begin{verbatim}
+{ "dimension": "1D", "solver": "rk" | "rcwa",
+  "truncation": {"Nx": 15, "Nz": 0}, "factorization": "auto",
+  "period_um": {"x": 0.5, "z": 0.0},
+  "incidence": {"lambda_um": 0.6328, "phi_deg": 30, "psi_deg": 0, "delta_deg": 90},
+  "superstrate": {"n": 1.0}, "substrate": {"n": [1.38, 7.62]},
+  "layers": [{"type": "profile1d", "shape": "sinus", "depth_um": 0.2,
+              "below": "substrate", "above": "superstrate", "slices": 40}],
+  "rk": {"tableau": "gauss2", "tol": 1e-8}, "rcwa": {"slices": 60},
+  "nearfield": {"horizontal_y_um": 0.1, "vertical_z_um": 0.0, "nx": 400, "ny": 300,
+                "quantities": ["E","H","absE2"], "reconstruction": "fff"},
+  "output": {"dir": "out/al_sinus"} }
+\end{verbatim}}
+
+\subsection{Code-Regeln}
+C++20, \verb|clang-format| (Datei im Repo), keine rohen \verb|new|/\verb|delete|, Fehler über
+\verb|fg::Error| (Ausnahmen) mit Kontext, keine globalen Zustände, Einheiten nur an der IO-Grenze
+umrechnen, jede öffentliche Funktion mit Kommentar inkl.\ Formelreferenz auf diesen Plan
+(z.\,B.\ \verb|// Plan (7.3)|).
+
+%=====================================================================
+\section{Validierung und Tests}\label{sec:validation}
+%=====================================================================
+
+\subsection{Unit-Tests (Pflicht, je Modul)}
+\begin{enumerate}[nosep]
+  \item IndexMap: Bijektion $(n,m)\leftrightarrow r$ für alle Paare; 1D-Spezialfall.
+  \item Fourierkoeffizienten: Intervall vs.\ numerische Quadratur; Polygon \eqref{eq:polygon} vs.\ Rechteck;
+        Summe der Koeffizienten zweier komplementärer Gebiete $=\delta_{p0}$.
+  \item Toeplitz: Laurent-Regel für glatte Funktionen (Inneres exakt); Beispiel Buch IV.1
+        (inverse Regel bei $N=0$ exakt $=1$, Laurent $1{,}5625$).
+  \item Butcher-Tableaus: Ordnungsbedingungen; $P_h$ vs.\ \verb|expm| (Padé-Ordnung).
+  \item Propagationsmatrix: homogenes isotropes Medium $\Rightarrow$ $M\Psi=\Psi\Lambda$ mit \eqref{eq:Psi_iso};
+        Vergleich der 16 Blöcke mit direkter Elimination aus \eqref{eq:mx1}--\eqref{eq:mx3} (Zufalls-$Q$).
+  \item S-Matrix: Sternprodukt vs.\ T-Produkt; neutrales Element; Assoziativität.
+  \item $Q_\varepsilon$: Grenzfälle aus Abschnitt~\ref{sec:fff}; $A_\varepsilon C_\varepsilon=\mathbb 1$ für Zufallstensoren;
+        Variante B isotrop $\approx$ \eqref{eq:Qiso}.
+  \item Modenbasis anisotrop: isotroper Tensor reproduziert \eqref{eq:Psi_iso}; uniaxial mit optischer Achse
+        $\parallel y$: $\lambda=\pm i\sqrt{\varepsilon_o-\kappa^2}$ (TE-artig) und $\pm i\sqrt{\varepsilon_o(1-\kappa^2/\varepsilon_e)}$.
+\end{enumerate}
+
+\subsection{Referenzfälle (Validierung)}
+\begin{center}
+\small
+\begin{tabular}{p{0.6cm}p{6.6cm}p{6.6cm}}
+\toprule
+ID & Fall & Referenz / Kriterium \\
+\midrule
+V1 & ebene Grenzfläche, alle Winkel, TE/TM, beliebiger Azimut & Fresnel analytisch, $10^{-12}$ \\
+V2 & homogene Schicht auf Substrat (Airy), auch absorbierend & analytisch, $10^{-12}$ \\
+V3 & Lamellengitter dielektrisch ($\nu=1{,}5$ bzw.\ $2{,}5$), TE/TM/konisch & Energie $=1\pm10^{-10}$;
+     RK = RCWA auf RK-Toleranz; Reziprozität \\
+V4 & Al-Sinusgitter: $d=0{,}5\,\mu$m, $g=\tfrac a2(1+\cos Kx)$, $a=0{,}2\,\mu$m, $\lambda=0{,}6328\,\mu$m,
+     $\Phi=30^\circ$, $\nu=1{,}38+7{,}62i$, Ordnung $-1$ & TE $0{,}3235$, TM $0{,}8696$ (intern, C-Methode;
+     FFF-Treppe 300 Scheiben $0{,}8687$); Toleranz $2\cdot10^{-3}$ \\
+V5 & tiefes Glas-Sinusgitter, $d=0{,}5$, $a=1{,}0\,\mu$m, $\nu=1{,}5$, $30^\circ$, Transmission $-1$ & TE $0{,}820$
+     (intern, 120 Scheiben); Buch Abb.\ III.4 $\approx0{,}82$ \\
+V6 & Dielektrisches Sinusgitter $\nu=2{,}5$, $a/d=1$, $d=1\,\mu$m, $30^\circ$ (Buch Abb.\ IV.3), TM &
+     FFF-Fehler $10^{-4}$ bei $N\approx8$ (qualitativ: FFF $\gg$ klassisch) \\
+V7 & Kobalt-Sinusgitter anisotrop (Buch Kap.\ VIII): $d=0{,}6$, $a=0{,}5\,\mu$m, $30^\circ$, TM-Einfall,
+     $\varepsilon_{ii}=-8{,}19+16{,}38i$, $\varepsilon_{xz}=-\varepsilon_{zx}=-0{,}495-0{,}106i$ &
+     intern ($N=20$, 100 Scheiben): TM$_0$ $0{,}0567$, TM$_{-1}$ $0{,}1435$, TE$_0$ $1{,}3\cdot10^{-7}$,
+     TE$_{-1}$ $2{,}37\cdot10^{-6}$; Buch $\approx0{,}055/0{,}148/\approx10^{-7}/2{,}6\cdot10^{-6}$; Toleranz 3\,\% \\
+V8 & Anisotroper Code mit isotropem Tensor & identisch mit isotropem Code ($10^{-10}$ bei gleicher Faktorisierung) \\
+V9 & 2D-Code mit $z$-invarianter Struktur ($g(x,z)=g(x)$, $N_z=0$) & identisch mit 1D-konisch \\
+V10 & Lochgitter (Buch IX.1.7): Ag-Film $0{,}2\,\mu$m auf Glas, quadratische Löcher $0{,}25\,\mu$m,
+      Periode $0{,}9\,\mu$m, $\nu_{\text{Ag}}=0{,}1+8{,}94i$, Normaleinfall & $T(\lambda=1{,}388\,\mu$m$)\approx7{,}5\,\%$
+      (Buch); Plasmonpol der ebenen Grenzfläche bei $1{,}369406\,\mu$m \\
+V11 & Fig.\ VI.10 (Al, $40^\circ$, $\nu=1{,}3+7{,}6i$): Li-Lamellentreppe vs.\ FFF & qualitativ: Treppe mit
+      Li-Formel konvergiert langsam, FFF schnell \\
+V12 & Nahfeld: Stetigkeit der Tangentialkomponenten an allen Grenzflächen; Vergleich direkt vs.\ FFF-Rekonstruktion &
+      Sprung $<10^{-6}$ (homogene Grenzflächen); Feld im Superstrat = Rayleigh-Summe \\
+\bottomrule
+\end{tabular}
+\end{center}
+\enquote{Intern} = in der Prüfung der Buchkapitel mit unabhängigen Python-Implementierungen berechnet
+(nicht aus der Literatur); bei Abweichungen zuerst die eigene Implementierung, dann diese Werte prüfen.
+Zusätzlich für jeden Referenzfall eine Konvergenzstudie in $N$ und (RCWA) in der Scheibenzahl als
+Testausgabe (CSV) ablegen.
+
+%=====================================================================
+\section{Meilensteine}\label{sec:milestones}
+%=====================================================================
+\begin{longtable}{p{1.0cm}p{6.6cm}p{6.6cm}}
+\toprule
+M & Inhalt & Abnahme \\
+\midrule
+\endhead
+M0 & Build-System, Abhängigkeiten, CI (CPU), Grundgerüst, Doku & \verb|cmake --build| + \verb|ctest| grün auf AlmaLinux 10 und in CI \\
+M1 & IndexMap, Fourierkoeffizienten, Toeplitz, Butcher, S-Matrix-Kern, isotrope Modenbasis, $M$-Aufbau & Unit-Tests 1--6, 8 (isotrop) \\
+M2 & 1D in-plane isotrop: homogene Schichten, Lamellen (RCWA, Li und FFF\_iso), Gesamtlösung, Effizienzen & V1, V2, V3 (TE/TM) \\
+M3 & 1D Profile: Nullstellen-Schnitte, Normalenfeld, FFF\_iso; RK-Löser (Gauß 2/3, Schrittsteuerung); RCWA-Treppe mit FFF & V4, V5, V6; RK = RCWA auf Lamellen \\
+M4 & 1D konisch ($4n_f$): volle $M$, Polarisation, s/p-Ausgabe & V1/V2 konisch, V3 konisch, Reziprozität \\
+M5 & 1D anisotrop: Tensoren, FFF\_A, FFF\_B, anisotrope Substrate (4×4-Moden, Klassifikation) & V7, V8, Unit-Test 7 \\
+M6 & Nahfeld 1D: interne Amplituden, RCWA/RK-Rekonstruktion, direkt/FFF, Schnitte, Plot-Skript & V12 (1D) \\
+M7 & 2D isotrop: IndexMap 2D, Polygon-Koeffizienten, Normalenfeld (Alg.\ NF), RCWA; RK für Profile2D & V9, V10 \\
+M8 & 2D anisotrop & V8 (2D), Konvergenzstudie \\
+M9 & Nahfeld 2D (horizontal $x$--$z$, vertikal $x$--$y$) & V12 (2D) \\
+M10 & CUDA-Backend (cuBLAS, cuSOLVER getrf/geev, cuFFT), Batching über Wellenlängen, Benchmarks & GPU = CPU auf $10^{-10}$; Benchmark-Bericht \\
+M11 & Parameter-Scans, Performance, Doku für Anwender & Beispielskripte, Laufzeittabelle \\
+\bottomrule
+\end{longtable}
+
+%=====================================================================
+\section{Buchfehler mit Relevanz für die Implementierung}\label{sec:errata}
+%=====================================================================
+\begin{center}
+\small
+\begin{tabular}{p{2.3cm}p{5.4cm}p{6.6cm}}
+\toprule
+Stelle & Buch & korrekt (in diesem Plan verwendet) \\
+\midrule
+(II.19)/(II.20) & $\beta_0^{(1)}$ im einfallenden Term & $\beta_0^{(2)}$ \\
+TM-Matrix S.\,46 & Indizes $(m,n)$ vertauscht & $M_{12,nm}=(k^2)_{n-m}$ usw. \\
+(III.24)/(III.26) & $C$ und $C'$ vertauscht & Grenzflächen über $\Psi_{\text{ref}}^{-1}\Psi_X$ \\
+S.\,56 & $A'^{(1)}=A^{(1)}$ & nur für $\nu_1=\nu_M$; Grenzfläche Substrat$\to$ref nötig \\
+(III.29) & $T_{12}$, $T_{21}$ vertauscht & -- (Sternprodukt verwenden) \\
+(III.45) & $S_{21}$ statt $S_{22}$ & \eqref{eq:star} \\
+(IV.39)/(IV.40) & $\delta_{n,p}$ fehlt & Startwerte als Einheitsmatrix (Abschn.\ RK) \\
+konisch & $\beta$ ohne $\gamma_0$ & $\beta=\sqrt{\varepsilon-\alpha^2-\gamma^2}$ \\
+S.\,102 (Text) & Spaltenreihenfolge von $C_\varepsilon$ & \eqref{eq:Ceps} \\
+S.\,108 & $C_\varepsilon$ $y$-unabhängig & hängt über $\varepsilon(y)$ von $y$ ab \\
+(VI.13) & $L$ in allen Blöcken & nur Diagonalblöcke (schräge Lamellen) \\
+(VII.72) & Vorfaktor $\sqrt{\mu_0/\varepsilon_0}/(ik_j)$ & $1/(i\omega\varepsilon_j)$ (nicht benötigt) \\
+(VIII.2) & Vorzeichen $C_{23}$ & \eqref{eq:C1d} \\
+(VIII.3) & $M_{32}$ ohne $-i\alpha^2/(\omega\mu_0)$ & \eqref{eq:Mmu1b} \\
+(IX.1) & $\beta_0=k_0\cos\Psi$ & $\cos\Phi$, \eqref{eq:incidence} \\
+(IX.14) & Division durch $N+1$ & \eqref{eq:indexmap} \\
+(IX.16)--(IX.19) & Indizes $m(s)$, $\alpha_{m(r)}$ & alle zur Komponente $r$, $\alpha_{n(r)}$ \\
+(IX.20) & Transmission ohne $k_2\to k_1$ & \eqref{eq:eff_closed} \\
+Anh.\ IV & 2D-Blockgröße $(4N+2)^2$ & $2(2N+1)^2$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%=====================================================================
+\section*{Literatur}
+\addcontentsline{toc}{section}{Literatur}
+\begin{enumerate}[label={[\arabic*]},nosep,leftmargin=2em]
+  \item M.~Nevière, E.~Popov, \emph{Light Propagation in Periodic Media: Differential Theory and Design}, Marcel Dekker, 2003.
+  \item L.~Li, \enquote{Use of Fourier series in the analysis of discontinuous periodic structures}, JOSA A 13, 1870 (1996).
+  \item L.~Li, \enquote{Formulation and comparison of two recursive matrix algorithms for modeling layered diffraction gratings}, JOSA A 13, 1024 (1996).
+  \item L.~Li, \enquote{New formulation of the Fourier modal method for crossed surface-relief gratings}, JOSA A 14, 2758 (1997).
+  \item E.~Popov, M.~Nevière, \enquote{Maxwell equations in Fourier space: fast-converging formulation for diffraction by arbitrary shaped, periodic, anisotropic media}, JOSA A 18, 2886 (2001).
+  \item K.~Watanabe, R.~Petit, M.~Nevière, \enquote{Differential theory of gratings made of anisotropic materials}, JOSA A 19, 325 (2002).
+  \item T.~Schuster, J.~Ruoff, N.~Kerwien, S.~Rafler, W.~Osten, \enquote{Normal vector method for convergence improvement using the RCWA for crossed gratings}, JOSA A 24, 2880 (2007).
+  \item P.~Götz, T.~Schuster, K.~Frenner, S.~Rafler, W.~Osten, \enquote{Normal vector method for the RCWA with automated vector field generation}, Opt.\ Express 16, 17295 (2008).
+  \item E.~Hairer, G.~Wanner, \emph{Solving Ordinary Differential Equations II}, Springer (Butcher-Tableaus Gauß/Radau).
+  \item NVIDIA cuSOLVER Documentation, \verb|cusolverDnXgeev| (seit CUDA 12.6 Update 2).
+\end{enumerate}
+(Literaturangaben 7, 8 vor Verwendung bibliographisch prüfen.)

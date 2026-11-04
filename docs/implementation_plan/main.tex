@@ -1,0 +1,36 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\IfFileExists{ngerman.ldf}{\usepackage[ngerman]{babel}}{}
+\IfFileExists{lmodern.sty}{\usepackage{lmodern}}{}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage[a4paper,margin=2.2cm]{geometry}
+\usepackage{booktabs,tabularx,array,longtable}
+\usepackage[shortlabels]{enumitem}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+
+\tcbset{colback=blue!3,colframe=blue!50!black,fonttitle=\bfseries\small,fontupper=\small,
+        left=4pt,right=4pt,top=2pt,bottom=2pt}
+\newcommand{\tp}[1]{[\![#1]\!]}
+\newcommand{\Li}{\tp{1/\varepsilon}^{-1}}
+\providecommand{\enquote}[1]{\glqq#1\grqq}
+\providecommand{\glqq}{,,}\providecommand{\grqq}{``}
+\setlength{\parindent}{0pt}\setlength{\parskip}{3pt}
+
+\title{\textbf{FourierGrating}\\[4pt]\large Implementierungsplan: Fourier-Modal-Methode mit
+Differentialmethode (implizites Runge--Kutta) und RCWA\\ für 1D- und 2D-periodische, isotrope und
+anisotrope Gitter, inkl.\ Nahfeld\\[4pt]\normalsize C++20/CUDA, AlmaLinux 10, NVIDIA RTX 6000 Ada}
+\author{Spezifikation für die Implementierung durch einen KI-Agenten}
+\date{Version 1.0}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\clearpage
+\input{part1}
+\input{part2}
+\input{part3}
+\input{part4}
+\end{document}

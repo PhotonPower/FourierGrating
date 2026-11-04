@@ -1,0 +1,277 @@
+%=====================================================================
+\section{Faktorisierung (FFF) und die Matrizen $Q_\varepsilon$}\label{sec:fff}
+%=====================================================================
+
+\subsection{Regeln von L.~Li}
+Für stückweise glatte, beschränkte, periodische $f,g$ und $h=fg$:
+\begin{enumerate}[nosep]
+  \item keine gleichzeitigen Sprünge: $[h]=\tp f[g]$ (Laurent);
+  \item nur komplementäre Sprünge ($h$ stetig): $[h]=\tp{1/f}^{-1}[g]$ (invers);
+  \item gleichzeitige, nicht komplementäre Sprünge: keine der beiden Regeln.
+\end{enumerate}
+Die FFF zerlegt $\mathbf E$ in stetige Größen, sodass nur Fall 1 und 2 auftreten.
+
+\subsection{Normalen- und Tangentenfelder}
+$\mathbf N(x,z)$ ist ein reelles Einheitsvektorfeld, das auf jeder Materialgrenze der Schicht mit der
+Flächennormalen übereinstimmt und \emph{an den Unstetigkeitsstellen von $\varepsilon$ stetig} ist
+(anderswo darf es beliebig sein). Es hängt nicht von $y$ ab, wenn die Schicht durch ein Profil
+$y=g(x,z)$ beschrieben wird (Normale in $(x,y,z)$ parallel zur Normale im Profilpunkt darunter).
+\begin{align}
+  \text{Profil }y=g(x)\ \text{(1D)}:\quad &\mathbf N=\frac{(-g',\,1,\,0)}{\sqrt{1+g'^2}},\label{eq:N1d}\\
+  \text{Profil }y=g(x,z)\ \text{(2D)}:\quad &\mathbf N=\frac{(-\partial_xg,\,1,\,-\partial_zg)}{\sqrt{1+(\partial_xg)^2+(\partial_zg)^2}},\label{eq:N2d}\\
+  \text{lamellar 1D}:\quad &N_x^2=1,\ N_y=N_z=0\ \text{(nur $\mathbf N\mathbf N^T$ wird gebraucht)},\label{eq:Nlam}\\
+  \text{$y$-invarianter Querschnitt (2D)}:\quad &\mathbf N=(N_x,0,N_z)\ \text{aus Algorithmus \ref{alg:nfield}}.\notag
+\end{align}
+\begin{tcolorbox}[title=Algorithmus NF: Normalenfeld für $y$-invariante 2D-Querschnitte\label{alg:nfield}]
+\begin{enumerate}[nosep]
+  \item Rasterisiere die Materialverteilung der Einheitszelle auf $G\times G$ Punkte ($G\ge 8(2N+1)$,
+        Standard 512), periodisch.
+  \item Berechne die vorzeichenbehaftete Abstandsfunktion $\phi$ zur nächsten Materialgrenze
+        (exakt aus Polygonen oder per Distanztransformation), periodisch fortgesetzt.
+  \item Glätte $\nabla\phi$ mit einem periodischen Gaußfilter (Breite $\sigma\approx$ 2--4 Gitterpunkte):
+        $\mathbf g=G_\sigma*\nabla\phi$.
+  \item $\mathbf N=\mathbf g/|\mathbf g|$, wo $|\mathbf g|>\tau$ (Standard $\tau=10^{-3}\max|\mathbf g|$); sonst
+        $N_xN_x=N_zN_z=\tfrac12$, $N_xN_z=0$ (nur dort, wo $\varepsilon$ stetig ist).
+  \item Fourierkoeffizienten von $N_x^2$, $N_xN_z$, $N_z^2$ per FFT (glatte Funktionen).
+\end{enumerate}
+Literatur: Schuster et al.\ (JOSA A 24, 2880, 2007); Götz et al.\ (Opt.\ Express 16, 17295, 2008).
+\end{tcolorbox}
+Tangentenvektoren für Variante~A (unten) mit $\mathbf T_2\times\mathbf T_1=\mathbf N$:
+\begin{align}
+  \text{Profilschichten }(N_y>0):\quad&\mathbf T_1=\frac{(N_y,-N_x,0)}{\sqrt{N_x^2+N_y^2}},\quad
+  \mathbf T_2=\mathbf T_1\times\mathbf N=\frac{(-N_xN_z,\,-N_yN_z,\,N_x^2+N_y^2)}{\sqrt{N_x^2+N_y^2}},\label{eq:T_profile}\\
+  \text{$y$-invariante Schichten }(N_y=0):\quad&\mathbf T_1=\hat{\mathbf y},\quad \mathbf T_2=\hat{\mathbf y}\times\mathbf N=(N_z,0,-N_x).\label{eq:T_yinv}
+\end{align}
+(Prüfung: $(N_z,0,-N_x)\times(0,1,0)=(N_x,0,N_z)=\mathbf N$. Die Buchwahl \eqref{eq:T_profile} ist für
+$N_x=N_y=0$ singulär und daher für $y$-invariante Schichten ungeeignet.)
+
+\subsection{Isotrope Materialien}
+Mit $\Delta=\tp{\varepsilon}-\Li$ (Buch (IV.32), (IX.11)):
+\begin{equation}
+  Q_{\varepsilon}=\tp{\varepsilon}\otimes\mathbb 1_3-\Delta\,\tp{\mathbf N\mathbf N^T},\qquad
+  Q_{\varepsilon,ij}=\delta_{ij}\tp{\varepsilon}-\Delta\tp{N_iN_j}.
+  \label{eq:Qiso}
+\end{equation}
+Herleitung: $\mathbf D=\varepsilon\mathbf E_T+\varepsilon\mathbf E_N$; $\varepsilon\mathbf E_T$: Laurent
+($\mathbf E_T$ stetig), $\varepsilon\mathbf E_N=\mathbf D_N$ stetig: invers; mit $\mathbf E_N=\mathbf N\mathbf N^T\mathbf E$
+und $\mathbf E_T=\mathbf E-\mathbf E_N$ folgt \eqref{eq:Qiso} (Laurent für $\mathbf N\mathbf N^T\mathbf E$, da $\mathbf N$ stetig).
+Grenzfälle (Unit-Tests): $N\to\pm\hat x$ überall $\Rightarrow$ Li-Formulierung für Lamellen
+($Q_{xx}=\Li$, $Q_{yy}=Q_{zz}=\tp\varepsilon$); $\mathbf N=\hat y$ überall $\Rightarrow$ klassische Laurent-Formulierung
+($Q_{yy}=\Li$, sonst $\tp\varepsilon$, vgl.\ Buch IV.2.3: $a/d\to0$).
+
+\subsection{Anisotrope Materialien, Variante A (Buch Kap.~V)}
+Stetiger Vektor $\mathbf F_\varepsilon=(E_{T_1},D_N,E_{T_2})=A_\varepsilon\mathbf E$ mit
+\begin{equation}
+  A_\varepsilon=\begin{pmatrix}\mathbf T_1^T\\ \mathbf v^T\\ \mathbf T_2^T\end{pmatrix},\quad
+  \mathbf v^T=\mathbf N^T\overline{\overline\varepsilon}\ \ \big(v_j=\textstyle\sum_iN_i\varepsilon_{ij}\big),\qquad
+  \xi=\mathbf N^T\overline{\overline\varepsilon}\mathbf N,
+  \label{eq:Aeps}
+\end{equation}
+\begin{equation}
+  C_\varepsilon=A_\varepsilon^{-1}=\frac{1}{\xi}\Big(\ \mathbf v\times\mathbf T_2\ \Big|\ \mathbf N\ \Big|\ -\mathbf v\times\mathbf T_1\ \Big)
+  \quad\text{(Spalten)},\qquad \det A_\varepsilon=\xi .
+  \label{eq:Ceps}
+\end{equation}
+(Buchtext S.\,102 nennt die Spaltenreihenfolge falsch; (V.11) selbst ist richtig.)
+$\mathbf D=\overline{\overline\varepsilon}C_\varepsilon\mathbf F_\varepsilon$: Laurent; $\mathbf F_\varepsilon=A_\varepsilon\mathbf E$ stetig: invers.
+\begin{equation}
+  Q_\varepsilon=\tp{\overline{\overline\varepsilon}C_\varepsilon}\,\tp{C_\varepsilon}^{-1}
+  \label{eq:QaniA}
+\end{equation}
+($3\times3$ Blöcke; $\tp{X}$ für eine matrixwertige Funktion $X$ ist die Blockmatrix der Toeplitz-Matrizen
+der Einträge). Speziell 1D-Profil ($\mathbf T_2=\hat z$, $\mathbf T_1=(N_y,-N_x,0)$):
+\begin{equation}
+  C_\varepsilon=\frac1\xi\begin{pmatrix}v_y&N_x&-v_zN_x\\-v_x&N_y&-v_zN_y\\0&0&\xi\end{pmatrix},\qquad
+  \xi=v_xN_x+v_yN_y
+  \label{eq:C1d}
+\end{equation}
+(Buch (VIII.2) hat in $C_{23}$ ein falsches Vorzeichen). \textbf{Voraussetzung:} $\xi\ne0$ überall
+(bei indefiniten, \enquote{hyperbolischen} Tensoren nicht garantiert; dann Warnung und Variante B
+oder Laurent). \textbf{Achtung:} $C_\varepsilon$ hängt über $\overline{\overline\varepsilon}(x,y,z)$ von $y$ ab, außer bei
+$y$-invarianten Schichten -- $\tp{C_\varepsilon}$ muss für jede Höhe neu berechnet werden (Buch S.\,108
+behauptet Gegenteiliges).
+
+\subsection{Anisotrope Materialien, Variante B (vorzeichenunabhängig, empfohlen für $y$-invariante Schichten)}
+Variante A verlangt ein stetiges $\mathbf N$ \emph{mit Vorzeichen}; bei Lamellen kippt $\mathbf N$ zwischen
+$+\hat x$ und $-\hat x$, wodurch $E_{T_1}$, $D_N$ im Inneren einer Lamelle springen würden. Variante B
+verwendet nur die Projektoren $P_N=\mathbf N\mathbf N^T$, $P_T=\mathbb 1-P_N$ und die stetigen
+\emph{Vektoren} $\mathbf e_t=P_T\mathbf E$, $\mathbf d_n=P_N\mathbf D$:
+aus $\mathbf N^T\mathbf D=\mathbf N^T\overline{\overline\varepsilon}\mathbf e_t+\xi\,\mathbf N^T\mathbf E$ folgt
+\begin{equation}
+  \mathbf E=\Big(\mathbb 1-\tfrac1\xi P_N\overline{\overline\varepsilon}\Big)\mathbf e_t+\tfrac1\xi\mathbf d_n,\qquad
+  \mathbf D=\overline{\overline\varepsilon}\Big(\mathbb 1-\tfrac1\xi P_N\overline{\overline\varepsilon}\Big)\mathbf e_t+\tfrac1\xi\overline{\overline\varepsilon}\,\mathbf d_n .
+  \label{eq:projector}
+\end{equation}
+Alle Koeffizientenfunktionen sind invariant unter $\mathbf N\to-\mathbf N$. Laurent auf beide
+Zeilen, $[\mathbf e_t]=\tp{P_T}[\mathbf E]$ (Laurent), Elimination von $[\mathbf d_n]$:
+\begin{equation}
+  Q_\varepsilon^{(B)}=\tp{G_1}\tp{P_T}+\tp{G_2}\,\tp{\xi^{-1}}^{-1}\big(\mathbb 1-\tp{H_1}\tp{P_T}\big),
+  \label{eq:QaniB}
+\end{equation}
+\[
+  G_1=\overline{\overline\varepsilon}\big(\mathbb 1-\xi^{-1}P_N\overline{\overline\varepsilon}\big),\quad
+  G_2=\xi^{-1}\overline{\overline\varepsilon},\quad H_1=\mathbb 1-\xi^{-1}P_N\overline{\overline\varepsilon},
+\]
+mit $\tp{\xi^{-1}}$ = blockdiagonal ($3\times$ dieselbe skalare Toeplitz-Matrix). Für isotropes $\varepsilon$
+reduziert sich \eqref{eq:QaniB} bis auf Abschneideeffekte ($\tp{P_T}\tp{P_T}\approx\tp{P_T}$) auf
+\eqref{eq:Qiso}. \textbf{Test:} Variante A und B müssen auf Profilschichten mit $N$ gegen dieselben
+Effizienzen konvergieren; Variante B mit isotropem Tensor gegen \eqref{eq:Qiso}.
+\emph{Hinweis:} Variante B ist eine Eigenherleitung dieses Plans (nicht im Buch); sie ist in M5 vor
+Gebrauch gegen Variante A und gegen die Literatur (Li, J.\ Mod.\ Opt.\ 45, 1313 (1998)) zu prüfen.
+
+\subsection{Weitere Faktorisierungsoptionen (für Vergleiche)}
+\verb|Laurent| ($Q_{ij}=\tp{\varepsilon_{ij}}$), \verb|LiLamellar| (nur 1D-Lamellen, Buch (IV.5)/(IV.6)),
+\verb|FFF_iso| \eqref{eq:Qiso}, \verb|FFF_A| \eqref{eq:QaniA}, \verb|FFF_B| \eqref{eq:QaniB}.
+Die Option wird je Schicht gewählt; Standard: isotrop \verb|FFF_iso|, anisotrop Profil \verb|FFF_A|,
+anisotrop $y$-invariant \verb|FFF_B|.
+
+%=====================================================================
+\section{Homogene Medien: Modenbasen}\label{sec:homog}
+%=====================================================================
+In homogenen Medien (Substrat, Superstrat, homogene Zwischenschichten, Referenzmedium der
+dünnen Schichten) ist $M$ \emph{ordnungsweise} entkoppelt: $M$ zerfällt in $n_f$ unabhängige
+$4\times4$-Matrizen $M^{(r)}$ (eine je Ordnung $r\leftrightarrow(n,m)$).
+
+\subsection{Isotrop: analytische Basis der tangentialen E-Komponenten}
+Für eine ebene Welle $e^{i(\alpha x+k_yy+\gamma z)}$ ($k_y=+\beta$ auf, $-\beta$ ab) gilt in normierten
+Einheiten $\mathbf H=\mathbf k\times\mathbf E$ ($\mu=1$), $\mathbf k\cdot\mathbf E=0$. Mit
+$E_y=-(\alpha E_x+\gamma E_z)/k_y$ und $\alpha^2+k_y^2+\gamma^2=\varepsilon$:
+\begin{equation}
+  \begin{pmatrix}H_x\\H_z\end{pmatrix}=\frac{1}{k_y}K\begin{pmatrix}E_x\\E_z\end{pmatrix},\qquad
+  K=\begin{pmatrix}\alpha\gamma&\varepsilon-\alpha^2\\-(\varepsilon-\gamma^2)&-\alpha\gamma\end{pmatrix},\qquad
+  \det K=\varepsilon\beta^2 .
+  \label{eq:Kmat}
+\end{equation}
+Amplitudenvektor $V=(\mathbf a;\mathbf b)$ mit $\mathbf a=(a_x,a_z)$ (ab), $\mathbf b=(b_x,b_z)$ (auf) = tangentiale
+E-Komponenten der Teilwellen am Bezugspunkt. Mit $\mathcal V=K\beta^{-1}$ (ordnungsweise $2\times2$):
+\begin{equation}
+  F=\Psi V,\qquad \Psi=\begin{pmatrix}\mathbb 1&\mathbb 1\\-\mathcal V&\mathcal V\end{pmatrix},\qquad
+  \Psi^{-1}=\frac12\begin{pmatrix}\mathbb 1&-\mathcal V^{-1}\\\mathbb 1&\mathcal V^{-1}\end{pmatrix},\qquad
+  \mathcal V^{-1}=\frac{1}{\varepsilon\beta}\begin{pmatrix}-\alpha\gamma&-(\varepsilon-\alpha^2)\\\varepsilon-\gamma^2&\alpha\gamma\end{pmatrix}.
+  \label{eq:Psi_iso}
+\end{equation}
+Die Spalten sind Eigenvektoren von $M^{(r)}$ zu $\lambda=-i\beta$ (ab) und $\lambda=+i\beta$ (auf).
+(Diese Basis ist der in Buch Anh.~IV vorzuziehen: dort wird durch $k^2-\gamma_m^2$ dividiert, was im 2D-Fall
+verschwinden kann; hier tritt nur $\beta$ im Nenner auf.) Kontrollen: 1D-TE ($\gamma=0$, $E_x=0$):
+$H_x=k_yE_z$; 1D-TM: $E_x=-k_yH_z/\varepsilon$.
+
+\subsection{Anisotrop: $4\times4$-Eigenzerlegung je Ordnung (Berreman)}
+$M^{(r)}$ aus \eqref{eq:Mgeneral} mit $Q_{\varepsilon,ij}=\varepsilon_{ij}$ (Skalare) und $\alpha_n,\gamma_m$.
+Eigenwerte $\lambda_k$, Eigenvektoren $w_k$ ($k=1..4$). Klassifikation (Feld $\propto e^{\lambda y}$):
+\begin{equation}
+  \text{auf (b)}:\ \operatorname{Re}\lambda<-\tau_\lambda\ \ \text{oder}\ \ \big(|\operatorname{Re}\lambda|\le\tau_\lambda\ \text{und}\ S_y(w)>0\big),
+  \qquad\text{sonst ab (a)},
+  \label{eq:classify}
+\end{equation}
+mit dem zeitgemittelten Poynting-Fluss der Mode
+\begin{equation}
+  S_y(w)=\tfrac12\operatorname{Re}\big(E_zH_x^*-E_xH_z^*\big)
+  \label{eq:Sy}
+\end{equation}
+($E_x,E_z,H_x,H_z$ = Komponenten von $w$). Es müssen genau zwei auf- und zwei abwärts
+klassifizierte Moden entstehen, sonst Fehler. Normierung: $\Psi$-Spalten so skalieren, dass
+$\max(|E_x|,|E_z|)=1$. Für isotrope Medien muss dieses Verfahren \eqref{eq:Psi_iso} (bis auf
+Skalierung/Mischung entarteter Moden) reproduzieren (Unit-Test).
+
+\subsection{Leistungsfluss und Effizienzen}
+In einem homogenen Medium sind die Ordnungen bezüglich des Flusses orthogonal; die von der Ordnung
+$r$ in $\pm y$ transportierte Leistung (pro Periode, normiert) ist \eqref{eq:Sy} mit den Fourierkoeffizienten
+dieser Ordnung. Einfallende Leistung $S_{\text{inc}}=|S_y(\text{einf.\ Welle})|$. Effizienzen:
+\begin{equation}
+  e^{(r)}_{nm}=\frac{S_y^{\uparrow}(r)}{S_{\text{inc}}},\qquad e^{(t)}_{nm}=\frac{|S_y^{\downarrow}(r)|}{S_{\text{inc}}}
+  \quad(\text{nur propagierende Ordnungen in verlustfreien Medien}).
+  \label{eq:eff}
+\end{equation}
+Geschlossene Form für isotrope verlustfreie Medien (Buch (IX.20), korrigiert; normiert,
+$k^2\to\varepsilon$, $|\mathbf A|=1$):
+\begin{equation}
+  e_{nm}=\frac{(\varepsilon-\gamma_m^2)|B_x|^2+(\varepsilon-\alpha_n^2)|B_z|^2+2\alpha_n\gamma_m\operatorname{Re}(B_x\overline{B_z})}
+  {\beta_{00}^{(M)}\,\beta_{nm}},
+  \label{eq:eff_closed}
+\end{equation}
+wobei $\varepsilon$ und $\beta_{nm}$ zu dem Medium gehören, in dem die Ordnung läuft (für die
+Transmission also $\varepsilon_1$, $\beta^{(1)}_{nm}$; das Buch vergisst $k_2\to k_1$), und
+$\beta^{(M)}_{00}=\beta_0$. Bei absorbierendem Substrat nur Reflexion und Absorption $1-\sum e^{(r)}$.
+Für die Ausgabe zusätzlich s/p-Zerlegung je Ordnung: mit $\kappa=(\alpha_n,\gamma_m)$,
+$\hat{\mathbf s}=(\kappa_z,0,-\kappa_x)/|\kappa|$ (für $\kappa=0$: $\hat{\mathbf s}=\hat z$),
+$\hat{\mathbf p}=\hat{\mathbf k}\times\hat{\mathbf s}$; Amplituden $\mathbf E\cdot\hat{\mathbf s}$, $\mathbf E\cdot\hat{\mathbf p}$
+mit $E_y$ aus $\mathbf k\cdot\mathbf E=0$.
+
+%=====================================================================
+\section{S-Matrix-Formalismus}\label{sec:smatrix}
+%=====================================================================
+
+\subsection{Konventionen}
+Zwischen zwei benachbarten Schichten liegt jeweils eine \emph{unendlich dünne Schicht aus dem
+Referenzmedium} (Standard: Superstrat; konfigurierbar). Dort werden die Felder durch
+$V=(\mathbf a;\mathbf b)$ in der Basis $\Psi_{\text{ref}}$ \eqref{eq:Psi_iso} beschrieben, mit dem Phasenbezug
+\emph{lokal an dieser Grenzfläche}. Ein Block (Schicht, Schichtfolge) mit unterer Grenze \enquote{u}
+und oberer Grenze \enquote{o} hat die S-Matrix
+\begin{equation}
+  \begin{pmatrix}\mathbf b_{\text{o}}\\\mathbf a_{\text{u}}\end{pmatrix}=
+  \begin{pmatrix}S_{11}&S_{12}\\S_{21}&S_{22}\end{pmatrix}
+  \begin{pmatrix}\mathbf b_{\text{u}}\\\mathbf a_{\text{o}}\end{pmatrix}
+  \label{eq:Sdef}
+\end{equation}
+(auslaufend = $S\cdot$einlaufend; $S_{11}$: Transmission aufwärts, $S_{12}$: Reflexion von oben,
+$S_{21}$: Reflexion von unten, $S_{22}$: Transmission abwärts; Buch (III.28)). Blockgröße
+$n_h=2n_f$ (zwei Polarisationskomponenten je Ordnung; im 1D-in-plane-Fall $n_h=n_f$).
+
+\subsection{Transfermatrix $\to$ S-Matrix}
+Ist $T$ die Transfermatrix $(\mathbf a_{\text{o}};\mathbf b_{\text{o}})=T(\mathbf a_{\text{u}};\mathbf b_{\text{u}})$, so gilt
+(Buch (III.30), (III.31), ergänzt):
+\begin{equation}
+  S_{11}=T_{22}-T_{21}T_{11}^{-1}T_{12},\quad S_{12}=T_{21}T_{11}^{-1},\quad
+  S_{21}=-T_{11}^{-1}T_{12},\quad S_{22}=T_{11}^{-1}.
+  \label{eq:T2S}
+\end{equation}
+Nur für dünne Scheiben verwenden (Abschnitt~\ref{sec:rk}); $T_{11}$ mit LU faktorisieren, nicht invertieren.
+
+\subsection{Redheffer-Sternprodukt}
+Für einen unteren Block $A$ und einen darüberliegenden Block $B$ (gemeinsame innere Grenzfläche mit
+$\mathbf a_m,\mathbf b_m$) folgt aus $\mathbf b_m=A_{11}\mathbf b_{\text{in}}+A_{12}\mathbf a_m$,
+$\mathbf a_m=B_{21}\mathbf b_m+B_{22}\mathbf a_{\text{in}}$:
+\begin{equation}
+\begin{aligned}
+  D_1&=(\mathbb 1-A_{12}B_{21})^{-1}, & D_2&=(\mathbb 1-B_{21}A_{12})^{-1},\\
+  C_{11}&=B_{11}D_1A_{11}, & C_{12}&=B_{12}+B_{11}D_1A_{12}B_{22},\\
+  C_{21}&=A_{21}+A_{22}D_2B_{21}A_{11}, & C_{22}&=A_{22}D_2B_{22},
+\end{aligned}
+\qquad C=A\star B .
+\label{eq:star}
+\end{equation}
+Neutrales Element: $S_{11}=S_{22}=\mathbb 1$, $S_{12}=S_{21}=0$. Das Buch-Rekursionsschema
+(III.44)--(III.47) ist der Spezialfall \enquote{Stapel $\star$ Scheibe aus $T$}; es enthält in (III.45) einen Fehler
+(Buch: $S_{21}$ statt $S_{22}$ im zweiten Term) -- im Code ausschließlich \eqref{eq:star} verwenden.
+\textbf{Test:} Sternprodukt beliebiger Folgen = S aus dem Produkt der $T$-Matrizen (für gut konditionierte $T$).
+
+\subsection{Grenzflächen und Gesamtstapel}
+Übergang von einem homogenen Medium mit Basis $\Psi_X$ in die dünne Referenzschicht (Dicke 0):
+$T=\Psi_{\text{ref}}^{-1}\Psi_X$ bzw.\ umgekehrt; S per \eqref{eq:T2S} (bei Dicke 0 unkritisch).
+Diese Matrix ersetzt die Buchformeln (III.24)/(III.26) (dort sind $C$ und $C'$ vertauscht) und behebt
+das Buchproblem $A'^{(1)}=A^{(1)}$ (gilt nur bei $\nu_1=\nu_M$). Gesamtstapel:
+\begin{equation}
+  S_{\text{tot}}=S_{\text{Substrat}\to\text{ref}}\star S_{\text{Schicht }2}\star\cdots\star S_{\text{Schicht }M-1}\star S_{\text{ref}\to\text{Superstrat}} .
+  \label{eq:Stot}
+\end{equation}
+Mit Einfall nur von oben ($\mathbf b_{\text{Substrat,in}}=0$) und $\mathbf a_{\text{in}}=(A_x,A_z)$ in der Ordnung $(0,0)$:
+\begin{equation}
+  \mathbf b_{\text{Superstrat}}=S_{\text{tot},12}\,\mathbf a_{\text{in}},\qquad
+  \mathbf a_{\text{Substrat}}=S_{\text{tot},22}\,\mathbf a_{\text{in}} .
+  \label{eq:solution}
+\end{equation}
+Die Spalte der Ordnung $(0,0)$ genügt (\enquote{zentrale Spalte}); für Einfall aus mehreren Richtungen
+(z.\,B.\ Reziprozitätstest) beliebige Spalten.
+
+\subsection{Interne Amplituden (für das Nahfeld)}
+Gespeichert werden für jede innere Grenzfläche $q$ die kumulierte S-Matrix des Teilstapels darunter,
+$S_L^{(q)}$, und darüber, $S_U^{(q)}$. Mit den bekannten Eingängen $\mathbf b_{\text{in}}$ (unten, meist 0)
+und $\mathbf a_{\text{in}}$ (oben):
+\begin{equation}
+  \big(\mathbb 1-S^{(q)}_{L,12}S^{(q)}_{U,21}\big)\mathbf b_q=S^{(q)}_{L,11}\mathbf b_{\text{in}}+S^{(q)}_{L,12}S^{(q)}_{U,22}\mathbf a_{\text{in}},\qquad
+  \mathbf a_q=S^{(q)}_{U,21}\mathbf b_q+S^{(q)}_{U,22}\mathbf a_{\text{in}} .
+  \label{eq:internal}
+\end{equation}
+Speicherbedarf: $2\cdot4n_h^2\cdot16$\,Byte je Grenzfläche (2D, $N=10$: $n_h=882$, ca.\ 100\,MB je
+Grenzfläche). Alternative bei Speichermangel: nur $S_L$ speichern und $S_U$ in einem zweiten Durchlauf
+von oben erzeugen.

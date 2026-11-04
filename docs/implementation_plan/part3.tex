@@ -1,0 +1,242 @@
+%=====================================================================
+\section{Schichtmodelle und Scheibenzerlegung}\label{sec:layers}
+%=====================================================================
+
+\subsection{Schichttypen}
+\begin{center}
+\small
+\begin{tabular}{p{3.2cm}p{4.7cm}p{6.2cm}}
+\toprule
+Typ & Beschreibung & $\varepsilon$ bei Höhe $y$ / Normalenfeld \\
+\midrule
+\verb|Homogeneous| & Dicke $h$, Material & konstant; analytische Moden, keine Integration \\
+\verb|Lamellar1D| & Intervalle $[x_j,x_{j+1}]$ mit Materialien, Dicke $h$ & \eqref{eq:interval}; $N_x^2=1$ \\
+\verb|Profile1D| & $y=g(x)$ (Funktion oder Stützstellen), Material unten/oben, Tiefe $a$ &
+ Schnittpunkte $g(x)=y$ per Nullstellensuche $\Rightarrow$ Intervalle; $\mathbf N$ aus \eqref{eq:N1d} \\
+\verb|Polygon2D| & $y$-invarianter Querschnitt aus Polygonen/Rechtecken/Kreisen, Dicke $h$ &
+ \eqref{eq:polygon}; $\mathbf N$ nach Algorithmus NF \\
+\verb|Profile2D| & $y=g(x,z)$, Material unten/oben, Tiefe $a$ & Abtastung von $\{g>y\}$ + Polygonisierung
+ (Marching Squares) oder feines FFT-Raster; $\mathbf N$ aus \eqref{eq:N2d} \\
+\verb|Function| & benutzerdefiniertes $\overline{\overline\varepsilon}(x,y,z)$ & Abtastung + FFT (nur Tests) \\
+\bottomrule
+\end{tabular}
+\end{center}
+Beschichtete Profile (mehrere parallele Profile $g(x)+t_k$) werden als ein Schichtobjekt mit mehreren
+Grenzflächen behandelt; $\mathbf N$ ist dann für alle Grenzflächen identisch (Buch IV.2.5).
+
+\subsection{Scheibenzerlegung}
+Jede modulierte Schicht wird in $K$ Scheiben $[y_{k-1},y_k]$ zerlegt (gleichmäßig oder nach Krümmung
+von $g$). Kriterium gegen Kontamination (Buch III.6, mit Sicherheitsabstand):
+\begin{equation}
+  \rho_{\max}\,(y_k-y_{k-1})\le\ln(10^{8})\approx18.4,\qquad
+  \rho_{\max}\approx\max_{(n,m)}\big|\sqrt{\alpha_n^2+\gamma_m^2-\varepsilon_{\min}}\big|,
+  \label{eq:slicecrit}
+\end{equation}
+mit $\varepsilon_{\min}$ = Material mit dem kleinsten $\operatorname{Re}\varepsilon$ (Metalle: großes $|\rho|$).
+RCWA: zusätzlich Treppenfehler $\Rightarrow$ $K$ per Konvergenztest. RK: Scheiben nur zur Stabilisierung,
+die Genauigkeit regelt die Schrittweite.
+
+\subsection{Permittivität bei beliebiger Höhe}
+Der RK-Löser braucht $\tp{\varepsilon}(y)$, $\tp{1/\varepsilon}(y)$ bzw.\ $\tp{C_\varepsilon}(y)$ an den
+Stufenknoten $y+c_ih$. \verb|Profile1D|: Nullstellen von $g(x)-y$ im Intervall $[0,d_x)$ (Abtasten auf
+feinem Gitter, Vorzeichenwechsel, dann Brent/Newton), daraus Intervalle und exakte Koeffizienten
+\eqref{eq:interval}. \verb|Profile2D|: Höhenlinie $g=y$ per Marching Squares als Polygon, dann
+\eqref{eq:polygon}; Fallback FFT mit Oversampling. Cache: Koeffizienten je (Schicht, $y$) speichern, da
+bei Feldrekonstruktion dieselben Knoten erneut gebraucht werden.
+
+%=====================================================================
+\section{Löser A: implizites Runge--Kutta (Differentialmethode)}\label{sec:rk}
+%=====================================================================
+
+\subsection{Verfahren}
+Lineares System \eqref{eq:ode}. Ein $s$-stufiges RK-Verfahren mit Butcher-Tableau $(\mathsf A,\mathbf b,\mathbf c)$:
+\begin{equation}
+  K_i=M_i\Big(F+h\sum_{j=1}^{s}a_{ij}K_j\Big),\quad M_i=M(y+c_ih),\qquad
+  F(y+h)=F+h\sum_{i=1}^{s}b_iK_i .
+  \label{eq:rk}
+\end{equation}
+Für lineare Systeme ergibt sich ein \textbf{Schrittpropagator} (unabhängig von $F$):
+\begin{equation}
+  \big(\mathbb 1_{sn}-h\,\mathfrak A\big)X=\mathfrak M,\qquad
+  \mathfrak A=\big(a_{ij}M_i\big)_{i,j=1}^{s},\quad \mathfrak M=\begin{pmatrix}M_1\\\vdots\\M_s\end{pmatrix},\qquad
+  P_h=\mathbb 1_n+h\sum_{i=1}^{s}b_iX_i ,
+  \label{eq:rkprop}
+\end{equation}
+mit $n=4n_f$ (bzw.\ $2n_f$ in 1D-in-plane), $X=(X_1;\dots;X_s)$, $X_i\in\mathbb C^{n\times n}$. Kosten pro
+Schritt: eine LU-Zerlegung der Größe $sn$ und eine Lösung mit $n$ rechten Seiten.
+Die Scheiben-Transfermatrix im Feldraum ist $T_F=\prod_kP_{h_k}$ (in Reihenfolge von unten nach oben).
+
+\paragraph{Gauß--Legendre (Standard), $s=2$, Ordnung 4:}
+\[
+  \mathbf c=\Big(\tfrac12-\tfrac{\sqrt3}6,\ \tfrac12+\tfrac{\sqrt3}6\Big),\quad
+  \mathsf A=\begin{pmatrix}\tfrac14&\tfrac14-\tfrac{\sqrt3}6\\\tfrac14+\tfrac{\sqrt3}6&\tfrac14\end{pmatrix},\quad
+  \mathbf b=\big(\tfrac12,\tfrac12\big).
+\]
+\paragraph{Gauß--Legendre, $s=3$, Ordnung 6:}
+\[
+  \mathbf c=\Big(\tfrac12-\tfrac{\sqrt{15}}{10},\tfrac12,\tfrac12+\tfrac{\sqrt{15}}{10}\Big),\quad
+  \mathsf A=\begin{pmatrix}\tfrac5{36}&\tfrac29-\tfrac{\sqrt{15}}{15}&\tfrac5{36}-\tfrac{\sqrt{15}}{30}\\
+  \tfrac5{36}+\tfrac{\sqrt{15}}{24}&\tfrac29&\tfrac5{36}-\tfrac{\sqrt{15}}{24}\\
+  \tfrac5{36}+\tfrac{\sqrt{15}}{30}&\tfrac29+\tfrac{\sqrt{15}}{15}&\tfrac5{36}\end{pmatrix},\quad
+  \mathbf b=\big(\tfrac5{18},\tfrac49,\tfrac5{18}\big).
+\]
+\paragraph{Radau IIA, $s=3$, Ordnung 5 (optional, L-stabil):}
+\[
+  \mathbf c=\Big(\tfrac{4-\sqrt6}{10},\tfrac{4+\sqrt6}{10},1\Big),\quad
+  \mathsf A=\begin{pmatrix}\tfrac{88-7\sqrt6}{360}&\tfrac{296-169\sqrt6}{1800}&\tfrac{-2+3\sqrt6}{225}\\
+  \tfrac{296+169\sqrt6}{1800}&\tfrac{88+7\sqrt6}{360}&\tfrac{-2-3\sqrt6}{225}\\
+  \tfrac{16-\sqrt6}{36}&\tfrac{16+\sqrt6}{36}&\tfrac19\end{pmatrix},\quad \mathbf b=\text{letzte Zeile von }\mathsf A .
+\]
+\textbf{Tests:} Ordnungsbedingungen ($\sum b_i=1$, $\sum b_ic_i=\tfrac12$, $\sum b_ic_i^2=\tfrac13$, \dots\ bis zur
+Ordnung), $\mathsf A\mathbf 1=\mathbf c$; für konstantes $M$ ist $P_h$ bei Gauß--Legendre der
+$(s,s)$-Padé-Approximant von $e^{hM}$ $\Rightarrow$ Vergleich mit \verb|expm|, Fehler $O(h^{2s+1})$ je Schritt.
+
+\subsection{Stabilität und Schrittweite}
+Gauß--Legendre ist A-stabil, $|R(z)|=1$ auf der imaginären Achse (propagierende Moden ohne
+künstliche Dämpfung). Evaneszente Moden ($\lambda$ reell, groß) werden nur für $h|\lambda|\lesssim1$ genau
+wiedergegeben; zu große Schritte verfälschen sie (bei Gauß nicht gedämpft, $|R(\pm\infty)|=1$).
+Daher:
+\begin{equation}
+  h\le c_s/\rho_{\max},\qquad c_2\approx0.5,\ c_3\approx1.0,
+  \label{eq:stepcrit}
+\end{equation}
+plus Fehlersteuerung per Schrittverdopplung: $\epsilon=\|P_hP_h-P_{2h}\|_F/\|P_{2h}\|_F$ mit
+$P_h$ über $[y,y+h]$, $[y+h,y+2h]$; Ziel $\epsilon\le\texttt{rk\_tol}$ (Standard $10^{-8}$),
+Schrittweitenanpassung $h\leftarrow h\,(\texttt{rk\_tol}/\epsilon)^{1/(2s+1)}\cdot0.9$.
+Für $y$-unabhängiges $M$ (Lamellen, homogene Bereiche) genügt eine Padé-Auswertung mit Skalieren
+und Quadrieren: $P=(P_{h/2^k})^{2^k}$.
+
+\subsection{Scheiben-S-Matrix aus dem RK-Ergebnis}
+\begin{equation}
+  T^{(\text{Scheibe})}=\Psi_{\text{ref}}^{-1}\,T_F\,\Psi_{\text{ref}},\qquad S^{(\text{Scheibe})}\ \text{aus \eqref{eq:T2S}}
+  \label{eq:rkslice}
+\end{equation}
+(Buch Anh.~IV (A.IV.14'); dort Blockgröße für 2D falsch angegeben: richtig $n_h=2n_f$).
+Die Scheibendicke folgt \eqref{eq:slicecrit}, damit $T_{11}$ gut konditioniert ist; Diagnose:
+Konditionszahl von $T_{11}$ schätzen und bei $>10^{10}$ die Scheibe halbieren.
+
+\subsection{Dichte Ausgabe für das Nahfeld}
+Gauß--Kollokation liefert ein Polynom vom Grad $s$ je Schritt:
+\begin{equation}
+  F(y+\vartheta h)=F(y)+h\sum_{j=1}^{s}\Big(\int_0^{\vartheta}\ell_j(\tau)\,d\tau\Big)K_j,\qquad 0\le\vartheta\le1,
+  \label{eq:dense}
+\end{equation}
+mit den Lagrange-Polynomen $\ell_j$ zu den Knoten $\mathbf c$. Für das Nahfeld wird nur \emph{ein}
+Zustandsvektor (die tatsächliche Lösung) von der Unterkante jeder Scheibe aus neu integriert
+(dieselbe Schrittfolge, gespeichert in \verb|RKSliceRecord|).
+
+\subsection{Rechenaufwand (Richtwerte)}
+Pro Schritt $\approx\frac83(sn)^3$ reelle Flops (LU) $+8(sn)^2n$ (Lösen). 2D, $N_x=N_z=10$:
+$n=1764$, $s=2$: $\approx4.7\cdot10^{11}+2\cdot10^{11}$ Flops. Der RK-Löser ist daher für 2D teuer und
+hauptsächlich für Profile $g(x,z)$ und Referenzrechnungen gedacht; für $y$-invariante 2D-Schichten
+ist RCWA vorzuziehen.
+
+%=====================================================================
+\section{Löser B: RCWA (Eigenmoden je Scheibe)}\label{sec:rcwa}
+%=====================================================================
+
+\subsection{Eigenwertproblem}
+In einer Scheibe mit $y$-unabhängigem $M$ (Treppenapproximation: $\varepsilon$ in Scheibenmitte):
+$M=W\Lambda W^{-1}$, $F(y)=\sum_kc_kw_ke^{\lambda_k(y-y_{\text{ref},k})}$.
+\paragraph{Reduziertes Problem (isotrop/lamellar, $M_{11}=M_{12}=M_{21}=M_{22}=0=M_{33}=M_{34}=M_{43}=M_{44}$):}
+Mit $\mathcal P=\begin{pmatrix}M_{13}&M_{14}\\M_{23}&M_{24}\end{pmatrix}$, $\mathcal R=\begin{pmatrix}M_{31}&M_{32}\\M_{41}&M_{42}\end{pmatrix}$:
+\begin{equation}
+  M=\begin{pmatrix}0&\mathcal P\\\mathcal R&0\end{pmatrix},\quad
+  \mathcal P\mathcal R\,u=\mu\,u,\quad \kappa=\sqrt{-\mu}\ (\text{Zweig \eqref{eq:beta_branch}}),\quad
+  w_\pm=\begin{pmatrix}u\\\mathcal Ru/\lambda_\pm\end{pmatrix},\ \lambda_\pm=\pm i\kappa .
+  \label{eq:rcwa_reduced}
+\end{equation}
+(Prüfung: $Mw_\pm=(\mathcal P\mathcal Ru/\lambda_\pm;\mathcal Ru)=\lambda_\pm w_\pm$ wegen $\mu=\lambda_\pm^2$.)
+\enquote{Auf}: $\lambda_+=i\kappa$ ($\operatorname{Re}\lambda_+\le0$), \enquote{ab}: $\lambda_-=-i\kappa$.
+Für $\kappa\approx0$ (Grenzfall) $w=(u;\mathcal Ru/\lambda)$ schlecht definiert $\Rightarrow$ kleine
+Regularisierung wie bei \eqref{eq:beta_branch}.
+\paragraph{Allgemein (anisotrop, konisch mit $Q_{yx}\neq0$):} volle Eigenzerlegung der $4n_f$-Matrix,
+Klassifikation nach \eqref{eq:classify} (mit $S_y$ der Moden aus $w$ über die Fourierordnungen summiert).
+Fehler, wenn nicht genau $n_h$ Moden je Richtung.
+
+\subsection{Stabile Scheiben-S-Matrix}
+Moden auf ($W_u,\Lambda_u$, Bezug Unterkante $y_u$) und ab ($W_d,\Lambda_d$, Bezug Oberkante $y_o$):
+\begin{equation}
+  F(y)=W_ue^{\Lambda_u(y-y_u)}\mathbf c_u+W_de^{\Lambda_d(y-y_o)}\mathbf c_d,\qquad
+  X_u=e^{\Lambda_uh},\ X_d=e^{-\Lambda_dh}\quad(|X|\le1).
+  \label{eq:rcwa_field}
+\end{equation}
+Mit $\Psi_{\text{ref}}^{-1}W_u=\begin{pmatrix}A_u\\B_u\end{pmatrix}$, $\Psi_{\text{ref}}^{-1}W_d=\begin{pmatrix}A_d\\B_d\end{pmatrix}$
+(obere Hälfte: ab-Amplitude, untere: auf-Amplitude) gilt an Unter- und Oberkante
+\begin{equation}
+  \begin{aligned}
+  \mathbf a_u&=A_u\mathbf c_u+A_dX_d\mathbf c_d, & \mathbf b_u&=B_u\mathbf c_u+B_dX_d\mathbf c_d,\\
+  \mathbf a_o&=A_uX_u\mathbf c_u+A_d\mathbf c_d, & \mathbf b_o&=B_uX_u\mathbf c_u+B_d\mathbf c_d .
+  \end{aligned}
+  \label{eq:rcwa_bc}
+\end{equation}
+Die Eingänge $(\mathbf b_u,\mathbf a_o)$ bestimmen
+\begin{equation}
+  \underbrace{\begin{pmatrix}B_u&B_dX_d\\A_uX_u&A_d\end{pmatrix}}_{=:G}\begin{pmatrix}\mathbf c_u\\\mathbf c_d\end{pmatrix}=
+  \begin{pmatrix}\mathbf b_u\\\mathbf a_o\end{pmatrix},\qquad
+  \begin{pmatrix}\mathbf b_o\\\mathbf a_u\end{pmatrix}=
+  \underbrace{\begin{pmatrix}B_uX_u&B_d\\A_u&A_dX_d\end{pmatrix}}_{=:H}\begin{pmatrix}\mathbf c_u\\\mathbf c_d\end{pmatrix},
+  \qquad S=HG^{-1}.
+  \label{eq:rcwa_S}
+\end{equation}
+Alle Einträge sind beschränkt; keine wachsenden Exponentiale. $G$ als LU speichern
+(\verb|RCWASliceRecord|) für die Feldrekonstruktion. Homogene Zwischenschichten: dieselben Formeln mit
+analytischen Moden ($W=\Psi_X$, $\Lambda=\operatorname{diag}(\mp i\beta)$).
+
+\subsection{Querprüfung RK $\leftrightarrow$ RCWA}
+Für $y$-unabhängiges $M$ (Lamellen) müssen beide Löser bis auf die RK-Toleranz identische Effizienzen
+liefern; für glatte Profile müssen RCWA mit $K\to\infty$ Scheiben und RK gegen denselben Wert
+konvergieren -- \emph{außer} im TM-Fall bei Metallen mit Li-Lamellen-Faktorisierung (Buch VI.5:
+Treppenapproximation konvergiert dort extrem langsam). Deshalb verwendet RCWA auf Profilschichten
+\textbf{dieselbe FFF-Faktorisierung mit dem Profil-Normalenfeld} ($\varepsilon$ in Scheibenmitte, $\mathbf N$ des
+glatten Profils), nicht die Lamellenformel. Kapitelprüfung: Al-Sinusgitter, FFF mit 60/150/300 Scheiben
+$\to0{,}853/0{,}865/0{,}869$, Referenz $0{,}8696$ (C-Methode).
+
+%=====================================================================
+\section{Nahfeld}\label{sec:field}
+%=====================================================================
+
+\subsection{Ablauf}
+\begin{enumerate}[nosep]
+  \item Gesamtlösung \eqref{eq:solution}, interne Amplituden $(\mathbf a_q,\mathbf b_q)$ an allen Grenzflächen \eqref{eq:internal}.
+  \item Fourierkoeffizienten $F(y)=([E_x],[E_z],[H_x],[H_z])$ an den gewünschten Höhen:
+    \begin{itemize}[nosep]
+      \item homogene Schicht/Superstrat/Substrat: Moden mit Phasen $e^{\lambda(y-y_{\text{ref}})}$;
+      \item RCWA-Scheibe: $(\mathbf c_u;\mathbf c_d)=G^{-1}(\mathbf b_u;\mathbf a_o)$, dann \eqref{eq:rcwa_field};
+      \item RK-Scheibe: $F(y_u)=\Psi_{\text{ref}}(\mathbf a_u;\mathbf b_u)$, erneute Integration mit dichter Ausgabe \eqref{eq:dense}.
+    \end{itemize}
+  \item $[E_y]$, $[H_y]$ aus \eqref{eq:Ey}, \eqref{eq:Hy} mit den $Q$-Matrizen der Höhe $y$.
+  \item Synthese im Ortsraum: $u(x,y,z)=\sum_ru_r(y)e^{i(\alpha_nx+\gamma_mz)}$, effizient per inverser FFT
+        auf einem Gitter (Zero-Padding), danach Multiplikation mit $e^{i(\alpha_0x+\gamma_0z)}$.
+\end{enumerate}
+
+\subsection{FFF-konsistente Rekonstruktion (empfohlen in modulierten Schichten)}
+Die direkte Synthese von $E_x,E_y$ aus abgeschnittenen Reihen zeigt Gibbs-Oszillationen an
+Materialgrenzen. Besser: stetige Größen synthetisieren und punktweise zurückrechnen:
+\begin{equation}
+  [\mathbf F_\varepsilon]=\tp{C_\varepsilon}^{-1}[\mathbf E]\ \ \text{(Variante A)}\ \Rightarrow\ \mathbf F_\varepsilon(x,z)\ \text{(stetig)}
+  \ \Rightarrow\ \mathbf E(x,z)=C_\varepsilon(x,z)\,\mathbf F_\varepsilon(x,z),
+  \label{eq:recon}
+\end{equation}
+isotrop äquivalent: $\mathbf e_t=P_T\mathbf E$ und $\mathbf d_n=P_N\mathbf D$ synthetisieren, dann
+$\mathbf E=\mathbf e_t+\mathbf d_n/\varepsilon$. $\mathbf H$ ist überall stetig ($\mu=1$) und wird direkt synthetisiert.
+Beide Varianten (direkt / FFF-konsistent) sind auswählbar (\verb|reconstruction: direct \| fff|).
+
+\subsection{Schnitte und Ausgabe}
+\begin{center}
+\small
+\begin{tabular}{lll}
+\toprule
+& horizontaler Schnitt ($y=y_0$) & vertikaler Schnitt \\
+\midrule
+1D & Linie $u(x,y_0)$, $x\in[x_a,x_b]$ & Karte $u(x,y)$, $z=0$ \\
+2D & Karte $u(x,y_0,z)$ & Karte $u(x,y,z_0)$ (optional zusätzlich $u(x_0,y,z)$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+Größen: alle sechs komplexen Komponenten, $|\mathbf E|^2$, $|\mathbf H|^2$, $\operatorname{Re}(\mathbf Ee^{-i\omega t})$ für
+gegebene Phase, Poynting-Vektor $\tfrac12\operatorname{Re}(\mathbf E\times\mathbf H^*)$, Materialindex-Karte (für Konturen).
+Ausgabeformat: je Schnitt eine \verb|.npy|-Datei pro Größe (komplex128 bzw.\ float64, Fortran-unabhängig,
+C-Ordnung, Achsenreihenfolge in der JSON-Metadatei) plus \verb|meta.json| (Achsen in µm, Wellenlänge,
+Einfall, Komponentenliste). Optional HDF5 (\verb|FG_ENABLE_HDF5|). Das Skript
+\verb|scripts/plot_nearfield.py| erzeugt PNG/PDF.

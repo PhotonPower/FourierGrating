@@ -1,0 +1,73 @@
+{
+  "dimension": "1D",
+  "solver": "rcwa",
+  "truncation": {
+    "Nx": 20,
+    "Nz": 0
+  },
+  "period_um": {
+    "x": 0.5,
+    "z": 0.0
+  },
+  "incidence": {
+    "lambda_um": 0.6328,
+    "phi_deg": 10,
+    "psi_deg": 0,
+    "delta_deg": 90
+  },
+  "materials": {
+    "air": {
+      "n": 1.0
+    },
+    "glass": {
+      "n": 1.5
+    },
+    "si": {
+      "n": [
+        3.88,
+        0.02
+      ]
+    }
+  },
+  "superstrate": "air",
+  "substrate": "glass",
+  "layers": [
+    {
+      "type": "lamellar1d",
+      "thickness_um": 0.25,
+      "breakpoints_um": [
+        0.0,
+        0.2,
+        0.5
+      ],
+      "materials": [
+        "si",
+        "air"
+      ]
+    }
+  ],
+  "rcwa": {
+    "slices": 1
+  },
+  "nearfield": {
+    "enabled": true,
+    "horizontal_y_um": 0.125,
+    "vertical_z_um": 0.0,
+    "y_range_um": [
+      -0.3,
+      0.6
+    ],
+    "nx": 400,
+    "ny": 360,
+    "periods": 2,
+    "quantities": [
+      "E",
+      "H",
+      "absE2"
+    ],
+    "reconstruction": "fff"
+  },
+  "output": {
+    "dir": "out/nearfield_lamellar_1d"
+  }
+}

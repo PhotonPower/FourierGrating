@@ -1,0 +1,126 @@
+{
+  "dimension": "1D",
+  "solver": "rcwa",
+  "truncation": {
+    "Nx": 20,
+    "Nz": 0
+  },
+  "period_um": {
+    "x": 0.6,
+    "z": 0.0
+  },
+  "incidence": {
+    "lambda_um": 0.6328,
+    "phi_deg": 30,
+    "psi_deg": 0,
+    "delta_deg": 90
+  },
+  "materials": {
+    "air": {
+      "n": 1.0
+    },
+    "co": {
+      "eps_tensor": [
+        [
+          [
+            -8.19,
+            16.38
+          ],
+          [
+            0,
+            0
+          ],
+          [
+            -0.495,
+            -0.106
+          ]
+        ],
+        [
+          [
+            0,
+            0
+          ],
+          [
+            -8.19,
+            16.38
+          ],
+          [
+            0,
+            0
+          ]
+        ],
+        [
+          [
+            0.495,
+            0.106
+          ],
+          [
+            0,
+            0
+          ],
+          [
+            -8.19,
+            16.38
+          ]
+        ]
+      ]
+    }
+  },
+  "superstrate": "air",
+  "substrate": "co",
+  "layers": [
+    {
+      "type": "profile1d",
+      "shape": "sinus",
+      "depth_um": 0.5,
+      "below": "co",
+      "above": "air",
+      "factorization": "FFF_A"
+    }
+  ],
+  "rcwa": {
+    "slices": 100
+  },
+  "output": {
+    "dir": "out/v7"
+  },
+  "reference": {
+    "side": "reflection",
+    "values": [
+      {
+        "order": [
+          0,
+          0
+        ],
+        "pol": "p",
+        "efficiency": 0.0567
+      },
+      {
+        "order": [
+          -1,
+          0
+        ],
+        "pol": "p",
+        "efficiency": 0.1435
+      },
+      {
+        "order": [
+          0,
+          0
+        ],
+        "pol": "s",
+        "efficiency": 1.3e-07
+      },
+      {
+        "order": [
+          -1,
+          0
+        ],
+        "pol": "s",
+        "efficiency": 2.37e-06
+      }
+    ],
+    "tolerance_rel": 0.03,
+    "source": "intern (Kapitelpruefung VIII), Buch Abb. VIII.1"
+  }
+}

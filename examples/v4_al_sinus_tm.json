@@ -1,0 +1,62 @@
+{
+  "dimension": "1D",
+  "solver": "rk",
+  "truncation": {
+    "Nx": 15,
+    "Nz": 0
+  },
+  "period_um": {
+    "x": 0.5,
+    "z": 0.0
+  },
+  "incidence": {
+    "lambda_um": 0.6328,
+    "phi_deg": 30,
+    "psi_deg": 0,
+    "delta_deg": 90
+  },
+  "materials": {
+    "air": {
+      "n": 1.0
+    },
+    "al": {
+      "n": [
+        1.38,
+        7.62
+      ]
+    }
+  },
+  "superstrate": "air",
+  "substrate": "al",
+  "layers": [
+    {
+      "type": "profile1d",
+      "shape": "sinus",
+      "depth_um": 0.2,
+      "below": "al",
+      "above": "air",
+      "slices": 0,
+      "factorization": "auto"
+    }
+  ],
+  "rk": {
+    "tableau": "gauss2",
+    "tol": 1e-08
+  },
+  "rcwa": {
+    "slices": 300
+  },
+  "output": {
+    "dir": "out/v4_tm"
+  },
+  "reference": {
+    "order": [
+      -1,
+      0
+    ],
+    "side": "reflection",
+    "efficiency": 0.8696,
+    "tolerance": 0.002,
+    "source": "intern, C-Methode"
+  }
+}

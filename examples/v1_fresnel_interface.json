@@ -1,0 +1,36 @@
+{
+  "dimension": "1D",
+  "solver": "rcwa",
+  "truncation": {
+    "Nx": 0,
+    "Nz": 0
+  },
+  "period_um": {
+    "x": 1.0,
+    "z": 0.0
+  },
+  "incidence": {
+    "lambda_um": 0.6328,
+    "phi_deg": 40,
+    "psi_deg": 25,
+    "delta_deg": 30
+  },
+  "materials": {
+    "air": {
+      "n": 1.0
+    },
+    "glass": {
+      "n": 1.5
+    }
+  },
+  "superstrate": "air",
+  "substrate": "glass",
+  "layers": [],
+  "output": {
+    "dir": "out/v1"
+  },
+  "reference": {
+    "type": "fresnel",
+    "tolerance": 1e-12
+  }
+}

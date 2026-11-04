@@ -1,0 +1,321 @@
+%=====================================================================
+\section{Zweck, Umfang und Lesehinweise}\label{sec:scope}
+%=====================================================================
+
+Dieses Dokument ist die verbindliche technische Spezifikation für die Implementierung von
+\textbf{FourierGrating}, einem Löser für die Beugung elektromagnetischer Wellen an periodischen
+Strukturen nach der Fourier-Modal-Methode (FMM). Es richtet sich an einen KI-Agenten (oder
+Entwickler), der die Implementierung ohne weitere Rückfragen beginnen soll. Alle Formeln sind
+hergeleitet oder auf geprüfte Quellen zurückgeführt; Stellen, an denen die Vorlage
+(Nevière/Popov, \emph{Light Propagation in Periodic Media}, 2003) fehlerhaft ist, sind in
+Abschnitt~\ref{sec:errata} aufgeführt und im Text bereits korrigiert.
+
+\subsection{Funktionsumfang}
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Variante & Periodizität & Material \\
+\midrule
+1D-isotrop    & $x$ (eine Fouriertransformation, FT) & $\varepsilon$ skalar, $\mu=1$ \\
+1D-anisotrop  & $x$                                  & $\overline{\overline\varepsilon}$ voller komplexer $3\times3$-Tensor \\
+2D-isotrop    & $x$ und $z$ (zwei FT)               & $\varepsilon$ skalar \\
+2D-anisotrop  & $x$ und $z$                          & $\overline{\overline\varepsilon}$ voller Tensor \\
+\bottomrule
+\end{tabular}
+\end{center}
+Für jede Variante gibt es zwei Löser für den modulierten Bereich:
+\begin{enumerate}[nosep]
+  \item \textbf{RK}: Differentialmethode, numerische Integration der Propagationsgleichung
+        $dF/dy=M(y)F$ mit einem \emph{impliziten} Runge--Kutta-Verfahren (Gauß--Legendre, optional
+        Radau IIA), stabilisiert durch die S-Matrix.
+  \item \textbf{RCWA}: Zerlegung in Scheiben mit $y$-unabhängigem $M$ (Treppenapproximation),
+        Eigenwertzerlegung je Scheibe, stabile Scheiben-S-Matrix.
+\end{enumerate}
+Beide Löser verwenden dieselbe Fourierfaktorisierung (FFF, \enquote{Fast Fourier Factorization}
+mit Normalenvektorfeldern), dieselben Randbedingungen, dieselbe S-Matrix-Verkettung und dieselbe
+Nahfeldrekonstruktion. Das Nahfeld wird jeweils in einem \textbf{horizontalen} ($y=\text{const}$)
+und einem \textbf{vertikalen} Schnitt ($z=\text{const}$, Ebene $x$--$y$) ausgegeben.
+
+Zielsystem: AlmaLinux 10 (x86\_64, GCC 14), C++20, CUDA (NVIDIA RTX 6000 Ada,
+Compute Capability 8.9, 48\,GB). Ein reiner CPU-Pfad ist Pflicht (Referenz, Tests, CI).
+
+\subsection{Nicht-Ziele (vorerst)}
+Magnetische Anisotropie ($\overline{\overline\mu}\neq\mathbb 1$) wird in den Formeln mitgeführt, aber erst
+nach Meilenstein M9 implementiert. Nichtlineare Optik, Photonische-Kristall-Bandstrukturen,
+Zylinderkoordinaten und Polologie (Buchkapitel X--XV) sind nicht Teil dieses Plans.
+
+\subsection{Lesehinweise für den Agenten}
+\begin{itemize}[nosep]
+  \item Abschnitte \ref{sec:conv}--\ref{sec:field} enthalten die Mathematik, Abschnitt
+        \ref{sec:arch} die Software-Architektur, Abschnitt \ref{sec:validation} die Tests mit
+        Referenzwerten, Abschnitt \ref{sec:milestones} die Reihenfolge der Arbeit.
+  \item Jede Formel, die implementiert wird, bekommt einen Unit-Test (Abschnitt~\ref{sec:validation}).
+  \item Bei Widerspruch zwischen diesem Dokument und dem Buch gilt dieses Dokument.
+  \item Gleichungsnummern des Buches werden als \enquote{Buch (IV.21)} zitiert.
+\end{itemize}
+
+%=====================================================================
+\section{Konventionen und normierte Einheiten}\label{sec:conv}
+%=====================================================================
+
+\subsection{Zeitabhängigkeit, Koordinaten, Schichtung}
+\begin{itemize}[nosep]
+  \item Zeitabhängigkeit $e^{-i\omega t}$; Felder sind komplexe Amplituden.
+  \item Periodizität in $x$ (Periode $d_x$) und -- im 2D-Fall -- in $z$ (Periode $d_z$). Die
+        Schichtung (Stapelrichtung) ist $y$. Bei 1D-Gittern ist die Struktur in $z$ invariant.
+  \item Das \textbf{Substrat} (Medium 1) belegt $y<0$, das \textbf{Superstrat} (Medium $M$) belegt
+        $y>y_{\text{top}}$. Dazwischen liegen Schichten $j=2,\dots,M-1$ mit Grenzen
+        $0=y_1<y_2<\dots<y_{M-1}=y_{\text{top}}$. Licht fällt von oben ein.
+  \item \enquote{Abwärts} (down, Amplitude $a$) heißt Ausbreitung bzw.\ Abklingen in $-y$,
+        \enquote{aufwärts} (up, Amplitude $b$) in $+y$.
+\end{itemize}
+
+\subsection{Normierung}
+Mit $k_0=\omega/c=2\pi/\lambda_0$ und $Z_0=\sqrt{\mu_0/\varepsilon_0}$ werden eingeführt:
+\begin{equation}
+  \tilde{\mathbf H}=Z_0\mathbf H,\qquad
+  \hat x=k_0x,\ \hat y=k_0y,\ \hat z=k_0z,\qquad
+  \hat\alpha=\alpha/k_0,\ \hat\beta=\beta/k_0,\ \hat\gamma=\gamma/k_0 .
+  \label{eq:norm}
+\end{equation}
+Mit relativen Materialtensoren $\overline{\overline\varepsilon}_r$, $\overline{\overline\mu}_r$ lauten die
+Maxwellgleichungen dann
+\begin{equation}
+  \widehat{\operatorname{rot}}\,\mathbf E=i\,\overline{\overline\mu}_r\tilde{\mathbf H},\qquad
+  \widehat{\operatorname{rot}}\,\tilde{\mathbf H}=-i\,\overline{\overline\varepsilon}_r\mathbf E .
+  \label{eq:maxwell_norm}
+\end{equation}
+Herleitung: $\operatorname{rot}\mathbf E=i\omega\mu_0\mu_r\mathbf H=i\omega\sqrt{\mu_0\varepsilon_0}\,\mu_r\tilde{\mathbf H}
+=ik_0\mu_r\tilde{\mathbf H}$ und
+$\operatorname{rot}\tilde{\mathbf H}=Z_0(-i\omega\varepsilon_0\varepsilon_r\mathbf E)=-ik_0\varepsilon_r\mathbf E$;
+anschließend $\partial/\partial x=k_0\,\partial/\partial\hat x$.
+\textbf{Im Code werden ausschließlich normierte Größen verwendet} (Hut wird im Folgenden weggelassen;
+alle Längen in Einheiten von $1/k_0$). Benutzereingaben (µm, Grad) werden an der Schnittstelle
+umgerechnet. Damit entsprechen alle Buchformeln dem Fall $\omega=1$, $\mu_0=\varepsilon_0=1$.
+
+\subsection{Wellenzahlen, Wurzelzweig}
+\begin{equation}
+  \alpha_n=\alpha_0+nK_x,\quad K_x=\frac{2\pi}{k_0d_x},\qquad
+  \gamma_m=\gamma_0+mK_z,\quad K_z=\frac{2\pi}{k_0d_z}
+  \label{eq:alpha_gamma}
+\end{equation}
+(im 1D-Fall $\gamma_m\equiv\gamma_0$). In einem isotropen homogenen Medium mit $\varepsilon$:
+\begin{equation}
+  \beta_{nm}=\sqrt{\varepsilon-\alpha_n^2-\gamma_m^2},\qquad
+  \operatorname{Im}\beta\ge0,\ \text{und}\ \operatorname{Re}\beta\ge0\ \text{falls}\ \operatorname{Im}\beta=0 .
+  \label{eq:beta_branch}
+\end{equation}
+\textbf{Implementierung:}\\ \verb!b = sqrt(z); if (b.imag()<0 || (b.imag()==0 && b.real()<0)) b = -b;!
+\textbf{Rayleigh-Anomalie:} Falls $|\beta|<\eta_{\text{RA}}$ (Standard $10^{-10}$), wird
+$\beta\to\beta+i\eta_{\text{RA}}$ gesetzt und eine Warnung protokolliert.
+
+\subsection{Einfallende Welle}
+$\Phi$ = Winkel zwischen $\mathbf k$ und der $y$-Achse, $\Psi$ = Azimut der Projektion auf die
+$xz$-Ebene gegen $x$, $\delta$ = Polarisationswinkel (Buch Kap.~IX, korrigiert):
+\begin{equation}
+  \alpha_0=\nu_M\sin\Phi\cos\Psi,\qquad \beta_0=\nu_M\cos\Phi,\qquad \gamma_0=\nu_M\sin\Phi\sin\Psi,
+  \qquad \mathbf k^{(i)}=(\alpha_0,-\beta_0,\gamma_0),
+  \label{eq:incidence}
+\end{equation}
+($\nu_M$: reelle Brechzahl des Superstrats; Buch (IX.1) hat fälschlich $\cos\Psi$ in $\beta_0$),
+\begin{equation}
+  \mathbf A=\begin{pmatrix}\sin\Psi\cos\delta+\sin\delta\cos\Phi\cos\Psi\\ \sin\delta\sin\Phi\\
+  \cos\Phi\sin\Psi\sin\delta-\cos\delta\cos\Psi\end{pmatrix},\qquad |\mathbf A|=1,\ \mathbf A\cdot\mathbf k^{(i)}=0 .
+  \label{eq:polarization}
+\end{equation}
+$\delta=0$: $\mathbf A\perp$ Einfallsebene (\enquote{s}); $\delta=90^\circ$: in der Einfallsebene (\enquote{p}).
+Bei Normaleinfall gilt $\Psi=\pi$, dann ist $\delta$ der Winkel zwischen $\mathbf A$ und $z$.
+1D-in-plane: $\Psi=0$ bzw.\ $\pi$, $\gamma_0=0$; TE $\equiv\delta=0$ ($\mathbf E\parallel z$), TM $\equiv\delta=90^\circ$.
+
+%=====================================================================
+\section{Grundgleichungen im Fourierraum}\label{sec:equations}
+%=====================================================================
+
+\subsection{Komponentenform}
+Aus \eqref{eq:maxwell_norm} (Buch (V.14)--(V.19) mit $\omega=1$):
+\begin{align}
+  \partial_yE_z-\partial_zE_y&=iB_x, & \partial_yH_z-\partial_zH_y&=-iD_x,\label{eq:mx1}\\
+  \partial_zE_x-\partial_xE_z&=iB_y, & \partial_zH_x-\partial_xH_z&=-iD_y,\label{eq:mx2}\\
+  \partial_xE_y-\partial_yE_x&=iB_z, & \partial_xH_y-\partial_yH_x&=-iD_z,\label{eq:mx3}
+\end{align}
+mit $\mathbf D=\overline{\overline\varepsilon}_r\mathbf E$, $\mathbf B=\overline{\overline\mu}_r\mathbf H$ (hier stets
+$\mathbf H\equiv\tilde{\mathbf H}$).
+
+\subsection{Pseudoperiodische Entwicklung}
+Wegen der Pseudoperiodizität (Buch I.2.3) gilt für jede Feldkomponente
+\begin{equation}
+  u(x,y,z)=\sum_{(n,m)\in\mathcal N}u_{nm}(y)\,e^{i(\alpha_nx+\gamma_mz)},
+  \label{eq:pseudo}
+\end{equation}
+mit der Abschneidemenge $\mathcal N$ (Abschnitt~\ref{sec:fourier}). Mit $\alpha=\operatorname{diag}(\alpha_n)$,
+$\gamma=\operatorname{diag}(\gamma_m)$ (im Einzelindexraum, Abschnitt~\ref{sec:indexmap}) wird
+$\partial_x\to i\alpha$, $\partial_z\to i\gamma$. Produkte $\varepsilon E$ werden durch die
+Faktorisierung aus Abschnitt~\ref{sec:fff} ersetzt:
+\begin{equation}
+  [\mathbf D]=Q_\varepsilon[\mathbf E],\qquad [\mathbf B]=Q_\mu[\mathbf H],
+  \label{eq:Qdef}
+\end{equation}
+mit $3\times3$-Blockmatrizen $Q_\varepsilon=(Q_{\varepsilon,ij})_{i,j\in\{x,y,z\}}$, jeder Block
+$n_f\times n_f$ ($n_f=|\mathcal N|$). Ohne magnetische Anisotropie ist $Q_\mu=\mathbb 1$.
+
+\subsection{Elimination von $E_y$, $H_y$}
+Aus \eqref{eq:mx2} (rechte Spalte): $i\gamma[H_x]-i\alpha[H_z]=-i[D_y]$, also
+$[D_y]=\alpha[H_z]-\gamma[H_x]$, und mit \eqref{eq:Qdef}
+\begin{equation}
+  [E_y]=Q_{\varepsilon,yy}^{-1}\big(\alpha[H_z]-\gamma[H_x]-Q_{\varepsilon,yx}[E_x]-Q_{\varepsilon,yz}[E_z]\big),
+  \label{eq:Ey}
+\end{equation}
+und analog aus \eqref{eq:mx2} (links): $i[B_y]=i\gamma[E_x]-i\alpha[E_z]$:
+\begin{equation}
+  [H_y]=Q_{\mu,yy}^{-1}\big(\gamma[E_x]-\alpha[E_z]-Q_{\mu,yx}[H_x]-Q_{\mu,yz}[H_z]\big).
+  \label{eq:Hy}
+\end{equation}
+
+\subsection{Propagationsgleichung}
+Mit dem Zustandsvektor $F=([E_x],[E_z],[H_x],[H_z])^T\in\mathbb C^{4n_f}$ gilt
+\begin{equation}
+  \frac{dF}{dy}=M(y)\,F .
+  \label{eq:ode}
+\end{equation}
+Herleitung der Zeilen: $\partial_yE_x=i\alpha E_y-iB_z$ \eqref{eq:mx3}, $\partial_yE_z=i\gamma E_y+iB_x$
+\eqref{eq:mx1}, $\partial_yH_x=i\alpha H_y+iD_z$ \eqref{eq:mx3}, $\partial_yH_z=i\gamma H_y-iD_x$
+\eqref{eq:mx1}; Einsetzen von \eqref{eq:Ey}, \eqref{eq:Hy} und
+$B_x=Q_{\mu,xx}H_x+Q_{\mu,xy}H_y+Q_{\mu,xz}H_z$ usw. ergibt
+(mit $\mathcal E\equiv Q_{\varepsilon,yy}^{-1}$, $\mathcal U\equiv Q_{\mu,yy}^{-1}$, Buch (V.22') mit $\omega=1$):
+\begin{equation}
+\begin{aligned}
+  M_{11}&=-i\alpha\mathcal EQ_{\varepsilon,yx}-iQ_{\mu,zy}\mathcal U\gamma, &
+  M_{12}&=-i\alpha\mathcal EQ_{\varepsilon,yz}+iQ_{\mu,zy}\mathcal U\alpha,\\
+  M_{13}&=iQ_{\mu,zy}\mathcal UQ_{\mu,yx}-i\alpha\mathcal E\gamma-iQ_{\mu,zx}, &
+  M_{14}&=iQ_{\mu,zy}\mathcal UQ_{\mu,yz}+i\alpha\mathcal E\alpha-iQ_{\mu,zz},\\
+  M_{21}&=-i\gamma\mathcal EQ_{\varepsilon,yx}+iQ_{\mu,xy}\mathcal U\gamma, &
+  M_{22}&=-i\gamma\mathcal EQ_{\varepsilon,yz}-iQ_{\mu,xy}\mathcal U\alpha,\\
+  M_{23}&=-iQ_{\mu,xy}\mathcal UQ_{\mu,yx}-i\gamma\mathcal E\gamma+iQ_{\mu,xx}, &
+  M_{24}&=-iQ_{\mu,xy}\mathcal UQ_{\mu,yz}+i\gamma\mathcal E\alpha+iQ_{\mu,xz},\\
+  M_{31}&=-iQ_{\varepsilon,zy}\mathcal EQ_{\varepsilon,yx}+i\alpha\mathcal U\gamma+iQ_{\varepsilon,zx}, &
+  M_{32}&=-iQ_{\varepsilon,zy}\mathcal EQ_{\varepsilon,yz}-i\alpha\mathcal U\alpha+iQ_{\varepsilon,zz},\\
+  M_{33}&=-i\alpha\mathcal UQ_{\mu,yx}-iQ_{\varepsilon,zy}\mathcal E\gamma, &
+  M_{34}&=-i\alpha\mathcal UQ_{\mu,yz}+iQ_{\varepsilon,zy}\mathcal E\alpha,\\
+  M_{41}&=iQ_{\varepsilon,xy}\mathcal EQ_{\varepsilon,yx}+i\gamma\mathcal U\gamma-iQ_{\varepsilon,xx}, &
+  M_{42}&=iQ_{\varepsilon,xy}\mathcal EQ_{\varepsilon,yz}-i\gamma\mathcal U\alpha-iQ_{\varepsilon,xz},\\
+  M_{43}&=-i\gamma\mathcal UQ_{\mu,yx}+iQ_{\varepsilon,xy}\mathcal E\gamma, &
+  M_{44}&=-i\gamma\mathcal UQ_{\mu,yz}-iQ_{\varepsilon,xy}\mathcal E\alpha .
+\end{aligned}
+\label{eq:Mgeneral}
+\end{equation}
+Für $Q_\mu=\mathbb 1$ ($\mathcal U=\mathbb 1$, $Q_{\mu,ij}=0$ für $i\neq j$) vereinfacht sich das zu
+\begin{equation}
+\begin{aligned}
+  M_{11}&=-i\alpha\mathcal EQ_{\varepsilon,yx}, & M_{12}&=-i\alpha\mathcal EQ_{\varepsilon,yz},
+  & M_{13}&=-i\alpha\mathcal E\gamma, & M_{14}&=i\alpha\mathcal E\alpha-i\mathbb 1,\\
+  M_{21}&=-i\gamma\mathcal EQ_{\varepsilon,yx}, & M_{22}&=-i\gamma\mathcal EQ_{\varepsilon,yz},
+  & M_{23}&=-i\gamma\mathcal E\gamma+i\mathbb 1, & M_{24}&=i\gamma\mathcal E\alpha,
+\end{aligned}
+\label{eq:Mmu1a}
+\end{equation}
+\begin{equation}
+\begin{aligned}
+  M_{31}&=i\big(Q_{\varepsilon,zx}-Q_{\varepsilon,zy}\mathcal EQ_{\varepsilon,yx}+\alpha\gamma\big), &
+  M_{32}&=i\big(Q_{\varepsilon,zz}-Q_{\varepsilon,zy}\mathcal EQ_{\varepsilon,yz}-\alpha^2\big),\\
+  M_{33}&=-iQ_{\varepsilon,zy}\mathcal E\gamma, & M_{34}&=iQ_{\varepsilon,zy}\mathcal E\alpha,\\
+  M_{41}&=i\big(Q_{\varepsilon,xy}\mathcal EQ_{\varepsilon,yx}-Q_{\varepsilon,xx}+\gamma^2\big), &
+  M_{42}&=i\big(Q_{\varepsilon,xy}\mathcal EQ_{\varepsilon,yz}-Q_{\varepsilon,xz}-\gamma\alpha\big),\\
+  M_{43}&=iQ_{\varepsilon,xy}\mathcal E\gamma, & M_{44}&=-iQ_{\varepsilon,xy}\mathcal E\alpha .
+\end{aligned}
+\label{eq:Mmu1b}
+\end{equation}
+\begin{tcolorbox}[title=Prüfpunkt (Unit-Test \texttt{test\_propagation\_matrix})]
+In einem homogenen isotropen Medium ($Q_{\varepsilon,ij}=\varepsilon\delta_{ij}\mathbb 1$) müssen die
+analytischen Moden aus Abschnitt~\ref{sec:homog} Eigenvektoren von $M$ zu den Eigenwerten
+$\lambda=\pm i\beta_{nm}$ sein. Achtung: Buch (VIII.3) lässt in $M_{32}$ den Term $-i\alpha^2$ weg
+(falsch); \eqref{eq:Mmu1b} ist korrekt.
+\end{tcolorbox}
+
+\subsection{Spezialfälle}
+\paragraph{1D, in-plane ($\gamma=0$), isotrop, $N_z=0$:} Dann $Q_{\varepsilon,xz}=Q_{\varepsilon,zx}=Q_{\varepsilon,yz}=
+Q_{\varepsilon,zy}=0$, $Q_{\varepsilon,zz}=\tp{\varepsilon}$, und \eqref{eq:ode} zerfällt in
+\begin{align}
+  \text{TE: }&\frac{d}{dy}\begin{pmatrix}[E_z]\\{}[H_x]\end{pmatrix}=
+   \begin{pmatrix}0&i\mathbb 1\\ i(\tp{\varepsilon}-\alpha^2)&0\end{pmatrix}\begin{pmatrix}[E_z]\\{}[H_x]\end{pmatrix},
+   \label{eq:TE}\\
+  \text{TM: }&\frac{d}{dy}\begin{pmatrix}[E_x]\\{}[H_z]\end{pmatrix}=
+   \begin{pmatrix}-i\alpha\mathcal EQ_{\varepsilon,yx}& i\alpha\mathcal E\alpha-i\mathbb 1\\
+   i(Q_{\varepsilon,xy}\mathcal EQ_{\varepsilon,yx}-Q_{\varepsilon,xx})&-iQ_{\varepsilon,xy}\mathcal E\alpha\end{pmatrix}
+   \begin{pmatrix}[E_x]\\{}[H_z]\end{pmatrix}.\label{eq:TM}
+\end{align}
+Mit $Q_{\varepsilon,xx}=A+\Li$, $Q_{\varepsilon,yy}=\tp{\varepsilon}-A$, $Q_{\varepsilon,xy}=Q_{\varepsilon,yx}=B$
+($\Delta=\tp\varepsilon-\Li$, $A=\Delta\tp{c^2}$, $B=\Delta\tp{cs}$, $c=\cos\theta$, $s=\sin\theta$,
+$\tan\theta=g'$) ist \eqref{eq:TM} identisch mit Buch (IV.21), (IV.22). Diese beiden
+$2n_f$-Systeme sind der erste Implementierungsschritt (Meilenstein M2/M3).
+\paragraph{1D konisch:} volles $4n_f$-System mit $\gamma=\gamma_0\mathbb 1$.
+\paragraph{2D:} volles $4n_f$-System mit $n_f=(2N_x+1)(2N_z+1)$.
+
+%=====================================================================
+\section{Fourier-Darstellung und Toeplitz-Matrizen}\label{sec:fourier}
+%=====================================================================
+
+\subsection{Abschneidemenge und Einzelindex}\label{sec:indexmap}
+1D: $\mathcal N=\{n:\ -N_x\le n\le N_x\}$, $n_f=2N_x+1$, Index $r=n+N_x$ (0-basiert).
+2D (rechteckige Abschneidung): $\mathcal N=\{(n,m):|n|\le N_x,|m|\le N_z\}$,
+\begin{equation}
+  r=(m+N_z)+(2N_z+1)(n+N_x),\qquad
+  n=-N_x+\Big\lfloor\frac{r}{2N_z+1}\Big\rfloor,\quad m=r-(2N_z+1)(n+N_x)-N_z
+  \label{eq:indexmap}
+\end{equation}
+(0-basiert; das Buch (IX.14) dividiert fälschlich durch $N+1$). Optional später: kreisförmige
+Abschneidung $(n/N_x)^2+(m/N_z)^2\le1$; dann ist die Abbildung eine Tabelle. Der Code darf nur
+über die Klasse \verb|IndexMap| auf $(n,m)\leftrightarrow r$ zugreifen.
+
+\subsection{Fourierkoeffizienten}
+Für eine $d_x$-periodische (bzw.\ $(d_x,d_z)$-periodische) Funktion $f$ gilt
+\begin{equation}
+  f(x,z)=\sum_{p,q}f_{pq}\,e^{i(pK_xx+qK_zz)},\qquad
+  f_{pq}=\frac{1}{d_xd_z}\iint_{\text{Zelle}}f(x,z)\,e^{-i(pK_xx+qK_zz)}\,dx\,dz .
+  \label{eq:fcoef}
+\end{equation}
+Für Toeplitz-Matrizen werden $|p|\le2N_x$, $|q|\le2N_z$ benötigt.
+
+\paragraph{Intervall (1D).} $f=\chi_{[x_1,x_2]}$ (Periode $d$, $K=2\pi/d$):
+\begin{equation}
+  f_0=\frac{x_2-x_1}{d},\qquad f_p=\frac{e^{-ipKx_2}-e^{-ipKx_1}}{-ipKd}\quad(p\ne0).
+  \label{eq:interval}
+\end{equation}
+Stückweise konstante Funktionen $=\sum_j\varepsilon_j\chi_{I_j}$ (Linearität).
+
+\paragraph{Rechteck (2D).} Produkt zweier Intervallformeln.
+
+\paragraph{Polygon (2D, exakt).} Für ein einfaches Polygon $P$ mit Ecken $\mathbf v_1,\dots,\mathbf v_L$
+(gegen den Uhrzeigersinn), Kanten $\mathbf t_j=\mathbf v_{j+1}-\mathbf v_j$, Länge $\ell_j$, Mittelpunkt
+$\mathbf c_j$, äußerer Normale $\mathbf n_j$ und $\mathbf k=(pK_x,qK_z)\neq0$:
+\begin{equation}
+  \iint_Pe^{-i\mathbf k\cdot\mathbf r}d^2r=\frac{i}{|\mathbf k|^2}\sum_{j=1}^{L}(\mathbf k\cdot\mathbf n_j)\,\ell_j\,
+  e^{-i\mathbf k\cdot\mathbf c_j}\,\operatorname{sinc}\Big(\frac{\mathbf k\cdot\mathbf t_j}{2}\Big),\qquad
+  \operatorname{sinc}u=\frac{\sin u}{u},
+  \label{eq:polygon}
+\end{equation}
+für $\mathbf k=0$ die Fläche. Herleitung: Gaußscher Satz mit
+\[
+  e^{-i\mathbf k\cdot\mathbf r}=\frac{i}{|\mathbf k|^2}\nabla\cdot\big(\mathbf k\,e^{-i\mathbf k\cdot\mathbf r}\big),\qquad
+  \int_0^1e^{-i\mathbf k\cdot(\mathbf v_j+s\mathbf t_j)}\ell_j\,ds=\ell_j\,e^{-i\mathbf k\cdot\mathbf c_j}\operatorname{sinc}(\mathbf k\cdot\mathbf t_j/2).
+\]
+Kreise/Ellipsen: analytisch über Bessel-Funktion ($J_1$) oder als feines Polygon.
+
+\paragraph{Allgemeine Funktionen.} Abtastung auf einem feinen Gitter ($\ge 8\times$ die höchste
+benötigte Ordnung) und FFT. \textbf{Nur für stetige Funktionen} (z.\,B.\ Normalenvektorkomponenten);
+für unstetige Funktionen (Permittivität) möglichst analytische Formeln, sonst Aliasing-Fehler
+$O(1/N_{\text{grid}})$.
+
+\subsection{Toeplitz-Matrizen}
+\begin{equation}
+  \tp{f}_{rr'}=f_{n-n',\,m-m'},\qquad r\leftrightarrow(n,m),\ r'\leftrightarrow(n',m').
+  \label{eq:toeplitz}
+\end{equation}
+1D: gewöhnliche Toeplitz-Matrix; 2D: block-Toeplitz mit Toeplitz-Blöcken. Rechenregeln
+(Buch Anh.~II; im abgeschnittenen Raum nur näherungsweise):
+$\tp{1}=\mathbb 1$, $\tp{f+g}=\tp f+\tp g$, $\tp{fg}\approx\tp f\tp g$ falls keine gleichzeitigen Sprünge.
+\begin{tcolorbox}[title=Numerischer Befund (Kapitelprüfung)]
+$\tp f\tp g-\tp{fg}$ ist im Inneren der Matrix auf Maschinengenauigkeit null, an den Rändern
+(höchste Ordnungen) bleibt ein Fehler $O(1)$, der mit $N$ \emph{nicht} abnimmt. Deshalb nie
+$\tp f\tp g$ durch $\tp{fg}$ ersetzen, wenn eine der Funktionen unstetig ist, außer die Spezifikation
+verlangt es ausdrücklich.
+\end{tcolorbox}

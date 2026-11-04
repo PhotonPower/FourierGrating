@@ -1,0 +1,42 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "cpu-release",
+      "displayName": "CPU only, Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/cpu-release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "FG_ENABLE_CUDA": "OFF" }
+    },
+    {
+      "name": "cpu-debug",
+      "displayName": "CPU only, Debug + sanitizers",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/cpu-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug", "FG_ENABLE_CUDA": "OFF",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer"
+      }
+    },
+    {
+      "name": "cuda-release",
+      "displayName": "CUDA (RTX 6000 Ada, sm_89), Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/cuda-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release", "FG_ENABLE_CUDA": "ON",
+        "CMAKE_CUDA_ARCHITECTURES": "89"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "cpu-release",  "configurePreset": "cpu-release" },
+    { "name": "cpu-debug",    "configurePreset": "cpu-debug" },
+    { "name": "cuda-release", "configurePreset": "cuda-release" }
+  ],
+  "testPresets": [
+    { "name": "cpu-release", "configurePreset": "cpu-release", "output": { "outputOnFailure": true } },
+    { "name": "cpu-debug",   "configurePreset": "cpu-debug",   "output": { "outputOnFailure": true } },
+    { "name": "cuda-release","configurePreset": "cuda-release","output": { "outputOnFailure": true } }
+  ]
+}

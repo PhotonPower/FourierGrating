@@ -1,0 +1,23 @@
+# build trees
+build/
+cmake-build-*/
+out/
+_deps/
+compile_commands.json
+# editors
+.vscode/
+.idea/
+*.swp
+.cache/
+# python
+__pycache__/
+*.pyc
+# LaTeX intermediates (main.pdf is versioned)
+docs/implementation_plan/*.aux
+docs/implementation_plan/*.log
+docs/implementation_plan/*.out
+docs/implementation_plan/*.toc
+docs/implementation_plan/build.log
+# results
+*.npy
+!tests/data/*.npy
