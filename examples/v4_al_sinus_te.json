@@ -2,7 +2,7 @@
   "dimension": "1D",
   "solver": "rk",
   "truncation": {
-    "Nx": 15,
+    "Nx": 20,
     "Nz": 0
   },
   "period_um": {
@@ -35,13 +35,12 @@
       "depth_um": 0.2,
       "below": "al",
       "above": "air",
-      "slices": 0,
       "factorization": "auto"
     }
   ],
   "rk": {
     "tableau": "gauss2",
-    "tol": 1e-08
+    "tol": 1e-05
   },
   "rcwa": {
     "slices": 300

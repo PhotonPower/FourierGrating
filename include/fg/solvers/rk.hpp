@@ -23,6 +23,11 @@ MatC rkTransferConstant(const MatC& M, double H, const ButcherTableau& tab, doub
 MatC rkTransfer(const std::function<MatC(double)>& M, double y0, double y1,
                 const ButcherTableau& tab, double tol, double rho, RKStats& stats);
 
+/// As rkTransfer, but detects the exact TE/TM decoupling of 1D in-plane problems
+/// (F = (Ex, Ez, Hx, Hz): blocks (Ex, Hz) and (Ez, Hx)) and integrates both halves separately.
+MatC rkTransferAuto(const std::function<MatC(double)>& M, double y0, double y1,
+                    const ButcherTableau& tab, double tol, double rho, RKStats& stats);
+
 /// Slice S-matrix from the field transfer matrix: T = Psi_ref^-1 T_F Psi_ref (Plan eq:rkslice).
 SMatrix rkSliceSMatrix(const MatC& TF, const ModeBasis& ref);
 

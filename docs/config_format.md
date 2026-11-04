@@ -26,7 +26,7 @@ Die Implementierung erfolgt in M2 (`fg::io::loadConfig`); dieses Dokument ist di
   "layers": [                            // von unten (Substrat) nach oben
     { "type": "profile1d", "shape": "sinus",            // sinus | triangle | points
       "depth_um": 0.2, "below": "al", "above": "air",
-      "slices": 0, "factorization": "auto" },
+      "slices": 0, "factorization": "auto" },     // auto | laurent | li_lamellar | FFF_iso | FFF_sym | FFF_rig
     { "type": "homogeneous", "thickness_um": 0.05, "material": "air" },
     { "type": "lamellar1d", "thickness_um": 0.3,
       "breakpoints_um": [0.0, 0.2, 0.5], "materials": ["al", "air"] },

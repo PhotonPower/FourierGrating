@@ -12,12 +12,13 @@ Abnahme = alle genannten Tests grün (`ctest`), Details im Plan, Abschnitt „Me
 - [x] **M2** 1D isotrop: homogene Schichten, Lamellen (RCWA und RK), Gesamtlösung, JSON-Konfiguration, CSV-Ausgabe
   - Abnahme: V1, V2, V3 (TE/TM **und konisch**) – `tests/validation/test_v1_v3.cpp`
   - Hinweis: Es wird durchgehend das volle 4n_f-System verwendet (Plan, Abschnitt Spezialfälle)
-- [ ] **M3** 1D-Profile: Nullstellen-Schnitte, Normalenfeld, FFF_iso; RK-Löser mit Schrittsteuerung; RCWA-Treppe mit FFF
-  - Abnahme: V4, V5, V6; RK = RCWA auf Lamellen
-- [ ] **M4** 1D konisch (4n_f-System)
+- [x] **M3** 1D-Profile: Schnittpunkte, Normalenfeld, FFF-Varianten (iso/sym/rig); RK mit M(y); RCWA-Treppe mit FFF
+  - Abnahme: V4, V5, V6, V13 grün; V14 (Gold-Dreieck) nur physikalische Grenzen – **offen**
+  - Befund: Buchformel (IV.32) versagt bei schwach absorbierenden Metallen, siehe Plan „Varianten der isotropen FFF“
+- [x] **M4** 1D konisch (4n_f-System)
   - [x] Lamellen und homogene Schichten konisch (mit M2 erledigt, V1–V3 konisch grün)
-  - [ ] Profilschichten konisch (mit M3), s/p-Ausgabe prüfen gegen Buch Abb. IV.4
-  - Abnahme: Reziprozität, Energie für Profile
+  - [x] Profilschichten konisch: RK = RCWA auf 1e-4, Energie auf 5e-4
+  - [ ] s/p-Ausgabe gegen Buch Abb. IV.4 prüfen (optional)
 - [ ] **M5** 1D anisotrop: FFF_A, FFF_B, anisotrope Substrate (4×4-Moden)
   - Abnahme: V7, V8
 - [ ] **M6** Nahfeld 1D (horizontale Linie, vertikale x–y-Karte), direkt/FFF-Rekonstruktion, Plot-Skript

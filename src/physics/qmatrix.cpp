@@ -37,7 +37,7 @@ QBlocks qLiLamellar(const SliceCoefficients& c, const IndexMap& map) {
   return Q;
 }
 
-QBlocks qFFFIsotropic(const SliceCoefficients& c, const IndexMap& map) {
+QBlocks qFFFIsotropic(const SliceCoefficients& c, const IndexMap& map, bool symmetric) {
   FG_REQUIRE(c.isotropic, "qFFFIsotropic requires an isotropic layer");
   FG_REQUIRE(c.normal != nullptr, "qFFFIsotropic requires a normal vector field");
   const MatC E = fourier::toeplitz(map, c.eps);
@@ -47,8 +47,23 @@ QBlocks qFFFIsotropic(const SliceCoefficients& c, const IndexMap& map) {
     for (int j = 0; j < 3; ++j) {
       const MatC NN = fourier::toeplitz(
           map, c.normal->NN[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)]);
-      Q(i, j) = -Delta * NN;
+      Q(i, j) = symmetric ? MatC(-0.5 * (Delta * NN + NN * Delta)) : MatC(-Delta * NN);
       if (i == j) Q(i, j) += E;
+    }
+  return Q;
+}
+
+QBlocks qFFFIsotropicRigorous(const SliceCoefficients& c, const IndexMap& map) {
+  FG_REQUIRE(c.isotropic && c.normal && c.normal->hasSigned, "qFFFIsotropicRigorous needs signed N");
+  const MatC E = fourier::toeplitz(map, c.eps);
+  const MatC L = fourier::toeplitz(map, c.invEps).partialPivLu().inverse();
+  std::array<MatC, 3> Nt;
+  for (std::size_t i = 0; i < 3; ++i) Nt[i] = fourier::toeplitz(map, c.normal->N[i]);
+  QBlocks Q;
+  for (std::size_t i = 0; i < 3; ++i)
+    for (std::size_t j = 0; j < 3; ++j) {
+      Q(int(i), int(j)) = -E * (Nt[i] * Nt[j]) + Nt[i] * (L * Nt[j]);
+      if (i == j) Q(int(i), int(j)) += E;
     }
   return Q;
 }

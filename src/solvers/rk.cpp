@@ -71,6 +71,34 @@ MatC rkTransfer(const std::function<MatC(double)>& M, double y0, double y1,
   return T;
 }
 
+MatC rkTransferAuto(const std::function<MatC(double)>& M, double y0, double y1,
+                    const ButcherTableau& tab, double tol, double rho, RKStats& stats) {
+  const MatC Mmid = M(0.5 * (y0 + y1));
+  const Eigen::Index n = Mmid.rows() / 4;
+  // index sets: TM-like (Ex, Hz) = blocks 0, 3; TE-like (Ez, Hx) = blocks 1, 2
+  const int A[2] = {0, 3}, B[2] = {1, 2};
+  double cross = 0;
+  for (int i : A)
+    for (int j : B) {
+      cross = std::max(cross, Mmid.block(i * n, j * n, n, n).cwiseAbs().maxCoeff());
+      cross = std::max(cross, Mmid.block(j * n, i * n, n, n).cwiseAbs().maxCoeff());
+    }
+  if (n == 0 || cross > 0.0) return rkTransfer(M, y0, y1, tab, tol, rho, stats);
+  auto extract = [n](const MatC& Mf, const int* set) {
+    MatC R(2 * n, 2 * n);
+    for (int a = 0; a < 2; ++a)
+      for (int b = 0; b < 2; ++b) R.block(a * n, b * n, n, n) = Mf.block(set[a] * n, set[b] * n, n, n);
+    return R;
+  };
+  MatC T = MatC::Zero(4 * n, 4 * n);
+  for (const int* set : {A, B}) {
+    const MatC Tb = rkTransfer([&](double y) { return extract(M(y), set); }, y0, y1, tab, tol, rho, stats);
+    for (int a = 0; a < 2; ++a)
+      for (int b = 0; b < 2; ++b) T.block(set[a] * n, set[b] * n, n, n) = Tb.block(a * n, b * n, n, n);
+  }
+  return T;
+}
+
 SMatrix rkSliceSMatrix(const MatC& TF, const ModeBasis& ref) {
   return fromTransfer(ref.PsiInv * TF * ref.Psi);
 }

@@ -19,6 +19,9 @@ bool isBlockAntiDiagonal(const MatC& M, double tol = 1e-13);
 LayerModes layerModesReduced(const MatC& M, double eta = 1e-10);
 /// Full eigen-decomposition with classification (Plan eq:classify).
 LayerModes layerModesGeneral(const MatC& M);
+/// Picks the cheapest exact path: reduced (anti-diagonal M), TE/TM-decoupled blocks
+/// (1D in-plane: (Ex, Hz) and (Ez, Hx)), or the full eigenproblem.
+LayerModes layerModesAuto(const MatC& M);
 /// Analytic modes of a homogeneous isotropic layer.
 LayerModes layerModesHomogeneous(const ModeBasis& mb);
 

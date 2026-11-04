@@ -41,41 +41,110 @@ LayerModes layerModesReduced(const MatC& M, double eta) {
 }
 
 LayerModes layerModesGeneral(const MatC& M) {
+  // Classification (Plan eq:classify): field ~ exp(lambda y); up-going modes decay towards +y.
+  // Robust variant: sort by a score (Re lambda, or -sign(S_y) * tau for |Re lambda| <= tau)
+  // and take the lower half as up-going. This always yields n_h modes per direction.
   Eigen::ComplexEigenSolver<MatC> es(M, true);
   FG_REQUIRE(es.info() == Eigen::Success, "eigen decomposition failed (RCWA general)");
   const Eigen::Index N = M.rows(), n = N / 2, nf = N / 4;
   const VecC& lam = es.eigenvalues();
   const double tau = 1e-9 * lam.cwiseAbs().maxCoeff();
-  std::vector<Eigen::Index> up, dn;
+  std::vector<double> score(static_cast<std::size_t>(N));
   for (Eigen::Index k = 0; k < N; ++k) {
     const double re = lam(k).real();
-    bool isUp;
-    if (re < -tau) isUp = true;
-    else if (re > tau) isUp = false;
-    else {
+    if (std::abs(re) > tau) {
+      score[static_cast<std::size_t>(k)] = re;
+    } else {
       const VecC w = es.eigenvectors().col(k);
-      double s = 0;
+      double sy = 0;
       for (Eigen::Index r = 0; r < nf; ++r)
-        s += 0.5 * std::real(w(nf + r) * std::conj(w(2 * nf + r)) - w(r) * std::conj(w(3 * nf + r)));
-      isUp = s > 0;
+        sy += 0.5 * std::real(w(nf + r) * std::conj(w(2 * nf + r)) - w(r) * std::conj(w(3 * nf + r)));
+      score[static_cast<std::size_t>(k)] = sy > 0 ? -0.5 * tau : 0.5 * tau;
     }
-    (isUp ? up : dn).push_back(k);
   }
-  FG_REQUIRE(static_cast<Eigen::Index>(up.size()) == n && static_cast<Eigen::Index>(dn.size()) == n,
-             "mode classification failed: " + std::to_string(up.size()) + " up / " +
-                 std::to_string(dn.size()) + " down");
+  std::vector<Eigen::Index> idx(static_cast<std::size_t>(N));
+  std::iota(idx.begin(), idx.end(), 0);
+  std::stable_sort(idx.begin(), idx.end(), [&](Eigen::Index i, Eigen::Index j) {
+    return score[static_cast<std::size_t>(i)] < score[static_cast<std::size_t>(j)];
+  });
   LayerModes m;
   m.Wu.resize(N, n);
   m.Wd.resize(N, n);
   m.lu.resize(n);
   m.ld.resize(n);
   for (Eigen::Index k = 0; k < n; ++k) {
-    m.Wu.col(k) = es.eigenvectors().col(up[static_cast<std::size_t>(k)]);
-    m.lu(k) = lam(up[static_cast<std::size_t>(k)]);
-    m.Wd.col(k) = es.eigenvectors().col(dn[static_cast<std::size_t>(k)]);
-    m.ld(k) = lam(dn[static_cast<std::size_t>(k)]);
+    const Eigen::Index iu = idx[static_cast<std::size_t>(k)], id = idx[static_cast<std::size_t>(n + k)];
+    m.Wu.col(k) = es.eigenvectors().col(iu);
+    m.lu(k) = lam(iu);
+    m.Wd.col(k) = es.eigenvectors().col(id);
+    m.ld(k) = lam(id);
   }
+  FG_REQUIRE(m.lu.real().maxCoeff() <= m.ld.real().minCoeff() + tau,
+             "mode classification inconsistent (up/down eigenvalues overlap)");
   return m;
+}
+
+LayerModes layerModesAuto(const MatC& M) {
+  if (isBlockAntiDiagonal(M)) return layerModesReduced(M);
+  const Eigen::Index n = M.rows() / 4;
+  const int A[2] = {0, 3}, B[2] = {1, 2};  // (Ex, Hz) and (Ez, Hx)
+  double cross = 0;
+  for (int i : A)
+    for (int j : B) {
+      cross = std::max(cross, M.block(i * n, j * n, n, n).cwiseAbs().maxCoeff());
+      cross = std::max(cross, M.block(j * n, i * n, n, n).cwiseAbs().maxCoeff());
+    }
+  if (cross > 0.0) return layerModesGeneral(M);
+  // Each 2n block is itself a "state vector" of half size: classify it with the general routine
+  // by embedding it into a pseudo 4-component layout (n/2 orders) - simpler: eig per block.
+  LayerModes out;
+  out.Wu = MatC::Zero(4 * n, 2 * n);
+  out.Wd = MatC::Zero(4 * n, 2 * n);
+  out.lu.resize(2 * n);
+  out.ld.resize(2 * n);
+  Eigen::Index col = 0;
+  for (const int* set : {A, B}) {
+    MatC Mb(2 * n, 2 * n);
+    for (int a = 0; a < 2; ++a)
+      for (int b = 0; b < 2; ++b) Mb.block(a * n, b * n, n, n) = M.block(set[a] * n, set[b] * n, n, n);
+    Eigen::ComplexEigenSolver<MatC> es(Mb, true);
+    FG_REQUIRE(es.info() == Eigen::Success, "eigen decomposition failed (RCWA TE/TM block)");
+    const VecC& lam = es.eigenvalues();
+    const double tau = 1e-9 * lam.cwiseAbs().maxCoeff();
+    std::vector<double> score(static_cast<std::size_t>(2 * n));
+    for (Eigen::Index k = 0; k < 2 * n; ++k) {
+      const double re = lam(k).real();
+      if (std::abs(re) > tau) {
+        score[static_cast<std::size_t>(k)] = re;
+      } else {
+        // flux of the embedded mode: blocks set = {E-comp, H-comp}
+        const VecC w = es.eigenvectors().col(k);
+        double sy = 0;
+        for (Eigen::Index r = 0; r < n; ++r) {
+          const cplx e = w(r), h = w(n + r);
+          sy += set[0] == 0 ? -0.5 * std::real(e * std::conj(h))   // (Ex, Hz): -Ex Hz*
+                            : 0.5 * std::real(e * std::conj(h));   // (Ez, Hx): +Ez Hx*
+        }
+        score[static_cast<std::size_t>(k)] = sy > 0 ? -0.5 * tau : 0.5 * tau;
+      }
+    }
+    std::vector<Eigen::Index> idx(static_cast<std::size_t>(2 * n));
+    std::iota(idx.begin(), idx.end(), 0);
+    std::stable_sort(idx.begin(), idx.end(), [&](Eigen::Index i, Eigen::Index j) {
+      return score[static_cast<std::size_t>(i)] < score[static_cast<std::size_t>(j)];
+    });
+    for (Eigen::Index k = 0; k < n; ++k) {
+      const Eigen::Index iu = idx[static_cast<std::size_t>(k)], id = idx[static_cast<std::size_t>(n + k)];
+      for (int a = 0; a < 2; ++a) {
+        out.Wu.block(set[a] * n, col + k, n, 1) = es.eigenvectors().col(iu).segment(a * n, n);
+        out.Wd.block(set[a] * n, col + k, n, 1) = es.eigenvectors().col(id).segment(a * n, n);
+      }
+      out.lu(col + k) = lam(iu);
+      out.ld(col + k) = lam(id);
+    }
+    col += n;
+  }
+  return out;
 }
 
 LayerModes layerModesHomogeneous(const ModeBasis& mb) {

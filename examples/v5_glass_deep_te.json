@@ -1,0 +1,52 @@
+{
+  "dimension": "1D",
+  "solver": "rcwa",
+  "truncation": {
+    "Nx": 10,
+    "Nz": 0
+  },
+  "period_um": {
+    "x": 0.5,
+    "z": 0.0
+  },
+  "incidence": {
+    "lambda_um": 0.6328,
+    "phi_deg": 30,
+    "psi_deg": 0,
+    "delta_deg": 0
+  },
+  "materials": {
+    "air": {
+      "n": 1.0
+    },
+    "glass": {
+      "n": 1.5
+    }
+  },
+  "superstrate": "air",
+  "substrate": "glass",
+  "layers": [
+    {
+      "type": "profile1d",
+      "shape": "sinus",
+      "depth_um": 1.0,
+      "x0_um": 0.25,
+      "below": "glass",
+      "above": "air",
+      "slices": 120
+    }
+  ],
+  "output": {
+    "dir": "out/v5"
+  },
+  "reference": {
+    "order": [
+      -1,
+      0
+    ],
+    "side": "transmission",
+    "efficiency": 0.82,
+    "tolerance": 0.005,
+    "source": "intern (Kap. III), Buch Abb. III.4"
+  }
+}

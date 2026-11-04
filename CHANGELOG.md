@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.3.0] – M3, M4
+
+### Hinzugefügt
+- Profilschichten y = g(x): Sinus (exakte Schnittpunkte), stückweise linear (Dreieck, Echelette, Punkte;
+  exakte Koeffizienten), Funktion (Nullstellensuche); Normalenfeld (NN und vorzeichenbehaftet).
+- RK mit M(y) (exakte Koeffizienten an jeder Stufenhöhe), RCWA-Treppe mit glattem Normalenfeld.
+- FFF-Varianten `FFF_sym` und `FFF_rig` (Plan eq:Qsym, eq:Qrig); Standard je nach Profilform;
+  Warnung für die Buchvariante bei schwach absorbierenden Metallen.
+- TE/TM-Entkopplung im in-plane-Fall (RK ≈ 6×, RCWA ≈ 2,5× schneller).
+- Validierung V4 (Al-Sinus gegen C-Methode), V5, V6, konische Profile, V13 (Gold-Sinus gegen C-Methode),
+  V14 (Gold-Dreieck, offen); Paarungs- und Profil-Unit-Tests.
+
+### Behoben
+- RK-Scheibenteilung: Spektralradius aus der abgeschnittenen Matrix statt Materialschätzung,
+  plus Halbierung bei zu großem Wachstum (vorher Kontamination bei Gold).
+- Modenklassifikation in metallischen Scheiben (Sortieren und Halbieren statt Schwellenwert).
+
+### Befund
+- Buch (IV.32) liefert für Gold unphysikalische Effizienzen (Σe > 1); FFF erhält die Energie nicht exakt.
+
 ## [0.2.0] – M1 abgeschlossen, M2
 
 ### Hinzugefügt

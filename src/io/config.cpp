@@ -48,6 +48,8 @@ Factorization parseFactorization(const json& j) {
   if (f == "laurent") return Factorization::Laurent;
   if (f == "li_lamellar") return Factorization::LiLamellar;
   if (f == "FFF_iso" || f == "fff_iso") return Factorization::FFF_iso;
+  if (f == "FFF_sym" || f == "fff_sym") return Factorization::FFF_sym;
+  if (f == "FFF_rig" || f == "fff_rig") return Factorization::FFF_rig;
   if (f == "FFF_A" || f == "fff_a") return Factorization::FFF_A;
   if (f == "FFF_B" || f == "fff_b") return Factorization::FFF_B;
   throw Error("unknown factorization '" + f + "'");
@@ -63,8 +65,32 @@ LayerEntry parseLayer(const json& j) {
     le.spec = Lamellar1DLayer{j.at("thickness_um").get<double>(),
                               j.at("breakpoints_um").get<std::vector<double>>(),
                               j.at("materials").get<std::vector<std::string>>()};
-  } else if (type == "profile1d" || type == "polygon2d" || type == "profile2d") {
-    throw NotImplemented("layer type '" + type + "' in configuration (milestones M3/M7)");
+  } else if (type == "profile1d") {
+    Profile1DLayer p;
+    p.depth_um = j.at("depth_um").get<double>();
+    p.below = j.at("below").get<std::string>();
+    p.above = j.at("above").get<std::string>();
+    p.slices = j.value("slices", 0);
+    const std::string shape = j.value("shape", std::string("sinus"));
+    if (shape == "sinus") {
+      p.shape = Profile1DLayer::Shape::Sinus;
+      p.x0_um = j.value("x0_um", 0.0);
+    } else if (shape == "triangle" || shape == "points") {
+      p.shape = Profile1DLayer::Shape::PiecewiseLinear;
+      if (shape == "triangle") {
+        p.xs_um = {0.0, j.at("apex_x_um").get<double>()};
+        p.ys_um = {0.0, p.depth_um};
+      } else {
+        p.xs_um = j.at("x_um").get<std::vector<double>>();
+        p.ys_um = j.at("y_um").get<std::vector<double>>();
+        FG_REQUIRE(p.xs_um.size() == p.ys_um.size() && p.xs_um.size() >= 2, "profile points: x_um/y_um");
+      }
+    } else {
+      throw Error("unknown profile shape '" + shape + "'");
+    }
+    le.spec = p;
+  } else if (type == "polygon2d" || type == "profile2d") {
+    throw NotImplemented("layer type '" + type + "' in configuration (milestone M7)");
   } else {
     throw Error("unknown layer type '" + type + "'");
   }

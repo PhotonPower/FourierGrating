@@ -33,6 +33,10 @@ von $g$). Kriterium gegen Kontamination (Buch III.6, mit Sicherheitsabstand):
   \label{eq:slicecrit}
 \end{equation}
 mit $\varepsilon_{\min}$ = Material mit dem kleinsten $\operatorname{Re}\varepsilon$ (Metalle: großes $|\rho|$).
+\textbf{Achtung (Befund M3):} Die abgeschnittene FFF-Matrix kann Eigenwerte weit über dieser
+Materialschätzung haben (Gold-Sinus: $|\lambda|\approx170$ statt $\approx6$). Der RK-Löser verwendet daher
+$\rho_{\max}=\max(\text{Schätzung},\ \max_k|\lambda(M(y_k))|)$ an fünf Höhen $y_k$ und halbiert eine Scheibe
+zusätzlich, solange $\max|T_F|>10^{8}$ (a-posteriori-Kontrolle).
 RCWA: zusätzlich Treppenfehler $\Rightarrow$ $K$ per Konvergenztest. RK: Scheiben nur zur Stabilisierung,
 die Genauigkeit regelt die Schrittweite.
 
@@ -150,9 +154,13 @@ Mit $\mathcal P=\begin{pmatrix}M_{13}&M_{14}\\M_{23}&M_{24}\end{pmatrix}$, $\mat
 \enquote{Auf}: $\lambda_+=i\kappa$ ($\operatorname{Re}\lambda_+\le0$), \enquote{ab}: $\lambda_-=-i\kappa$.
 Für $\kappa\approx0$ (Grenzfall) $w=(u;\mathcal Ru/\lambda)$ schlecht definiert $\Rightarrow$ kleine
 Regularisierung wie bei \eqref{eq:beta_branch}.
-\paragraph{Allgemein (anisotrop, konisch mit $Q_{yx}\neq0$):} volle Eigenzerlegung der $4n_f$-Matrix,
-Klassifikation nach \eqref{eq:classify} (mit $S_y$ der Moden aus $w$ über die Fourierordnungen summiert).
-Fehler, wenn nicht genau $n_h$ Moden je Richtung.
+\paragraph{Allgemein (anisotrop, Profile mit $Q_{yx}\neq0$):} volle Eigenzerlegung der $4n_f$-Matrix.
+Klassifikation (robuste Form von \eqref{eq:classify}): Bewertung $s_k=\operatorname{Re}\lambda_k$, für
+$|\operatorname{Re}\lambda_k|\le\tau$ stattdessen $\mp\tau/2$ nach dem Vorzeichen von $S_y$; sortieren und die untere
+Hälfte als aufwärts nehmen. (Die reine Schwellenwert-Variante scheiterte in metallischen Scheiben.)
+\paragraph{TE/TM-Entkopplung:} Im 1D-in-plane-Fall verschwinden alle Blöcke zwischen $(E_x,H_z)$ und
+$(E_z,H_x)$ exakt. RK und RCWA erkennen das automatisch und rechnen beide Hälften getrennt
+(Laufzeitgewinn RK $\approx6$, RCWA $\approx2{,}5$).
 
 \subsection{Stabile Scheiben-S-Matrix}
 Moden auf ($W_u,\Lambda_u$, Bezug Unterkante $y_u$) und ab ($W_d,\Lambda_d$, Bezug Oberkante $y_o$):

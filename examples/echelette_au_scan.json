@@ -1,0 +1,52 @@
+{
+  "dimension": "1D",
+  "solver": "rk",
+  "truncation": {
+    "Nx": 12,
+    "Nz": 0
+  },
+  "period_um": {
+    "x": 1.0,
+    "z": 0.0
+  },
+  "incidence": {
+    "lambda_um": 0.6328,
+    "phi_deg": {
+      "from": 10,
+      "to": 40,
+      "steps": 4
+    },
+    "psi_deg": 0,
+    "delta_deg": 90
+  },
+  "materials": {
+    "air": {
+      "n": 1.0
+    },
+    "au": {
+      "n": [
+        0.2,
+        3.4
+      ]
+    }
+  },
+  "superstrate": "air",
+  "substrate": "au",
+  "layers": [
+    {
+      "type": "profile1d",
+      "shape": "triangle",
+      "depth_um": 0.25,
+      "apex_x_um": 0.7,
+      "below": "au",
+      "above": "air"
+    }
+  ],
+  "rk": {
+    "tableau": "gauss2",
+    "tol": 1e-05
+  },
+  "output": {
+    "dir": "out/echelette_scan"
+  }
+}

@@ -19,10 +19,11 @@ dokumentierten Korrekturen.
 | **Nahfeld** (horizontaler + vertikaler Schnitt) | M6 (1D), M9 (2D) | M6, M9 |
 | **CUDA** (RTX 6000 Ada, sm_89) | M10 | M10 |
 
-> **Status (v0.2):** M0–M2 erledigt. 1D-Gitter aus homogenen Schichten und Lamellen
-> (isotrop, in-plane und konisch) lassen sich mit **beiden Lösern** (RK und RCWA) rechnen;
-> Validierung V1 (Fresnel), V2 (Airy), V3 (Energie, RK = RCWA, Reziprozität) ist grün.
-> Als Nächstes: M3 (Profile y = g(x) mit FFF). Nicht implementierte Teile werfen
+> **Status (v0.3):** M0–M4 erledigt. Isotrope 1D-Gitter (homogene Schichten, Lamellen, Profile
+> y = g(x): Sinus, Dreieck/Echelette, Stützstellen, Funktionen; in-plane und konisch) lassen sich mit
+> **beiden Lösern** rechnen. Validierung V1–V6 und V13 grün, u. a. gegen die C-Methode
+> (Al-Sinus TM 0,8696, Gold-Sinus). Befund: die FFF-Formel des Buches (IV.32) versagt bei schwach
+> absorbierenden Metallen – zwei korrigierte Varianten sind implementiert. Als Nächstes: M5 (anisotrop). Nicht implementierte Teile werfen
 > `fg::NotImplemented` mit Verweis auf den Meilenstein. Fortschritt: `docs/roadmap.md`.
 
 ## Dokumentation

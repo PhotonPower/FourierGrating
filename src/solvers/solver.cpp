@@ -3,10 +3,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <variant>
 
 #include "fg/core/error.hpp"
 #include "fg/fourier/coefficients.hpp"
+#include "fg/geometry/normal_field.hpp"
+#include "fg/geometry/profile.hpp"
 #include "fg/physics/efficiency.hpp"
 #include "fg/physics/modes.hpp"
 #include "fg/physics/qmatrix.hpp"
@@ -34,6 +37,11 @@ double rhoEstimate(const Setup& s, const std::vector<cplx>& eps) {
     for (const cplx e : eps)
       rho = std::max(rho, std::abs(std::sqrt(s.alpha(r) * s.alpha(r) + s.gamma(r) * s.gamma(r) - e)));
   return rho;
+}
+
+double spectralRadius(const MatC& M) {
+  Eigen::ComplexEigenSolver<MatC> es(M, false);
+  return es.eigenvalues().cwiseAbs().maxCoeff();
 }
 
 class StackSolver final : public Solver {
@@ -120,7 +128,8 @@ class StackSolver final : public Solver {
       return stableLayerSMatrix(layerModesHomogeneous(mb), hl->thickness_um * s.k0, s.ref);
     }
     if (const auto* ll = std::get_if<Lamellar1DLayer>(&le.spec)) return lamellar(stack, *ll, le, s, diag);
-    throw NotImplemented("layer type (profile layers: M3, 2D layers: M7)");
+    if (const auto* pl = std::get_if<Profile1DLayer>(&le.spec)) return profile(stack, *pl, le, s, diag);
+    throw NotImplemented("layer type (2D layers: milestone M7)");
   }
 
   SMatrix lamellar(const Stack& stack, const Lamellar1DLayer& ll, const LayerEntry& le,
@@ -150,13 +159,15 @@ class StackSolver final : public Solver {
       case Factorization::Laurent: Q = qLaurent(sc, s.map); break;
       case Factorization::Auto:
       case Factorization::LiLamellar:
-      case Factorization::FFF_iso: Q = qLiLamellar(sc, s.map); break;  // FFF with N = x
+      case Factorization::FFF_iso:
+      case Factorization::FFF_sym:
+      case Factorization::FFF_rig: Q = qLiLamellar(sc, s.map); break;  // FFF with N = x (exact: NN = diag)
       default: throw Error("factorization not applicable to an isotropic lamellar layer");
     }
     const MatC M = buildPropagationMatrix(Q, s.alpha, s.gamma);
     const double h = ll.thickness_um * s.k0;
     if (opt_.kind == SolverKind::RCWA) {
-      const LayerModes lm = isBlockAntiDiagonal(M) ? layerModesReduced(M) : layerModesGeneral(M);
+      const LayerModes lm = layerModesAuto(M);
       return stableLayerSMatrix(lm, h, s.ref);
     }
     // RK: split into sub-slices with rho * h_sub <= ln(growthLimit) (Plan eq:slicecrit)
@@ -169,6 +180,96 @@ class StackSolver final : public Solver {
     const SMatrix Ssub = rkSliceSMatrix(TF, s.ref);
     SMatrix S = Ssub;
     for (int k = 1; k < nsub; ++k) S = star(S, Ssub);
+    return S;
+  }
+
+  /// RK slice S-matrix over [y0, y1]; bisects if the transfer matrix grows beyond growthLimit.
+  SMatrix rkSlice(const std::function<MatC(double)>& M, double y0, double y1, double rho,
+                  const ButcherTableau& tab, const ModeBasis& ref, Diagnostics& diag, int depth) {
+    RKStats st;
+    const MatC TF = rkTransferAuto(M, y0, y1, tab, opt_.rkTol, rho, st);
+    diag.rkSteps += st.steps;
+    const double growth = TF.cwiseAbs().maxCoeff();
+    if ((!TF.allFinite() || growth > opt_.growthLimit) && depth < 12) {
+      const double ym = 0.5 * (y0 + y1);
+      return star(rkSlice(M, y0, ym, rho, tab, ref, diag, depth + 1),
+                  rkSlice(M, ym, y1, rho, tab, ref, diag, depth + 1));
+    }
+    FG_REQUIRE(TF.allFinite(), "RK transfer matrix not finite");
+    return rkSliceSMatrix(TF, ref);
+  }
+
+  /// Profile layer y = g(x) (Plan sections "Permittivitaet bei beliebiger Hoehe", Loeser A/B).
+  SMatrix profile(const Stack& stack, const Profile1DLayer& pl, const LayerEntry& le, const Setup& s,
+                  Diagnostics& diag) {
+    FG_REQUIRE(!stack.is2D(), "Profile1D layers are only supported in 1D stacks (2D: Profile2D, M7)");
+    const Material& mb = stack.material(pl.below);
+    const Material& ma = stack.material(pl.above);
+    if (!mb.isotropic || !ma.isotropic) throw NotImplemented("anisotropic profile layer (milestone M5)");
+    const int Px = 2 * s.map.Nx(), Pz = 2 * s.map.Nz();
+    const NormalFieldCoefficients nf = normalField(pl, stack.dx_um, s.map);
+    // Default (Plan section "Varianten der isotropen FFF"): FFF_rig for smooth profiles (signed
+    // normal field continuous), FFF_sym for profiles with corners (piecewise linear, user functions).
+    Factorization fac = le.factorization;
+    if (fac == Factorization::Auto)
+      fac = pl.shape == Profile1DLayer::Shape::Sinus ? Factorization::FFF_rig : Factorization::FFF_sym;
+    if (fac == Factorization::FFF_iso)
+      for (const Material* m : {&mb, &ma})
+        if (m->eps.real() < 0 && std::abs(m->eps.imag()) < 0.5 * std::abs(m->eps.real()))
+          diag.warnings.push_back("FFF_iso (book IV.32) with a weakly absorbing metal ('" + m->name +
+                                  "'): known to produce unphysical results, use FFF_rig or FFF_sym");
+    FG_REQUIRE(fac == Factorization::FFF_iso || fac == Factorization::FFF_sym ||
+                   fac == Factorization::FFF_rig || fac == Factorization::Laurent,
+               "profile layers support factorization FFF_sym, FFF_rig, FFF_iso or Laurent");
+    const double a = pl.depth_um;
+    // M at height y_um inside the layer
+    auto Mat = [&](double y_um) {
+      std::vector<double> br;
+      std::vector<bool> below;
+      profileIntervals(pl, std::clamp(y_um, 1e-14 * a, a * (1 - 1e-14)), stack.dx_um, br, below);
+      std::vector<cplx> ve, vi;
+      for (bool b : below) {
+        const cplx e = b ? mb.eps : ma.eps;
+        ve.push_back(e);
+        vi.push_back(1.0 / e);
+      }
+      const auto ce = fourier::piecewiseConstant1D(br, ve, stack.dx_um, Px);
+      const auto ci = fourier::piecewiseConstant1D(br, vi, stack.dx_um, Px);
+      SliceCoefficients sc;
+      sc.eps = fourier::CoefficientGrid(Px, Pz);
+      sc.invEps = fourier::CoefficientGrid(Px, Pz);
+      for (int p = -Px; p <= Px; ++p) {
+        sc.eps(p, 0) = ce[static_cast<std::size_t>(p + Px)];
+        sc.invEps(p, 0) = ci[static_cast<std::size_t>(p + Px)];
+      }
+      sc.normal = &nf;
+      const QBlocks Q = fac == Factorization::Laurent  ? qLaurent(sc, s.map)
+                        : fac == Factorization::FFF_rig ? qFFFIsotropicRigorous(sc, s.map)
+                                                        : qFFFIsotropic(sc, s.map, fac == Factorization::FFF_sym);
+      return buildPropagationMatrix(Q, s.alpha, s.gamma);
+    };
+    const double h = a * s.k0;  // normalized depth
+    SMatrix S = SMatrix::identity(2 * s.map.size());
+    if (opt_.kind == SolverKind::RCWA) {
+      const int K = pl.slices > 0 ? pl.slices : opt_.rcwaSlices;
+      for (int k = 0; k < K; ++k) {
+        const MatC M = Mat((k + 0.5) * a / K);  // staircase: eps at slice centre, smooth N
+        const LayerModes lm = layerModesAuto(M);
+        S = star(S, stableLayerSMatrix(lm, h / K, s.ref));
+      }
+      return S;
+    }
+    // RK: stability sub-slices (Plan eq:slicecrit) with the spectral radius of the truncated M
+    // (FFF can create eigenvalues far above the material estimate), plus a posteriori bisection
+    // whenever the field transfer matrix grows beyond growthLimit.
+    double rho = rhoEstimate(s, {mb.eps, ma.eps});
+    for (double t : {0.02, 0.25, 0.5, 0.75, 0.98}) rho = std::max(rho, spectralRadius(Mat(t * a)));
+    const int K = std::max(pl.slices > 0 ? pl.slices : 1,
+                           static_cast<int>(std::ceil(rho * h / std::log(opt_.growthLimit))));
+    const auto tab = ButcherTableau::byName(opt_.rkTableau);
+    for (int k = 0; k < K; ++k)
+      S = star(S, rkSlice([&](double yn) { return Mat(yn / s.k0); }, h * k / K, h * (k + 1) / K, rho,
+                          tab, s.ref, diag, 0));
     return S;
   }
 

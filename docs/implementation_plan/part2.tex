@@ -59,6 +59,53 @@ Grenzfälle (Unit-Tests): $N\to\pm\hat x$ überall $\Rightarrow$ Li-Formulierung
 ($Q_{xx}=\Li$, $Q_{yy}=Q_{zz}=\tp\varepsilon$); $\mathbf N=\hat y$ überall $\Rightarrow$ klassische Laurent-Formulierung
 ($Q_{yy}=\Li$, sonst $\tp\varepsilon$, vgl.\ Buch IV.2.3: $a/d\to0$).
 
+\subsection{Varianten der isotropen FFF (Befund aus M3)}\label{sec:fffvariants}
+Die Buchformel \eqref{eq:Qiso} entsteht aus einer exakteren Form durch zwei Näherungen im
+abgeschnittenen Raum. Aus $D_i=\varepsilon E_{T,i}+N_iD_N$ mit $E_{T,i}=E_i-N_iE_N$ (stetig), $D_N$ (stetig),
+$E_N=\sum_jN_jE_j$ folgt mit den Li-Regeln (Laurent für $\varepsilon\cdot$stetig und $N\cdot$beliebig,
+invers für $D_N=\varepsilon E_N$):
+\begin{equation}
+  Q^{(\mathrm{rig})}_{ij}=\delta_{ij}\tp{\varepsilon}-\tp{\varepsilon}\tp{N_i}\tp{N_j}+\tp{N_i}\,\Li\,\tp{N_j}.
+  \label{eq:Qrig}
+\end{equation}
+Das Buch ersetzt $\tp{N_i}\tp{N_j}\to\tp{N_iN_j}$ und vertauscht $\tp{N_i}$ mit $\Li$; das ergibt
+\eqref{eq:Qiso}. Eine dritte Variante symmetrisiert das Produkt:
+\begin{equation}
+  Q^{(\mathrm{sym})}_{ij}=\delta_{ij}\tp{\varepsilon}-\tfrac12\big(\Delta\tp{N_iN_j}+\tp{N_iN_j}\Delta\big).
+  \label{eq:Qsym}
+\end{equation}
+\textbf{Numerischer Befund} (RK, TM, $\lambda=0{,}6328\,\mu$m; Referenzen aus der C-Methode):
+\begin{center}
+\small
+\begin{tabular}{lcc}
+\toprule
+& Gold-Sinus $d=1$, $a=0{,}25\,\mu$m, $20^\circ$, $e_{-1}$ ($N=8/16/24$) & Al-Sinus V4, $e_{-1}$ ($N=20$) \\
+\midrule
+Referenz & $0{,}26614$ & $0{,}8696$ \\
+\verb|FFF_iso| \eqref{eq:Qiso} & falsch ($0{,}327$ / $0{,}217$; $\sum e>1$) & $0{,}86951$ \\
+\verb|FFF_sym| \eqref{eq:Qsym} & $0{,}2681$ / $0{,}2672$ / $0{,}2665$ & $0{,}86565$ \\
+\verb|FFF_rig| \eqref{eq:Qrig} & $0{,}26609$ / $0{,}26621$ / -- & $0{,}87075$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+\begin{itemize}[nosep]
+  \item Die Buchvariante versagt bei schwach absorbierenden Metallen ($\operatorname{Re}\varepsilon<0$, kleines
+        $\operatorname{Im}\varepsilon$). Vermuteter Mechanismus: $1/\varepsilon$ läuft fast durch null, $\Li$ wird groß,
+        und damit auch der Fehler der Vertauschung von $\tp{N_i}$ und $\Li$. Der Löser gibt dann eine Warnung aus.
+  \item In einer $y$-invarianten Scheibe aus isotropem Material müssen die Eigenwerte als $\pm\lambda$-Paare
+        auftreten. Laurent und \verb|FFF_sym| erhalten diese Paarung exakt, \verb|FFF_iso| und \verb|FFF_rig|
+        nicht. Da \verb|FFF_rig| trotzdem am genauesten ist, ist die Paarung \emph{kein} Gütekriterium.
+  \item \verb|FFF_rig| braucht das \emph{vorzeichenbehaftete} Normalenfeld; springt es (Ecken von Dreiecks-
+        und Echelette-Profilen), versagt die Variante ($\sum e>1$). Dort ist \verb|FFF_sym| zu verwenden.
+  \item Keine der FFF-Varianten erhält bei verlustfreien Medien die Energie exakt (Abweichung
+        $10^{-5}$--$5\cdot10^{-4}$), Laurent schon. Tests prüfen die Energie bei Profilen daher mit Toleranz.
+\end{itemize}
+\textbf{Standard (\texttt{Factorization::Auto})} für isotrope Profilschichten: \verb|FFF_rig| bei glatten
+Profilen (Sinus), \verb|FFF_sym| bei Profilen mit Ecken (stückweise linear) und bei benutzerdefinierten
+Funktionen. \verb|FFF_iso| bleibt als Buchvariante wählbar. Beide neuen Varianten sind Eigenherleitungen
+dieses Projekts; ob sie so in der Literatur stehen, ist noch zu prüfen. Offener Punkt: Für Gold-Dreiecke
+gibt es noch keine belastbare Referenz (V14).
+
 \subsection{Anisotrope Materialien, Variante A (Buch Kap.~V)}
 Stetiger Vektor $\mathbf F_\varepsilon=(E_{T_1},D_N,E_{T_2})=A_\varepsilon\mathbf E$ mit
 \begin{equation}
@@ -121,9 +168,10 @@ Gebrauch gegen Variante A und gegen die Literatur (Li, J.\ Mod.\ Opt.\ 45, 1313 
 
 \subsection{Weitere Faktorisierungsoptionen (für Vergleiche)}
 \verb|Laurent| ($Q_{ij}=\tp{\varepsilon_{ij}}$), \verb|LiLamellar| (nur 1D-Lamellen, Buch (IV.5)/(IV.6)),
-\verb|FFF_iso| \eqref{eq:Qiso}, \verb|FFF_A| \eqref{eq:QaniA}, \verb|FFF_B| \eqref{eq:QaniB}.
-Die Option wird je Schicht gewählt; Standard: isotrop \verb|FFF_iso|, anisotrop Profil \verb|FFF_A|,
-anisotrop $y$-invariant \verb|FFF_B|.
+\verb|FFF_iso| \eqref{eq:Qiso}, \verb|FFF_sym| \eqref{eq:Qsym}, \verb|FFF_rig| \eqref{eq:Qrig},
+\verb|FFF_A| \eqref{eq:QaniA}, \verb|FFF_B| \eqref{eq:QaniB}.
+Die Option wird je Schicht gewählt; Standard: isotrope Lamellen \verb|LiLamellar|, isotrope Profile siehe
+Abschnitt~\ref{sec:fffvariants}, anisotrop Profil \verb|FFF_A|, anisotrop $y$-invariant \verb|FFF_B|.
 
 %=====================================================================
 \section{Homogene Medien: Modenbasen}\label{sec:homog}

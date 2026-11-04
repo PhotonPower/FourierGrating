@@ -29,6 +29,7 @@ der Kapitel numerisch bestätigt; der Plan verwendet jeweils die korrigierte For
 | S. 197 | ρ² = −129,0973, Faktor 0,00534 | −136,88 µm⁻², Faktor 0,096 |
 | Anh. IV | 2D-Blockgröße (4N+2)² | 2(2N+1)² |
 | Anh. IV (A.IV.7) | ε_j in q_h | ε_M |
+| (IV.32) | Q = [[ε]] − Δ[[NN]] (Vertauschungsnäherung) | versagt bei schwach absorbierenden Metallen (Gold); FFF_rig/FFF_sym verwenden (Plan „Varianten der isotropen FFF“) |
 
 Zusätzlich zu beachten: Die Formeln in Anh. IV dividieren durch k² − γ_m², das im 2D-Fall
 verschwinden kann; der Plan verwendet stattdessen die Basis der tangentialen E-Komponenten
