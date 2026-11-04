@@ -5,15 +5,19 @@ add_library(fg_core
   core/index_map.cpp
   fourier/coefficients.cpp
   fourier/toeplitz.cpp
+  fourier/sampling.cpp
   geometry/stack.cpp
   geometry/normal_field.cpp
   physics/propagation_matrix.cpp
   physics/modes.cpp
   physics/incidence.cpp
   physics/qmatrix.cpp
+  physics/efficiency.cpp
   smatrix/smatrix.cpp
   solvers/butcher.cpp
   solvers/solver.cpp
+  solvers/rcwa.cpp
+  solvers/rk.cpp
   field/nearfield.cpp
   linalg/cpu_backend.cpp
   io/config.cpp

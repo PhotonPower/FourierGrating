@@ -7,20 +7,21 @@
 
 namespace fg {
 
-/// Input for one height y inside a layer: Fourier coefficients of eps (or eps_ij) and N N^T.
+/// Fourier data of one height y inside a layer. Grids must cover |p| <= 2Nx, |q| <= 2Nz.
 struct SliceCoefficients {
   bool isotropic = true;
-  fourier::CoefficientGrid eps{0, 0};          ///< isotropic: eps(x, z)
-  fourier::CoefficientGrid invEps{0, 0};       ///< isotropic: 1/eps(x, z)
-  std::array<std::array<fourier::CoefficientGrid, 3>, 3> epsTensor{};  ///< anisotropic
-  const NormalFieldCoefficients* normal = nullptr;
+  fourier::CoefficientGrid eps;      ///< isotropic: eps(x, z)
+  fourier::CoefficientGrid invEps;   ///< isotropic: 1/eps(x, z)
+  std::array<std::array<fourier::CoefficientGrid, 3>, 3> epsTensor{};  ///< anisotropic: eps_ij
+  const NormalFieldCoefficients* normal = nullptr;  ///< N_i N_j (FFF)
 };
 
-/// Laurent: Q_ij = [[eps_ij]].                                         TODO(M2)
+/// Laurent: Q_ij = [[eps_ij]] (isotropic: delta_ij [[eps]]).
 QBlocks qLaurent(const SliceCoefficients& c, const IndexMap& map);
-/// Li lamellar 1D: Q_xx = [[1/eps]]^-1, Q_yy = Q_zz = [[eps]].          TODO(M2)
+/// Li, lamellar 1D: Q_xx = [[1/eps]]^-1, Q_yy = Q_zz = [[eps]] (book IV.5/IV.6).
 QBlocks qLiLamellar(const SliceCoefficients& c, const IndexMap& map);
-/// Isotropic FFF: Q_ij = delta_ij [[eps]] - Delta [[N_i N_j]] (Plan eq:Qiso). TODO(M3)
+/// Isotropic FFF: Q_ij = delta_ij [[eps]] - Delta [[N_i N_j]], Delta = [[eps]] - [[1/eps]]^-1
+/// (Plan eq:Qiso). Requires c.normal.
 QBlocks qFFFIsotropic(const SliceCoefficients& c, const IndexMap& map);
 /// Anisotropic FFF variant A: [[eps C]] [[C]]^-1 (Plan eq:QaniA).      TODO(M5)
 QBlocks qFFFAnisotropicA(const SliceCoefficients& c, const IndexMap& map);

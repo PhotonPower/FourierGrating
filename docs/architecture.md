@@ -17,7 +17,7 @@ JSON-Konfiguration (µm, Grad)
              ├─ Grenzflächen Substrat/Superstrat ↔ Referenzmedium      physics/modes
              ├─ Sternprodukt über den Stapel                           smatrix/
              ├─ Lösung: reflektierte/transmittierte Amplituden
-             ├─ Effizienzen (Poynting), s/p-Zerlegung, Diagnosen      physics/efficiency (M2)
+             ├─ Effizienzen (Poynting), s/p-Zerlegung, Diagnosen      physics/efficiency
              └─ optional Nahfeld: interne Amplituden, Rekonstruktion,
                  Synthese auf Gitter, Schnitte → .npy + meta.json      field/
 ```
@@ -29,12 +29,12 @@ JSON-Konfiguration (µm, Grad)
 | `core` | Typen, Fehler, `IndexMap` | fertig |
 | `fourier` | Koeffizienten (Intervall, Rechteck, Polygon), Toeplitz 1D/2D | fertig (FFT-Pfad fehlt, M3/M7) |
 | `geometry` | Material, Schichttypen, Stapel, Normalenfelder | Typen fertig, Normalenfelder M3/M7 |
-| `physics` | Einfall, `M`, isotrope Moden, Q-Matrizen, anisotrope Moden, Effizienzen | `M`, Moden iso, Einfall fertig |
+| `physics` | Einfall, `M`, isotrope Moden, Q-Matrizen, anisotrope Moden, Effizienzen | fertig bis auf FFF_A/B, anisotrope Moden (M5) |
 | `smatrix` | T→S, Sternprodukt, interne Amplituden | fertig |
-| `solvers` | Butcher, RK-Propagator, Löser-Schnittstelle | Butcher/Propagator fertig, Löser M2/M3 |
+| `solvers` | Butcher, RK-Transfer (konstant/adaptiv), RCWA-Moden + stabile S, Stapellöser | fertig für homogene + Lamellenschichten; Profile M3 |
 | `field` | Nahfeld | M6/M9 |
 | `linalg` | Backend-Schnittstelle, CPU (Eigen), CUDA | CPU fertig, CUDA M10 |
-| `io` | JSON-Konfiguration, Ausgabe | M2 |
+| `io` | JSON-Konfiguration, CSV-Ausgabe | fertig für M2-Schichttypen |
 
 ## Größenordnungen
 

@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.0] – M1 abgeschlossen, M2
+
+### Hinzugefügt
+- Q-Matrizen: Laurent, Li-Lamellen, FFF isotrop (Plan eq:Qiso); Abtastung stetiger Funktionen.
+- RCWA: reduziertes und allgemeines Eigenwertproblem mit Klassifikation, stabile Scheiben-S-Matrix.
+- RK: Transfermatrix für konstantes M (Schrittverdopplung) und adaptiv für M(y); Scheiben-S aus T.
+- Stapellöser für beide Verfahren: Substrat-/Referenzgrenzfläche, homogene und Lamellenschichten,
+  Effizienzen aus dem Poynting-Fluss, s/p-Amplituden, Energiebilanz.
+- JSON-Konfiguration (homogeneous, lamellar1d, Wellenlängen-/Winkel-Scans), `fgsolve` mit CSV-Ausgabe.
+- Validierung V1 (Fresnel, konisch, verlustbehaftet), V2 (Airy, RK und RCWA), V3 (Energie,
+  RK = RCWA, Reziprozität); 41 Tests.
+
+### Geändert
+- Plan v1.1: volles 4n_f-System auch in-plane (2n_f-Systeme als spätere Optimierung);
+  Reziprozität im FMM nur bis auf Abschneidung.
+
 ## [0.1.0] – Grundgerüst
 
 ### Hinzugefügt

@@ -19,11 +19,11 @@ dokumentierten Korrekturen.
 | **Nahfeld** (horizontaler + vertikaler Schnitt) | M6 (1D), M9 (2D) | M6, M9 |
 | **CUDA** (RTX 6000 Ada, sm_89) | M10 | M10 |
 
-> **Status:** Grundgerüst (M0) und Kernbausteine von M1 sind implementiert und getestet
-> (Indexabbildung, exakte Fourierkoeffizienten, Toeplitz-Matrizen, S-Matrix-Sternprodukt,
-> Butcher-Tableaus + RK-Propagator, Propagationsmatrix `M`, isotrope Modenbasis, Einfall).
-> Alles Weitere ist als Schnittstelle vorhanden und wirft `fg::NotImplemented` mit Verweis
-> auf den Meilenstein. Fortschritt: `docs/roadmap.md`.
+> **Status (v0.2):** M0–M2 erledigt. 1D-Gitter aus homogenen Schichten und Lamellen
+> (isotrop, in-plane und konisch) lassen sich mit **beiden Lösern** (RK und RCWA) rechnen;
+> Validierung V1 (Fresnel), V2 (Airy), V3 (Energie, RK = RCWA, Reziprozität) ist grün.
+> Als Nächstes: M3 (Profile y = g(x) mit FFF). Nicht implementierte Teile werfen
+> `fg::NotImplemented` mit Verweis auf den Meilenstein. Fortschritt: `docs/roadmap.md`.
 
 ## Dokumentation
 
@@ -50,6 +50,7 @@ cmake --build --preset cpu-release
 ctest --preset cpu-release
 
 ./build/cpu-release/apps/fgsolve --info
+./build/cpu-release/apps/fgsolve examples/v3_lamellar_dielectric.json   # schreibt out/v3/efficiencies.csv
 ```
 
 Plan als PDF neu erzeugen: `./scripts/build_docs.sh`.

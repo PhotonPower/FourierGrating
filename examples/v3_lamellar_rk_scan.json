@@ -1,0 +1,57 @@
+{
+  "dimension": "1D",
+  "solver": "rk",
+  "truncation": {
+    "Nx": 15,
+    "Nz": 0
+  },
+  "period_um": {
+    "x": 1.0,
+    "z": 0.0
+  },
+  "incidence": {
+    "lambda_um": {
+      "from": 0.55,
+      "to": 0.75,
+      "steps": 5
+    },
+    "phi_deg": 20,
+    "psi_deg": 30,
+    "delta_deg": 45
+  },
+  "materials": {
+    "air": {
+      "n": 1.0
+    },
+    "glass": {
+      "n": 1.5
+    },
+    "bar": {
+      "n": 2.0
+    }
+  },
+  "superstrate": "air",
+  "substrate": "glass",
+  "layers": [
+    {
+      "type": "lamellar1d",
+      "thickness_um": 0.4,
+      "breakpoints_um": [
+        0.0,
+        0.45,
+        1.0
+      ],
+      "materials": [
+        "bar",
+        "air"
+      ]
+    }
+  ],
+  "output": {
+    "dir": "out/v3_rk_scan"
+  },
+  "reference": {
+    "type": "energy",
+    "tolerance": 1e-10
+  }
+}

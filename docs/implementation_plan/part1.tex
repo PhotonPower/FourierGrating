@@ -245,8 +245,10 @@ Q_{\varepsilon,zy}=0$, $Q_{\varepsilon,zz}=\tp{\varepsilon}$, und \eqref{eq:ode}
 \end{align}
 Mit $Q_{\varepsilon,xx}=A+\Li$, $Q_{\varepsilon,yy}=\tp{\varepsilon}-A$, $Q_{\varepsilon,xy}=Q_{\varepsilon,yx}=B$
 ($\Delta=\tp\varepsilon-\Li$, $A=\Delta\tp{c^2}$, $B=\Delta\tp{cs}$, $c=\cos\theta$, $s=\sin\theta$,
-$\tan\theta=g'$) ist \eqref{eq:TM} identisch mit Buch (IV.21), (IV.22). Diese beiden
-$2n_f$-Systeme sind der erste Implementierungsschritt (Meilenstein M2/M3).
+$\tan\theta=g'$) ist \eqref{eq:TM} identisch mit Buch (IV.21), (IV.22).
+\textbf{Umsetzung (ab v0.2):} Der Code verwendet von Anfang an das volle $4n_f$-System auch für
+den in-plane-Fall (es zerfällt dort exakt in TE und TM); die $2n_f$-Systeme \eqref{eq:TE}, \eqref{eq:TM}
+sind eine spätere Optimierung (M11, Faktor $\approx8$ in der Laufzeit) und dienen bis dahin als Testreferenz.
 \paragraph{1D konisch:} volles $4n_f$-System mit $\gamma=\gamma_0\mathbb 1$.
 \paragraph{2D:} volles $4n_f$-System mit $n_f=(2N_x+1)(2N_z+1)$.
 
