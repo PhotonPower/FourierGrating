@@ -62,3 +62,9 @@ gtest_discover_tests(test_validation_v8_2d PROPERTIES LABELS "validation" TIMEOU
 add_executable(test_validation_v12_2d validation/test_v12_2d.cpp)
 target_link_libraries(test_validation_v12_2d PRIVATE fg_core GTest::gtest_main nlohmann_json::nlohmann_json)
 gtest_discover_tests(test_validation_v12_2d PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)
+
+# ---- regression protection (version 2): all examples against golden files (label "regression") ----
+add_executable(test_regression regression/test_regression.cpp)
+target_link_libraries(test_regression PRIVATE fg_core GTest::gtest_main)
+target_compile_definitions(test_regression PRIVATE FG_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+gtest_discover_tests(test_regression PROPERTIES LABELS "regression" TIMEOUT 1800 DISCOVERY_TIMEOUT 60)

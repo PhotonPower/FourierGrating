@@ -13,6 +13,8 @@
   Einheit µm, FP32-Standard auf der RTX 3090).
 
 ### Hinzugefügt
+- Golden Files `tests/regression/golden/` und Test `Regression.*` (Label `regression`): Effizienzen aller Beispiele mit
+  Standardoptionen; 1e-13 relativ, `FG_REGRESSION_EXACT=1` bitgleich, `FG_REGRESSION_UPDATE=1` erzeugt neu.
 - Option `"split_polarizations"` (`SolverOptions::splitPolarizations`, Standard aus): 1D in-plane isotrop
   (γ = 0, isotropes Substrat und isotrope Schichten) rechnet `solve()` TE und TM als getrennte 2n_f-Systeme
   (Plan eq:TE, eq:TM) – Grenzflächen, Schicht-S-Matrizen, RK-Transfer und Sternprodukte mit halber Größe;
