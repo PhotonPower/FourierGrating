@@ -123,7 +123,8 @@ Hinweise:
 
 * Scans parallelisieren: `OMP_NUM_THREADS=<Kerne> fgsolve scan.json`.
 * GPU: `"backend": "auto"` nutzt die GPU ab `backend_threshold` (Standard n = 1000), `"cuda"` immer,
-  `"cpu"` nie. Lohnt sich vor allem in 2D ab N ≈ 8.
+  `"cpu"` nie. Lohnt sich vor allem in 2D ab N ≈ 8. Die Umgebungsvariablen `FG_BACKEND` und
+  `FG_BACKEND_THRESHOLD` überschreiben die Konfiguration (z. B. `FG_BACKEND=cpu` zum Vergleich).
 * y-invariante 2D-Schichten mit RCWA rechnen; RK in 2D nur für Profile.
 * Für Profile mit RCWA genügen oft 20–40 Scheiben; Konvergenz in `slices` prüfen.
 

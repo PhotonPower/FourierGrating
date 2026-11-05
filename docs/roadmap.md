@@ -30,7 +30,7 @@ Abnahme = alle genannten Tests grün (`ctest`), Details im Plan, Abschnitt „Me
     – `tests/validation/test_v9_v10.cpp`, `tests/unit/test_normal_field2d.cpp`
   - Befund: Algorithmus NF als Tensorglättung (Plan v1.5); Profile2D zeilenweise exakt statt Marching Squares
   - V10 quantitativ (Buch 7,5 % bei 1,388 µm): Peak bis N = 8 unruhig, ab N = 9 bei 1,388 µm
-    (N = 9: 4,2 %, N = 10: 6,2 %); Tensor- und Vektorvariante gleichwertig (N = 7, 8)
+    (N = 9: 4,2 %, N = 10: 6,2 %, N = 11: ≈ 9,2 %); Tensor- und Vektorvariante gleichwertig (N = 7, 8)
   - **Offen:** N = 11–15 auf dem Zielsystem (Konvergenz der Peakhöhe gegen ≈ 7,5 %?), Einfluss von σ
 - [x] **M8** 2D anisotrop
   - Abnahme: V8 (2D) – `tests/validation/test_v8_2d.cpp`; Konvergenzstudie in `docs/validation.md`
@@ -47,8 +47,11 @@ Abnahme = alle genannten Tests grün (`ctest`), Details im Plan, Abschnitt „Me
     (`SolverOptions::backend`, Schwelle), paralleler Scan `solveScan` (OpenMP, ein Stream je Thread),
     `fgbench`; gegen CUDA 12.8 gebaut und gelinkt, ohne GPU laufen die CPU-Pfade (Tests
     `Backend.*`, GPU-Tests übersprungen)
-  - **Offen (Zielsystem):** `ctest -R Backend` mit GPU, Benchmark-Tabelle, Schwelle festlegen; cuFFT/eigene
-    Kernel nur bei Bedarf (M11)
+  - Windows/MinGW + CUDA 13.4, RTX 3090: Build-Pfad `win-cuda` (experimentell), Backend-Tests laufen dort auf der GPU
+  - Umgebungsvariablen `FG_BACKEND`, `FG_BACKEND_THRESHOLD` (ganze Testsuite auf der GPU)
+  - **Offen:** Protokoll der GPU-Tests und `fgbench`-Tabelle in `docs/benchmarks.md`; Lauf der gesamten Suite mit
+    `FG_BACKEND=cuda FG_BACKEND_THRESHOLD=0`; Schwelle festlegen; Abnahme auf dem Zielsystem (RTX 6000 Ada);
+    cuFFT/eigene Kernel nur bei Bedarf
 - [x] **M11** Parameter-Scans, Performance, Anwenderdoku
   - Scans: kartesisches Produkt λ × φ × ψ × δ (Zahl/Liste/Bereich), parallel (`solveScan`);
     Sweeps über beliebige Zahlenwerte per JSON-Pointer (`"sweep"`), CSV-Spalten `sweep_parameter`, `sweep_value`

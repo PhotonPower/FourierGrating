@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 #include "fg/core/error.hpp"
 #include "fg/linalg/backend.hpp"
@@ -13,6 +14,16 @@ using fg::cplx;
 using fg::MatC;
 
 namespace {
+/// Portable setenv/unsetenv (MinGW/UCRT has no setenv); value nullptr removes the variable.
+void setEnv(const char* key, const char* value) {
+#ifdef _WIN32
+  _putenv_s(key, value ? value : "");
+#else
+  if (value) setenv(key, value, 1);
+  else unsetenv(key);
+#endif
+}
+
 MatC randomMatrix(Eigen::Index n, Eigen::Index m, unsigned seed) {
   std::srand(seed);
   return MatC::Random(n, m) + 2.0 * MatC::Identity(n, m);
@@ -45,6 +56,20 @@ TEST(Backend, DispatchSettings) {
   EXPECT_EQ(fg::linalg::offload(5000), fg::linalg::cudaAvailable());
   EXPECT_FALSE(fg::linalg::offload(10));
   if (!fg::linalg::cudaAvailable()) EXPECT_THROW(fg::linalg::setPreference("cuda"), fg::Error);
+  fg::linalg::setPreference("auto");
+}
+
+TEST(Backend, EnvironmentOverride) {
+  setEnv("FG_BACKEND", "cpu");
+  fg::linalg::setPreference("auto", 0);
+  EXPECT_FALSE(fg::linalg::offload(100000));
+  setEnv("FG_BACKEND", "gpu");
+  EXPECT_THROW(fg::linalg::setPreference("auto"), fg::Error);
+  setEnv("FG_BACKEND", nullptr);
+  setEnv("FG_BACKEND_THRESHOLD", "5");
+  fg::linalg::setPreference("auto", 1000);
+  EXPECT_EQ(fg::linalg::offload(10), fg::linalg::cudaAvailable());
+  setEnv("FG_BACKEND_THRESHOLD", nullptr);
   fg::linalg::setPreference("auto");
 }
 

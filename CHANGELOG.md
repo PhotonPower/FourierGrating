@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Hinzugefügt
+- Umgebungsvariablen `FG_BACKEND` / `FG_BACKEND_THRESHOLD` überschreiben die Backend-Wahl (ganze Testsuite auf
+  der GPU: `FG_BACKEND=cuda FG_BACKEND_THRESHOLD=0 ctest`); Test `Backend.EnvironmentOverride` (portabel, auch MinGW).
+- V10 bei N = 11: Peak ≈ 1,3898 µm, ≈ 9,2 %.
+
 ## [0.10.0] – M11 (Scans, Sweeps, Anwenderdoku)
 
 ### Validierung (nachgetragen)

@@ -38,6 +38,8 @@ bool cudaAvailable();
 // propagators) ask offload(n); if false they run their original Eigen code (CPU reference, bitwise
 // unchanged), otherwise they use device(). Settings are thread-local (one solver per thread).
 /// preference: "cpu" | "cuda" | "auto" (CUDA from matrix size `threshold` on, if available).
+/// The environment variables FG_BACKEND and FG_BACKEND_THRESHOLD override both arguments
+/// (e.g. the whole validation suite on the GPU: FG_BACKEND=cuda FG_BACKEND_THRESHOLD=0 ctest).
 void setPreference(const std::string& preference, Eigen::Index threshold = 1000);
 bool offload(Eigen::Index n);
 /// Thread-local device backend (created on first use).

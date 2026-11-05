@@ -48,10 +48,12 @@ Lamellen exakt.
 | 8 | 1,404 | 5,3 % | 0,3 % | 21 s |
 | 9 | 1,3876 | 4,2 % | 4,2 % | 55 s |
 | 10 | 1,3889 | 6,2 % | 5,4 % | 80 s |
+| 11 | ≈ 1,3898 | ≈ 9,2 % | 4,9 % | 140 s |
 
 Der Peak liegt stets oberhalb des SPP-Pols der Ag/Glas-Grenzfläche (1,3694 µm). Bis N = 8 wandert er nach Rot
 und seine Höhe schwankt; ab N = 9 liegt er bei der Buch-Wellenlänge 1,388 µm (1,3876 / 1,3889 µm), die Höhe
-steigt auf 6,2 % (N = 10) und nähert sich der Buchangabe 7,5 %. Der Peak ist nur ≈ 2–3 nm breit, daher reagiert
+steigt auf 6,2 % (N = 10) bzw. ≈ 9,2 % (N = 11, Suche nicht ganz abgeschlossen): die Höhe schwankt um die
+Buchangabe 7,5 %, konvergiert aber noch nicht. Der Peak ist nur ≈ 2–3 nm breit, daher reagiert
 T bei fester Wellenlänge stark auf N. Vektorvariante von Algorithmus NF (N = 7: 1,3904 µm / 10,26 %;
 N = 8: 1,4024 µm / 5,53 %) weicht kaum von der Tensorvariante ab (1,3906 / 10,32 %; 1,4038 / 5,35 %) – die
 N-Abhängigkeit dominiert. Laurent schwankt

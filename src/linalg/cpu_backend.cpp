@@ -1,3 +1,5 @@
+#include <cstdlib>
+
 #include "fg/core/error.hpp"
 #include "fg/linalg/backend.hpp"
 
@@ -47,9 +49,13 @@ DispatchState& state() {
 }
 }  // namespace
 
-void setPreference(const std::string& preference, Eigen::Index threshold) {
+void setPreference(const std::string& requested, Eigen::Index threshold) {
+  // environment override (whole test suite on the GPU: FG_BACKEND=cuda FG_BACKEND_THRESHOLD=0 ctest)
+  std::string preference = requested;
+  if (const char* env = std::getenv("FG_BACKEND"); env && *env) preference = env;
+  if (const char* env = std::getenv("FG_BACKEND_THRESHOLD"); env && *env) threshold = std::atol(env);
   FG_REQUIRE(preference == "auto" || preference == "cpu" || preference == "cuda",
-             "backend must be \"auto\", \"cpu\" or \"cuda\"");
+             "backend must be \"auto\", \"cpu\" or \"cuda\" (also FG_BACKEND)");
   if (preference == "cuda") FG_REQUIRE(cudaAvailable(), "CUDA backend requested but not available");
   state().preference = preference;
   state().threshold = threshold;
