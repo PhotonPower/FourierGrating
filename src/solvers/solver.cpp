@@ -4,8 +4,11 @@
 #include <exception>
 #include <cmath>
 #include <functional>
+#include <optional>
+#include <variant>
 
 #include "fg/core/error.hpp"
+#include "fg/fourier/sampling.hpp"
 #include "fg/fourier/toeplitz.hpp"
 #include "fg/linalg/backend.hpp"
 #include "fg/physics/anisotropic.hpp"
@@ -15,9 +18,6 @@
 #include "fg/solvers/rk.hpp"
 #include "fg/solvers/solver.hpp"
 
-#include <exception>
-
-#include "fg/linalg/backend.hpp"
 #include "layer_model.hpp"
 
 namespace fg {
@@ -37,6 +37,32 @@ struct Setup {
   const Material* sub = nullptr;
   ModeBasis subModes;
 };
+
+/// Field system of an assembly: the full 4 n_f problem, or one polarization of the decoupled 1D
+/// in-plane problem (2 n_f, Plan eq:TE / eq:TM).
+struct System {
+  std::optional<Polarization> pol;
+  ModeBasis ref, sub;
+
+  MatC M(const QBlocks& Q, const Setup& s) const {
+    return pol ? buildPropagationMatrix(Q, s.alpha, *pol) : buildPropagationMatrix(Q, s.alpha, s.gamma);
+  }
+  LayerModes modes(const MatC& M) const { return pol ? layerModesPolarization(M, *pol) : layerModesAuto(M); }
+  ModeBasis basis(const ModeBasis& full) const { return pol ? polarizationBasis(full, *pol) : full; }
+};
+
+System fullSystem(const Setup& s) { return {std::nullopt, s.ref, s.subModes}; }
+System polarizationSystem(const Setup& s, Polarization p) {
+  return {p, polarizationBasis(s.ref, p), polarizationBasis(s.subModes, p)};
+}
+
+/// Materials referenced by a 1D layer; nullopt for 2D layer types.
+std::optional<std::vector<std::string>> layerMaterials(const LayerSpec& spec) {
+  if (const auto* h = std::get_if<HomogeneousLayer>(&spec)) return std::vector<std::string>{h->material};
+  if (const auto* l = std::get_if<Lamellar1DLayer>(&spec)) return l->materials;
+  if (const auto* p = std::get_if<Profile1DLayer>(&spec)) return std::vector<std::string>{p->below, p->above};
+  return std::nullopt;
+}
 
 double rhoEstimate(const Setup& s, const std::vector<cplx>& eps) {
   double rho = 0;
@@ -101,7 +127,27 @@ class StackSolver final : public Solver {
     const auto models = detail::buildLayerModels(stack, s.map, opt_.rcwaSlices);
     Result res;
     for (const auto& m : models) res.diag.warnings.insert(res.diag.warnings.end(), m->warnings.begin(), m->warnings.end());
-    const Assembly as = assemble(s, models, false, {}, res.diag);
+    if (decoupled(stack, s)) {
+      // 1D in-plane isotropic: TE and TM separately with 2 n_f (Plan section "Spezialfaelle"),
+      // embedded block-diagonally into the S-matrix of the (a_x, a_z) amplitudes
+      const int nf = s.map.size();
+      SMatrix S;
+      for (MatC* B : {&S.S11, &S.S12, &S.S21, &S.S22}) *B = MatC::Zero(2 * nf, 2 * nf);
+      const VecC a_in = incidentAmplitudes(s);
+      for (const Polarization p : {Polarization::TE, Polarization::TM}) {
+        const int k = polarizationBlocks(p).amp[0];  // 0: x (TM), 1: z (TE)
+        // not excited (|A| <= 1e-14 |A_inc|, e.g. cos 90 deg = 6e-17): its block stays zero
+        if (a_in.segment(k * nf, nf).norm() <= 1e-14 * a_in.norm()) continue;
+        const SMatrix Sp = assemble(s, polarizationSystem(s, p), models, false, {}, res.diag).total;
+        S.S11.block(k * nf, k * nf, nf, nf) = Sp.S11;
+        S.S12.block(k * nf, k * nf, nf, nf) = Sp.S12;
+        S.S21.block(k * nf, k * nf, nf, nf) = Sp.S21;
+        S.S22.block(k * nf, k * nf, nf, nf) = Sp.S22;
+      }
+      efficiencies(s, S, res);
+      return res;
+    }
+    const Assembly as = assemble(s, fullSystem(s), models, false, {}, res.diag);
     efficiencies(s, as.total, res);
     return res;
   }
@@ -145,6 +191,7 @@ class StackSolver final : public Solver {
   // ------------------------------------------------------------------ setup
   Setup setup(const Stack& stack, const Wavelength& wl) const {
     linalg::setPreference(opt_.backend, opt_.backendThreshold);  // thread-local (M10)
+    fourier::setFFTSampling(opt_.fftSampling);                    // thread-local
     Setup s;
     s.map = IndexMap(opt_.Nx, stack.is2D() ? opt_.Nz : 0);
     s.k0 = 2.0 * PI / wl.lambda_um;
@@ -170,14 +217,29 @@ class StackSolver final : public Solver {
     return s;
   }
 
+  /// True if the problem decouples exactly into TE and TM (Plan section "Spezialfaelle"): 1D,
+  /// gamma = 0 for all orders, isotropic substrate and layers (the superstrate is always isotropic).
+  bool decoupled(const Stack& stack, const Setup& s) const {
+    if (!opt_.splitPolarizations || stack.is2D() || !s.gamma.isZero(0.0) || !s.sub->isotropic) return false;
+    for (const auto& le : stack.layers) {
+      const auto names = layerMaterials(le.spec);
+      if (!names) return false;
+      for (const auto& n : *names)
+        if (!stack.material(n).isotropic) return false;
+    }
+    return true;
+  }
+
   // ------------------------------------------------------------------ assembly
   /// Builds the total S-matrix. With record = true every element is kept (S, modes, RK transfer
   /// matrices at the requested normalized heights 'sampleY', sorted).
-  Assembly assemble(const Setup& s, const std::vector<std::unique_ptr<LayerModel>>& models, bool record,
-                    const std::vector<double>& sampleY, Diagnostics& diag) {
+  /// Reduced systems (sys.pol set) only for the total S-matrix (record = false).
+  Assembly assemble(const Setup& s, const System& sys, const std::vector<std::unique_ptr<LayerModel>>& models,
+                    bool record, const std::vector<double>& sampleY, Diagnostics& diag) {
+    FG_REQUIRE(!record || !sys.pol, "field records need the full 4 n_f system");
     Assembly as;
     Element e0;
-    e0.S = fromTransfer(s.ref.PsiInv * s.subModes.Psi);  // substrate -> reference (Plan eq:Stot)
+    e0.S = fromTransfer(sys.ref.PsiInv * sys.sub.Psi);  // substrate -> reference (Plan eq:Stot)
     as.total = e0.S;
     if (record) as.elems.push_back(std::move(e0));
     double y = 0;
@@ -187,8 +249,8 @@ class StackSolver final : public Solver {
       const double y0 = y;
       if (m.homogeneous()) {
         const Material& mat = m.material();
-        const ModeBasis mb = mat.isotropic ? isotropicModes(mat.eps, s.alpha, s.gamma)
-                                           : anisotropicModes(mat.epsTensor, s.alpha, s.gamma);
+        const ModeBasis mb = sys.basis(mat.isotropic ? isotropicModes(mat.eps, s.alpha, s.gamma)
+                                                     : anisotropicModes(mat.epsTensor, s.alpha, s.gamma));
         Element e;
         e.kind = Element::Kind::Modes;
         e.y0 = y0;
@@ -196,7 +258,7 @@ class StackSolver final : public Solver {
         e.model = &m;
         e.layerY0 = y0;
         RCWASliceRecord rec;
-        e.S = stableLayerSMatrix(layerModesHomogeneous(mb), H, s.ref, &rec);
+        e.S = stableLayerSMatrix(layerModesHomogeneous(mb), H, sys.ref, &rec);
         e.modes = rec.modes;
         e.G = rec.G;
         addElement(as, std::move(e), record);
@@ -204,7 +266,7 @@ class StackSolver final : public Solver {
         const int K = m.yInvariant() ? 1 : m.rcwaSlices;
         for (int k = 0; k < K; ++k) {
           const double yq = (k + 0.5) * m.thickness_um() / K;  // staircase: Q at slice centre
-          const MatC M = buildPropagationMatrix(m.Q(yq), s.alpha, s.gamma);
+          const MatC M = sys.M(m.Q(yq), s);
           Element e;
           e.kind = Element::Kind::Modes;
           e.y0 = y0 + H * k / K;
@@ -213,13 +275,13 @@ class StackSolver final : public Solver {
           e.layerY0 = y0;
           e.qHeight_um = yq;
           RCWASliceRecord rec;
-          e.S = stableLayerSMatrix(layerModesAuto(M), H / K, s.ref, &rec);
+          e.S = stableLayerSMatrix(sys.modes(M), H / K, sys.ref, &rec);
           e.modes = rec.modes;
           e.G = rec.G;
           addElement(as, std::move(e), record);
         }
       } else {
-        rkLayer(s, m, y0, H, record, sampleY, as, diag);
+        rkLayer(s, sys, m, y0, H, record, sampleY, as, diag);
       }
       y += H;
     }
@@ -234,16 +296,16 @@ class StackSolver final : public Solver {
 
   /// RK treatment of one layer: stability sub-slices (Plan eq:slicecrit) with the spectral radius
   /// of the truncated M, a posteriori bisection, transfer matrices at recorded heights.
-  void rkLayer(const Setup& s, const LayerModel& m, double y0, double H, bool record,
+  void rkLayer(const Setup& s, const System& sys, const LayerModel& m, double y0, double H, bool record,
                const std::vector<double>& sampleY, Assembly& as, Diagnostics& diag) {
     const double a = m.thickness_um();
     std::function<MatC(double)> Mfun;
     MatC Mconst;
     if (m.yInvariant()) {
-      Mconst = buildPropagationMatrix(m.Q(0.0), s.alpha, s.gamma);
+      Mconst = sys.M(m.Q(0.0), s);
       Mfun = [&Mconst](double) { return Mconst; };
     } else {
-      Mfun = [&](double yl) { return buildPropagationMatrix(m.Q(yl / s.k0), s.alpha, s.gamma); };
+      Mfun = [&](double yl) { return sys.M(m.Q(yl / s.k0), s); };
     }
     double rho = rhoEstimate(s, m.epsList);
     if (m.yInvariant())
@@ -253,18 +315,19 @@ class StackSolver final : public Solver {
     const int K = std::max(1, static_cast<int>(std::ceil(rho * H / std::log(opt_.growthLimit))));
     const auto tab = ButcherTableau::byName(opt_.rkTableau);
     for (int k = 0; k < K; ++k)
-      rkSlice(s, m, Mfun, m.yInvariant(), y0, H * k / K, H * (k + 1) / K, rho, tab, record, sampleY, as, diag, 0);
+      rkSlice(s, sys, m, Mfun, m.yInvariant(), y0, H * k / K, H * (k + 1) / K, rho, tab, record, sampleY, as, diag, 0);
   }
 
   /// Field transfer over [ya, yb] (layer-local normalized y), recording the transfer matrices at
   /// the requested heights; bisects while the growth exceeds growthLimit.
-  void rkSlice(const Setup& s, const LayerModel& m, const std::function<MatC(double)>& Mfun, bool constant,
+  void rkSlice(const Setup& s, const System& sys, const LayerModel& m, const std::function<MatC(double)>& Mfun, bool constant,
                double y0, double ya, double yb, double rho, const ButcherTableau& tab, bool record,
                const std::vector<double>& sampleY, Assembly& as, Diagnostics& diag, int depth) {
     auto transfer = [&](double from, double to) {
       RKStats st;
-      MatC T = constant ? rkTransferConstant(Mfun(0), to - from, tab, opt_.rkTol, rho, st)
-                        : rkTransferAuto(Mfun, from, to, tab, opt_.rkTol, rho, st);
+      MatC T = constant  ? rkTransferConstant(Mfun(0), to - from, tab, opt_.rkTol, rho, st)
+               : sys.pol ? rkTransfer(Mfun, from, to, tab, opt_.rkTol, rho, st)
+                         : rkTransferAuto(Mfun, from, to, tab, opt_.rkTol, rho, st);
       diag.rkSteps += st.steps;
       return T;
     };
@@ -274,7 +337,7 @@ class StackSolver final : public Solver {
     e.y1 = y0 + yb;
     e.model = &m;
     e.layerY0 = y0;
-    const Eigen::Index n = 4 * s.map.size();
+    const Eigen::Index n = sys.ref.Psi.rows();
     MatC T = MatC::Identity(n, n);
     double prev = ya;
     if (record)
@@ -290,12 +353,12 @@ class StackSolver final : public Solver {
     T = transfer(prev, yb) * T;
     if ((!T.allFinite() || T.cwiseAbs().maxCoeff() > opt_.growthLimit) && depth < 12) {
       const double ym = 0.5 * (ya + yb);
-      rkSlice(s, m, Mfun, constant, y0, ya, ym, rho, tab, record, sampleY, as, diag, depth + 1);
-      rkSlice(s, m, Mfun, constant, y0, ym, yb, rho, tab, record, sampleY, as, diag, depth + 1);
+      rkSlice(s, sys, m, Mfun, constant, y0, ya, ym, rho, tab, record, sampleY, as, diag, depth + 1);
+      rkSlice(s, sys, m, Mfun, constant, y0, ym, yb, rho, tab, record, sampleY, as, diag, depth + 1);
       return;
     }
     FG_REQUIRE(T.allFinite(), "RK transfer matrix not finite");
-    e.S = rkSliceSMatrix(T, s.ref);
+    e.S = rkSliceSMatrix(T, sys.ref);
     addElement(as, std::move(e), record);
   }
 
@@ -367,7 +430,7 @@ class StackSolver final : public Solver {
     std::vector<double> sorted = yn;
     std::sort(sorted.begin(), sorted.end());
     Diagnostics diag;
-    assembly_ = assemble(s, models, true, sorted, diag);
+    assembly_ = assemble(s, fullSystem(s), models, true, sorted, diag);
     const auto& el = assembly_.elems;
     const std::size_t K = el.size() - 1;
     const int nf = s.map.size(), nh = 2 * nf;

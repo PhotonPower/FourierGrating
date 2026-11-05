@@ -250,8 +250,23 @@ Mit $Q_{\varepsilon,xx}=A+\Li$, $Q_{\varepsilon,yy}=\tp{\varepsilon}-A$, $Q_{\va
 ($\Delta=\tp\varepsilon-\Li$, $A=\Delta\tp{c^2}$, $B=\Delta\tp{cs}$, $c=\cos\theta$, $s=\sin\theta$,
 $\tan\theta=g'$) ist \eqref{eq:TM} identisch mit Buch (IV.21), (IV.22).
 \textbf{Umsetzung (ab v0.2):} Der Code verwendet von Anfang an das volle $4n_f$-System auch für
-den in-plane-Fall (es zerfällt dort exakt in TE und TM); die $2n_f$-Systeme \eqref{eq:TE}, \eqref{eq:TM}
-sind eine spätere Optimierung (M11, Faktor $\approx8$ in der Laufzeit) und dienen bis dahin als Testreferenz.
+den in-plane-Fall (es zerfällt dort exakt in TE und TM).
+\textbf{Option ab Plan v2.2} (\verb|split_polarizations|, Standard aus; aus $=$ bitgleich zu v0.10): Für die
+Effizienzen (\verb|solve|) rechnet der Code im entkoppelten Fall die beiden $2n_f$-Systeme \eqref{eq:TE},
+\eqref{eq:TM} getrennt. Bedingung: 1D-Stapel, $\gamma_n=0$ für alle Ordnungen (exakt, also $\psi=0$),
+isotropes Substrat und isotrope Schichten. Die Modenbasis \eqref{eq:Psi_iso} ist dann blockdiagonal:
+TE $=([E_z],[H_x])$ mit den Amplituden $(a_z\,|\,b_z)$, TM $=([E_x],[H_z])$ mit $(a_x\,|\,b_x)$; die Blöcke
+von $\Psi^{-1}$ sind die Inversen der Blöcke von $\Psi$. Grenzflächen, Schicht-S-Matrizen \eqref{eq:rcwa_S},
+RK-Transfer und Sternprodukte laufen je Polarisation mit halber Größe; die beiden Gesamt-S-Matrizen werden
+blockdiagonal in die S-Matrix der Amplituden $(a_x,a_z)$ eingebettet, die Effizienzen \eqref{eq:eff} bleiben
+unverändert. Eine Polarisation mit $\lVert a_{\text{in}}\rVert\le10^{-14}$ der Gesamtamplitude wird
+übersprungen (ihr Block bleibt null). Bei TM mit $Q_{\varepsilon,xy}\neq0$ (Profile, FFF) wird das
+Eigenproblem von \eqref{eq:TM} voll gelöst und wie \eqref{eq:classify} klassifiziert, im Grenzfall
+$|\operatorname{Re}\lambda|\le\tau$ nach dem Vorzeichen von $-\tfrac12\operatorname{Re}(E_xH_z^*)$
+(TE: $+\tfrac12\operatorname{Re}(E_zH_x^*)$). Nahfelder verwenden immer das volle $4n_f$-System, das auch
+Prüfreferenz bleibt. Gemessener Gewinn (CPU, ein Thread): RCWA Faktor 1,9--5, RK 1--1,5
+(\verb|docs/benchmarks.md|); der früher geschätzte Faktor $\approx8$ wird nicht erreicht, weil die
+Eigenprobleme und die RK-Integration schon vorher je Polarisation zerlegt waren.
 \paragraph{1D konisch:} volles $4n_f$-System mit $\gamma=\gamma_0\mathbb 1$.
 \paragraph{2D:} volles $4n_f$-System mit $n_f=(2N_x+1)(2N_z+1)$.
 
@@ -306,7 +321,10 @@ für $\mathbf k=0$ die Fläche. Herleitung: Gaußscher Satz mit
 Kreise/Ellipsen: analytisch über Bessel-Funktion ($J_1$) oder als feines Polygon.
 
 \paragraph{Allgemeine Funktionen.} Abtastung auf einem feinen Gitter ($\ge 8\times$ die höchste
-benötigte Ordnung) und FFT. \textbf{Nur für stetige Funktionen} (z.\,B.\ Normalenvektorkomponenten);
+benötigte Ordnung) und FFT. Option \verb|fft_sampling| (Plan v2.2, Standard aus $=$ v0.10: direkte DFT, Radix~2
+nur für Zweierpotenz-Raster): FFT für jede Abtastzahl $M$ (Radix~2 für Zweierpotenzen, sonst Bluestein mit
+einer Faltung der Länge $L\ge2M-1$, $L$ Zweierpotenz; in 2D separabel, in $x$ nur die $2P_z+1$ benötigten
+Spalten); Ergebnisse gleich bis auf Rundung. \textbf{Nur für stetige Funktionen} (z.\,B.\ Normalenvektorkomponenten);
 für unstetige Funktionen (Permittivität) möglichst analytische Formeln, sonst Aliasing-Fehler
 $O(1/N_{\text{grid}})$.
 

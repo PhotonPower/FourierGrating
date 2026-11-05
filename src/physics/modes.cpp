@@ -100,6 +100,29 @@ ModeBasis anisotropicModes(const Mat3C& eps, const VecC& alpha, const VecC& gamm
   return mb;
 }
 
+PolarizationBlocks polarizationBlocks(Polarization p) {
+  // TE: (Ez, Hx) with amplitudes (a_z, b_z); TM: (Ex, Hz) with (a_x, b_x) (Plan eq:Psi_iso, gamma = 0)
+  return p == Polarization::TE ? PolarizationBlocks{{1, 2}, {1, 3}} : PolarizationBlocks{{0, 3}, {0, 2}};
+}
+
+ModeBasis polarizationBasis(const ModeBasis& full, Polarization p) {
+  const Eigen::Index n = full.Psi.rows() / 4;
+  const PolarizationBlocks b = polarizationBlocks(p);
+  ModeBasis mb;
+  mb.Psi.resize(2 * n, 2 * n);
+  mb.PsiInv.resize(2 * n, 2 * n);
+  mb.lambda.resize(2 * n);
+  for (int i = 0; i < 2; ++i) {
+    for (int j = 0; j < 2; ++j) {
+      mb.Psi.block(i * n, j * n, n, n) = full.Psi.block(b.field[i] * n, b.amp[j] * n, n, n);
+      mb.PsiInv.block(i * n, j * n, n, n) = full.PsiInv.block(b.amp[i] * n, b.field[j] * n, n, n);
+    }
+    mb.lambda.segment(i * n, n) = full.lambda.segment(b.amp[i] * n, n);
+  }
+  mb.beta = full.beta;
+  return mb;
+}
+
 double poyntingY(const VecC& F) {
   const Eigen::Index n = F.size() / 4;
   double s = 0.0;

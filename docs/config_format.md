@@ -51,6 +51,8 @@ Eine Einführung mit Beispielen steht im Anwenderhandbuch `docs/user_guide.md`.
   "rcwa": { "slices": 60 },
   "backend": "auto",                     // "auto" | "cpu" | "cuda" (auto: CUDA ab backend_threshold, falls vorhanden)
   "backend_threshold": 1000,             // Matrixgröße, ab der auto die GPU nutzt
+  "split_polarizations": false,          // 1D, psi = 0, isotrop: TE/TM getrennt mit 2 n_f (schneller); false = 4 n_f
+  "fft_sampling": false,                 // abgetastete Koeffizienten per FFT jeder Länge; false = v0.10 (DFT)
   "nearfield": {
     "enabled": true,
     "horizontal_y_um": 0.1,              // horizontaler Schnitt (1D: Linie in x; 2D: Karte x-z, nz Punkte je Periode)

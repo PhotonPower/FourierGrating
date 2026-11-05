@@ -67,3 +67,23 @@ Auf dem Zielsystem auszuführen und hier einzutragen:
 
 Hinweis zur FP64-Rate der RTX 6000 Ada (Plan: Größenordnung 1/64 der FP32-Rate): ZGEMM-GFLOP/s der GPU
 mit dem CPU-Wert (alle Kerne) vergleichen, bevor die Schwelle gesenkt wird.
+
+## Option `split_polarizations` (2n_f-Systeme, 1D in-plane isotrop), Plan v2.2
+
+Windows 11, MSYS2 UCRT64 GCC (Preset `win-release`), ein Thread (`OMP_NUM_THREADS=1`), Gesamtlaufzeit von
+`fgsolve` je Wellenlänge; `"split_polarizations": false` (volles 4n_f-System, Standard) gegen `true`.
+Die Effizienzen stimmen überein (Tests `PolarizationSplit.*`: RCWA 1e-10, RK 1e-8).
+
+| Fall | δ | 4 n_f (s) | 2 × 2 n_f (s) | Faktor |
+|---|---|---|---|---|
+| Al-Sinus (V4), RK, N = 20, tol 1e-5 | 90° (TM) | 20,6 | 13,9 | 1,5 |
+| Al-Sinus (V4), RK, N = 20, tol 1e-5 | 45° | 20,8 | 21,2 | 1,0 |
+| Al-Sinus (V4), RCWA 60 Scheiben, N = 20 | 90° (TM) | 1,56 | 0,59 | 2,7 |
+| Al-Sinus (V4), RCWA 60 Scheiben, N = 20 | 45° | 1,57 | 0,84 | 1,9 |
+| Lamellen (V3), RCWA, N = 60 | 90° (TM) | 0,48 | 0,09 | 5,1 |
+| Lamellen (V3), RCWA, N = 60 | 45° | 0,48 | 0,15 | 3,1 |
+
+Die Eigenprobleme waren schon vorher je Polarisation zerlegt (`layerModesAuto`, `rkTransferAuto`); der
+Gewinn kommt aus den Schicht-S-Matrizen, Grenzflächen und Sternprodukten mit halber Größe und – bei reiner
+TE- oder TM-Anregung – aus dem Überspringen der zweiten Polarisation. Bei RK mit gemischter Polarisation
+dominiert die (schon zerlegte) Integration, daher kein Gewinn.

@@ -5,6 +5,7 @@
 #include <array>
 
 #include "fg/core/types.hpp"
+#include "fg/physics/modes.hpp"
 
 namespace fg {
 
@@ -24,6 +25,11 @@ QBlocks homogeneousTensorQ(const Mat3C& eps, int nf);
 /// Full 4 n_f x 4 n_f matrix M for Q_mu = 1 (Plan eq:Mmu1a, eq:Mmu1b).
 /// alpha, gamma: normalized wave numbers of the retained orders (single-index order).
 MatC buildPropagationMatrix(const QBlocks& Qe, const VecC& alpha, const VecC& gamma);
+
+/// 2 n_f x 2 n_f matrix of one polarization of the 1D in-plane problem (gamma = 0, isotropic
+/// media, Q_xz = Q_zx = Q_yz = Q_zy = 0): TE (Plan eq:TE) on ([Ez],[Hx]), TM (Plan eq:TM) on
+/// ([Ex],[Hz]). Identical to the corresponding blocks of buildPropagationMatrix.
+MatC buildPropagationMatrix(const QBlocks& Qe, const VecC& alpha, Polarization p);
 
 /// [E_y] from F (Plan eq:Ey) and [H_y] from F (Plan eq:Hy, Q_mu = 1).
 VecC computeEy(const QBlocks& Qe, const VecC& alpha, const VecC& gamma, const VecC& F);

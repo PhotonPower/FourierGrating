@@ -27,6 +27,13 @@ struct SolverOptions {
   bool storeInternal = false;         ///< keep S_L / S_U and slice records for near fields
   std::string backend = "auto";       ///< "auto" | "cpu" | "cuda" (Plan section "CUDA-Backend", M10)
   int backendThreshold = 1000;        ///< auto: matrix size from which the CUDA backend is used
+  /// 1D in-plane isotropic problems: TE and TM as separate 2 n_f systems in solve() (Plan
+  /// eq:TE, eq:TM, section "Spezialfaelle", v2.2). Near fields always use the full 4 n_f system.
+  /// Off by default: results then bit-identical to v0.10 (AGENTS.md section 7).
+  bool splitPolarizations = false;
+  /// Sampled Fourier coefficients via fourier::fft for any sample count (Plan "Allgemeine
+  /// Funktionen", v2.2); off: v0.10 paths (bit-identical).
+  bool fftSampling = false;
 };
 
 struct OrderEfficiency {

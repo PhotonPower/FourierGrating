@@ -91,6 +91,50 @@ LayerModes layerModesGeneral(const MatC& M) {
   return m;
 }
 
+/// Eigenmodes of one decoupled polarization block on (E, H) = 2 n rows, classified by Re lambda
+/// and, for |Re lambda| <= tau, by the flux sign * 1/2 Re(E H*) (TE: +Ez Hx*, TM: -Ex Hz*).
+static LayerModes blockModes(const MatC& Mb, double fluxSign) {
+  const Eigen::Index n = Mb.rows() / 2;
+  const linalg::EigResult es = eigen(Mb, "eigen decomposition failed (RCWA TE/TM block)");
+  const VecC& lam = es.values;
+  const double tau = 1e-9 * lam.cwiseAbs().maxCoeff();
+  std::vector<double> score(static_cast<std::size_t>(2 * n));
+  for (Eigen::Index k = 0; k < 2 * n; ++k) {
+    const double re = lam(k).real();
+    if (std::abs(re) > tau) {
+      score[static_cast<std::size_t>(k)] = re;
+    } else {
+      const VecC w = es.vectors.col(k);
+      double sy = 0;
+      for (Eigen::Index r = 0; r < n; ++r) sy += fluxSign * 0.5 * std::real(w(r) * std::conj(w(n + r)));
+      score[static_cast<std::size_t>(k)] = sy > 0 ? -0.5 * tau : 0.5 * tau;
+    }
+  }
+  std::vector<Eigen::Index> idx(static_cast<std::size_t>(2 * n));
+  std::iota(idx.begin(), idx.end(), 0);
+  std::stable_sort(idx.begin(), idx.end(), [&](Eigen::Index i, Eigen::Index j) {
+    return score[static_cast<std::size_t>(i)] < score[static_cast<std::size_t>(j)];
+  });
+  LayerModes m;
+  m.Wu.resize(2 * n, n);
+  m.Wd.resize(2 * n, n);
+  m.lu.resize(n);
+  m.ld.resize(n);
+  for (Eigen::Index k = 0; k < n; ++k) {
+    const Eigen::Index iu = idx[static_cast<std::size_t>(k)], id = idx[static_cast<std::size_t>(n + k)];
+    m.Wu.col(k) = es.vectors.col(iu);
+    m.Wd.col(k) = es.vectors.col(id);
+    m.lu(k) = lam(iu);
+    m.ld(k) = lam(id);
+  }
+  return m;
+}
+
+LayerModes layerModesPolarization(const MatC& M, Polarization p) {
+  if (isBlockAntiDiagonal(M)) return layerModesReduced(M);
+  return blockModes(M, p == Polarization::TE ? 1.0 : -1.0);
+}
+
 LayerModes layerModesAuto(const MatC& M) {
   if (isBlockAntiDiagonal(M)) return layerModesReduced(M);
   const Eigen::Index n = M.rows() / 4;
@@ -102,8 +146,7 @@ LayerModes layerModesAuto(const MatC& M) {
       cross = std::max(cross, M.block(j * n, i * n, n, n).cwiseAbs().maxCoeff());
     }
   if (cross > 0.0) return layerModesGeneral(M);
-  // Each 2n block is itself a "state vector" of half size: classify it with the general routine
-  // by embedding it into a pseudo 4-component layout (n/2 orders) - simpler: eig per block.
+  // TE/TM-decoupled: eigenmodes per 2n block, embedded into the 4n state vector
   LayerModes out;
   out.Wu = MatC::Zero(4 * n, 2 * n);
   out.Wd = MatC::Zero(4 * n, 2 * n);
@@ -114,40 +157,13 @@ LayerModes layerModesAuto(const MatC& M) {
     MatC Mb(2 * n, 2 * n);
     for (int a = 0; a < 2; ++a)
       for (int b = 0; b < 2; ++b) Mb.block(a * n, b * n, n, n) = M.block(set[a] * n, set[b] * n, n, n);
-    const linalg::EigResult es = eigen(Mb, "eigen decomposition failed (RCWA TE/TM block)");
-    const VecC& lam = es.values;
-    const double tau = 1e-9 * lam.cwiseAbs().maxCoeff();
-    std::vector<double> score(static_cast<std::size_t>(2 * n));
-    for (Eigen::Index k = 0; k < 2 * n; ++k) {
-      const double re = lam(k).real();
-      if (std::abs(re) > tau) {
-        score[static_cast<std::size_t>(k)] = re;
-      } else {
-        // flux of the embedded mode: blocks set = {E-comp, H-comp}
-        const VecC w = es.vectors.col(k);
-        double sy = 0;
-        for (Eigen::Index r = 0; r < n; ++r) {
-          const cplx e = w(r), h = w(n + r);
-          sy += set[0] == 0 ? -0.5 * std::real(e * std::conj(h))   // (Ex, Hz): -Ex Hz*
-                            : 0.5 * std::real(e * std::conj(h));   // (Ez, Hx): +Ez Hx*
-        }
-        score[static_cast<std::size_t>(k)] = sy > 0 ? -0.5 * tau : 0.5 * tau;
-      }
+    const LayerModes bm = blockModes(Mb, set[0] == 0 ? -1.0 : 1.0);  // (Ex, Hz): -Ex Hz*; (Ez, Hx): +Ez Hx*
+    for (int a = 0; a < 2; ++a) {
+      out.Wu.block(set[a] * n, col, n, n) = bm.Wu.middleRows(a * n, n);
+      out.Wd.block(set[a] * n, col, n, n) = bm.Wd.middleRows(a * n, n);
     }
-    std::vector<Eigen::Index> idx(static_cast<std::size_t>(2 * n));
-    std::iota(idx.begin(), idx.end(), 0);
-    std::stable_sort(idx.begin(), idx.end(), [&](Eigen::Index i, Eigen::Index j) {
-      return score[static_cast<std::size_t>(i)] < score[static_cast<std::size_t>(j)];
-    });
-    for (Eigen::Index k = 0; k < n; ++k) {
-      const Eigen::Index iu = idx[static_cast<std::size_t>(k)], id = idx[static_cast<std::size_t>(n + k)];
-      for (int a = 0; a < 2; ++a) {
-        out.Wu.block(set[a] * n, col + k, n, 1) = es.vectors.col(iu).segment(a * n, n);
-        out.Wd.block(set[a] * n, col + k, n, 1) = es.vectors.col(id).segment(a * n, n);
-      }
-      out.lu(col + k) = lam(iu);
-      out.ld(col + k) = lam(id);
-    }
+    out.lu.segment(col, n) = bm.lu;
+    out.ld.segment(col, n) = bm.ld;
     col += n;
   }
   return out;

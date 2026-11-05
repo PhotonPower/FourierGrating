@@ -58,6 +58,30 @@ MatC buildPropagationMatrix(const QBlocks& Q, const VecC& alpha, const VecC& gam
   return M;
 }
 
+MatC buildPropagationMatrix(const QBlocks& Q, const VecC& alpha, Polarization p) {
+  const int n = Q.nf();
+  FG_REQUIRE(alpha.size() == n, "alpha size mismatch");
+  constexpr int X = 0, Y = 1, Z = 2;
+  const auto al = alpha.asDiagonal();
+  const MatC Id = MatC::Identity(n, n);
+  MatC M = MatC::Zero(2 * n, 2 * n);
+  if (p == Polarization::TE) {  // Plan eq:TE
+    const MatC al2 = (alpha.array() * alpha.array()).matrix().asDiagonal();
+    M.topRightCorner(n, n) = I * Id;
+    M.bottomLeftCorner(n, n) = I * (Q(Z, Z) - al2);
+    return M;
+  }
+  // Plan eq:TM
+  Eigen::PartialPivLU<MatC> Eyy(Q(Y, Y));
+  const MatC E_yx = Eyy.solve(Q(Y, X));
+  const MatC E_a = Eyy.solve(MatC(al));
+  M.topLeftCorner(n, n) = -I * (al * E_yx);
+  M.topRightCorner(n, n) = I * (al * E_a) - I * Id;
+  M.bottomLeftCorner(n, n) = I * (Q(X, Y) * E_yx - Q(X, X));
+  M.bottomRightCorner(n, n) = -I * (Q(X, Y) * E_a);
+  return M;
+}
+
 VecC computeEy(const QBlocks& Q, const VecC& alpha, const VecC& gamma, const VecC& F) {
   const int n = Q.nf();
   FG_REQUIRE(F.size() == 4 * n, "state vector size mismatch");

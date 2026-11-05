@@ -25,6 +25,22 @@ ModeBasis isotropicModes(cplx eps, const VecC& alpha, const VecC& gamma, double 
 /// TODO(M5): implement.
 ModeBasis anisotropicModes(const Mat3C& eps, const VecC& alpha, const VecC& gamma);
 
+/// Polarization of the decoupled 1D in-plane systems (Plan eq:TE, eq:TM):
+/// TE: F = ([Ez],[Hx]), amplitudes a_z | b_z; TM: F = ([Ex],[Hz]), amplitudes a_x | b_x.
+enum class Polarization { TE, TM };
+
+/// Field-block indices (into ([Ex],[Ez],[Hx],[Hz])) and amplitude-block indices (into
+/// (a_x, a_z | b_x, b_z)) of one polarization, each as (first, second) block of n_f.
+struct PolarizationBlocks {
+  int field[2];
+  int amp[2];
+};
+PolarizationBlocks polarizationBlocks(Polarization p);
+
+/// 2 n_f basis of one polarization, cut out of a 4 n_f isotropic basis with gamma = 0 (the
+/// basis is block diagonal there, so the blocks of PsiInv are the inverse of the blocks of Psi).
+ModeBasis polarizationBasis(const ModeBasis& full, Polarization p);
+
 /// Time-averaged Poynting flux S_y = 1/2 Re(Ez Hx* - Ex Hz*) summed over all orders of F.
 double poyntingY(const VecC& F);
 

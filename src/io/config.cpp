@@ -185,6 +185,8 @@ RunConfig parseConfig(const std::string& text) {
   FG_REQUIRE(cfg.solver.backend == "auto" || cfg.solver.backend == "cpu" || cfg.solver.backend == "cuda",
              "backend must be \"auto\", \"cpu\" or \"cuda\"");
   cfg.solver.backendThreshold = j.value("backend_threshold", cfg.solver.backendThreshold);
+  cfg.solver.splitPolarizations = j.value("split_polarizations", cfg.solver.splitPolarizations);
+  cfg.solver.fftSampling = j.value("fft_sampling", cfg.solver.fftSampling);
 
   cfg.stack.dx_um = j.at("period_um").at("x").get<double>();
   cfg.stack.dz_um = dim == "2D" ? j.at("period_um").at("z").get<double>() : 0.0;

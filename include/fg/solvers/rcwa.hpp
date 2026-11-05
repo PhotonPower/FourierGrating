@@ -22,6 +22,9 @@ LayerModes layerModesGeneral(const MatC& M);
 /// Picks the cheapest exact path: reduced (anti-diagonal M), TE/TM-decoupled blocks
 /// (1D in-plane: (Ex, Hz) and (Ez, Hx)), or the full eigenproblem.
 LayerModes layerModesAuto(const MatC& M);
+/// Modes of one polarization of the decoupled 1D in-plane problem (M from
+/// buildPropagationMatrix(Q, alpha, p), 2 n_f rows): reduced path or classified eigenproblem.
+LayerModes layerModesPolarization(const MatC& M, Polarization p);
 /// Analytic modes of a homogeneous isotropic layer.
 LayerModes layerModesHomogeneous(const ModeBasis& mb);
 

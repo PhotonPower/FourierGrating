@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Plan
+- Plan v2.2: Optionen `split_polarizations` (Spezialfälle) und `fft_sampling` (Allgemeine Funktionen).
 - Plan v2.0: Erweiterungsplan Version 2 (Teile 5–6, Meilensteine M12–M19): Python-Anbindung, Konturkoeffizienten und
   höhenabhängige Schichtmodelle, CAD-Slicer mit Nurbforge, Profiling/Parallelisierung, wählbare Genauigkeit
   (FP64/gemischt/FP32), Koordinatentransformationen und ASR, PML für isolierte Strukturen, diskrete Adjungierte.
@@ -12,9 +13,23 @@
   Einheit µm, FP32-Standard auf der RTX 3090).
 
 ### Hinzugefügt
+- Option `"split_polarizations"` (`SolverOptions::splitPolarizations`, Standard aus): 1D in-plane isotrop
+  (γ = 0, isotropes Substrat und isotrope Schichten) rechnet `solve()` TE und TM als getrennte 2n_f-Systeme
+  (Plan eq:TE, eq:TM) – Grenzflächen, Schicht-S-Matrizen, RK-Transfer und Sternprodukte mit halber Größe;
+  Einbettung blockdiagonal, nicht angeregte Polarisation (reines TE/TM) übersprungen. RCWA Faktor 1,9–5.
+  Neu: `Polarization`, `polarizationBlocks`, `polarizationBasis`, `buildPropagationMatrix(Q, alpha, Polarization)`,
+  `layerModesPolarization`.
+- Option `"fft_sampling"` (`SolverOptions::fftSampling`, Standard aus): `fourier::fft` (beliebige Länge, Radix 2 /
+  Bluestein) für `sampledCoefficients1D/2D` und `gridCoefficients2D`; Schalter `fourier::setFFTSampling` (thread-lokal).
+- Tests `PolarizationSplit.*`, `Sampling.FFTEqualsDirectDFT`, `Sampling.FFTSwitchMatchesDFT`,
+  `Sampling.SampledCoefficientsExactForTrigPolynomials`.
+- Mit Standardoptionen sind alle `examples/` bitgleich zum Stand vor der Änderung (CSV-Vergleich).
 - Umgebungsvariablen `FG_BACKEND` / `FG_BACKEND_THRESHOLD` überschreiben die Backend-Wahl (ganze Testsuite auf
   der GPU: `FG_BACKEND=cuda FG_BACKEND_THRESHOLD=0 ctest`); Test `Backend.EnvironmentOverride` (portabel, auch MinGW).
 - V10 bei N = 11: Peak ≈ 1,3898 µm, ≈ 9,2 %.
+
+### Geändert
+- `layerModesAuto`: Klassifikation der TE/TM-Blöcke in eine gemeinsame Funktion ausgelagert (bitgleich).
 
 ## [0.10.0] – M11 (Scans, Sweeps, Anwenderdoku)
 

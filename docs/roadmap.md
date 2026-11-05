@@ -59,6 +59,16 @@ Abnahme = alle genannten Tests grün (`ctest`), Details im Plan, Abschnitt „Me
   - `scripts/plot_efficiencies.py` (Spektren, Sweeps), Anwenderhandbuch `docs/user_guide.md` mit Laufzeittabelle
   - Performance: CPU-Referenzwerte in `docs/benchmarks.md`; GPU-Werte und Schwelle auf dem Zielsystem (M10)
 
+### Optimierungen ohne Meilenstein (Plan v2.2, Optionen standardmäßig aus)
+
+- [x] `"split_polarizations"`: 1D, γ = 0, nur isotrope Medien – `solve()` rechnet TE (Plan eq:TE) und TM (eq:TM)
+  getrennt mit 2 n_f, Einbettung blockdiagonal, nicht angeregte Polarisation übersprungen; Nahfelder: volles System
+  - Tests `PolarizationSplit.*` (Aufteilung = 4 n_f: RCWA 1e-10, RK 1e-8; konisch unverändert); Laufzeiten in
+    `docs/benchmarks.md` (RCWA Faktor 1,9–5)
+- [x] `"fft_sampling"`: FFT beliebiger Länge (Radix 2 / Bluestein) in `sampledCoefficients1D/2D`, `gridCoefficients2D`
+  - Tests `Sampling.FFTEqualsDirectDFT`, `Sampling.FFTSwitchMatchesDFT`, `Sampling.SampledCoefficientsExactForTrigPolynomials`
+- Standardoptionen: alle `examples/` bitgleich zu v0.10 geprüft (vor Anlage der Golden Files, Version 2)
+
 ## Version 2 (Plan v2.0, Abschnitte „Erweiterungen“ M12–M19)
 
 Reihenfolge verbindlich (Abhängigkeiten im Plan, Abschnitt „Erweiterungen ab Version 2.0: Überblick“).

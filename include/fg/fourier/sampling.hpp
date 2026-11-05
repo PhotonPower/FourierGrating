@@ -9,8 +9,18 @@
 
 namespace fg::fourier {
 
-/// Coefficients p = -pmax..pmax of a d-periodic function sampled at M equidistant points.
-/// Direct DFT, O(M * pmax); requires M > 2 * pmax.
+/// Forward DFT X_p = sum_k a_k exp(-2 pi i p k / n) of any length n in O(n log n): radix 2 for
+/// powers of two, Bluestein otherwise (Plan "Allgemeine Funktionen", v2.2).
+std::vector<cplx> fft(std::vector<cplx> a);
+
+/// Thread-local switch (SolverOptions::fftSampling, JSON "fft_sampling"): true = the sampling
+/// functions below use fft() for every sample count; false (default) = v0.10 paths (direct DFT,
+/// radix 2 only in gridCoefficients2D for powers of two), bit-identical to v0.10.
+void setFFTSampling(bool on);
+bool fftSampling();
+
+/// Coefficients p = -pmax..pmax of a d-periodic function sampled at M equidistant points;
+/// requires M > 2 * pmax.
 std::vector<cplx> sampledCoefficients1D(const std::function<cplx(double)>& f, double period,
                                         int pmax, int samples);
 
@@ -29,7 +39,7 @@ CoefficientGrid sampledCoefficients2D(const std::function<cplx(double, double)>&
 /// 2D coefficient grid |p| <= Px, |q| <= Pz from samples f[i Mz + k] = f(dx i/Mx, dz k/Mz)
 /// (separable DFT, Plan alg:nfield step 5). Requires Mx > 2 Px, Mz > 2 Pz.
 CoefficientGrid gridCoefficients2D(const std::vector<double>& f, int Mx, int Mz, int Px, int Pz);
-/// Complex samples; radix-2 FFT when Mx and Mz are powers of two, separable DFT otherwise.
+/// Complex samples; separable (radix-2 FFT for powers of two or with fftSampling(), else DFT).
 CoefficientGrid gridCoefficients2D(const std::vector<cplx>& f, int Mx, int Mz, int Px, int Pz);
 
 /// Coefficients of a product of a smooth function (coefficients a, |p'| <= a.Px()) and a
