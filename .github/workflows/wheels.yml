@@ -1,0 +1,59 @@
+name: Wheels
+
+# Plan section "M12: Build": manylinux_2_28 x86_64 and Windows (MSVC) for CPython 3.10-3.13; the CUDA
+# distribution fouriergrating-cuda12 for Windows (built without GPU, accepted on the user's machine).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  cpu:
+    name: fouriergrating (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pypa/cibuildwheel@v2.22.0
+        env:
+          CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-*"
+          CIBW_ARCHS: auto64
+          CIBW_SKIP: "*-musllinux*"
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+          # MSVC OpenMP runtime (vcomp140.dll) into the wheel; auditwheel bundles libgomp on Linux
+          CIBW_BEFORE_BUILD_WINDOWS: pip install delvewheel
+          CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: delvewheel repair -w {dest_dir} {wheel}
+          # fresh venv per wheel: import and a fast subset of the Python tests
+          CIBW_TEST_REQUIRES: pytest
+          CIBW_TEST_COMMAND: >-
+            python -c "import fouriergrating as fg; print(fg.__version__, fg.core_variant())" &&
+            pytest {project}/tests/python -k "simulation or solve_is_first or errors or structure"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-cpu-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  cuda12-windows:
+    name: fouriergrating-cuda12 (windows)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Jimver/cuda-toolkit@v0.2.19
+        with:
+          cuda: "12.6.3"   # cusolverDnXgeev needs >= 12.6 Update 2
+          method: network
+          sub-packages: '["cudart", "cublas", "cublas_dev", "cusolver", "cusolver_dev", "nvcc"]'
+      - uses: pypa/cibuildwheel@v2.22.0
+        with:
+          package-dir: python/cuda12
+        env:
+          CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-*"
+          CIBW_ARCHS: AMD64
+          CIBW_TEST_SKIP: "*"   # no GPU in CI; acceptance on the Windows machine (docs/benchmarks.md)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-cuda12-windows
+          path: wheelhouse/*.whl

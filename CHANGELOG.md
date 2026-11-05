@@ -1,6 +1,24 @@
 # Changelog
 
-## [Unreleased]
+## [0.11.0] – M12 (Python-Anbindung; CI-Abnahme der Wheels offen)
+
+### Hinzugefügt
+- `fg::Simulation` (`fg/solvers/simulation.hpp`): Konfiguration einmal parsen, Schichtmodelle über viele Rechnungen
+  behalten; `setParameter(pointer, value)` baut nur geänderte Schichten neu (bitgleich zum Neuaufbau). Intern
+  `detail::solveWithModels`, `detail::buildLayerModel`, `detail::applyThreadSettings`.
+- Python-Paket `fouriergrating` (pybind11, scikit-build-core, `pyproject.toml`): `load_config`, `solve`, `solve_scan`
+  (`ScanResult`, `to_pandas`), `near_field`, `Simulation`, `set_backend`, `cuda_available`, `core_variant`,
+  `FourierGratingError`; GIL während jeder Rechnung freigegeben; `py.typed`, `_core.pyi`.
+- Distribution `fouriergrating-cuda12` (`python/cuda12/`), Kernwahl beim Import (`FG_CORE=cpu` erzwingt CPU),
+  CUDA-DLL-Verzeichnisse über `os.add_dll_directory`.
+- CMake: `FG_BUILD_PYTHON`, `FG_PYTHON_PACKAGE`; unter MSVC ignoriert `FGDependencies.cmake` MSYS2-Präfixe und die
+  Paketregistry (statt im Preset).
+- `fg::derivedFields`, `fg::nearFieldMeta` (gemeinsam für `NearFieldWriter` und Python).
+- pytest `tests/python`, Beispiel `examples/python/scan_lamellar.py`, `docs/python.md`.
+- CI: Jobs `regression`, `windows-msvc`, `python`; `.github/workflows/wheels.yml` (cibuildwheel: manylinux_2_28 und
+  Windows für CPython 3.10–3.13, CUDA-Wheel für Windows) – noch nicht gelaufen.
+
+## [Unreleased] (vor M12)
 
 ### Plan
 - Plan v2.2: Optionen `split_polarizations` (Spezialfälle) und `fft_sampling` (Allgemeine Funktionen).

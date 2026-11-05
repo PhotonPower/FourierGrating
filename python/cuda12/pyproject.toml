@@ -1,0 +1,41 @@
+# Second distribution (Plan section "M12: Build"): only the CUDA core fouriergrating_cuda12._core,
+# same API; `import fouriergrating` uses it when installed and a GPU is usable. Build from the
+# repository root:  pip wheel python/cuda12   (needs MSVC on Windows and the CUDA toolkit >= 12.6 U2).
+# The CUDA DLLs come from the nvidia-*-cu12 pip packages and are never bundled.
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.12"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "fouriergrating-cuda12"
+dynamic = ["version"]
+description = "CUDA 12 core of FourierGrating (cuBLAS/cuSOLVER); install together with fouriergrating"
+license = { file = "../../LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+  "fouriergrating",
+  "nvidia-cuda-runtime-cu12",
+  "nvidia-cublas-cu12",
+  "nvidia-cusolver-cu12",
+]
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.24"
+cmake.source-dir = "../.."
+build-dir = "../../build/py-cuda12-{wheel_tag}"
+wheel.packages = ["fouriergrating_cuda12"]
+install.components = ["python"]
+
+[tool.scikit-build.cmake.define]
+FG_BUILD_PYTHON = "ON"
+FG_BUILD_TESTS = "OFF"
+FG_BUILD_APPS = "OFF"
+FG_ENABLE_CUDA = "ON"
+CMAKE_CUDA_ARCHITECTURES = "86;89"
+FG_PYTHON_PACKAGE = "fouriergrating_cuda12"
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "../../CMakeLists.txt"
+regex = 'project\(FourierGrating VERSION (?P<value>[0-9]+\.[0-9]+\.[0-9]+)'

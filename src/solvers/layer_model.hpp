@@ -10,6 +10,7 @@
 #include "fg/geometry/normal_field.hpp"
 #include "fg/geometry/stack.hpp"
 #include "fg/physics/qmatrix.hpp"
+#include "fg/solvers/solver.hpp"
 
 namespace fg::detail {
 
@@ -44,8 +45,17 @@ class LayerModel {
   std::vector<std::string> warnings;
 };
 
+using LayerModels = std::vector<std::unique_ptr<LayerModel>>;
+
 /// Builds the models of all layers of a stack (bottom to top) for a given truncation.
-std::vector<std::unique_ptr<LayerModel>> buildLayerModels(const Stack& stack, const IndexMap& map,
-                                                          int defaultSlices);
+LayerModels buildLayerModels(const Stack& stack, const IndexMap& map, int defaultSlices);
+/// Model of layer k only (Simulation::setParameter rebuilds single layers, M12).
+std::unique_ptr<LayerModel> buildLayerModel(const Stack& stack, std::size_t k, const IndexMap& map, int defaultSlices);
+
+/// Thread-local settings of a solver run (backend dispatch, FFT sampling); also needed before
+/// building layer models outside a solver.
+void applyThreadSettings(const SolverOptions& opt);
+/// Identical to makeSolver(opt)->solve(stack, wl) with the models of buildLayerModels.
+Result solveWithModels(const SolverOptions& opt, const Stack& stack, const Wavelength& wl, const LayerModels& models);
 
 }  // namespace fg::detail

@@ -1,0 +1,47 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.12"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "fouriergrating"
+dynamic = ["version"]
+description = "Fourier modal method for 1D/2D gratings: differential method (implicit Runge-Kutta) and RCWA"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.23"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: C++",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+
+[project.optional-dependencies]
+pandas = ["pandas>=1.5"]
+test = ["pytest>=7", "pandas>=1.5"]
+
+[project.urls]
+Repository = "https://github.com/PhotonPower/FourierGrating"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.24"
+build.verbose = false
+build-dir = "build/py-{wheel_tag}"
+wheel.packages = ["python/fouriergrating"]
+install.components = ["python"]
+sdist.exclude = ["build", "out", ".github", "docs/implementation_plan/*.pdf"]
+
+[tool.scikit-build.cmake.define]
+FG_BUILD_PYTHON = "ON"
+FG_BUILD_TESTS = "OFF"
+FG_BUILD_APPS = "OFF"
+FG_PYTHON_PACKAGE = "fouriergrating"
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "CMakeLists.txt"
+regex = 'project\(FourierGrating VERSION (?P<value>[0-9]+\.[0-9]+\.[0-9]+)'
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]

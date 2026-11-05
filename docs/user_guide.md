@@ -17,6 +17,16 @@ ctest --preset cpu-release                      # ca. 15–20 min auf einem Kern
 Mit GPU: `cmake --preset cuda-release` (CUDA ≥ 12.6 Update 2, siehe `docs/build_almalinux10.md`).
 `fgsolve --info` zeigt, ob ein CUDA-Gerät erkannt wurde.
 
+**Python (M12):** `pip install fouriergrating` (Windows/Linux-Wheel; Windows mit RTX 3090 zusätzlich
+`pip install fouriergrating-cuda12`). Server aus den Quellen mit CUDA:
+
+```bash
+pip install . -C cmake.define.FG_ENABLE_CUDA=ON -C cmake.define.CMAKE_CUDA_ARCHITECTURES="89"
+python -c "import fouriergrating as fg; print(fg.__version__, fg.core_variant(), fg.cuda_available())"
+```
+
+API, Tests und Aufbau: [`python.md`](python.md).
+
 ## 2. Erste Rechnung
 
 ```bash
@@ -146,7 +156,8 @@ const fg::Result r = fg::makeSolver(o)->solve(st, {0.6328, 0.3, 0.0, 0.0});  // 
 ```
 
 Weitere Einstiegspunkte: `solveScan` (parallele Scans), `fieldCoefficients` / `nearField` (Nahfeld),
-`fg::io::loadSweep` (Konfigurationen). Beispiele in `tests/validation/`.
+`fg::io::loadSweep` (Konfigurationen), `fg::Simulation` (`fg/solvers/simulation.hpp`: Schichtmodelle über
+viele Rechnungen behalten, `setParameter` per JSON-Pointer). Beispiele in `tests/validation/`.
 
 ## 10. Häufige Probleme
 

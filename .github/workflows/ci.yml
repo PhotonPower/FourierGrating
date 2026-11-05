@@ -23,6 +23,43 @@ jobs:
       - name: Plot script smoke test
         run: python3 scripts/plot_nearfield.py --demo /tmp/nfdemo
 
+  regression:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libeigen3-dev nlohmann-json3-dev libgtest-dev
+      - name: Build
+        run: cmake --preset cpu-release && cmake --build --preset cpu-release --target test_regression
+      - name: Golden files (other compiler: 1e-13 of the incident power)
+        run: ctest --preset cpu-release -L regression
+
+  windows-msvc:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Configure
+        run: cmake --preset win-msvc -DFG_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build --preset win-msvc
+      - name: Unit and regression tests
+        run: ctest --preset win-msvc -L "unit|regression"
+
+  python:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: python -m pip install ".[test]"
+      - name: pytest
+        run: python -m pytest tests/python
+
   docs:
     runs-on: ubuntu-24.04
     steps:

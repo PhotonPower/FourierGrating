@@ -36,6 +36,15 @@ struct NearFieldResult {
   FieldCut horizontal, vertical;
 };
 
+/// |E|^2, |H|^2 and S_y = 1/2 Re(E x H*)_y of a cut (layout of the field arrays).
+struct DerivedFields {
+  std::vector<double> absE2, absH2, Sy;
+};
+DerivedFields derivedFields(const FieldCut& cut);
+
+/// Content of meta.json for a cut (axes, quantities, normalization; read by plot_nearfield.py).
+std::string nearFieldMeta(const FieldCut& cut);
+
 class NearFieldWriter {
  public:
   /// Writes Ex..Hz (complex128), absE2, absH2, Sy (float64), material.npy and meta.json into dir

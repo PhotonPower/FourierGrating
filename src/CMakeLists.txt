@@ -21,6 +21,7 @@ add_library(fg_core
   solvers/layer_model.cpp
   solvers/rcwa.cpp
   solvers/rk.cpp
+  solvers/simulation.cpp
   field/nearfield.cpp
   linalg/cpu_backend.cpp
   io/config.cpp

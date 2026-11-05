@@ -81,9 +81,21 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
 - [x] Golden Files: `tests/regression/golden/` (alle Beispiele aus `tests/regression/examples.txt`, 17 Stellen),
   Test `Regression.*` (Label `regression`; Standard 1e-13 absolut auf den Effizienzen (Plan v2.3), `FG_REGRESSION_EXACT=1` bitgleich,
   `FG_REGRESSION_UPDATE=1` schreibt neu); erzeugt mit Standardoptionen auf dem Stand 5c037da (= v0.10, bitgleich geprüft)
-- [ ] **M12** Python-Anbindung (pybind11, scikit-build-core, Wheel manylinux_2_28, `fg.Simulation`)
+- [~] **M12** Python-Anbindung (pybind11, scikit-build-core, Wheel manylinux_2_28, `fg.Simulation`)
   - [x] MSVC-Port: Presets `win-msvc`, `win-msvc-cuda` (`scripts\msvc.cmd`), Flags `/W4 /permissive- /utf-8`, ohne
     Warnungen; unit, validation, regression grün; `win-msvc-cuda` auf der RTX 3090: `Backend.*` (GPU = CPU) grün
+  - [x] `fg::Simulation` (C++): Schichtmodelle über Rechnungen behalten, `setParameter` mit Teil-Neuaufbau
+    (bitgleich zum Neuaufbau, `tests/unit/test_simulation.cpp`)
+  - [x] Paket `fouriergrating` (`python/`, `pyproject.toml`, scikit-build-core): `solve`, `solve_scan`, `near_field`,
+    `Simulation`, `set_backend`, `cuda_available`, `core_variant`; GIL frei; `FourierGratingError`; `py.typed`, `_core.pyi`
+  - [x] Distribution `fouriergrating-cuda12` (`python/cuda12/`), Kernwahl beim Import; lokal (MSVC, CUDA 13.4,
+    RTX 3090): `core_variant() == "cuda12"`, GPU = CPU auf 3e-15 (V10), pytest grün
+  - [x] pytest `tests/python` (27 Tests, CPU- und CUDA-Kern grün): Beispiele = Golden Files (1e-12), Nahfeld =
+    `fgsolve` (1e-12), `set_parameter` bitgleich, zwei Threads = sequentiell, GIL-Freigabe; `docs/python.md`,
+    `examples/python/scan_lamellar.py`
+  - [ ] **Offen:** CI-Jobs `windows-msvc`, `python`, `regression` und `wheels.yml` (cibuildwheel, delvewheel,
+    CUDA-Wheel) einmal laufen lassen; Wheels aus den CI-Artefakten in frischer venv installieren; auf dem
+    Anwenderrechner `pip install fouriergrating-cuda12` aus dem Artefakt (CUDA-12-DLLs aus `nvidia-*-cu12`)
   - MSVC-Port (Wheels unter Windows nur mit MSVC; OpenMP `/openmp:llvm`), Windows-Wheels `fouriergrating` (CPU) und
     `fouriergrating-cuda12` (CUDA-Kern, nvidia-*-cu12 als Abhängigkeiten); Server: Build aus den Quellen
   - Abnahme: Python = `fgsolve` auf 1e-12 für alle Beispiele; GIL-Test; `set_parameter` = Neuaufbau; Wheels (Linux,

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(FourierGrating VERSION 0.10.0 DESCRIPTION "Fourier modal method: differential method (implicit RK) and RCWA" LANGUAGES CXX)
+project(FourierGrating VERSION 0.11.0 DESCRIPTION "Fourier modal method: differential method (implicit RK) and RCWA" LANGUAGES CXX)
 
 option(FG_ENABLE_CUDA   "Build the CUDA backend (RTX 6000 Ada, sm_89)" OFF)
 option(FG_ENABLE_OPENMP "Use OpenMP for parameter sweeps"              ON)
@@ -7,6 +7,9 @@ option(FG_ENABLE_HDF5   "Enable HDF5 output for near fields"           OFF)
 option(FG_BUILD_TESTS   "Build unit and validation tests"              ON)
 option(FG_BUILD_APPS    "Build command line applications"              ON)
 option(FG_WARNINGS_AS_ERRORS "Treat compiler warnings as errors"       OFF)
+option(FG_BUILD_PYTHON  "Build the Python module (scikit-build sets ON)" OFF)
+set(FG_PYTHON_PACKAGE "fouriergrating" CACHE STRING
+    "Python package receiving the _core module (fouriergrating | fouriergrating_cuda12)")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -32,6 +35,10 @@ if(FG_ENABLE_CUDA)
   find_package(CUDAToolkit 12.6 REQUIRED)   # cusolverDnXgeev requires CUDA >= 12.6 Update 2
 endif()
 
+if(FG_BUILD_PYTHON)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)  # fg_core is linked into a shared Python module
+endif()
+
 add_subdirectory(src)
 
 if(FG_ENABLE_CUDA AND MINGW)
@@ -44,9 +51,12 @@ endif()
 if(FG_BUILD_APPS)
   add_subdirectory(apps)
 endif()
+if(FG_BUILD_PYTHON)
+  add_subdirectory(python/bindings)
+endif()
 if(FG_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
 endif()
 
-message(STATUS "FourierGrating ${PROJECT_VERSION}: CUDA=${FG_ENABLE_CUDA} OpenMP=${FG_ENABLE_OPENMP} HDF5=${FG_ENABLE_HDF5} Tests=${FG_BUILD_TESTS}")
+message(STATUS "FourierGrating ${PROJECT_VERSION}: CUDA=${FG_ENABLE_CUDA} OpenMP=${FG_ENABLE_OPENMP} HDF5=${FG_ENABLE_HDF5} Tests=${FG_BUILD_TESTS} Python=${FG_BUILD_PYTHON}")

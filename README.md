@@ -19,8 +19,8 @@ dokumentierten Korrekturen.
 | **Nahfeld** (horizontaler + vertikaler Schnitt) | M6 (1D), M9 (2D) | M6, M9 |
 | **CUDA** (RTX 6000 Ada, sm_89) | M10 | M10 |
 
-> **Status (v0.10):** M0–M11 umgesetzt: 1D und 2D, isotrop und anisotrop, RK und RCWA, Nahfeld, CUDA-Backend,
-> Scans/Sweeps, Anwenderhandbuch (`docs/user_guide.md`). Offen auf dem Zielsystem: GPU-Abnahme (M10) und die
+> **Status (v0.11):** M0–M12 umgesetzt: 1D und 2D, isotrop und anisotrop, RK und RCWA, Nahfeld, CUDA-Backend,
+> Scans/Sweeps, Anwenderhandbuch (`docs/user_guide.md`), Python-Paket `fouriergrating` (`docs/python.md`). Offen auf dem Zielsystem: GPU-Abnahme (M10) und die
 > quantitative V10-Konvergenzstudie (siehe `docs/roadmap.md`).
 
 ## Dokumentation
@@ -28,16 +28,17 @@ dokumentierten Korrekturen.
 | Dokument | Inhalt |
 |---|---|
 | [`docs/user_guide.md`](docs/user_guide.md) | **Anwenderhandbuch**: Installation, Konfiguration, Löserwahl, Scans, Nahfeld, Laufzeiten |
+| [`docs/python.md`](docs/python.md) | Python-Anbindung: Installation (Wheels, CUDA), API, Tests |
 | [`docs/benchmarks.md`](docs/benchmarks.md) | Laufzeiten CPU/GPU (`fgbench`) |
 | [`docs/implementation_plan/main.pdf`](docs/implementation_plan/main.pdf) | **Verbindliche Spezifikation**: alle Formeln mit Herleitungen, Algorithmen, Tests, Meilensteine (LaTeX-Quelle daneben) |
 | [`AGENTS.md`](AGENTS.md) | Arbeitsregeln für KI-Agenten und Entwickler |
 | [`docs/architecture.md`](docs/architecture.md) | Module, Datenfluss, Schnittstellen |
-| [`docs/roadmap.md`](docs/roadmap.md) | Meilensteine M0–M11 mit Abnahmekriterien und Status |
+| [`docs/roadmap.md`](docs/roadmap.md) | Meilensteine M0–M19 mit Abnahmekriterien und Status |
 | [`docs/validation.md`](docs/validation.md) | Referenzfälle mit Sollwerten |
 | [`docs/conventions.md`](docs/conventions.md) | Zeitkonvention, normierte Einheiten, Koordinaten, Indizes |
 | [`docs/config_format.md`](docs/config_format.md) | JSON-Eingabeformat |
 | [`docs/build_almalinux10.md`](docs/build_almalinux10.md) | Installation auf AlmaLinux 10 mit CUDA |
-| [`docs/build_windows.md`](docs/build_windows.md) | Installation auf Windows (MSYS2/MinGW-w64, CPU only, inoffiziell) |
+| [`docs/build_windows.md`](docs/build_windows.md) | Installation auf Windows (MSVC 2022 für Wheels und CUDA; MSYS2/MinGW-w64 für die Entwicklung) |
 | [`docs/book_errata.md`](docs/book_errata.md) | Fehler im Buch, die die Implementierung betreffen |
 
 ## Schnellstart

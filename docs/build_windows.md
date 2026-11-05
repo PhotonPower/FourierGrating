@@ -70,10 +70,11 @@ Ninja). `scripts\msvc.cmd` führt einen Befehl in der `vcvars64`-Umgebung aus:
 scripts\msvc.cmd cmake --preset win-msvc
 scripts\msvc.cmd cmake --build --preset win-msvc
 scripts\msvc.cmd ctest --preset win-msvc -L unit
-scripts\msvc.cmd ctest --preset win-msvc -L "validation|regression"
+scripts\msvc.cmd ctest --preset win-msvc -L validation
+scripts\msvc.cmd ctest --preset win-msvc -L regression   # cmd: kein "a|b" in -L (Pipe)
 ```
 
-Das Preset ignoriert die MSYS2-Präfixe (`CMAKE_IGNORE_PREFIX_PATH`) und die CMake-Paketregistry, sonst würden
+Unter MSVC ignoriert `cmake/FGDependencies.cmake` die MSYS2-Präfixe und die CMake-Paketregistry, sonst würden
 MinGW-Header bzw. Eigen-Kopien anderer Projekte gefunden; Eigen, nlohmann_json und GoogleTest kommen per
 `FetchContent`. Flags: `/W4 /permissive- /utf-8 /bigobj`, externe Header (`<...>`) mit `/external:W0`,
 `_USE_MATH_DEFINES`, `NOMINMAX`. OpenMP: MSVC-Standard (`-openmp`, OpenMP 2.0); für Tasks (M15) `/openmp:llvm`.

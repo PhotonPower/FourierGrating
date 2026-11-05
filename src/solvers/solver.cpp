@@ -124,7 +124,15 @@ class StackSolver final : public Solver {
   // ------------------------------------------------------------------ efficiencies
   Result solve(const Stack& stack, const Wavelength& wl) override {
     const Setup s = setup(stack, wl);
-    const auto models = detail::buildLayerModels(stack, s.map, opt_.rcwaSlices);
+    return solveModels(stack, s, detail::buildLayerModels(stack, s.map, opt_.rcwaSlices));
+  }
+
+  /// solve() with prebuilt layer models (wavelength independent; Simulation, M12).
+  Result solveWithModels(const Stack& stack, const Wavelength& wl, const detail::LayerModels& models) {
+    return solveModels(stack, setup(stack, wl), models);
+  }
+
+  Result solveModels(const Stack& stack, const Setup& s, const detail::LayerModels& models) {
     Result res;
     for (const auto& m : models) res.diag.warnings.insert(res.diag.warnings.end(), m->warnings.begin(), m->warnings.end());
     if (decoupled(stack, s)) {
@@ -190,8 +198,7 @@ class StackSolver final : public Solver {
  private:
   // ------------------------------------------------------------------ setup
   Setup setup(const Stack& stack, const Wavelength& wl) const {
-    linalg::setPreference(opt_.backend, opt_.backendThreshold);  // thread-local (M10)
-    fourier::setFFTSampling(opt_.fftSampling);                    // thread-local
+    detail::applyThreadSettings(opt_);
     Setup s;
     s.map = IndexMap(opt_.Nx, stack.is2D() ? opt_.Nz : 0);
     s.k0 = 2.0 * PI / wl.lambda_um;
@@ -603,6 +610,19 @@ class StackSolver final : public Solver {
 }  // namespace
 
 std::unique_ptr<Solver> makeSolver(const SolverOptions& opt) { return std::make_unique<StackSolver>(opt); }
+
+namespace detail {
+
+void applyThreadSettings(const SolverOptions& opt) {
+  linalg::setPreference(opt.backend, opt.backendThreshold);  // thread-local (M10)
+  fourier::setFFTSampling(opt.fftSampling);                   // thread-local
+}
+
+Result solveWithModels(const SolverOptions& opt, const Stack& stack, const Wavelength& wl, const LayerModels& models) {
+  return StackSolver(opt).solveWithModels(stack, wl, models);
+}
+
+}  // namespace detail
 
 std::vector<Result> solveScan(const SolverOptions& opt, const Stack& stack, const std::vector<Wavelength>& scan) {
   std::vector<Result> out(scan.size());

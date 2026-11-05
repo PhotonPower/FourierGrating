@@ -14,3 +14,4 @@ Sollwerte aus `docs/validation.md`; Validierungstests (`tests/validation/`) lese
 | `nearfield_lamellar_1d.json` | Nahfeld-Beispiel 1D (horizontaler + vertikaler Schnitt) |
 | `sweep_lamellar_depth.json` | Parameter-Sweep: Stegtiefe einer Glas-Lamelle 0,05–1,2 µm, TE und TM (Littrow-nah) |
 | `nearfield_pillars_2d.json` | Nahfeld-Beispiel 2D: Si-Säulen, horizontale Karte (x, z) und vertikaler Schnitt (x, y) |
+| `python/scan_lamellar.py` | Python-API (M12): Wellenlängen-Scan und Tiefen-Sweep mit `fg.Simulation` |

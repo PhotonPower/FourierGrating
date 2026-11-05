@@ -63,9 +63,7 @@
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release", "FG_ENABLE_CUDA": "OFF",
-        "CMAKE_CXX_COMPILER": "cl",
-        "CMAKE_IGNORE_PREFIX_PATH": "C:/msys64/ucrt64;C:/msys64/mingw64;C:/msys64/clang64;C:/msys64/usr",
-        "CMAKE_FIND_USE_PACKAGE_REGISTRY": "OFF"
+        "CMAKE_CXX_COMPILER": "cl"
       }
     },
     {

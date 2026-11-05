@@ -774,23 +774,25 @@ class Profile2DModel final : public LayerModel {
 
 }  // namespace
 
-std::vector<std::unique_ptr<LayerModel>> buildLayerModels(const Stack& stack, const IndexMap& map,
-                                                          int defaultSlices) {
-  std::vector<std::unique_ptr<LayerModel>> out;
-  for (const LayerEntry& le : stack.layers) {
-    if (const auto* hl = std::get_if<HomogeneousLayer>(&le.spec))
-      out.push_back(std::make_unique<HomogeneousModel>(*hl, stack.material(hl->material), map));
-    else if (const auto* ll = std::get_if<Lamellar1DLayer>(&le.spec))
-      out.push_back(std::make_unique<LamellarModel>(stack, *ll, le.factorization, map));
-    else if (const auto* pl = std::get_if<Profile1DLayer>(&le.spec))
-      out.push_back(std::make_unique<ProfileModel>(stack, *pl, le.factorization, map, defaultSlices));
-    else if (const auto* gl = std::get_if<Polygon2DLayer>(&le.spec))
-      out.push_back(std::make_unique<Polygon2DModel>(stack, *gl, le.factorization, map));
-    else if (const auto* ql = std::get_if<Profile2DLayer>(&le.spec))
-      out.push_back(std::make_unique<Profile2DModel>(stack, *ql, le.factorization, map, defaultSlices));
-    else
-      throw NotImplemented("layer type");
-  }
+std::unique_ptr<LayerModel> buildLayerModel(const Stack& stack, std::size_t k, const IndexMap& map, int defaultSlices) {
+  FG_REQUIRE(k < stack.layers.size(), "layer index out of range");
+  const LayerEntry& le = stack.layers[k];
+  if (const auto* hl = std::get_if<HomogeneousLayer>(&le.spec))
+    return std::make_unique<HomogeneousModel>(*hl, stack.material(hl->material), map);
+  if (const auto* ll = std::get_if<Lamellar1DLayer>(&le.spec))
+    return std::make_unique<LamellarModel>(stack, *ll, le.factorization, map);
+  if (const auto* pl = std::get_if<Profile1DLayer>(&le.spec))
+    return std::make_unique<ProfileModel>(stack, *pl, le.factorization, map, defaultSlices);
+  if (const auto* gl = std::get_if<Polygon2DLayer>(&le.spec))
+    return std::make_unique<Polygon2DModel>(stack, *gl, le.factorization, map);
+  if (const auto* ql = std::get_if<Profile2DLayer>(&le.spec))
+    return std::make_unique<Profile2DModel>(stack, *ql, le.factorization, map, defaultSlices);
+  throw NotImplemented("layer type");
+}
+
+LayerModels buildLayerModels(const Stack& stack, const IndexMap& map, int defaultSlices) {
+  LayerModels out;
+  for (std::size_t k = 0; k < stack.layers.size(); ++k) out.push_back(buildLayerModel(stack, k, map, defaultSlices));
   return out;
 }
 

@@ -38,29 +38,20 @@ void writeNpy(const std::string& file, const std::vector<T>& data, const std::ve
 
 }  // namespace
 
-void NearFieldWriter::write(const FieldCut& cut, const std::string& dir) {
-  std::filesystem::create_directories(dir);
-  const std::size_t n1 = cut.axis1_um.size(), n2 = cut.axis2_um.size();
-  const std::vector<std::size_t> shape = n2 ? std::vector<std::size_t>{n2, n1} : std::vector<std::size_t>{n1};
-  const char* names[6] = {"Ex", "Ey", "Ez", "Hx", "Hy", "Hz"};
-  std::vector<std::string> q;
-  for (int c = 0; c < 3; ++c) {
-    writeNpy(dir + "/" + names[c] + ".npy", cut.E[c], shape, "<c16");
-    writeNpy(dir + "/" + names[3 + c] + ".npy", cut.H[c], shape, "<c16");
-  }
-  for (const char* n : names) q.push_back(n);
+DerivedFields derivedFields(const FieldCut& cut) {
   const std::size_t N = cut.E[0].size();
-  std::vector<double> e2(N), h2(N), sy(N);
+  DerivedFields d{std::vector<double>(N), std::vector<double>(N), std::vector<double>(N)};
   for (std::size_t k = 0; k < N; ++k) {
-    e2[k] = std::norm(cut.E[0][k]) + std::norm(cut.E[1][k]) + std::norm(cut.E[2][k]);
-    h2[k] = std::norm(cut.H[0][k]) + std::norm(cut.H[1][k]) + std::norm(cut.H[2][k]);
-    sy[k] = 0.5 * std::real(cut.E[2][k] * std::conj(cut.H[0][k]) - cut.E[0][k] * std::conj(cut.H[2][k]));
+    d.absE2[k] = std::norm(cut.E[0][k]) + std::norm(cut.E[1][k]) + std::norm(cut.E[2][k]);
+    d.absH2[k] = std::norm(cut.H[0][k]) + std::norm(cut.H[1][k]) + std::norm(cut.H[2][k]);
+    d.Sy[k] = 0.5 * std::real(cut.E[2][k] * std::conj(cut.H[0][k]) - cut.E[0][k] * std::conj(cut.H[2][k]));
   }
-  writeNpy(dir + "/absE2.npy", e2, shape, "<f8");
-  writeNpy(dir + "/absH2.npy", h2, shape, "<f8");
-  writeNpy(dir + "/Sy.npy", sy, shape, "<f8");
-  if (!cut.material.empty()) writeNpy(dir + "/material.npy", cut.material, shape, "<f8");
-  q.insert(q.end(), {"absE2", "absH2", "Sy"});
+  return d;
+}
+
+std::string nearFieldMeta(const FieldCut& cut) {
+  const std::size_t n2 = cut.axis2_um.size();
+  std::vector<std::string> q{"Ex", "Ey", "Ez", "Hx", "Hy", "Hz", "absE2", "absH2", "Sy"};
   nlohmann::json meta;
   meta["cut"] = cut.cut;
   meta["dimension"] = "1D";
@@ -69,7 +60,24 @@ void NearFieldWriter::write(const FieldCut& cut, const std::string& dir) {
   if (n2) meta["axes"]["axis2"] = {{"name", cut.axis2Name}, {"values_um", cut.axis2_um}};
   meta["quantities"] = q;
   meta["normalization"] = "E: |E_inc| = 1; H: Z0*H; Sy = 1/2 Re(E x H*)_y";
-  std::ofstream(dir + "/meta.json") << meta.dump(2);
+  return meta.dump(2);
+}
+
+void NearFieldWriter::write(const FieldCut& cut, const std::string& dir) {
+  std::filesystem::create_directories(dir);
+  const std::size_t n1 = cut.axis1_um.size(), n2 = cut.axis2_um.size();
+  const std::vector<std::size_t> shape = n2 ? std::vector<std::size_t>{n2, n1} : std::vector<std::size_t>{n1};
+  const char* names[6] = {"Ex", "Ey", "Ez", "Hx", "Hy", "Hz"};
+  for (int c = 0; c < 3; ++c) {
+    writeNpy(dir + "/" + names[c] + ".npy", cut.E[c], shape, "<c16");
+    writeNpy(dir + "/" + names[3 + c] + ".npy", cut.H[c], shape, "<c16");
+  }
+  const DerivedFields d = derivedFields(cut);
+  writeNpy(dir + "/absE2.npy", d.absE2, shape, "<f8");
+  writeNpy(dir + "/absH2.npy", d.absH2, shape, "<f8");
+  writeNpy(dir + "/Sy.npy", d.Sy, shape, "<f8");
+  if (!cut.material.empty()) writeNpy(dir + "/material.npy", cut.material, shape, "<f8");
+  std::ofstream(dir + "/meta.json") << nearFieldMeta(cut);
 }
 
 }  // namespace fg

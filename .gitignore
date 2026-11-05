@@ -21,3 +21,8 @@ docs/implementation_plan/build.log
 # results
 *.npy
 !tests/data/*.npy
+dist/
+wheelhouse/
+*.egg-info/
+.venv/
+.pytest_cache/

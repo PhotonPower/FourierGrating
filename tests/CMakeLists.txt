@@ -23,6 +23,9 @@ foreach(t ${FG_UNIT_TESTS})
   target_link_libraries(${t} PRIVATE fg_core GTest::gtest_main)
   gtest_discover_tests(${t} PROPERTIES LABELS "unit")
 endforeach()
+add_executable(test_simulation unit/test_simulation.cpp)
+target_link_libraries(test_simulation PRIVATE fg_core GTest::gtest_main nlohmann_json::nlohmann_json)
+gtest_discover_tests(test_simulation PROPERTIES LABELS "unit")
 
 # Validation cases (Plan section "Validierung") are added here from milestone M2 on, e.g.
 #   add_test(NAME V1_fresnel COMMAND fgsolve ${PROJECT_SOURCE_DIR}/examples/v1_fresnel.json)

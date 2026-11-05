@@ -1,6 +1,13 @@
 # Dependency resolution: prefer system packages (AlmaLinux 10: dnf), fall back to FetchContent.
 include(FetchContent)
 
+if(MSVC)
+  # MSVC (M12): never pick up MinGW packages from an MSYS2 installation on the PATH (their headers
+  # do not compile with cl), nor copies registered by other projects in the CMake package registry.
+  list(APPEND CMAKE_IGNORE_PREFIX_PATH C:/msys64/ucrt64 C:/msys64/mingw64 C:/msys64/clang64 C:/msys64/usr)
+  set(CMAKE_FIND_USE_PACKAGE_REGISTRY OFF)
+endif()
+
 # --- Eigen3 (header-only linear algebra, CPU reference backend) ---
 find_package(Eigen3 3.4 QUIET NO_MODULE)
 if(NOT TARGET Eigen3::Eigen)
@@ -31,6 +38,19 @@ endif()
 # --- HDF5 (optional) ---
 if(FG_ENABLE_HDF5)
   find_package(HDF5 REQUIRED COMPONENTS CXX)
+endif()
+
+# --- pybind11 (Python module, M12; scikit-build-core provides it in the build environment) ---
+if(FG_BUILD_PYTHON)
+  find_package(Python 3.10 REQUIRED COMPONENTS Interpreter Development.Module)
+  find_package(pybind11 2.12 CONFIG QUIET)
+  if(NOT pybind11_FOUND)
+    message(STATUS "pybind11 not found - fetching v2.13.6")
+    FetchContent_Declare(pybind11
+      URL https://github.com/pybind/pybind11/archive/refs/tags/v2.13.6.tar.gz
+      DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(pybind11)
+  endif()
 endif()
 
 # --- GoogleTest ---
