@@ -8,6 +8,7 @@
 #include <variant>
 #include <vector>
 
+#include "fg/geometry/contour.hpp"
 #include "fg/geometry/material.hpp"
 
 namespace fg {
@@ -76,8 +77,18 @@ struct Profile2DLayer {             ///< region y < g(x, z) is 'below', y > g(x,
   int zSamples = 0;                    ///< trapezoid nodes in z for eps(y) (0 = default)
 };
 
+/// y-invariant cross-section with curved boundaries (Plan section "M13: Neuer Schichttyp Contour2D"):
+/// background and pairwise disjoint regions (circles, ellipses, polygons, NURBS, with holes);
+/// exact coefficients from contour integrals. Factorizations as Polygon2D.
+struct Contour2DLayer {
+  double thickness_um = 0;
+  std::string background;
+  std::vector<geometry::Region> regions;
+  NormalFieldOptions normalField;
+};
+
 using LayerSpec = std::variant<HomogeneousLayer, Lamellar1DLayer, Profile1DLayer, Polygon2DLayer,
-                               Profile2DLayer>;
+                               Profile2DLayer, Contour2DLayer>;
 
 struct LayerEntry {
   LayerSpec spec;

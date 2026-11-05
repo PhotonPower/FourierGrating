@@ -393,15 +393,9 @@ std::vector<Chord> materialChords(const std::vector<BoundaryChain>& chains,
           if (!isB[static_cast<std::size_t>(s)]) { ++s; continue; }
           int e = s;
           while (e < S && isB[static_cast<std::size_t>(e)]) ++e;
-          const double ts = static_cast<double>(s) / S, te = static_cast<double>(e) / S;
-          Chord c{a.x + tx * s / S, a.z + tz * s / S, a.x + tx * e / S, a.z + tz * e / S, a.n, b.n};
-          if (a.n != b.n) {
-            c.na = (1 - ts) * a.n + ts * b.n;
-            c.nb = (1 - te) * a.n + te * b.n;
-            c.na /= c.na.norm();
-            c.nb /= c.nb.norm();
-          }
-          push(c);
+          // exact chord = flat piece of the boundary: constant normal (that of its start sample;
+          // the next sample may belong to the following edge)
+          push(Chord{a.x + tx * s / S, a.z + tz * s / S, a.x + tx * e / S, a.z + tz * e / S, a.n, a.n});
           s = e;
         }
       } else {

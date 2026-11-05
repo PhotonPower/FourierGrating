@@ -64,6 +64,9 @@ gtest_discover_tests(test_validation_v9_v10 PROPERTIES LABELS "validation" TIMEO
 add_executable(test_validation_v8_2d validation/test_v8_2d.cpp)
 target_link_libraries(test_validation_v8_2d PRIVATE fg_core GTest::gtest_main)
 gtest_discover_tests(test_validation_v8_2d PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)
+add_executable(test_validation_v15 validation/test_v15_contour.cpp)
+target_link_libraries(test_validation_v15 PRIVATE fg_core GTest::gtest_main)
+gtest_discover_tests(test_validation_v15 PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)
 add_executable(test_validation_v12_2d validation/test_v12_2d.cpp)
 target_link_libraries(test_validation_v12_2d PRIVATE fg_core GTest::gtest_main nlohmann_json::nlohmann_json)
 gtest_discover_tests(test_validation_v12_2d PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)
@@ -72,4 +75,7 @@ gtest_discover_tests(test_validation_v12_2d PROPERTIES LABELS "validation" TIMEO
 add_executable(test_regression regression/test_regression.cpp)
 target_link_libraries(test_regression PRIVATE fg_core GTest::gtest_main)
 target_compile_definitions(test_regression PRIVATE FG_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+# the test list comes from examples.txt: rebuild (and rediscover) when it changes
+set_source_files_properties(regression/test_regression.cpp PROPERTIES
+  OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/regression/examples.txt)
 gtest_discover_tests(test_regression PROPERTIES LABELS "regression" TIMEOUT 1800 DISCOVERY_TIMEOUT 60)

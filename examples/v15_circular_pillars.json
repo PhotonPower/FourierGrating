@@ -1,0 +1,37 @@
+{
+  "dimension": "2D",
+  "solver": "rcwa",
+  "truncation": { "Nx": 5, "Nz": 5 },
+  "period_um": { "x": 0.6, "z": 0.6 },
+  "incidence": { "lambda_um": { "from": 0.6, "to": 0.7, "steps": 3 }, "phi_deg": 10, "psi_deg": 20, "delta_deg": 45 },
+  "materials": {
+    "air": { "n": 1.0 },
+    "glass": { "n": 1.5 },
+    "si": { "n": [3.88, 0.02] },
+    "sio2": { "n": 1.46 }
+  },
+  "superstrate": "air",
+  "substrate": "glass",
+  "layers": [
+    {
+      "type": "contour2d",
+      "thickness_um": 0.15,
+      "background": "air",
+      "regions": [
+        { "material": "si", "circle": { "center_um": [0.15, 0.15], "radius_um": 0.1 } },
+        { "material": "si", "ellipse": { "center_um": [0.45, 0.42], "radii_um": [0.12, 0.06], "angle_deg": 30 } },
+        { "material": "sio2", "polygon_um": [[0.05, 0.4], [0.25, 0.38], [0.2, 0.55]] },
+        { "material": "si",
+          "nurbs": { "degree": 2,
+                     "knots": [0, 0, 0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1, 1, 1],
+                     "points_um": [[0.55, 0.15], [0.55, 0.23], [0.47, 0.23], [0.39, 0.23], [0.39, 0.15],
+                                   [0.39, 0.07], [0.47, 0.07], [0.55, 0.07], [0.55, 0.15]],
+                     "weights": [1, 0.70710678118654752, 1, 0.70710678118654752, 1, 0.70710678118654752, 1,
+                                 0.70710678118654752, 1] },
+          "holes": [ { "circle": { "center_um": [0.47, 0.15], "radius_um": 0.03 } } ] }
+      ],
+      "factorization": "auto"
+    }
+  ],
+  "output": { "dir": "out/v15_circular_pillars" }
+}

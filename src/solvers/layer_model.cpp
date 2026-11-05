@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <memory>
 #include <variant>
 
 #include "fg/core/error.hpp"
 #include "fg/fourier/coefficients.hpp"
+#include "fg/fourier/contour.hpp"
 #include "fg/fourier/sampling.hpp"
 #include "fg/geometry/profile.hpp"
 #include "fg/physics/anisotropic.hpp"
@@ -302,16 +304,31 @@ QBlocks isotropicQ(Factorization f, const SliceCoefficients& sc, const IndexMap&
   }
 }
 
-// ------------------------------------------------------------------ polygon cross-section (2D)
-class Polygon2DModel final : public LayerModel {
+// ------------------------------------------------------------------ cross-section geometries (2D)
+/// Geometry of a y-invariant cross-section for CrossSectionModel (Polygon2D, Contour2D, sections of
+/// SectionedLayer): background + K inclusions/regions with exact indicator coefficients.
+class CrossSectionGeometry {
  public:
-  Polygon2DModel(const Stack& st, const Polygon2DLayer& l, Factorization fac, const IndexMap& map)
-      : l_(l), dx_(st.dx_um), dz_(st.dz_um), map_(map) {
-    FG_REQUIRE(st.is2D(), "polygon2d layers need a 2D stack (period_um.z > 0)");
-    std::vector<const Material*> mats{&st.material(l.background)};
+  virtual ~CrossSectionGeometry() = default;
+  virtual double thickness() const = 0;
+  virtual const std::string& background() const = 0;
+  virtual std::size_t count() const = 0;
+  virtual const std::string& material(std::size_t k) const = 0;
+  /// Exact coefficients of the indicator of inclusion k, |p| <= Px, |q| <= Pz.
+  virtual Grid indicator(std::size_t k, int Px, int Pz) const = 0;
+  /// Index of the inclusion containing (x, z) (periodic), -1 for the background.
+  virtual int regionAt(double x, double z) const = 0;
+  /// Algorithm NF steps 1-4 on a Gx x Gz raster.
+  virtual NormalFieldRaster raster(int Gx, int Gz) const = 0;
+  virtual const NormalFieldOptions& nfOptions() const = 0;
+};
+
+/// Polygon2D: the original functions (eq:polygon, normalFieldRaster(Polygon2DLayer)).
+class PolygonGeometry final : public CrossSectionGeometry {
+ public:
+  PolygonGeometry(Polygon2DLayer l, double dx, double dz) : l_(std::move(l)), dx_(dx), dz_(dz) {
     for (auto& inc : l_.inclusions) {
       FG_REQUIRE(inc.vertices.size() >= 3, "polygon2d: inclusion needs at least 3 vertices");
-      mats.push_back(&st.material(inc.material));
       // counter-clockwise orientation (Plan eq:polygon)
       double a = 0;
       for (std::size_t j = 0; j < inc.vertices.size(); ++j) {
@@ -321,6 +338,157 @@ class Polygon2DModel final : public LayerModel {
       }
       if (a < 0) std::reverse(inc.vertices.begin(), inc.vertices.end());
     }
+  }
+  double thickness() const override { return l_.thickness_um; }
+  const std::string& background() const override { return l_.background; }
+  std::size_t count() const override { return l_.inclusions.size(); }
+  const std::string& material(std::size_t k) const override { return l_.inclusions[k].material; }
+  Grid indicator(std::size_t k, int Px, int Pz) const override {
+    Grid chi(Px, Pz);
+    for (int p = -Px; p <= Px; ++p)
+      for (int q = -Pz; q <= Pz; ++q) chi(p, q) = fourier::polygonCoefficient(l_.inclusions[k].vertices, dx_, dz_, p, q);
+    return chi;
+  }
+  int regionAt(double x, double z) const override { return polygonRegion(l_, dx_, dz_, x, z); }
+  NormalFieldRaster raster(int Gx, int Gz) const override { return normalFieldRaster(l_, dx_, dz_, Gx, Gz); }
+  const NormalFieldOptions& nfOptions() const override { return l_.normalField; }
+
+ private:
+  Polygon2DLayer l_;
+  double dx_, dz_;
+};
+
+/// Regions with curved boundaries (Contour2D, sections of SectionedLayer): eq:contour, Algorithm NF
+/// from boundary samples (given, or sampled from the contours with n_y = 0).
+class ContourGeometry final : public CrossSectionGeometry {
+ public:
+  ContourGeometry(double thickness, std::string background, std::vector<geometry::Region> regions,
+                  std::vector<BoundaryChain> chains, NormalFieldOptions nf, double dx, double dz, const char* name)
+      : h_(thickness), bg_(std::move(background)), regions_(std::move(regions)), chains_(std::move(chains)),
+        nf_(nf), dx_(dx), dz_(dz) {
+    const double tol = 1e-6 * std::min(dx, dz);  // flattening for contains() (NF probes: 1e-2 raster spacings)
+    for (auto& r : regions_) r.normalize(tol);
+    checkDisjoint(name);
+  }
+  double thickness() const override { return h_; }
+  const std::string& background() const override { return bg_; }
+  std::size_t count() const override { return regions_.size(); }
+  const std::string& material(std::size_t k) const override { return regions_[k].material; }
+  Grid indicator(std::size_t k, int Px, int Pz) const override {
+    return fourier::regionCoefficients(regions_[k], dx_, dz_, Px, Pz);  // Plan eq:contour
+  }
+  int regionAt(double x, double z) const override {
+    for (std::size_t k = 0; k < regions_.size(); ++k) {
+      const auto b = regions_[k].bounds();
+      for (int i = static_cast<int>(std::ceil((x - b[2]) / dx_)); i <= static_cast<int>(std::floor((x - b[0]) / dx_)); ++i)
+        for (int j = static_cast<int>(std::ceil((z - b[3]) / dz_)); j <= static_cast<int>(std::floor((z - b[1]) / dz_)); ++j)
+          if (regions_[k].contains(x - i * dx_, z - j * dz_)) return static_cast<int>(k);
+    }
+    return -1;
+  }
+  NormalFieldRaster raster(int Gx, int Gz) const override {
+    const double h = std::min(dx_ / Gx, dz_ / Gz);
+    const std::vector<BoundaryChain> chains = chains_.empty() ? contourChains(1e-3 * h) : chains_;
+    return normalFieldRaster(
+        chains, [this](double x, double z) { return regionAt(x, z); },
+        [this](int k) { return k < 0 ? bg_ : regions_[static_cast<std::size_t>(k)].material; }, nf_, dx_, dz_, Gx, Gz);
+  }
+  const NormalFieldOptions& nfOptions() const override { return nf_; }
+
+ private:
+  /// Boundary samples of the contours (Plan M13, NF step 1): pieces until the control polygon
+  /// deviates <= tol from the chord; normal (z', 0, -x')/|.| (outward for the normalized orientation).
+  std::vector<BoundaryChain> contourChains(double tol) const {
+    std::vector<BoundaryChain> out;
+    std::function<void(const geometry::BezierSegment&, BoundaryChain&, int)> sample =
+        [&](const geometry::BezierSegment& s, BoundaryChain& c, int depth) {
+          double dev = 0;
+          const auto& a = s.P.front();
+          const auto& b = s.P.back();
+          const double tx = b[0] - a[0], tz = b[1] - a[1], len = std::hypot(tx, tz);
+          for (std::size_t j = 1; j + 1 < s.P.size(); ++j)
+            dev = std::max(dev, len > 0 ? std::abs((s.P[j][0] - a[0]) * tz - (s.P[j][1] - a[1]) * tx) / len
+                                        : std::hypot(s.P[j][0] - a[0], s.P[j][1] - a[1]));
+          if (s.degree() > 1 && dev > tol && depth < 40) {
+            geometry::BezierSegment l, r;
+            s.split(0.5, l, r);
+            sample(l, c, depth + 1);
+            sample(r, c, depth + 1);
+            return;
+          }
+          geometry::Point2 r0, d0;
+          s.eval(0.0, r0, d0);
+          if (s.degree() == 1) d0 = {tx, tz};
+          const double dl = std::hypot(d0[0], d0[1]);
+          c.samples.push_back({a[0], a[1], Vec3D(d0[1] / dl, 0.0, -d0[0] / dl), s.degree() == 1});
+        };
+    auto addContour = [&](const geometry::Contour2D& con) {
+      BoundaryChain c;
+      for (const auto& s : con.segments) sample(s, c, 0);
+      out.push_back(std::move(c));
+    };
+    for (const auto& r : regions_) {
+      addContour(r.outer);
+      for (const auto& h : r.holes) addContour(h);
+    }
+    return out;
+  }
+
+  /// Regions must be pairwise disjoint (incl. periodic images): no boundary crossings, no
+  /// containment of one region's point in another (Plan M13 "Neuer Schichttyp Contour2D").
+  void checkDisjoint(const char* name) const {
+    const double tol = 1e-6 * std::min(dx_, dz_);
+    std::vector<std::vector<geometry::Point2>> poly;
+    for (const auto& r : regions_) poly.push_back(r.outer.flatten(tol));
+    auto cross = [](const geometry::Point2& a, const geometry::Point2& b, const geometry::Point2& c,
+                    const geometry::Point2& d) {
+      auto o = [](const geometry::Point2& p, const geometry::Point2& q, const geometry::Point2& r) {
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+      };
+      return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0;
+    };
+    for (std::size_t a = 0; a < regions_.size(); ++a)
+      for (std::size_t b = a; b < regions_.size(); ++b)
+        for (int di = -1; di <= 1; ++di)
+          for (int dj = -1; dj <= 1; ++dj) {
+            if (a == b && di == 0 && dj == 0) continue;
+            const auto& P = poly[a];
+            std::vector<geometry::Point2> Q = poly[b];
+            for (auto& q : Q) q = {q[0] + di * dx_, q[1] + dj * dz_};
+            const auto ba = regions_[a].bounds();
+            double qb[4] = {1e300, 1e300, -1e300, -1e300};
+            for (const auto& q : Q) {
+              qb[0] = std::min(qb[0], q[0]); qb[1] = std::min(qb[1], q[1]);
+              qb[2] = std::max(qb[2], q[0]); qb[3] = std::max(qb[3], q[1]);
+            }
+            if (qb[0] > ba[2] || qb[2] < ba[0] || qb[1] > ba[3] || qb[3] < ba[1]) continue;
+            FG_REQUIRE(!regions_[a].contains(Q[0][0], Q[0][1]) &&
+                           !regions_[b].contains(P[0][0] - di * dx_, P[0][1] - dj * dz_),
+                       std::string(name) + ": regions overlap (or a region overlaps its periodic image)");
+            for (std::size_t i = 0; i < P.size(); ++i)
+              for (std::size_t j = 0; j < Q.size(); ++j)
+                FG_REQUIRE(!cross(P[i], P[(i + 1) % P.size()], Q[j], Q[(j + 1) % Q.size()]),
+                           std::string(name) + ": region boundaries intersect");
+          }
+  }
+
+  double h_;
+  std::string bg_;
+  std::vector<geometry::Region> regions_;
+  std::vector<BoundaryChain> chains_;
+  NormalFieldOptions nf_;
+  double dx_, dz_;
+};
+
+// ------------------------------------------------------------------ cross-section model (2D)
+class CrossSectionModel final : public LayerModel {
+ public:
+  CrossSectionModel(const Stack& st, std::shared_ptr<const CrossSectionGeometry> geo, Factorization fac,
+                    const IndexMap& map, const char* name)
+      : geo_(std::move(geo)), dx_(st.dx_um), dz_(st.dz_um), map_(map) {
+    FG_REQUIRE(st.is2D(), std::string(name) + " layers need a 2D stack (period_um.z > 0)");
+    std::vector<const Material*> mats{&st.material(geo_->background())};
+    for (std::size_t k = 0; k < geo_->count(); ++k) mats.push_back(&st.material(geo_->material(k)));
     bool aniso = false;
     for (const Material* m : mats) {
       aniso = aniso || !m->isotropic;
@@ -333,9 +501,9 @@ class Polygon2DModel final : public LayerModel {
     FG_REQUIRE(aniso ? (fac_ == Factorization::Laurent || fac_ == Factorization::FFF_B)
                      : (fac_ == Factorization::Laurent || fac_ == Factorization::FFF_iso ||
                         fac_ == Factorization::FFF_sym || fac_ == Factorization::FFF_B),
-               aniso ? "polygon2d (anisotropic): factorization must be laurent or FFF_B"
-                     : "polygon2d: factorization must be laurent, FFF_iso, FFF_sym or FFF_B (FFF_rig/FFF_A need a "
-                       "continuous signed normal field, which does not exist for general cross-sections)");
+               aniso ? std::string(name) + " (anisotropic): factorization must be laurent or FFF_B"
+                     : std::string(name) + ": factorization must be laurent, FFF_iso, FFF_sym or FFF_B (FFF_rig/FFF_A "
+                       "need a continuous signed normal field, which does not exist for general cross-sections)");
     warnFFFiso(fac_, mats, warnings);
     rank1_ = aniso || fac_ == Factorization::FFF_B;
     const int Px = 2 * map.Nx(), Pz = 2 * map.Nz();
@@ -345,10 +513,10 @@ class Polygon2DModel final : public LayerModel {
       // Laurent with tensors: exact polygon coefficients entry by entry
       std::vector<Grid> g(9, Grid(Px, Pz));
       for (int e = 0; e < 9; ++e) g[static_cast<std::size_t>(e)](0, 0) = tensors_[0](e / 3, e % 3);
-      for (std::size_t k = 0; k < l_.inclusions.size(); ++k) {
+      for (std::size_t k = 0; k < geo_->count(); ++k) {
         const Mat3C d = tensors_[k + 1] - tensors_[0];
         if (d.cwiseAbs().maxCoeff() == 0.0) continue;
-        const Grid chi = indicator(k, Px, Pz);
+        const Grid chi = geo_->indicator(k, Px, Pz);
         for (int e = 0; e < 9; ++e)
           for (int p = -Px; p <= Px; ++p)
             for (int q = -Pz; q <= Pz; ++q) g[static_cast<std::size_t>(e)](p, q) += d(e / 3, e % 3) * chi(p, q);
@@ -362,10 +530,10 @@ class Polygon2DModel final : public LayerModel {
       const cplx eb = mats[0]->eps;
       sc.eps(0, 0) = eb;
       sc.invEps(0, 0) = 1.0 / eb;
-      for (std::size_t k = 0; k < l_.inclusions.size(); ++k) {
+      for (std::size_t k = 0; k < geo_->count(); ++k) {
         const cplx ek = mats[k + 1]->eps;
         if (ek == eb) continue;
-        const Grid chi = indicator(k, Px, Pz);
+        const Grid chi = geo_->indicator(k, Px, Pz);
         for (int p = -Px; p <= Px; ++p)
           for (int q = -Pz; q <= Pz; ++q) {
             sc.eps(p, q) += (ek - eb) * chi(p, q);
@@ -373,17 +541,17 @@ class Polygon2DModel final : public LayerModel {
           }
       }
       if (fac_ != Factorization::Laurent) {
-        nf_ = normalField(l_, dx_, dz_, map);
+        nf_ = rasterCoefficients(raster(), map);  // = normalField(Polygon2DLayer) for polygons
         nfReady_ = true;
       }
       sc.normal = &nf_;
       Q_ = isotropicQ(fac_, sc, map);
     }
   }
-  double thickness_um() const override { return l_.thickness_um; }
+  double thickness_um() const override { return geo_->thickness(); }
   QBlocks Q(double) const override { return Q_; }
   Mat3C epsAt(double x, double, double z) const override {
-    return tensors_[static_cast<std::size_t>(polygonRegion(l_, dx_, dz_, x, z) + 1)];
+    return tensors_[static_cast<std::size_t>(geo_->regionAt(x, z) + 1)];
   }
   /// Rank-1 field of Algorithm NF (variant B, anisotropic reconstruction): principal axis of the
   /// bilinearly interpolated projector b b^T (sign-free interpolation).
@@ -406,7 +574,7 @@ class Polygon2DModel final : public LayerModel {
   const NormalFieldCoefficients& NN() const override {
     if (nfReady_) return nf_;
     if (!rank1_) {
-      nf_ = normalField(l_, dx_, dz_, map_);
+      nf_ = rasterCoefficients(raster(), map_);
     } else {
       const NormalFieldRaster& R = raster();
       const std::size_t n = R.nx.size();
@@ -430,13 +598,6 @@ class Polygon2DModel final : public LayerModel {
   }
 
  private:
-  /// Exact coefficients of the indicator of inclusion k, |p| <= Px, |q| <= Pz.
-  Grid indicator(std::size_t k, int Px, int Pz) const {
-    Grid chi(Px, Pz);
-    for (int p = -Px; p <= Px; ++p)
-      for (int q = -Pz; q <= Pz; ++q) chi(p, q) = fourier::polygonCoefficient(l_.inclusions[k].vertices, dx_, dz_, p, q);
-    return chi;
-  }
 
   /// Variant B (Plan eq:QaniB) for a cross-section, M8. The coefficient functions F(eps, N) jump
   /// with the material; with the rank-1 field N of Algorithm NF (smooth, sign-free use):
@@ -450,12 +611,12 @@ class Polygon2DModel final : public LayerModel {
     const int Gx = R.Gx, Gz = R.Gz;
     FG_REQUIRE(Gx > 2 * Pfx && Gz > 2 * Pfz, "polygon2d FFF_B: normal field raster too coarse");
     const std::size_t n = R.nx.size();
-    const std::size_t K = l_.inclusions.size();
+    const std::size_t K = geo_->count();
     std::vector<Grid> chi;
     std::vector<bool> differs;
     for (std::size_t k = 0; k < K; ++k) {
       differs.push_back((tensors_[k + 1] - tensors_[0]).cwiseAbs().maxCoeff() != 0.0);
-      chi.push_back(differs.back() ? indicator(k, Px + Pfx, Pz + Pfz) : Grid());
+      chi.push_back(differs.back() ? geo_->indicator(k, Px + Pfx, Pz + Pfz) : Grid());
     }
     std::vector<Grid> g(37);
     // blocks of functions (G1, G2, H1, P_T, 1/xi) to bound the raster memory
@@ -497,8 +658,7 @@ class Polygon2DModel final : public LayerModel {
   /// Algorithm NF raster (computed once, also for the real-space reconstruction).
   const NormalFieldRaster& raster() const {
     if (R_.nx.empty())
-      R_ = normalFieldRaster(l_, dx_, dz_, normalFieldGrid(l_.normalField, map_.Nx()),
-                             normalFieldGrid(l_.normalField, map_.Nz()));
+      R_ = geo_->raster(normalFieldGrid(geo_->nfOptions(), map_.Nx()), normalFieldGrid(geo_->nfOptions(), map_.Nz()));
     return R_;
   }
   /// Bilinear periodic interpolation of (P_xx, P_xz, P_zz): rank-1 b b^T or the tensor field.
@@ -527,7 +687,7 @@ class Polygon2DModel final : public LayerModel {
     return out;
   }
 
-  Polygon2DLayer l_;
+  std::shared_ptr<const CrossSectionGeometry> geo_;
   double dx_, dz_;
   IndexMap map_;
   std::vector<Mat3C> tensors_;  ///< background, inclusions
@@ -784,7 +944,14 @@ std::unique_ptr<LayerModel> buildLayerModel(const Stack& stack, std::size_t k, c
   if (const auto* pl = std::get_if<Profile1DLayer>(&le.spec))
     return std::make_unique<ProfileModel>(stack, *pl, le.factorization, map, defaultSlices);
   if (const auto* gl = std::get_if<Polygon2DLayer>(&le.spec))
-    return std::make_unique<Polygon2DModel>(stack, *gl, le.factorization, map);
+    return std::make_unique<CrossSectionModel>(stack, std::make_shared<PolygonGeometry>(*gl, stack.dx_um, stack.dz_um),
+                                               le.factorization, map, "polygon2d");
+  if (const auto* cl = std::get_if<Contour2DLayer>(&le.spec))
+    return std::make_unique<CrossSectionModel>(
+        stack,
+        std::make_shared<ContourGeometry>(cl->thickness_um, cl->background, cl->regions, std::vector<BoundaryChain>{},
+                                          cl->normalField, stack.dx_um, stack.dz_um, "contour2d"),
+        le.factorization, map, "contour2d");
   if (const auto* ql = std::get_if<Profile2DLayer>(&le.spec))
     return std::make_unique<Profile2DModel>(stack, *ql, le.factorization, map, defaultSlices);
   throw NotImplemented("layer type");

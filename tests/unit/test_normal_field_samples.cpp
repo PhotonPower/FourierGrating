@@ -114,3 +114,26 @@ TEST(NormalFieldSamples, Performance) {
   EXPECT_LT(s, 2.0);
 #endif
 }
+
+TEST(NormalFieldSamples, ClosedChainEqualsEdgeChains) {
+  fg::Polygon2DLayer l;
+  l.background = "air";
+  l.inclusions.push_back({{{0.1, 0.1}, {0.4, 0.12}, {0.35, 0.38}, {0.12, 0.3}}, "si"});
+  const auto edges = sampled(l, 0.5, 0.5, 512, 512);
+  fg::BoundaryChain c;
+  const auto v = l.inclusions[0].vertices;
+  for (std::size_t j = 0; j < v.size(); ++j) {
+    const auto& a = v[j];
+    const auto& b = v[(j + 1) % v.size()];
+    const double tx = b[0] - a[0], tz = b[1] - a[1], len = std::hypot(tx, tz);
+    c.samples.push_back({a[0], a[1], fg::Vec3D(tz / len, 0, -tx / len), true});
+  }
+  const auto closed = fg::normalFieldRaster(
+      {c}, [&](double x, double z) { return fg::polygonRegion(l, 0.5, 0.5, x, z); },
+      [&](int k) { return std::string(k < 0 ? "air" : "si"); }, l.normalField, 0.5, 0.5, 512, 512);
+  // (0.375, 0.25) lies exactly on an edge: there the constant edge normal is used, not one
+  // interpolated towards the next edge
+  EXPECT_EQ(edges.nxx, closed.nxx);
+  EXPECT_EQ(edges.nxz, closed.nxz);
+  EXPECT_EQ(edges.nzz, closed.nzz);
+}

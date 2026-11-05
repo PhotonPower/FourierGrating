@@ -65,6 +65,50 @@ Factorization parseFactorization(const json& j) {
   throw Error("unknown factorization '" + f + "'");
 }
 
+NormalFieldOptions parseNormalField(const json& nf) {
+  NormalFieldOptions o;
+  const std::string m = nf.value("method", std::string("tensor"));
+  FG_REQUIRE(m == "tensor" || m == "vector", "normal_field.method must be \"tensor\" or \"vector\"");
+  o.method = m == "vector" ? NormalFieldOptions::Method::Vector : NormalFieldOptions::Method::Tensor;
+  o.grid = nf.value("grid", o.grid);
+  o.sigma = nf.value("sigma", o.sigma);
+  o.tau = nf.value("tau", o.tau);
+  return o;
+}
+
+geometry::Point2 point2(const json& v, const char* what) {
+  FG_REQUIRE(v.is_array() && v.size() == 2, std::string(what) + ": points are [x, z]");
+  return {v[0].get<double>(), v[1].get<double>()};
+}
+
+/// One closed contour of a contour2d region or hole (Plan section "M13: Neuer Schichttyp Contour2D").
+geometry::Contour2D parseContour(const json& j) {
+  if (j.contains("circle")) {
+    const json& c = j["circle"];
+    return geometry::Contour2D::circle(point2(c.at("center_um"), "circle.center_um"), c.at("radius_um").get<double>());
+  }
+  if (j.contains("ellipse")) {
+    const json& e = j["ellipse"];
+    const auto r = e.at("radii_um").get<std::vector<double>>();
+    FG_REQUIRE(r.size() == 2, "ellipse.radii_um: [a, b]");
+    return geometry::Contour2D::ellipse(point2(e.at("center_um"), "ellipse.center_um"), r[0], r[1],
+                                        e.value("angle_deg", 0.0) * PI / 180.0);
+  }
+  if (j.contains("polygon_um")) {
+    std::vector<geometry::Point2> v;
+    for (const auto& p : j["polygon_um"]) v.push_back(point2(p, "polygon_um"));
+    return geometry::Contour2D::polygon(v);
+  }
+  if (j.contains("nurbs")) {
+    const json& n = j["nurbs"];
+    std::vector<geometry::Point2> pts;
+    for (const auto& p : n.at("points_um")) pts.push_back(point2(p, "nurbs.points_um"));
+    return geometry::Contour2D::nurbs(n.at("degree").get<int>(), n.at("knots").get<std::vector<double>>(), pts,
+                                      n.value("weights", std::vector<double>{}));
+  }
+  throw Error("contour2d: region/hole needs 'circle', 'ellipse', 'polygon_um' or 'nurbs'");
+}
+
 LayerEntry parseLayer(const json& j) {
   const std::string type = j.at("type").get<std::string>();
   LayerEntry le;
@@ -123,16 +167,21 @@ LayerEntry parseLayer(const json& j) {
       FG_REQUIRE(inc.vertices.size() >= 3, "polygon2d: inclusion needs at least 3 vertices");
       g.inclusions.push_back(std::move(inc));
     }
-    if (j.contains("normal_field")) {
-      const json& nf = j["normal_field"];
-      const std::string m = nf.value("method", std::string("tensor"));
-      FG_REQUIRE(m == "tensor" || m == "vector", "normal_field.method must be \"tensor\" or \"vector\"");
-      g.normalField.method = m == "vector" ? NormalFieldOptions::Method::Vector : NormalFieldOptions::Method::Tensor;
-      g.normalField.grid = nf.value("grid", g.normalField.grid);
-      g.normalField.sigma = nf.value("sigma", g.normalField.sigma);
-      g.normalField.tau = nf.value("tau", g.normalField.tau);
-    }
+    if (j.contains("normal_field")) g.normalField = parseNormalField(j["normal_field"]);
     le.spec = g;
+  } else if (type == "contour2d") {
+    Contour2DLayer c;
+    c.thickness_um = j.at("thickness_um").get<double>();
+    c.background = j.at("background").get<std::string>();
+    for (const auto& rj : j.value("regions", json::array())) {
+      geometry::Region r;
+      r.material = rj.at("material").get<std::string>();
+      r.outer = parseContour(rj);
+      for (const auto& hj : rj.value("holes", json::array())) r.holes.push_back(parseContour(hj));
+      c.regions.push_back(std::move(r));
+    }
+    if (j.contains("normal_field")) c.normalField = parseNormalField(j["normal_field"]);
+    le.spec = c;
   } else if (type == "profile2d") {
     Profile2DLayer p;
     p.depth_um = j.at("depth_um").get<double>();

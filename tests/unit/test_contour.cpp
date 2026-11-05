@@ -5,6 +5,7 @@
 
 #include "fg/core/error.hpp"
 #include "fg/fourier/contour.hpp"
+#include "fg/io/config.hpp"
 
 using fg::cplx;
 using fg::geometry::Contour2D;
@@ -132,4 +133,31 @@ TEST(Contour, SplitAndContains) {
   Contour2D broken = c;
   broken.segments[2].P.back()[0] += 1e-6;
   EXPECT_THROW(broken.validate(), fg::Error);
+}
+
+namespace {
+fg::Result solveRegions(const std::string& regions) {
+  const auto c = fg::io::parseConfig(R"({"dimension": "2D", "truncation": {"Nx": 2, "Nz": 2},
+    "period_um": {"x": 0.5, "z": 0.5}, "incidence": {"lambda_um": 0.6, "phi_deg": 0, "psi_deg": 0, "delta_deg": 0},
+    "materials": {"air": {"n": 1}, "si": {"n": 3.5}}, "superstrate": "air", "substrate": "air",
+    "layers": [{"type": "contour2d", "thickness_um": 0.1, "background": "air", "regions": [)" + regions + "]}]}");
+  return fg::makeSolver(c.solver)->solve(c.stack, c.scan.front());
+}
+}  // namespace
+
+TEST(Contour, Contour2DDisjointRegions) {
+  const auto ok = solveRegions(R"({"material": "si", "circle": {"center_um": [0.1, 0.1], "radius_um": 0.08}},
+                                  {"material": "si", "circle": {"center_um": [0.3, 0.3], "radius_um": 0.08}})");
+  EXPECT_NEAR(ok.diag.energyBalance, 1.0, 1e-12);
+  // crossing boundaries
+  EXPECT_THROW(solveRegions(R"({"material": "si", "circle": {"center_um": [0.2, 0.2], "radius_um": 0.1}},
+                               {"material": "si", "circle": {"center_um": [0.3, 0.2], "radius_um": 0.1}})"),
+               fg::Error);
+  // one region inside another
+  EXPECT_THROW(solveRegions(R"({"material": "si", "circle": {"center_um": [0.2, 0.2], "radius_um": 0.15}},
+                               {"material": "si", "circle": {"center_um": [0.2, 0.2], "radius_um": 0.05}})"),
+               fg::Error);
+  // overlap with its own periodic image (diameter > period)
+  EXPECT_THROW(solveRegions(R"({"material": "si", "circle": {"center_um": [0.25, 0.25], "radius_um": 0.3}})"), fg::Error);
+  EXPECT_THROW(solveRegions(R"({"material": "si", "square": {"size_um": 0.1}})"), fg::Error);
 }

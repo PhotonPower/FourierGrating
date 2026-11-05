@@ -43,6 +43,15 @@ Eine Einführung mit Beispielen steht im Anwenderhandbuch `docs/user_guide.md`.
                       { "material": "air", "rectangle_um": { "center": [0.0, 0.0], "size": [0.2, 0.1] } } ],
       "normal_field": { "method": "tensor", "grid": 512, "sigma": 3 },  // Algorithmus NF; method: tensor | vector
       "factorization": "auto" },     // auto: FFF_sym (isotrop) / FFF_B (anisotrop) | FFF_sym | FFF_iso | FFF_B | laurent
+    { "type": "contour2d", "thickness_um": 0.2, "background": "air", // gekrümmte Ränder, exakte Koeffizienten (M13)
+      "regions": [
+        { "material": "si", "circle": { "center_um": [0.25, 0.25], "radius_um": 0.1 } },
+        { "material": "si", "ellipse": { "center_um": [0.6, 0.6], "radii_um": [0.12, 0.06], "angle_deg": 30 } },
+        { "material": "sio2", "polygon_um": [[0, 0], [0.1, 0], [0.1, 0.1]] },
+        { "material": "si", "nurbs": { "degree": 2, "knots": [...], "points_um": [[x, z], ...], "weights": [...] },
+          "holes": [ { "circle": { "center_um": [0.6, 0.2], "radius_um": 0.02 } } ] } ],
+      "normal_field": { "grid": 512, "sigma": 3 },
+      "factorization": "auto" },     // wie polygon2d: auto: FFF_sym / FFF_B | FFF_iso | laurent (kein FFF_rig)
     { "type": "profile2d", "shape": "egg_crate", "depth_um": 0.1,     // egg_crate | sinus_x
       "below": "si", "above": "air", "x0_um": 0, "z0_um": 0,
       "slices": 0, "z_samples": 0, "factorization": "auto" }        // auto: FFF_rig (isotrop) / FFF_A (anisotrop)
@@ -72,6 +81,11 @@ Formen für `profile2d.shape`: `egg_crate` (g = a/4 (1 + cos Kx(x−x0)) (1 + co
 (g = a/2 (1 + cos Kx(x−x0)), z-invariant). Polygone dürfen über den Zellrand hinausragen (periodische Bilder
 dürfen sich nicht überlappen); Einschlüsse dürfen sich nicht überlappen. Bei `"dimension": "2D"` ist
 `period_um.z > 0` Pflicht; `lamellar1d`- und isotrope `profile1d`-Schichten sind in 2D-Stapeln erlaubt (z-invariant).
+`contour2d` (M13): Regionen mit äußerer Kontur und Löchern, paarweise disjunkt (auch mit den periodischen
+Bildern; geprüft, sonst Fehler). Formen: `circle`, `ellipse` (exakt als rationale Quadratiken), `polygon_um`,
+`nurbs` (geklemmter Knotenvektor, geschlossen: erster = letzter Punkt; Zerlegung in Bézierstücke). Die
+Orientierung ist beliebig. Koeffizienten aus Konturintegralen (Plan eq:contour, ≈ 1e-14), Normalenfeld aus
+Randstichproben der Kurven (Algorithmus NF, M13). Ein `contour2d`-Polygon ist identisch mit `polygon2d`.
 Kommentare (`//`) dienen nur der Erläuterung; echte Dateien sind reines JSON.
 
 Scanpunkte werden parallel gerechnet (OpenMP-Threads, `OMP_NUM_THREADS`); Sweep-Werte nacheinander.
