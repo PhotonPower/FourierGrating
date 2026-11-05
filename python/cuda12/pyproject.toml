@@ -31,6 +31,7 @@ install.components = ["python"]
 FG_BUILD_PYTHON = "ON"
 FG_BUILD_TESTS = "OFF"
 FG_BUILD_APPS = "OFF"
+FG_ENABLE_NURBFORGE = "ON"
 FG_ENABLE_CUDA = "ON"
 CMAKE_CUDA_ARCHITECTURES = "86;89"
 FG_PYTHON_PACKAGE = "fouriergrating_cuda12"

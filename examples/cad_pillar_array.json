@@ -1,0 +1,31 @@
+{
+  "dimension": "2D",
+  "solver": "rcwa",
+  "truncation": { "Nx": 4, "Nz": 4 },
+  "period_um": { "x": 0.5, "z": 0.5 },
+  "incidence": { "lambda_um": { "from": 0.6, "to": 0.7, "steps": 3 }, "phi_deg": 10, "psi_deg": 0, "delta_deg": 45 },
+  "rcwa": { "slices": 30 },
+  "materials": {
+    "air": { "n": 1.0 },
+    "glass": { "n": 1.5 },
+    "si": { "n": [3.88, 0.02] },
+    "sio2": { "n": 1.46 }
+  },
+  "superstrate": "air",
+  "substrate": "glass",
+  "layers": [
+    {
+      "type": "cad",
+      "file": "cad/pillar_array.step",
+      "unit": "auto",
+      "axes": { "y": "+Z", "x": "+X" },
+      "cell_origin_um": [0.0, -0.5],
+      "background": "superstrate",
+      "bodies": [ { "name": "Pillar", "material": "si" }, { "name": "Lid", "material": "sio2" } ],
+      "slicing": { "rcwa_slices": 30 },
+      "factorization": "auto",
+      "normal_field": { "grid": 128 }
+    }
+  ],
+  "output": { "dir": "out/cad_pillar_array" }
+}

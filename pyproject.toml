@@ -36,6 +36,7 @@ sdist.exclude = ["build", "out", ".github", "docs/implementation_plan/*.pdf"]
 FG_BUILD_PYTHON = "ON"
 FG_BUILD_TESTS = "OFF"
 FG_BUILD_APPS = "OFF"
+FG_ENABLE_NURBFORGE = "ON"
 FG_PYTHON_PACKAGE = "fouriergrating"
 
 [tool.scikit-build.metadata.version]

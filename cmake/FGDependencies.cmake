@@ -57,6 +57,20 @@ if(FG_BUILD_PYTHON)
   endif()
 endif()
 
+# --- Nurbforge (CAD slicer, M14; only src/cad includes its headers) ---
+if(FG_ENABLE_NURBFORGE)
+  set(NF_BUILD_PYTHON OFF CACHE BOOL "" FORCE)
+  set(NF_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(NF_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(NF_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+  # local checkout for development: -DFETCHCONTENT_SOURCE_DIR_NURBFORGE=<path>
+  FetchContent_Declare(nurbforge
+    GIT_REPOSITORY https://github.com/PhotonPower/Nurbforge.git
+    GIT_TAG ${FG_NURBFORGE_TAG}
+    GIT_SHALLOW TRUE)
+  FetchContent_MakeAvailable(nurbforge)
+endif()
+
 # --- GoogleTest ---
 if(FG_BUILD_TESTS)
   find_package(GTest QUIET)

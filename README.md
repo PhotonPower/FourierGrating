@@ -19,8 +19,8 @@ dokumentierten Korrekturen.
 | **Nahfeld** (horizontaler + vertikaler Schnitt) | M6 (1D), M9 (2D) | M6, M9 |
 | **CUDA** (RTX 6000 Ada, sm_89) | M10 | M10 |
 
-> **Status (v0.12):** M0–M13 umgesetzt: 1D und 2D, isotrop und anisotrop, RK und RCWA, Nahfeld, CUDA-Backend,
-> Scans/Sweeps, Anwenderhandbuch (`docs/user_guide.md`), Python-Paket `fouriergrating` (`docs/python.md`), gekrümmte Querschnitte (`contour2d`). Offen auf dem Zielsystem: GPU-Abnahme (M10) und die
+> **Status (v0.13):** M0–M14 umgesetzt: 1D und 2D, isotrop und anisotrop, RK und RCWA, Nahfeld, CUDA-Backend,
+> Scans/Sweeps, Anwenderhandbuch (`docs/user_guide.md`), Python-Paket `fouriergrating` (`docs/python.md`), gekrümmte Querschnitte (`contour2d`), CAD-Slicer für STEP-Dateien (`docs/cad.md`). Offen auf dem Zielsystem: GPU-Abnahme (M10) und die
 > quantitative V10-Konvergenzstudie (siehe `docs/roadmap.md`).
 
 ## Dokumentation
@@ -28,6 +28,7 @@ dokumentierten Korrekturen.
 | Dokument | Inhalt |
 |---|---|
 | [`docs/user_guide.md`](docs/user_guide.md) | **Anwenderhandbuch**: Installation, Konfiguration, Löserwahl, Scans, Nahfeld, Laufzeiten |
+| [`docs/cad.md`](docs/cad.md) | CAD-Slicer: STEP → Schichten, Konfiguration, Geometrieprüfung |
 | [`docs/python.md`](docs/python.md) | Python-Anbindung: Installation (Wheels, CUDA), API, Tests |
 | [`docs/benchmarks.md`](docs/benchmarks.md) | Laufzeiten CPU/GPU (`fgbench`) |
 | [`docs/implementation_plan/main.pdf`](docs/implementation_plan/main.pdf) | **Verbindliche Spezifikation**: alle Formeln mit Herleitungen, Algorithmen, Tests, Meilensteine (LaTeX-Quelle daneben) |
@@ -71,4 +72,5 @@ docs/         Spezifikation und Begleitdokumente
 
 ## Lizenz
 
-MIT, siehe [`LICENSE`](LICENSE).
+MIT, siehe [`LICENSE`](LICENSE). Der CAD-Slicer (`FG_ENABLE_NURBFORGE`, Python-Wheels) bindet
+[Nurbforge](https://github.com/PhotonPower/Nurbforge) ein (MIT).

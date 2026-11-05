@@ -437,6 +437,17 @@ Werkzeugbeschreibung (JSON-Schema), die die Ollama-Prüfschleife von Nurbforge a
 \verb|fg.cad.preview(step, cfg, y_um)| ein SVG des Schnitts mit Materialfarben. Die Kopplung bleibt einseitig: Nurbforge
 kennt FourierGrating nicht.
 
+\paragraph{Umsetzung (v2.6).} Der STEP-Leser lag in Nurbforge bereits vor (allgemeine AP203/214/242-Dateien);
+Vorleistung waren \verb|section|, \verb|critical_heights|, \verb|is_extrusion_band|, Namen
+(\verb|StepOptions::shell_names|, \verb|read_step_named|), \verb|Micrometre| und der TSAN-Job (Nurbforge PR~\#43,
+Tag \verb|v0.6.0|). Gelesen wird direkt in µm (gleichwertig zu mm $\times1000$). \verb|section| ist exakt für Flächen,
+deren Höhe nur von einem Parameter abhängt (Extrusionen, Rotationen um die Schnittnormale), sonst verfolgt auf
+$10^{-9}$ der Modellgröße. \verb|BODY_OVERLAP|/\verb|PERIODIC_OVERLAP| werden an Schnitten geprüft (drei Höhen je Band,
+Kreuzung oder Enthaltensein der Schleifen samt periodischer Bilder) statt über Boolesche Volumina (bei gleichem
+Ergebnis um Größenordnungen schneller); Boolesche Operationen nur für \verb|"overlap": "priority"| und
+\verb|periodic_union|. Der Schnitt-Provider hält $10^{-8}$ der Zellgröße Abstand von den Bandgrenzen (dort liegen Deckel;
+betrifft nur Auswertungen an Intervallenden). Tschebyschow-Interpolation: Q-Blöcke an Knoten erster Art.
+
 \subsection{Tests und Abnahme (M14)}
 STEP-Testdateien werden zur Testlaufzeit mit Nurbforge erzeugt (\verb|nf::write_step| in ein temporäres
 Verzeichnis); zusätzlich zwei kleine Dateien unter \verb|tests/data/cad/| für Regressionstests.

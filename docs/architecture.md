@@ -37,6 +37,7 @@ JSON-Konfiguration (µm, Grad)
 | `io` | JSON-Konfiguration, CSV-Ausgabe | alle Schichttypen |
 | `geometry/contour`, `fourier/contour` | Rationale Bézier-Konturen, Regionen (Kreis, Ellipse, NURBS, Löcher), Koeffizienten aus Konturintegralen (eq:contour) | M13 |
 | `geometry/section`, `geometry/boundary` | `SectionProvider`/`CrossSection` für höhenabhängige Querschnitte (M14: CAD), Randstichproben für Algorithmus NF | M13 |
+| `cad` | CAD-Slicer (`fg::cad`): STEP über Nurbforge (nur hier eingebunden), Prüfung, Bandzerlegung, Schichten (`docs/cad.md`) | M14 |
 | `solvers/simulation` | `fg::Simulation`: Konfiguration und Schichtmodelle über viele Rechnungen, `setParameter` mit Teil-Neuaufbau | M12 |
 | `python/bindings` | pybind11-Modul `_core` (nur Umwandlung, GIL freigegeben), Pakete `fouriergrating`, `fouriergrating_cuda12` (`docs/python.md`) | M12 |
 

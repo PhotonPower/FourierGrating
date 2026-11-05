@@ -56,6 +56,20 @@
     }
 ,
     {
+      "name": "cpu-cad",
+      "displayName": "CPU only, Release, CAD slicer (Nurbforge)",
+      "inherits": "cpu-release",
+      "binaryDir": "${sourceDir}/build/cpu-cad",
+      "cacheVariables": { "FG_ENABLE_NURBFORGE": "ON" }
+    },
+    {
+      "name": "win-cad",
+      "displayName": "Windows (MSYS2 UCRT64 GCC), CPU, Release, CAD slicer (Nurbforge)",
+      "inherits": "win-release",
+      "binaryDir": "${sourceDir}/build/win-cad",
+      "cacheVariables": { "FG_ENABLE_NURBFORGE": "ON" }
+    },
+    {
       "name": "win-msvc",
       "displayName": "Windows (MSVC 2022, Developer PowerShell / vcvars64), CPU only, Release",
       "generator": "Ninja",
@@ -80,6 +94,8 @@
     { "name": "cuda-release", "configurePreset": "cuda-release" },
     { "name": "win-release",  "configurePreset": "win-release" },
     { "name": "win-cuda",     "configurePreset": "win-cuda" },
+    { "name": "cpu-cad",      "configurePreset": "cpu-cad" },
+    { "name": "win-cad",      "configurePreset": "win-cad" },
     { "name": "win-msvc",     "configurePreset": "win-msvc" },
     { "name": "win-msvc-cuda","configurePreset": "win-msvc-cuda" }
   ],
@@ -89,6 +105,8 @@
     { "name": "cuda-release","configurePreset": "cuda-release","output": { "outputOnFailure": true } },
     { "name": "win-release", "configurePreset": "win-release", "output": { "outputOnFailure": true } },
     { "name": "win-cuda",    "configurePreset": "win-cuda",    "output": { "outputOnFailure": true } },
+    { "name": "cpu-cad",     "configurePreset": "cpu-cad",     "output": { "outputOnFailure": true } },
+    { "name": "win-cad",     "configurePreset": "win-cad",     "output": { "outputOnFailure": true } },
     { "name": "win-msvc",    "configurePreset": "win-msvc",    "output": { "outputOnFailure": true } },
     { "name": "win-msvc-cuda","configurePreset": "win-msvc-cuda","output": { "outputOnFailure": true } }
   ]

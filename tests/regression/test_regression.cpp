@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "fg/cad/cad.hpp"
 #include "fg/io/config.hpp"
 
 namespace {
@@ -73,6 +74,13 @@ class Regression : public ::testing::TestWithParam<std::string> {};
 
 TEST_P(Regression, EfficienciesEqualGolden) {
   const std::string name = GetParam();
+  {
+    std::ifstream in(kSrc + "/examples/" + name + ".json");
+    std::stringstream ss;
+    ss << in.rdbuf();
+    if (ss.str().find("\"cad\"") != std::string::npos && !fg::cad::available())
+      GTEST_SKIP() << "cad layer: build with FG_ENABLE_NURBFORGE";
+  }
   const std::string file = kSrc + "/tests/regression/golden/" + name + ".csv";
   const auto lines = compute(name);
   if (envSet("FG_REGRESSION_UPDATE")) {

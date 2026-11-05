@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 #include <sstream>
 
+#include "fg/cad/cad.hpp"
 #include "fg/core/error.hpp"
 #include "fg/physics/anisotropic.hpp"
 
@@ -107,6 +108,51 @@ geometry::Contour2D parseContour(const json& j) {
                                       n.value("weights", std::vector<double>{}));
   }
   throw Error("contour2d: region/hole needs 'circle', 'ellipse', 'polygon_um' or 'nurbs'");
+}
+
+/// The cad block (Plan section "M14: Konfiguration"); needs periods, materials and the scan of cfg.
+cad::CadOptions parseCadOptions(const json& j, const std::string& baseDir, const RunConfig& cfg) {
+  cad::CadOptions o;
+  o.file = j.value("file", std::string());
+  if (!o.file.empty() && std::filesystem::path(o.file).is_relative() && !baseDir.empty())
+    o.file = (std::filesystem::path(baseDir) / o.file).string();
+  o.stepText = j.value("step", std::string());  // contents instead of a file (Python fg.cad.check)
+  FG_REQUIRE(!o.file.empty() || !o.stepText.empty(), "cad: 'file' (STEP) missing");
+  o.unit = j.value("unit", o.unit);
+  if (j.contains("axes")) {
+    o.axisY = j["axes"].value("y", o.axisY);
+    o.axisX = j["axes"].value("x", o.axisX);
+    o.axisZ = j["axes"].value("z", o.axisZ);
+  }
+  if (j.contains("y_range_um")) o.yRange_um = std::array<double, 2>{j["y_range_um"][0].get<double>(), j["y_range_um"][1].get<double>()};
+  if (j.contains("cell_origin_um"))
+    o.cellOrigin_um = std::array<double, 2>{j["cell_origin_um"][0].get<double>(), j["cell_origin_um"][1].get<double>()};
+  o.background = j.value("background", o.background);
+  for (const auto& b : j.value("bodies", json::array())) {
+    cad::BodyAssignment a;
+    a.name = b.value("name", std::string());
+    a.index = b.value("index", -1);
+    a.material = b.at("material").get<std::string>();
+    FG_REQUIRE(!a.name.empty() || a.index >= 0, "cad.bodies: every entry needs 'name' or 'index'");
+    o.bodies.push_back(std::move(a));
+  }
+  o.overlap = j.value("overlap", o.overlap);
+  FG_REQUIRE(o.overlap == "error" || o.overlap == "priority", "cad.overlap must be \"error\" or \"priority\"");
+  o.periodicUnion = j.value("periodic_union", o.periodicUnion);
+  if (j.contains("slicing")) {
+    const json& s = j["slicing"];
+    o.criticalTol_um = s.value("critical_tol_um", o.criticalTol_um);
+    o.minBand_um = s.value("min_band_um", o.minBand_um);
+    o.rcwaSlices = s.value("rcwa_slices", o.rcwaSlices);
+    o.yInterpolation = s.value("y_interpolation", o.yInterpolation);
+    FG_REQUIRE(o.yInterpolation == "none" || o.yInterpolation == "chebyshev",
+               "cad.slicing.y_interpolation must be \"none\" or \"chebyshev\"");
+    o.chebyshevNodes = s.value("chebyshev_nodes", o.chebyshevNodes);
+  }
+  o.factorization = parseFactorization(j);
+  if (j.contains("normal_field")) o.normalField = parseNormalField(j["normal_field"]);
+  for (const auto& w : cfg.scan) o.lambda_um = o.lambda_um > 0 ? std::min(o.lambda_um, w.lambda_um) : w.lambda_um;
+  return o;
 }
 
 LayerEntry parseLayer(const json& j) {
@@ -215,7 +261,7 @@ std::vector<double> parseRange(const json& v) {
 
 }  // namespace
 
-RunConfig parseConfig(const std::string& text) {
+RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
   const json j = json::parse(text);
   RunConfig cfg;
   const std::string dim = j.at("dimension").get<std::string>();
@@ -245,8 +291,6 @@ RunConfig parseConfig(const std::string& text) {
   cfg.stack.substrate = j.at("substrate").get<std::string>();
   (void)cfg.stack.material(cfg.stack.superstrate);
   (void)cfg.stack.material(cfg.stack.substrate);
-  for (const auto& lj : j.value("layers", json::array())) cfg.stack.layers.push_back(parseLayer(lj));
-
   const json& inc = j.at("incidence");
   // scan: cartesian product lambda x phi x psi x delta (each a number, an array or a range)
   for (double lam : parseRange(inc.at("lambda_um")))
@@ -254,6 +298,16 @@ RunConfig parseConfig(const std::string& text) {
       for (double psi : parseRange(inc.value("psi_deg", json(0.0))))
         for (double delta : parseRange(inc.value("delta_deg", json(0.0))))
           cfg.scan.push_back({lam, phi * DEG, psi * DEG, delta * DEG});
+
+  // layers; a cad block expands into its bands (M14), relative STEP paths against baseDir
+  for (const auto& lj : j.value("layers", json::array())) {
+    if (lj.value("type", std::string()) == "cad") {
+      const cad::CadOptions o = parseCadOptions(lj, baseDir, cfg);
+      for (auto& le : cad::slice(o, cfg.stack)) cfg.stack.layers.push_back(std::move(le));
+      continue;
+    }
+    cfg.stack.layers.push_back(parseLayer(lj));
+  }
 
   if (j.contains("nearfield") && j["nearfield"].value("enabled", false)) {
     cfg.nearField = true;
@@ -284,7 +338,7 @@ RunConfig loadConfig(const std::string& path) {
   FG_REQUIRE(in.good(), "cannot open configuration file " + path);
   std::stringstream ss;
   ss << in.rdbuf();
-  return parseConfig(ss.str());
+  return parseConfig(ss.str(), std::filesystem::path(path).parent_path().string());
 }
 
 namespace {
@@ -337,9 +391,9 @@ void writeEfficiencies(const std::string& file, const std::vector<RunConfig>& ru
   }
 }
 
-std::vector<RunConfig> parseSweep(const std::string& text) {
+std::vector<RunConfig> parseSweep(const std::string& text, const std::string& baseDir) {
   const json j = json::parse(text);
-  if (!j.contains("sweep")) return {parseConfig(text)};
+  if (!j.contains("sweep")) return {parseConfig(text, baseDir)};
   const json& sw = j["sweep"];
   const std::string param = sw.at("parameter").get<std::string>();
   const json::json_pointer ptr(param);
@@ -350,7 +404,7 @@ std::vector<RunConfig> parseSweep(const std::string& text) {
     json jk = j;
     jk.erase("sweep");
     jk[ptr] = v;
-    RunConfig c = parseConfig(jk.dump());
+    RunConfig c = parseConfig(jk.dump(), baseDir);
     c.sweepParameter = param;
     c.sweepValue = v;
     out.push_back(std::move(c));
@@ -364,7 +418,42 @@ std::vector<RunConfig> loadSweep(const std::string& path) {
   FG_REQUIRE(in.good(), "cannot open configuration file " + path);
   std::stringstream ss;
   ss << in.rdbuf();
-  return parseSweep(ss.str());
+  return parseSweep(ss.str(), std::filesystem::path(path).parent_path().string());
+}
+
+namespace {
+/// The configuration without its cad blocks (context: periods, materials, scan) and the cad blocks.
+std::pair<RunConfig, std::vector<cad::CadOptions>> cadBlocks(const std::string& text, const std::string& baseDir,
+                                                             const std::string& stepText) {
+  json j = json::parse(text);
+  std::vector<json> blocks;
+  json rest = json::array();
+  for (const auto& lj : j.value("layers", json::array())) {
+    if (lj.value("type", std::string()) == "cad") blocks.push_back(lj);
+    else rest.push_back(lj);
+  }
+  j["layers"] = rest;
+  RunConfig cfg = parseConfig(j.dump(), baseDir);
+  std::vector<cad::CadOptions> out;
+  for (auto b : blocks) {
+    if (!stepText.empty()) b["step"] = stepText;
+    out.push_back(parseCadOptions(b, baseDir, cfg));
+  }
+  FG_REQUIRE(!out.empty(), "configuration has no layer of type \"cad\"");
+  return {std::move(cfg), std::move(out)};
+}
+}  // namespace
+
+std::string cadReport(const std::string& text, const std::string& baseDir, const std::string& stepText) {
+  const auto [cfg, blocks] = cadBlocks(text, baseDir, stepText);
+  json out = json::array();
+  for (const auto& o : blocks) out.push_back(json::parse(cad::check(o, cfg.stack).json()));
+  return out.size() == 1 ? out[0].dump(2) : out.dump(2);
+}
+
+std::string cadPreview(const std::string& text, const std::string& baseDir, const std::string& stepText, double y_um) {
+  const auto [cfg, blocks] = cadBlocks(text, baseDir, stepText);
+  return cad::previewSvg(blocks.front(), cfg.stack, y_um);
 }
 
 }  // namespace fg::io

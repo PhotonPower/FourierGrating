@@ -118,7 +118,7 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
   - V15: O(L⁻²) (Verhältnis 4,00), zweistufige Richardson ≤ 1,2e-10; RK = RCWA 1e-8 – `test_v15_contour.cpp`
   - V16a (Laurent, Plan v2.5): Kegelstumpf 5e-16, Kugelkappe 1e-15 gegen Profile2D, Energie 1e-10; FFF_sym mit
     3D-Normalen; Nahfeld folgt dem Querschnitt – `test_v16a_sectioned.cpp`. Golden Files bitgleich
-- [ ] **M14** CAD-Slicer mit Nurbforge
+- [x] **M14** CAD-Slicer mit Nurbforge
   - Vorleistung in Nurbforge v0.6.0 (eigener PR): `nf::section(Shell, Plane)`, `nf::critical_heights`,
     `nf::is_extrusion_band`, STEP-Namen lesen/schreiben, `StepLengthUnit::Micrometre`, Thread-Sicherheit
   - Geometrieprüfung mit Fehlercodes für die Prüfschleife des Sprachmodells (`fg.cad.check`, `llm_tool_spec`, `preview`)
@@ -126,6 +126,15 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
     `--cad-report`, optionale Tschebyschow-Interpolation in y
   - Abnahme: V16b (Prisma/Chiralität), V17 (Zylinder), V18 (Kugelkappe, Kegelstumpf), zwei Materialien, Hohlraum;
     absichtlich fehlerhafte Dateien liefern den erwarteten Fehlercode; `docs/cad.md`, Beispiel `examples/cad_pillar_array.json`
+  - Erledigt: Nurbforge v0.6.0 (PR #43, gemergt und getaggt; STEP-Leser war schon vorhanden): `section`, `critical_heights`,
+    `is_extrusion_band`, `read_step_named`/`shell_names`, `Micrometre`, TSAN-Job. FG: `fg::cad` (`include/fg/cad`,
+    `src/cad`), Schichttyp `cad` (expandiert beim Laden), `fgsolve --cad-report`, `fg.cad.check/preview/llm_tool_spec`,
+    Tschebyschow-Interpolation der Q-Blöcke (`SectionedLayer::chebyshevNodes`), Presets `cpu-cad`/`win-cad`, CI-Job `cad`,
+    Wheels mit Slicer, `scripts/make_cad_examples.py`, `tests/data/cad/`
+  - Abnahme in `tests/cad/test_cad.cpp`: V16b (Koeffizienten 1e-13, RK/RCWA 1e-12, Spiegelung abgelehnt), V17 (Bessel
+    1e-12), V18 (gegen Profile2D 1e-6, gegen M13-Provider 1e-9, Treppe konvergiert, Energie 1e-10, Tschebyschow 1e-9),
+    zwei Materialien + Hohlraum (Bandfolge, Energie, RK ≈ RCWA), fehlerhafte Dateien → Codes; Golden File des Beispiels
+  - Nicht umgesetzt: Reziprozitätstest (zwei Materialien), PML-Zone in `OUT_OF_RANGE` (kommt mit M18)
 - [ ] **M15** Profiling und Parallelisierung
   - `fg::prof` und Profil vor M15 (Zielsystem); Threadmodell (scan/slices/blas); parallele Scheiben-S;
     Sternprodukt als Baum fester Form; parallele Koeffizienten/NF/CAD-Schnitte; GPU-residente Ketten (`DeviceMatrix`)

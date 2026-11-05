@@ -81,6 +81,9 @@ Formen für `profile2d.shape`: `egg_crate` (g = a/4 (1 + cos Kx(x−x0)) (1 + co
 (g = a/2 (1 + cos Kx(x−x0)), z-invariant). Polygone dürfen über den Zellrand hinausragen (periodische Bilder
 dürfen sich nicht überlappen); Einschlüsse dürfen sich nicht überlappen. Bei `"dimension": "2D"` ist
 `period_um.z > 0` Pflicht; `lamellar1d`- und isotrope `profile1d`-Schichten sind in 2D-Stapeln erlaubt (z-invariant).
+`cad` (M14, Build mit `FG_ENABLE_NURBFORGE`): STEP-Körper, beim Laden in Bänder expandiert (homogen,
+`contour2d`, y-variabel); Schlüssel und Prüfcodes in [`cad.md`](cad.md).
+
 `contour2d` (M13): Regionen mit äußerer Kontur und Löchern, paarweise disjunkt (auch mit den periodischen
 Bildern; geprüft, sonst Fehler). Formen: `circle`, `ellipse` (exakt als rationale Quadratiken), `polygon_um`,
 `nurbs` (geklemmter Knotenvektor, geschlossen: erster = letzter Punkt; Zerlegung in Bézierstücke). Die

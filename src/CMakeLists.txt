@@ -31,6 +31,16 @@ add_library(fg_core
 )
 add_library(FourierGrating::core ALIAS fg_core)
 
+# CAD slicer (M14): Nurbforge only in src/cad
+target_sources(fg_core PRIVATE cad/cad_common.cpp)
+if(FG_ENABLE_NURBFORGE)
+  target_sources(fg_core PRIVATE cad/slicer.cpp)
+  target_link_libraries(fg_core PRIVATE Nurbforge::core)
+  target_compile_definitions(fg_core PUBLIC FG_HAVE_NURBFORGE)
+else()
+  target_sources(fg_core PRIVATE cad/cad_stub.cpp)
+endif()
+
 target_include_directories(fg_core PUBLIC
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
   $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/generated>)

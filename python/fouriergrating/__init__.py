@@ -35,6 +35,7 @@ __all__ = [
     "Result",
     "ScanResult",
     "Simulation",
+    "cad",
     "core_variant",
     "cuda_available",
     "get_backend",
@@ -57,13 +58,18 @@ _backend: dict[str, Any] = {}
 
 # ----------------------------------------------------------------------------- configuration
 def load_config(path: Union[str, "os.PathLike[str]"]) -> dict:
-    """Reads a JSON configuration; ``output.dir`` is resolved relative to the file."""
+    """Reads a JSON configuration; ``output.dir`` and the ``file`` of cad layers are resolved relative to it."""
     path = os.fspath(path)
     with open(path, encoding="utf-8") as f:
         cfg = json.load(f)
+    base = os.path.dirname(os.path.abspath(path))
     out = cfg.get("output")
     if isinstance(out, dict) and isinstance(out.get("dir"), str) and not os.path.isabs(out["dir"]):
-        out["dir"] = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(path)), out["dir"]))
+        out["dir"] = os.path.normpath(os.path.join(base, out["dir"]))
+    for layer in cfg.get("layers", []):  # STEP files of cad layers (M14)
+        if isinstance(layer, dict) and layer.get("type") == "cad" and isinstance(layer.get("file"), str):
+            if not os.path.isabs(layer["file"]):
+                layer["file"] = os.path.normpath(os.path.join(base, layer["file"]))
     return cfg
 
 
@@ -205,3 +211,6 @@ class Simulation:
     def model_builds(self) -> int:
         """Number of layer models built so far."""
         return int(self._sim.model_builds)
+
+
+from . import cad  # noqa: E402  (needs _to_json and _core)

@@ -82,3 +82,15 @@ target_compile_definitions(test_regression PRIVATE FG_SOURCE_DIR="${PROJECT_SOUR
 set_source_files_properties(regression/test_regression.cpp PROPERTIES
   OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/regression/examples.txt)
 gtest_discover_tests(test_regression PROPERTIES LABELS "regression" TIMEOUT 1800 DISCOVERY_TIMEOUT 60)
+
+# ---- CAD slicer (M14, only with Nurbforge) ----
+if(FG_ENABLE_NURBFORGE)
+  add_executable(test_cad cad/test_cad.cpp)
+  target_link_libraries(test_cad PRIVATE fg_core Nurbforge::core GTest::gtest_main nlohmann_json::nlohmann_json)
+  target_compile_definitions(test_cad PRIVATE FG_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+  add_test(NAME example_cad_pillar_array
+           COMMAND fgsolve ${PROJECT_SOURCE_DIR}/examples/cad_pillar_array.json
+           WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+  set_tests_properties(example_cad_pillar_array PROPERTIES LABELS "validation")
+  gtest_discover_tests(test_cad PROPERTIES LABELS "validation" TIMEOUT 1800 DISCOVERY_TIMEOUT 60)
+endif()

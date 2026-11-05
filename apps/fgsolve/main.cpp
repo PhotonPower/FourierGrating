@@ -1,13 +1,17 @@
 // fgsolve - command line front end of FourierGrating.
 //   fgsolve --version
 //   fgsolve --info                 (backends, build options)
+//   fgsolve --cad-report <config>  (geometry check and band decomposition of the cad layers, JSON)
 //   fgsolve <config.json>          (diffraction efficiencies, scans and sweeps, optional near fields;
 //                                   near fields for the first scan point of the first sweep value)
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 
+#include "fg/cad/cad.hpp"
 #include "fg/core/error.hpp"
 #include "fg/io/config.hpp"
 #include "fg/linalg/backend.hpp"
@@ -29,13 +33,23 @@ void printResult(const fg::Wavelength& w, const fg::Result& r) {
 
 int main(int argc, char** argv) {
   if (argc < 2 || std::strcmp(argv[1], "--help") == 0) {
-    std::cout << "usage: fgsolve [--version | --info | <config.json>]\n";
+    std::cout << "usage: fgsolve [--version | --info | --cad-report <config.json> | <config.json>]\n";
     return argc < 2 ? 1 : 0;
   }
   try {
     if (std::strcmp(argv[1], "--version") == 0) {
       std::cout << "FourierGrating " << FG_VERSION << "\n";
       return 0;
+    }
+    if (std::strcmp(argv[1], "--cad-report") == 0) {
+      FG_REQUIRE(argc >= 3, "--cad-report needs a configuration file");
+      std::ifstream in(argv[2]);
+      FG_REQUIRE(in.good(), std::string("cannot open configuration file ") + argv[2]);
+      std::stringstream ss;
+      ss << in.rdbuf();
+      const std::string report = fg::io::cadReport(ss.str(), std::filesystem::path(argv[2]).parent_path().string());
+      std::cout << report << "\n";
+      return report.find("\"ok\": true") != std::string::npos ? 0 : 4;
     }
     if (std::strcmp(argv[1], "--info") == 0) {
       std::cout << "FourierGrating " << FG_VERSION << "\n"
@@ -48,6 +62,8 @@ int main(int argc, char** argv) {
 #else
       std::cout << "cuda backend: not built\n";
 #endif
+      std::cout << "cad slicer  : " << (fg::cad::available() ? "Nurbforge" : "not built (FG_ENABLE_NURBFORGE=OFF)")
+                << "\n";
       return 0;
     }
     // one configuration, or one per value of a parameter sweep (M11); scan points run in parallel

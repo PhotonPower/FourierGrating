@@ -769,7 +769,10 @@ class SectionedModel final : public LayerModel {
   }
   double thickness_um() const override { return h_; }
   bool yInvariant() const override { return false; }
-  QBlocks Q(double y) const override { return at(y).Q(0.0); }
+  QBlocks Q(double y) const override {
+    if (l_.chebyshevNodes > 0 && interpolant()) return interpolate(*cheb_, y);
+    return at(y).Q(0.0);
+  }
   Mat3C epsAt(double x, double y, double z) const override { return at(y).epsAt(x, 0.0, z); }
   Vec3D normalAt(double x, double y, double z) const override { return at(y).normalAt(x, 0.0, z); }
   Eigen::Matrix3d projectorAt(double x, double y, double z) const override { return at(y).projectorAt(x, 0.0, z); }
@@ -789,12 +792,78 @@ class SectionedModel final : public LayerModel {
     return *cache_.emplace(yc, std::move(m)).first->second;
   }
 
+  /// Q blocks at K Chebyshev nodes (first kind) of the band and the barycentric weights.
+  struct Chebyshev {
+    std::vector<double> x, w;  ///< nodes in [-1, 1], weights
+    std::vector<QBlocks> Q;
+  };
+  Chebyshev chebyshev(int K) const {
+    Chebyshev c;
+    for (int k = 0; k < K; ++k) {
+      const double th = PI * (k + 0.5) / K;
+      c.x.push_back(-std::cos(th));
+      c.w.push_back((k % 2 ? -1.0 : 1.0) * std::sin(th));
+      c.Q.push_back(at(0.5 * h_ * (1.0 + c.x.back())).Q(0.0));
+    }
+    return c;
+  }
+  static QBlocks interpolate(const Chebyshev& c, double y, double h) {
+    const double x = std::clamp(2.0 * y / h - 1.0, -1.0, 1.0);
+    std::vector<double> a(c.x.size());
+    double sum = 0;
+    for (std::size_t k = 0; k < c.x.size(); ++k) {
+      if (x == c.x[k]) return c.Q[k];
+      a[k] = c.w[k] / (x - c.x[k]);
+      sum += a[k];
+    }
+    QBlocks Q = c.Q[0];
+    for (int i = 0; i < 3; ++i)
+      for (int j = 0; j < 3; ++j) {
+        MatC m = MatC::Zero(c.Q[0](i, j).rows(), c.Q[0](i, j).cols());
+        for (std::size_t k = 0; k < c.x.size(); ++k) m += (a[k] / sum) * c.Q[k](i, j);
+        Q(i, j) = std::move(m);
+      }
+    return Q;
+  }
+  QBlocks interpolate(const Chebyshev& c, double y) const { return interpolate(c, y, h_); }
+  static double maxAbs(const QBlocks& Q) {
+    double m = 0;
+    for (int i = 0; i < 3; ++i)
+      for (int j = 0; j < 3; ++j) m = std::max(m, Q(i, j).size() ? Q(i, j).cwiseAbs().maxCoeff() : 0.0);
+    return m;
+  }
+  /// Builds the interpolant on first use: K and 2K nodes compared at the K midpoints (1e-10 max|Q|).
+  bool interpolant() const {
+    if (chebReady_) return static_cast<bool>(cheb_);
+    chebReady_ = true;
+    for (int K = l_.chebyshevNodes; K <= 256; K *= 2) {
+      const Chebyshev a = chebyshev(K), b = chebyshev(2 * K);
+      double err = 0, ref = 0;
+      for (int k = 0; k < K; ++k) {
+        const double y = 0.5 * h_ * (1.0 - std::cos(PI * (k + 1.0) / (K + 1.0)));
+        const QBlocks qa = interpolate(a, y), qb = interpolate(b, y);
+        ref = std::max(ref, maxAbs(qb));
+        for (int i = 0; i < 3; ++i)
+          for (int j = 0; j < 3; ++j)
+            if (qa(i, j).size()) err = std::max(err, (qa(i, j) - qb(i, j)).cwiseAbs().maxCoeff());
+      }
+      if (err <= 1e-10 * ref) {
+        cheb_ = std::make_unique<Chebyshev>(b);
+        return true;
+      }
+    }
+    warnings.push_back("sectioned layer: Chebyshev interpolation in y did not reach 1e-10 with 256 nodes; exact sections used");
+    return false;
+  }
+
   SectionedLayer l_;
   Factorization fac_;
   IndexMap map_;
   Stack stack_;  ///< periods and materials
   double h_ = 0;
   mutable std::map<double, std::unique_ptr<LayerModel>> cache_;
+  mutable bool chebReady_ = false;
+  mutable std::unique_ptr<Chebyshev> cheb_;
 };
 
 // ------------------------------------------------------------------ profile y = g(x, z) (2D)

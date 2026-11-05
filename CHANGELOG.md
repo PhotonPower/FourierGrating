@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.13.0] – M14 (CAD-Slicer mit Nurbforge)
+
+### Hinzugefügt
+- Nurbforge v0.6.0 (eigener PR, gemergt und getaggt): Schnitte von Shells (`nf::section`), kritische Höhen,
+  Extrusionsbänder, STEP-Namen (`read_step_named`), Einheit µm, Thread-Sicherheit (TSAN-Job).
+- `FG_ENABLE_NURBFORGE` (FetchContent, Tag `FG_NURBFORGE_TAG` = v0.6.0, statisch), Presets `cpu-cad`, `win-cad`.
+- Modul `fg::cad` (`fg/cad/cad.hpp`; nur `src/cad` inkludiert Nurbforge): STEP → FG-Koordinaten (Einheit, Achsen ohne
+  Spiegelung, Zellursprung), Geometrieprüfung mit festen Codes, Bandzerlegung zwischen kritischen Höhen, je Band
+  homogen / `contour2d` (exakter Schnitt) / `SectionedLayer` (Nurbforge-Provider, 3D-Wandnormalen).
+- Schichttyp `cad` in JSON (expandiert beim Laden; Pfade relativ zur Konfiguration, `parseConfig(text, baseDir)`),
+  `fgsolve --cad-report`, `fg::io::cadReport`, `fg::io::cadPreview`.
+- `SectionedLayer::chebyshevNodes`: Q(y) aus Tschebyschow-Interpolation mit Fehlerkontrolle (K gegen 2K).
+- Python `fg.cad.check`, `fg.cad.preview` (SVG), `fg.cad.llm_tool_spec`, `fg.cad.available`; `load_config` löst
+  `file` von cad-Schichten auf; Wheels mit Slicer.
+- `tests/cad/test_cad.cpp` (V16b, V17, V18, zwei Materialien mit Hohlraum, fehlerhafte Dateien, Dateien von Platte),
+  `tests/data/cad/`, `scripts/make_cad_examples.py`, Beispiel `examples/cad_pillar_array.json` mit Golden File,
+  `docs/cad.md`, CI-Job `cad`.
+
+### Geändert
+- `fgsolve --info` meldet den Slicer; Regression und pytest überspringen cad-Beispiele ohne Slicer.
+- Plan v2.6 (Präzisierungen M14).
+
 ## [0.12.0] – M13 (Gekrümmte Querschnitte, höhenabhängige Schichtmodelle)
 
 ### Hinzugefügt

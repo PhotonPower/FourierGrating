@@ -75,6 +75,7 @@ Tiefen-Sweep mit `Simulation`).
 pip install .[test]
 pytest tests/python                         # Beispiele = Golden Files (1e-11), Simulation, Threads, GIL
 FG_FGSOLVE=build/cpu-release/apps/fgsolve pytest tests/python   # zusätzlich Nahfeld = fgsolve-Dateien
+                                            # (fgsolve mit demselben Compiler wie das Modul: 1e-12)
 ```
 
 ## Aufbau

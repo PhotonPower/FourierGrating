@@ -99,6 +99,10 @@ struct SectionedLayer {
   std::string background;
   int slices = 0;  ///< RCWA staircase slices (0 = solver default)
   NormalFieldOptions normalField;
+  /// > 0: Q(y) from barycentric interpolation of the Q blocks at this many Chebyshev nodes (first kind,
+  /// doubled until K and 2K agree to 1e-10 max|Q|, at most 256; then exact sections with a warning);
+  /// 0: exact sections at every height (Plan M14 "Kosten und Interpolation in y").
+  int chebyshevNodes = 0;
 };
 
 using LayerSpec = std::variant<HomogeneousLayer, Lamellar1DLayer, Profile1DLayer, Polygon2DLayer,

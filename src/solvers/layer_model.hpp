@@ -43,7 +43,7 @@ class LayerModel {
   std::vector<cplx> epsList;
   /// Number of RCWA staircase slices (y-invariant layers: 1).
   int rcwaSlices = 1;
-  std::vector<std::string> warnings;
+  mutable std::vector<std::string> warnings;  ///< may grow lazily (e.g. y interpolation)
 };
 
 using LayerModels = std::vector<std::unique_ptr<LayerModel>>;

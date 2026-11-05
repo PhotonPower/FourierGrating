@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(FourierGrating VERSION 0.12.0 DESCRIPTION "Fourier modal method: differential method (implicit RK) and RCWA" LANGUAGES CXX)
+project(FourierGrating VERSION 0.13.0 DESCRIPTION "Fourier modal method: differential method (implicit RK) and RCWA" LANGUAGES CXX)
 
 option(FG_ENABLE_CUDA   "Build the CUDA backend (RTX 6000 Ada, sm_89)" OFF)
 option(FG_ENABLE_OPENMP "Use OpenMP for parameter sweeps"              ON)
@@ -8,6 +8,8 @@ option(FG_BUILD_TESTS   "Build unit and validation tests"              ON)
 option(FG_BUILD_APPS    "Build command line applications"              ON)
 option(FG_WARNINGS_AS_ERRORS "Treat compiler warnings as errors"       OFF)
 option(FG_BUILD_PYTHON  "Build the Python module (scikit-build sets ON)" OFF)
+option(FG_ENABLE_NURBFORGE "CAD slicer: STEP files via Nurbforge (layer type cad, M14)" OFF)
+set(FG_NURBFORGE_TAG "v0.6.0" CACHE STRING "Nurbforge tag fetched with FG_ENABLE_NURBFORGE")
 set(FG_PYTHON_PACKAGE "fouriergrating" CACHE STRING
     "Python package receiving the _core module (fouriergrating | fouriergrating_cuda12)")
 
@@ -59,4 +61,4 @@ if(FG_BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
-message(STATUS "FourierGrating ${PROJECT_VERSION}: CUDA=${FG_ENABLE_CUDA} OpenMP=${FG_ENABLE_OPENMP} HDF5=${FG_ENABLE_HDF5} Tests=${FG_BUILD_TESTS} Python=${FG_BUILD_PYTHON}")
+message(STATUS "FourierGrating ${PROJECT_VERSION}: CUDA=${FG_ENABLE_CUDA} OpenMP=${FG_ENABLE_OPENMP} HDF5=${FG_ENABLE_HDF5} Tests=${FG_BUILD_TESTS} Python=${FG_BUILD_PYTHON} Nurbforge=${FG_ENABLE_NURBFORGE}")

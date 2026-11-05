@@ -14,6 +14,7 @@
 
 #include "fg/core/error.hpp"
 #include "fg/field/nearfield.hpp"
+#include "fg/cad/cad.hpp"
 #include "fg/io/config.hpp"
 #include "fg/linalg/backend.hpp"
 #include "fg/solvers/simulation.hpp"
@@ -142,6 +143,24 @@ PYBIND11_MODULE(_core, m) {
   m.def("variant", [] { return std::string("cpu"); });
 #endif
   m.def("cuda_available", [] { return fg::linalg::cudaAvailable(); });
+
+  // CAD slicer (M14): check, preview, LLM tool description
+  m.def("cad_available", [] { return fg::cad::available(); });
+  m.def(
+      "cad_report",
+      [](const std::string& json, const std::string& base_dir, const std::string& step) {
+        py::gil_scoped_release nogil;
+        return fg::io::cadReport(json, base_dir, step);
+      },
+      py::arg("config_json"), py::arg("base_dir") = "", py::arg("step_text") = "");
+  m.def(
+      "cad_preview",
+      [](const std::string& json, const std::string& base_dir, const std::string& step, double y_um) {
+        py::gil_scoped_release nogil;
+        return fg::io::cadPreview(json, base_dir, step, y_um);
+      },
+      py::arg("config_json"), py::arg("base_dir"), py::arg("step_text"), py::arg("y_um"));
+  m.def("cad_llm_tool_spec", [] { return fg::cad::llmToolSpec(); });
 
   m.def(
       "solve",

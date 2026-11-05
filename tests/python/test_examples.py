@@ -22,7 +22,10 @@ def golden(name):
 
 @pytest.mark.parametrize("name", EXAMPLES)
 def test_scan_equals_golden(name):
-    scan = fg.solve_scan(fg.load_config(ROOT / "examples" / f"{name}.json"))
+    cfg = fg.load_config(ROOT / "examples" / f"{name}.json")
+    if any(layer.get("type") == "cad" for layer in cfg["layers"]) and not fg.cad.available():
+        pytest.skip("cad layer: core built without FG_ENABLE_NURBFORGE")
+    scan = fg.solve_scan(cfg)
     rows = [r for r in golden(name) if r["side"] != "A"]
     absorption = [float(r["efficiency"]) for r in golden(name) if r["side"] == "A"]
     c = scan.columns
