@@ -52,7 +52,8 @@ jobs:
         env:
           TSAN_OPTIONS: halt_on_error=1 second_deadlock_stack=1
           FG_NUM_THREADS: "4"
-        run: ctest --preset cpu-tsan -L unit --timeout 3000
+        # timing tests (Performance) are meaningless under TSAN (~10x slower)
+        run: ctest --preset cpu-tsan -L unit -E Performance --timeout 3000
 
   cad:
     # CAD slicer (M14): FG_ENABLE_NURBFORGE=ON (Nurbforge v0.6.0 via FetchContent)
