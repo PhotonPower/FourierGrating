@@ -87,3 +87,20 @@ Die Eigenprobleme waren schon vorher je Polarisation zerlegt (`layerModesAuto`, 
 Gewinn kommt aus den Schicht-S-Matrizen, Grenzflächen und Sternprodukten mit halber Größe und – bei reiner
 TE- oder TM-Anregung – aus dem Überspringen der zweiten Polarisation. Bei RK mit gemischter Polarisation
 dominiert die (schon zerlegte) Integration, daher kein Gewinn.
+
+## M12: Abnahme der Wheels auf dem Anwenderrechner (Windows 11, RTX 3090), v0.11.0
+
+CI-Artefakte von `wheels.yml` (Lauf 42026239722): `fouriergrating-0.11.0-cp311-win_amd64` und
+`fouriergrating_cuda12-0.11.0-cp311-win_amd64` in einer frischen venv; Abhängigkeiten von PyPI
+(`nvidia-cuda-runtime-cu12` 12.9.79, `nvidia-cublas-cu12` 12.9.2.10, `nvidia-cusolver-cu12` 11.7.5.82); `CUDA_PATH`
+nicht gesetzt (die DLLs kommen nur aus den Pip-Paketen).
+
+| Prüfung | Ergebnis |
+|---|---|
+| `fg.core_variant()`, `fg.cuda_available()` | `"cuda12"`, `True` |
+| V10-Lochgitter (λ = 1,39 µm), `backend = cpu` gegen `cuda` (Schwelle 0) | max. Abweichung der Effizienzen 9,3·10⁻¹⁵ (T), 7,2·10⁻¹⁵ (R) |
+| Laufzeit V10, eine Wellenlänge | CPU 16,9 s, GPU 5,3 s (Faktor 3,2) |
+| `pytest tests/python` (mit `FG_FGSOLVE`) | 27 bestanden |
+
+C++: `ctest --preset win-msvc-cuda -R Backend` (MSVC, CUDA 13.4) auf derselben GPU: `CudaEqualsCpu`,
+`CudaSolverEqualsCpu` bestanden (GPU = CPU auf 1e-10).

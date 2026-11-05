@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.11.0] – M12 (Python-Anbindung; CI-Abnahme der Wheels offen)
+## [0.11.0] – M12 (Python-Anbindung)
 
 ### Hinzugefügt
 - `fg::Simulation` (`fg/solvers/simulation.hpp`): Konfiguration einmal parsen, Schichtmodelle über viele Rechnungen
@@ -22,6 +22,11 @@
 - Plan v2.4: Toleranz der Golden Files über Plattformen 1e-11 absolut (statt 1e-13); gemessen Linux-GCC 13 gegen
   MinGW-GCC 16 bis 1,3e-12 (RK Gold-Echelette, V10), MSVC gegen MinGW ≤ 1,2e-14. Gleiche Maschine: bitgleich.
 - Eigen per `FetchContent` nur als Header (Eigens CMake scheiterte auf GitHub-Windows-Runnern an gfortran).
+- `wheels.yml`: `Jimver/cuda-toolkit@v0.2.36` (CUDA 12.6.3).
+
+### Abnahme
+- CI und Wheels grün; CI-Wheels auf dem Windows-Rechner mit RTX 3090: CUDA-Kern geladen (DLLs aus `nvidia-*-cu12`),
+  V10 GPU = CPU auf 9e-15 (5,3 s statt 16,9 s), pytest 27/27.
 
 ## [Unreleased] (vor M12)
 

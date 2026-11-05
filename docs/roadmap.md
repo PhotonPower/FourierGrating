@@ -81,7 +81,7 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
 - [x] Golden Files: `tests/regression/golden/` (alle Beispiele aus `tests/regression/examples.txt`, 17 Stellen),
   Test `Regression.*` (Label `regression`; Standard 1e-11 absolut auf den Effizienzen (Plan v2.4), `FG_REGRESSION_EXACT=1` bitgleich,
   `FG_REGRESSION_UPDATE=1` schreibt neu); erzeugt mit Standardoptionen auf dem Stand 5c037da (= v0.10, bitgleich geprüft)
-- [~] **M12** Python-Anbindung (pybind11, scikit-build-core, Wheel manylinux_2_28, `fg.Simulation`)
+- [x] **M12** Python-Anbindung (pybind11, scikit-build-core, Wheel manylinux_2_28, `fg.Simulation`)
   - [x] MSVC-Port: Presets `win-msvc`, `win-msvc-cuda` (`scripts\msvc.cmd`), Flags `/W4 /permissive- /utf-8`, ohne
     Warnungen; unit, validation, regression grün; `win-msvc-cuda` auf der RTX 3090: `Backend.*` (GPU = CPU) grün
   - [x] `fg::Simulation` (C++): Schichtmodelle über Rechnungen behalten, `setParameter` mit Teil-Neuaufbau
@@ -93,9 +93,12 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
   - [x] pytest `tests/python` (27 Tests, CPU- und CUDA-Kern grün): Beispiele = Golden Files (1e-11), Nahfeld =
     `fgsolve` (1e-12), `set_parameter` bitgleich, zwei Threads = sequentiell, GIL-Freigabe; `docs/python.md`,
     `examples/python/scan_lamellar.py`
-  - [ ] **Offen:** CI-Jobs `windows-msvc`, `python`, `regression` und `wheels.yml` (cibuildwheel, delvewheel,
-    CUDA-Wheel) einmal laufen lassen; Wheels aus den CI-Artefakten in frischer venv installieren; auf dem
-    Anwenderrechner `pip install fouriergrating-cuda12` aus dem Artefakt (CUDA-12-DLLs aus `nvidia-*-cu12`)
+  - [x] CI grün: `build-test`, `regression` (Linux-GCC 13 gegen Golden Files), `windows-msvc` (`/WX`), `python`;
+    `wheels.yml`: manylinux_2_28 und Windows (CPython 3.10–3.13, Tests in frischer venv), `fouriergrating-cuda12`
+    (CUDA 12.6.3)
+  - [x] Anwenderrechner (Windows 11, RTX 3090): CI-Wheels in frischer venv mit `nvidia-*-cu12` (ohne `CUDA_PATH`):
+    `core_variant() == "cuda12"`, V10 GPU = CPU auf 9e-15, pytest 27/27 – Protokoll in `docs/benchmarks.md`
+  - Nicht geprüft: Installation des Linux-Wheels auf AlmaLinux 8–10 (nur im manylinux-Container getestet)
   - MSVC-Port (Wheels unter Windows nur mit MSVC; OpenMP `/openmp:llvm`), Windows-Wheels `fouriergrating` (CPU) und
     `fouriergrating-cuda12` (CUDA-Kern, nvidia-*-cu12 als Abhängigkeiten); Server: Build aus den Quellen
   - Abnahme: Python = `fgsolve` auf 1e-12 für alle Beispiele; GIL-Test; `set_parameter` = Neuaufbau; Wheels (Linux,
