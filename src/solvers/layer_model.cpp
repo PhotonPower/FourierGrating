@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <map>
 #include <memory>
 #include <variant>
 
@@ -156,8 +157,8 @@ class HomogeneousModel final : public LayerModel {
     return mat_.isotropic ? homogeneousIsotropicQ(mat_.eps, map_.size()) : homogeneousTensorQ(mat_.epsTensor, map_.size());
   }
   Mat3C epsAt(double, double, double) const override { return mat_.tensor(); }
-  Vec3D normalAt(double, double) const override { return Vec3D(0, 1, 0); }
-  const NormalFieldCoefficients& NN() const override { return nn_; }
+  Vec3D normalAt(double, double, double) const override { return Vec3D(0, 1, 0); }
+  const NormalFieldCoefficients& NN(double) const override { return nn_; }
 
  private:
   double h_;
@@ -204,8 +205,8 @@ class LamellarModel final : public LayerModel {
     while (k + 1 < tensors_.size() && xr >= l_.breakpoints_um[k + 1]) ++k;
     return tensors_[k];
   }
-  Vec3D normalAt(double, double) const override { return Vec3D(1, 0, 0); }
-  const NormalFieldCoefficients& NN() const override { return nn_; }
+  Vec3D normalAt(double, double, double) const override { return Vec3D(1, 0, 0); }
+  const NormalFieldCoefficients& NN(double) const override { return nn_; }
 
  private:
   Lamellar1DLayer l_;
@@ -255,7 +256,7 @@ class ProfileModel final : public LayerModel {
     if (aniso_) {
       std::vector<Mat3C> tens;
       for (bool b : below) tens.push_back(b ? tb_ : ta_);
-      return anisotropicQ(br, tens, [this](double x) { return normalAt(x, 0.0); }, fac_, dx_, map_);
+      return anisotropicQ(br, tens, [this](double x) { return normalAt(x, 0.0, 0.0); }, fac_, dx_, map_);
     }
     std::vector<cplx> ve;
     for (bool b : below) ve.push_back(b ? epsB_ : epsA_);
@@ -267,11 +268,11 @@ class ProfileModel final : public LayerModel {
                                             : qFFFIsotropic(sc, map_, fac_ == Factorization::FFF_sym);
   }
   Mat3C epsAt(double x, double y, double) const override { return profileValue(p_, x, dx_) > y ? tb_ : ta_; }
-  Vec3D normalAt(double x, double) const override {
+  Vec3D normalAt(double x, double, double) const override {
     const double sl = profileSlope(p_, x, dx_);
     return Vec3D(-sl, 1.0, 0.0) / std::sqrt(1.0 + sl * sl);
   }
-  const NormalFieldCoefficients& NN() const override { return nf_; }
+  const NormalFieldCoefficients& NN(double) const override { return nf_; }
 
  private:
   Profile1DLayer p_;
@@ -555,13 +556,18 @@ class CrossSectionModel final : public LayerModel {
   }
   /// Rank-1 field of Algorithm NF (variant B, anisotropic reconstruction): principal axis of the
   /// bilinearly interpolated projector b b^T (sign-free interpolation).
-  Vec3D normalAt(double x, double z) const override {
+  Vec3D normalAt(double x, double, double z) const override {
+    if (raster().has3D()) {  // tilted walls (SectionedLayer): principal axis of the 3 x 3 projector
+      Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(interpolate3(x, z, true));
+      return es.eigenvectors().col(2);
+    }
     const auto P = interpolate(x, z, true);
     const double th = 0.5 * std::atan2(2 * P[1], P[0] - P[2]);
     return Vec3D(std::cos(th), 0.0, std::sin(th));
   }
-  Eigen::Matrix3d projectorAt(double x, double z) const override {
-    if (rank1_) return LayerModel::projectorAt(x, z);
+  Eigen::Matrix3d projectorAt(double x, double y, double z) const override {
+    if (rank1_) return LayerModel::projectorAt(x, y, z);
+    if (raster().has3D()) return interpolate3(x, z, false);
     const auto P = interpolate(x, z, false);
     Eigen::Matrix3d M = Eigen::Matrix3d::Zero();
     M(0, 0) = P[0];
@@ -571,7 +577,7 @@ class CrossSectionModel final : public LayerModel {
   }
   bool rank1Projector() const override { return rank1_; }
   /// Coefficients of the reconstruction projector: tensor field (isotropic) or b b^T (variant B).
-  const NormalFieldCoefficients& NN() const override {
+  const NormalFieldCoefficients& NN(double) const override {
     if (nfReady_) return nf_;
     if (!rank1_) {
       nf_ = rasterCoefficients(raster(), map_);
@@ -592,6 +598,17 @@ class CrossSectionModel final : public LayerModel {
       nf_.NN[0][2] = fourier::gridCoefficients2D(xz, R.Gx, R.Gz, Px, Pz);
       nf_.NN[2][0] = nf_.NN[0][2];
       nf_.NN[2][2] = fourier::gridCoefficients2D(zz, R.Gx, R.Gz, Px, Pz);
+      if (R.has3D()) {
+        std::vector<double> xy(n), yy(n), yz(n);
+        for (std::size_t j = 0; j < n; ++j) {
+          xy[j] = R.nx[j] * R.ny[j];
+          yy[j] = R.ny[j] * R.ny[j];
+          yz[j] = R.ny[j] * R.nz[j];
+        }
+        nf_.NN[0][1] = nf_.NN[1][0] = fourier::gridCoefficients2D(xy, R.Gx, R.Gz, Px, Pz);
+        nf_.NN[1][1] = fourier::gridCoefficients2D(yy, R.Gx, R.Gz, Px, Pz);
+        nf_.NN[1][2] = nf_.NN[2][1] = fourier::gridCoefficients2D(yz, R.Gx, R.Gz, Px, Pz);
+      }
     }
     nfReady_ = true;
     return nf_;
@@ -630,7 +647,7 @@ class CrossSectionModel final : public LayerModel {
         if (differs[k] && m0 != 27)  // P_T does not depend on the material
           diff[k].assign(static_cast<std::size_t>(nb), std::vector<cplx>(n));
       for (std::size_t j = 0; j < n; ++j) {
-        const Vec3D N(R.nx[j], 0.0, R.nz[j]);
+        const Vec3D N(R.nx[j], R.has3D() ? R.ny[j] : 0.0, R.nz[j]);
         anisoEval(Factorization::FFF_B, tensors_[0], N, vb.data());
         for (int m = m0; m < m1; ++m) bg[static_cast<std::size_t>(m - m0)][j] = vb[static_cast<std::size_t>(m)];
         for (std::size_t k = 0; k < K; ++k) {
@@ -662,6 +679,30 @@ class CrossSectionModel final : public LayerModel {
     return R_;
   }
   /// Bilinear periodic interpolation of (P_xx, P_xz, P_zz): rank-1 b b^T or the tensor field.
+  /// 3D raster: bilinear periodic interpolation of the full 3 x 3 projector (rank-1 b b^T or tensor).
+  Eigen::Matrix3d interpolate3(double x, double z, bool rank1) const {
+    const NormalFieldRaster& R = raster();
+    const double u = x / dx_ * R.Gx, w = z / dz_ * R.Gz;
+    const double fu = std::floor(u), fw = std::floor(w);
+    const double tu = u - fu, tw = w - fw;
+    Eigen::Matrix3d M = Eigen::Matrix3d::Zero();
+    for (int a = 0; a < 2; ++a)
+      for (int b = 0; b < 2; ++b) {
+        const long i = ((static_cast<long>(fu) + a) % R.Gx + R.Gx) % R.Gx;
+        const long k = ((static_cast<long>(fw) + b) % R.Gz + R.Gz) % R.Gz;
+        const std::size_t j = static_cast<std::size_t>(i * R.Gz + k);
+        const double wt = (a ? tu : 1 - tu) * (b ? tw : 1 - tw);
+        if (rank1) {
+          const Vec3D n(R.nx[j], R.ny[j], R.nz[j]);
+          M += wt * n * n.transpose();
+        } else {
+          Eigen::Matrix3d P;
+          P << R.nxx[j], R.nxy[j], R.nxz[j], R.nxy[j], R.nyy[j], R.nyz[j], R.nxz[j], R.nyz[j], R.nzz[j];
+          M += wt * P;
+        }
+      }
+    return M;
+  }
   std::array<double, 3> interpolate(double x, double z, bool rank1) const {
     const NormalFieldRaster& R = raster();
     const double u = x / dx_ * R.Gx, w = z / dz_ * R.Gz;
@@ -697,6 +738,63 @@ class CrossSectionModel final : public LayerModel {
   mutable NormalFieldCoefficients nf_;
   mutable NormalFieldRaster R_;
   QBlocks Q_;
+};
+
+// ------------------------------------------------------------------ height-dependent cross-sections (M13)
+/// SectionedLayer (Plan section "M13: Hoehenabhaengige Schichtmodelle"): one CrossSectionModel per
+/// height, built on demand from the provider's cross-section and cached (key: y bit-exact; the RK
+/// stage nodes and RCWA slice centres are reused by the near-field reconstruction).
+class SectionedModel final : public LayerModel {
+ public:
+  SectionedModel(const Stack& st, const SectionedLayer& l, Factorization fac, const IndexMap& map, int defaultSlices)
+      : l_(l), fac_(fac), map_(map) {
+    FG_REQUIRE(st.is2D(), "sectioned layers need a 2D stack (period_um.z > 0)");
+    FG_REQUIRE(static_cast<bool>(l.provider), "sectioned layer: no section provider");
+    h_ = l.provider->thickness_um();
+    FG_REQUIRE(h_ > 0, "sectioned layer: thickness must be positive");
+    stack_.dx_um = st.dx_um;
+    stack_.dz_um = st.dz_um;
+    stack_.materials = st.materials;
+    rcwaSlices = l.slices > 0 ? l.slices : defaultSlices;
+    // permittivities for the spectral radius estimate: background and the regions at a few heights
+    std::vector<std::string> names{l.background};
+    for (double t : {0.02, 0.5, 0.98})
+      for (const auto& r : l.provider->section(t * h_).regions)
+        if (std::find(names.begin(), names.end(), r.material) == names.end()) names.push_back(r.material);
+    for (const auto& n : names) {
+      const Material& m = st.material(n);
+      epsList.push_back(m.isotropic ? m.eps : m.epsTensor.diagonal().mean());
+    }
+    warnings = at(0.5 * h_).warnings;
+  }
+  double thickness_um() const override { return h_; }
+  bool yInvariant() const override { return false; }
+  QBlocks Q(double y) const override { return at(y).Q(0.0); }
+  Mat3C epsAt(double x, double y, double z) const override { return at(y).epsAt(x, 0.0, z); }
+  Vec3D normalAt(double x, double y, double z) const override { return at(y).normalAt(x, 0.0, z); }
+  Eigen::Matrix3d projectorAt(double x, double y, double z) const override { return at(y).projectorAt(x, 0.0, z); }
+  bool rank1Projector() const override { return at(0.5 * h_).rank1Projector(); }
+  const NormalFieldCoefficients& NN(double y) const override { return at(y).NN(0.0); }
+
+ private:
+  const LayerModel& at(double y) const {
+    const double yc = std::clamp(y, 1e-14 * h_, h_ * (1 - 1e-14));
+    const auto it = cache_.find(yc);
+    if (it != cache_.end()) return *it->second;
+    if (cache_.size() >= 4096) cache_.clear();  // bounds the memory; references are used immediately
+    CrossSection cs = l_.provider->section(yc);
+    auto geo = std::make_shared<ContourGeometry>(h_, l_.background, std::move(cs.regions), std::move(cs.chains),
+                                                 l_.normalField, stack_.dx_um, stack_.dz_um, "sectioned layer");
+    auto m = std::make_unique<CrossSectionModel>(stack_, std::move(geo), fac_, map_, "sectioned layer");
+    return *cache_.emplace(yc, std::move(m)).first->second;
+  }
+
+  SectionedLayer l_;
+  Factorization fac_;
+  IndexMap map_;
+  Stack stack_;  ///< periods and materials
+  double h_ = 0;
+  mutable std::map<double, std::unique_ptr<LayerModel>> cache_;
 };
 
 // ------------------------------------------------------------------ profile y = g(x, z) (2D)
@@ -796,8 +894,8 @@ class Profile2DModel final : public LayerModel {
   Mat3C epsAt(double x, double y, double z) const override {
     return profileValue(line(z), x, dx_) > y ? tb_ : ta_;
   }
-  Vec3D normalAt(double x, double z) const override { return profile2DNormal(p_, dx_, dz_, x, z); }
-  const NormalFieldCoefficients& NN() const override { return nf_; }
+  Vec3D normalAt(double x, double, double z) const override { return profile2DNormal(p_, dx_, dz_, x, z); }
+  const NormalFieldCoefficients& NN(double) const override { return nf_; }
 
  private:
   /// The 1D profile x -> g(x, z) of the line z = const.
@@ -946,6 +1044,8 @@ std::unique_ptr<LayerModel> buildLayerModel(const Stack& stack, std::size_t k, c
   if (const auto* gl = std::get_if<Polygon2DLayer>(&le.spec))
     return std::make_unique<CrossSectionModel>(stack, std::make_shared<PolygonGeometry>(*gl, stack.dx_um, stack.dz_um),
                                                le.factorization, map, "polygon2d");
+  if (const auto* sl = std::get_if<SectionedLayer>(&le.spec))
+    return std::make_unique<SectionedModel>(stack, *sl, le.factorization, map, defaultSlices);
   if (const auto* cl = std::get_if<Contour2DLayer>(&le.spec))
     return std::make_unique<CrossSectionModel>(
         stack,

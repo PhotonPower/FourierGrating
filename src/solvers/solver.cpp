@@ -553,7 +553,7 @@ class StackSolver final : public Solver {
         const QBlocks Q = e->model->Q(yq);
         VecC D[3];
         for (int a = 0; a < 3; ++a) D[a] = Q(a, 0) * E[0] + Q(a, 1) * E[1] + Q(a, 2) * E[2];
-        const auto& nn = e->model->NN();
+        const auto& nn = e->model->NN(yq);
         for (int a = 0; a < 3; ++a) {
           dn[a] = VecC::Zero(nf);
           et[a] = E[a];
@@ -580,7 +580,7 @@ class StackSolver final : public Solver {
             const Mat3C eps = e->model->epsAt(x_um, yq, z_um);
             Vec3C Ex;
             if (e->model->rank1Projector()) {
-              const ProjectorSet ps = projectorMatrices(eps, e->model->normalAt(x_um, z_um));
+              const ProjectorSet ps = projectorMatrices(eps, e->model->normalAt(x_um, yq, z_um));
               Ex = ps.H1 * etx + ps.invXi * dnx;
             } else {
               // isotropic, general projector field P: E = e_t + d_n / eps holds for any P

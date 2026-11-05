@@ -19,8 +19,8 @@ dokumentierten Korrekturen.
 | **Nahfeld** (horizontaler + vertikaler Schnitt) | M6 (1D), M9 (2D) | M6, M9 |
 | **CUDA** (RTX 6000 Ada, sm_89) | M10 | M10 |
 
-> **Status (v0.11):** M0–M12 umgesetzt: 1D und 2D, isotrop und anisotrop, RK und RCWA, Nahfeld, CUDA-Backend,
-> Scans/Sweeps, Anwenderhandbuch (`docs/user_guide.md`), Python-Paket `fouriergrating` (`docs/python.md`). Offen auf dem Zielsystem: GPU-Abnahme (M10) und die
+> **Status (v0.12):** M0–M13 umgesetzt: 1D und 2D, isotrop und anisotrop, RK und RCWA, Nahfeld, CUDA-Backend,
+> Scans/Sweeps, Anwenderhandbuch (`docs/user_guide.md`), Python-Paket `fouriergrating` (`docs/python.md`), gekrümmte Querschnitte (`contour2d`). Offen auf dem Zielsystem: GPU-Abnahme (M10) und die
 > quantitative V10-Konvergenzstudie (siehe `docs/roadmap.md`).
 
 ## Dokumentation

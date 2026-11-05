@@ -214,7 +214,7 @@ TEST(Profile2DModel, EggCrateCoefficients) {
       EXPECT_NEAR(std::abs(coef(Q(0, 0), map, pp, qq) - ref), 0.0, 1e-7) << pp << "," << qq;
     }
   // signed normal field (Plan eq:N2d): mean of N_y = 1/sqrt(1 + |grad g|^2)
-  EXPECT_TRUE(models[0]->NN().hasSigned);
+  EXPECT_TRUE(models[0]->NN(0.0).hasSigned);
   double ny = 0;
   const int G = 400;
   for (int i = 0; i < G; ++i)
@@ -224,5 +224,5 @@ TEST(Profile2DModel, EggCrateCoefficients) {
       const double gz = -0.1 * Kz * std::sin(Kz * z) * (1 + std::cos(K * x));
       ny += 1.0 / std::sqrt(1 + gx * gx + gz * gz);
     }
-  EXPECT_NEAR(models[0]->NN().N[1](0, 0).real(), ny / (G * G), 1e-10);
+  EXPECT_NEAR(models[0]->NN(0.0).N[1](0, 0).real(), ny / (G * G), 1e-10);
 }

@@ -35,6 +35,8 @@ JSON-Konfiguration (µm, Grad)
 | `field` | Schnitte (`FieldCut`), NPY/JSON-Ausgabe | 1D und 2D fertig |
 | `linalg`, `cuda` | Backend-Schnittstelle, CPU (Eigen), CUDA (cuBLAS/cuSOLVER Host-API), Dispatch | fertig; GPU-Abnahme auf dem Zielsystem offen |
 | `io` | JSON-Konfiguration, CSV-Ausgabe | alle Schichttypen |
+| `geometry/contour`, `fourier/contour` | Rationale Bézier-Konturen, Regionen (Kreis, Ellipse, NURBS, Löcher), Koeffizienten aus Konturintegralen (eq:contour) | M13 |
+| `geometry/section`, `geometry/boundary` | `SectionProvider`/`CrossSection` für höhenabhängige Querschnitte (M14: CAD), Randstichproben für Algorithmus NF | M13 |
 | `solvers/simulation` | `fg::Simulation`: Konfiguration und Schichtmodelle über viele Rechnungen, `setParameter` mit Teil-Neuaufbau | M12 |
 | `python/bindings` | pybind11-Modul `_core` (nur Umwandlung, GIL freigegeben), Pakete `fouriergrating`, `fouriergrating_cuda12` (`docs/python.md`) | M12 |
 

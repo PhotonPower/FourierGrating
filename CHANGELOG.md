@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.12.0] – M13 (Gekrümmte Querschnitte, höhenabhängige Schichtmodelle)
+
+### Hinzugefügt
+- `geometry::BezierSegment`, `Contour2D` (Polygon, Kreis/Ellipse als rationale Quadratiken, NURBS → Bézier nach
+  Piegl–Tiller A5.6), `Region` (äußere Kontur, Löcher); `quadrature::gaussLegendre`.
+- `fourier::regionCoefficients`: exakte Koeffizienten aus Konturintegralen (Plan eq:contour, eq:contour0), adaptive
+  Gauß-Legendre-Quadratur je Bézierstück, alle (p, q) über zwei Matrixprodukte.
+- Algorithmus NF aus Randstichproben (`BoundarySample`, `BoundaryChain`, `normalFieldRaster(chains, …)`):
+  Hüllkörperhierarchie, 3D-Normalen, 3×3-Projektorfeld, `rasterCoefficients`; auf Polygonen bitgleich zum bisherigen Pfad.
+- Schichttyp `contour2d` (JSON: `circle`, `ellipse`, `polygon_um`, `nurbs`, `holes`; Disjunktheitsprüfung),
+  Beispiel `examples/v15_circular_pillars.json` mit Golden File.
+- `SectionedLayer` + `SectionProvider`/`CrossSection` (`fg/geometry/section.hpp`): Querschnitte, die sich mit y
+  ändern; Modell je Höhe mit Cache. Grundlage für M14.
+- Tests `Contour.*`, `NormalFieldSamples.*`, V15 (`test_v15_contour.cpp`), V16a (`test_v16a_sectioned.cpp`).
+
+### Geändert
+- `detail::LayerModel::normalAt(x, y, z)`, `projectorAt(x, y, z)`, `NN(y)` (bisher ohne y); alle Aufrufer übergeben
+  die Höhe. `Polygon2DModel` → `CrossSectionModel` mit Geometrie-Schnittstelle (Polygon/Kontur), bitgleich.
+- Gauß-Glättung mit vorberechneten periodischen Indizes (bitgleich, schneller).
+- `tests/regression/examples.txt` löst bei Änderung den Neubau von `test_regression` aus.
+- Plan v2.5 (Präzisierungen M13: BVH, Ketten, V15 zweistufige Richardson, V16a Laurent).
+
 ## [0.11.0] – M12 (Python-Anbindung)
 
 ### Hinzugefügt

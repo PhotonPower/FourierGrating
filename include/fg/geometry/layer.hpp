@@ -4,12 +4,14 @@
 
 #include <array>
 #include <functional>
+#include <memory>
 #include <string>
 #include <variant>
 #include <vector>
 
 #include "fg/geometry/contour.hpp"
 #include "fg/geometry/material.hpp"
+#include "fg/geometry/section.hpp"
 
 namespace fg {
 
@@ -87,8 +89,20 @@ struct Contour2DLayer {
   NormalFieldOptions normalField;
 };
 
+/// Layer whose cross-section changes with y and cannot be written as a profile y = g(x, z) (Plan
+/// section "M13: Hoehenabhaengige Schichtmodelle"; CAD slicer M14). The provider delivers regions and
+/// boundary samples per height; coefficients, normal fields and Q(y) are computed on demand and cached
+/// (key: y bit-exact). RK evaluates at the stage nodes, RCWA at the slice centres. Factorizations as
+/// Contour2D. Not available in JSON (C++ API; M14: layer type "cad").
+struct SectionedLayer {
+  std::shared_ptr<const SectionProvider> provider;
+  std::string background;
+  int slices = 0;  ///< RCWA staircase slices (0 = solver default)
+  NormalFieldOptions normalField;
+};
+
 using LayerSpec = std::variant<HomogeneousLayer, Lamellar1DLayer, Profile1DLayer, Polygon2DLayer,
-                               Profile2DLayer, Contour2DLayer>;
+                               Profile2DLayer, Contour2DLayer, SectionedLayer>;
 
 struct LayerEntry {
   LayerSpec spec;

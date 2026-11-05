@@ -21,6 +21,8 @@ der Literatur. Konfigurationen liegen in `examples/`.
 | V11 | Al-Sinus 40°, ν = 1,3+7,6i: Li-Lamellentreppe vs. FFF (Buch Abb. VI.10) | Treppe langsam, FFF schnell | qualitativ |
 | V13 | Gold-Sinus TM: d = 1 µm, a = 0,25 µm, λ = 0,6328 µm, ν = 0,2+3,4i, Φ = 20°, Ordnung −1 und 0 | C-Methode (intern): e₋₁ = 0,26614, e₀ = 0,02362 | FFF_rig 1e-3, FFF_sym 3e-3; Buchvariante versagt |
 | V14 | Gold-Dreieck TM (Spitze bei x = 0,7 µm), sonst wie V13 | **offen** – keine belastbare Referenz; geprüft: Σe < 1 | – |
+| V15 | Säulen mit Kreisquerschnitt (n = 3, h = 0,2 µm, R = 0,14 µm, Periode 0,5 µm, N = 4): `contour2d` (exakter Kreis) gegen `polygon2d` mit L = 16…512 Ecken, Laurent | Fehler ∝ L⁻² (Verhältnis 4,00); zweistufige Richardson (L = 128, 256, 512) = Contour2D; RK = RCWA | 1e-8 (gemessen ≤ 1,2e-10); 1e-8 |
+| V16a | Geneigte Wand ohne CAD: `SectionedLayer` (Kegelstumpf R 0,17 → 0,07 µm, h 0,2 µm; Kugelkappe ρ 0,25 µm, h 0,12 µm; n = 2 auf Glas) gegen `Profile2D` mit g(x, z), RK tol 1e-9, Laurent, N = 2 | gleiche Effizienzen, Energie verlustfrei | 1e-6 (gemessen ≤ 1e-15); 1e-10 |
 | V12 | Nahfeld: Airy-Schicht analytisch (RK, RCWA); Stetigkeit an allen Element-/Scheibengrenzen; Flusskonstanz in verlustfreien Lamellenstapeln; RK-Feld = RCWA-Feld; D_x-Stetigkeit an einer Lamellenwand | analytisch / Stetigkeit / Fluss = Σ T | 1e-12; 1e-6; 1e-12 (RCWA), 1e-8 (RK); 1e-7; FFF < 0,1 (direkt > 1) |
 
 Zusätzliche Kontrollen aus der Kapitelprüfung (Al-Sinus V4, TM, FFF-Treppe):

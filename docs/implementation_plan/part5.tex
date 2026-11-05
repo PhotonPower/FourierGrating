@@ -230,6 +230,14 @@ Algorithmus~NF (Abschnitt~\ref{sec:fff}) wird so verallgemeinert, dass er statt 
         Anforderung: $512^2$ Raster mit $10^4$ Stichproben in unter 1\,s auf einem Kern.
         Zwischen zwei benachbarten Stichproben wird der Fußpunkt auf der Sehne bestimmt und die Normale linear
         interpoliert und normiert.
+        \textbf{Umsetzung (v2.5):} statt des Bucket-Gitters eine Hüllkörperhierarchie über alle neun periodischen Bilder
+        der Sehnen (Abfrage $O(\log n)$ unabhängig vom Abstand zum Rand; Startschranke aus dem Nachbarpunkt); gemessen
+        $512^2$/$10^4$: 0,47\,s (GCC), 0,68\,s (MSVC). Auf die Kandidaten bis zum kleinsten Abstand $+8\cdot10^{-12}L$
+        wird die Gleichstandslogik von Algorithmus~NF in der ursprünglichen Reihenfolge angewendet (dadurch bitgleich).
+        In der Ebene zählt wie bisher die Richtung zum Fußpunkt, $n_y$ wird entlang der Sehne interpoliert
+        (für $n_y=0$ arithmetisch identisch). Stichproben tragen ein Kennzeichen \enquote{exakte Sehne} (Polygonkante:
+        konstante Normale, Materialprüfung wie bisher mit 64 Teilstücken); bei Kurvensehnen wird an der Sehnenmitte
+        mit $10^{-2}$ Rasterabständen Versatz geprüft (Sehnenabweichung $\le10^{-3}$).
   \item Tensorvariante: geglättet wird das $3\times3$-Projektorfeld $\mathbf n\mathbf n^T$; Koeffizienten aller sechs
         Komponenten $N_iN_j$. Für $n_{s,y}=0$ ist das Ergebnis bitgleich mit der bisherigen $2\times2$-Variante
         (Regressionstest gegen \verb|Polygon2D|).
@@ -246,7 +254,7 @@ $y$-invariante Schichten und Profile ignorieren $y$ (Profile: Normale überträg
 alle Aufrufer (Q-Matrizen, FFF-konsistente Rekonstruktion, Nahfeld) übergeben die Höhe. Neues Modell
 \verb|detail::SectionedLayer| für Schichten, deren Querschnitt sich mit $y$ ändert:
 {\footnotesize\begin{verbatim}
-struct CrossSection { std::vector<Region> regions; std::vector<BoundarySample> samples; };
+struct CrossSection { std::vector<Region> regions; std::vector<BoundaryChain> chains; };  // v2.5: Ketten
 class SectionProvider {                       // M14: Nurbforge; Tests: analytische Provider
  public: virtual CrossSection section(double y_um) const = 0;   // y relativ zur Schichtunterkante
          virtual double thickness_um() const = 0; };
@@ -270,9 +278,17 @@ und Kugelkappe. Beide sind auch als \verb|Profile2D| mit Funktion $g(x,z)$ darst
   \item \textbf{V15} (Säulen mit Kreisquerschnitt): \verb|Contour2D| mit exaktem Kreis gegen \verb|Polygon2D| mit $L$ Ecken
         ($L=16,32,\dots,512$): Abweichung der Effizienzen fällt wie $O(L^{-2})$, Richardson-Extrapolation stimmt mit
         \verb|Contour2D| auf $10^{-8}$ überein. RK $=$ RCWA ($y$-invariant).
+        \emph{Präzisierung v2.5:} Laurent-Faktorisierung; die Fehlerentwicklung enthält nur gerade Potenzen von $1/L$,
+        eine Richardson-Stufe ($L^{-2}$, aus $L=256,512$) lässt $O(L^{-4})\approx10^{-8}$ übrig, zwei Stufen
+        ($L=128,256,512$) erreichen $\le1{,}2\cdot10^{-10}$.
   \item \textbf{V16a} (geneigte Wand ohne CAD): \verb|SectionedLayer| mit Kegelstumpf-Provider gegen \verb|Profile2D|
         (gleiche Geometrie, RK, gleiche Faktorisierung): $10^{-6}$ bei \verb|rk.tol| $=10^{-9}$; Energieerhaltung bei
         verlustfreiem Material $10^{-10}$.
+        \emph{Präzisierung v2.5:} gleiche Faktorisierung $=$ Laurent. Mit FFF verwenden die beiden Schichttypen
+        konstruktionsbedingt verschiedene Normalenfelder (\verb|Profile2D|: Profilnormale von $g$, auf den flachen
+        Teilen $(0,1,0)$; \verb|SectionedLayer|: Algorithmus~NF, Normale der nächsten Wand); sie stimmen erst für
+        $N\to\infty$ überein. Gemessen ($N=2$): Kegelstumpf $5\cdot10^{-16}$, Kugelkappe $1\cdot10^{-15}$. Zusätzlich
+        FFF\_sym mit 3D-Normalen: Energie $10^{-10}$, RK gegen RCWA-Treppe (60 Scheiben) $2\cdot10^{-5}$.
   \item Alle bisherigen Tests bitgleich (Golden Files).
 \end{itemize}
 

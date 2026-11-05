@@ -104,10 +104,20 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
   - Abnahme: Python = `fgsolve` auf 1e-12 für alle Beispiele; GIL-Test; `set_parameter` = Neuaufbau; Wheels (Linux,
     Windows) aus CI installierbar; MSVC-CI grün; auf dem Windows-Rechner `fg.cuda_available()` und GPU = CPU;
     `docs/python.md`
-- [ ] **M13** Gekrümmte Querschnitte: Konturkoeffizienten (Plan eq:contour), `Contour2D`, Algorithmus NF mit
+- [x] **M13** Gekrümmte Querschnitte: Konturkoeffizienten (Plan eq:contour), `Contour2D`, Algorithmus NF mit
   Randstichproben und 3D-Normalen, `LayerModel` mit y-abhängigem Normalenfeld, `SectionedLayer` + `SectionProvider`
   - Abnahme: Unit-Tests (Polygon 1e-14, Kreis/Bessel 1e-13, NF bitgleich), V15 (Kreissäulen), V16a (Kegelstumpf
     gegen Profile2D 1e-6), Golden Files bitgleich
+  - Erledigt: `geometry::BezierSegment/Contour2D/Region` (Kreis, Ellipse exakt, NURBS nach A5.6),
+    `fourier::regionCoefficients` (adaptive Gauß-Quadratur, Matrixprodukte) – `tests/unit/test_contour.cpp`;
+    Algorithmus NF aus Randstichproben (BVH statt Bucket-Gitter, 3D-Normalen, 3×3-Projektor; auf Polygonen bitgleich,
+    512²/10⁴ in 0,47 s GCC / 0,68 s MSVC) – `test_normal_field_samples.cpp`; Schichttyp `contour2d` (JSON,
+    `CrossSectionModel` gemeinsam mit `polygon2d`), Beispiel `examples/v15_circular_pillars.json` (Golden File);
+    `LayerModel::normalAt/projectorAt/NN` mit y; `SectionedLayer` + `SectionProvider` (`fg/geometry/section.hpp`,
+    Cache je Höhe)
+  - V15: O(L⁻²) (Verhältnis 4,00), zweistufige Richardson ≤ 1,2e-10; RK = RCWA 1e-8 – `test_v15_contour.cpp`
+  - V16a (Laurent, Plan v2.5): Kegelstumpf 5e-16, Kugelkappe 1e-15 gegen Profile2D, Energie 1e-10; FFF_sym mit
+    3D-Normalen; Nahfeld folgt dem Querschnitt – `test_v16a_sectioned.cpp`. Golden Files bitgleich
 - [ ] **M14** CAD-Slicer mit Nurbforge
   - Vorleistung in Nurbforge v0.6.0 (eigener PR): `nf::section(Shell, Plane)`, `nf::critical_heights`,
     `nf::is_extrusion_band`, STEP-Namen lesen/schreiben, `StepLengthUnit::Micrometre`, Thread-Sicherheit

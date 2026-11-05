@@ -26,18 +26,19 @@ class LayerModel {
   virtual QBlocks Q(double y_um) const = 0;
   /// Pointwise permittivity tensor at (x, y, z) (y relative to the layer bottom).
   virtual Mat3C epsAt(double x_um, double y_um, double z_um) const = 0;
-  /// Unit normal (rank-1 field, sign arbitrary) used by the factorization and by the anisotropic
-  /// FFF-consistent reconstruction (Plan eq:recon).
-  virtual Vec3D normalAt(double x_um, double z_um) const = 0;
-  /// Projector field P(x, z) whose coefficients are NN() (default N N^T). Isotropic 2D cross-
+  /// Unit normal (rank-1 field, sign arbitrary) at (x, y, z) (y relative to the layer bottom) used by
+  /// the factorization and by the anisotropic FFF-consistent reconstruction (Plan eq:recon). Layers
+  /// whose cross-section does not change with y ignore y (Plan section "M13: Hoehenabhaengige Schichtmodelle").
+  virtual Vec3D normalAt(double x_um, double y_um, double z_um) const = 0;
+  /// Projector field P(x, y, z) whose coefficients are NN(y) (default N N^T). Isotropic 2D cross-
   /// sections use the tensor field of Algorithm NF (not a projector, rank1Projector() = false).
-  virtual Eigen::Matrix3d projectorAt(double x_um, double z_um) const {
-    const Vec3D N = normalAt(x_um, z_um);
+  virtual Eigen::Matrix3d projectorAt(double x_um, double y_um, double z_um) const {
+    const Vec3D N = normalAt(x_um, y_um, z_um);
     return N * N.transpose();
   }
   virtual bool rank1Projector() const { return true; }
-  /// Fourier coefficients of P_ij = N_i N_j (FFF-consistent reconstruction).
-  virtual const NormalFieldCoefficients& NN() const = 0;
+  /// Fourier coefficients of P_ij = N_i N_j at height y (FFF-consistent reconstruction).
+  virtual const NormalFieldCoefficients& NN(double y_um) const = 0;
   /// Permittivities occurring in the layer (spectral radius estimate).
   std::vector<cplx> epsList;
   /// Number of RCWA staircase slices (y-invariant layers: 1).
