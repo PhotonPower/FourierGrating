@@ -77,5 +77,5 @@ Diese Datei gilt für jeden, der an FourierGrating arbeitet. Lies sie vollständ
 ## 8. Zielsystem
 
 AlmaLinux 10 (x86_64, GCC 14), CMake ≥ 3.24, CUDA ≥ 12.6 Update 2 (für `cusolverDnXgeev`),
-GPU NVIDIA RTX 6000 Ada (sm_89, 48 GB); zusätzlich Windows mit RTX 3090 (sm_86, 24 GB) für M15/M16. Die FP64-Leistung dieser GPU ist begrenzt; der CPU-Pfad
+GPU NVIDIA RTX 6000 Ada (sm_89, 48 GB); Anwenderinstallation: Windows 11 mit RTX 3090 (sm_86, 24 GB), Python-Wheel, GPU-Standard FP32 (M16). Die FP64-Leistung dieser GPU ist begrenzt; der CPU-Pfad
 bleibt Referenz und muss immer funktionieren (CI baut nur CPU).

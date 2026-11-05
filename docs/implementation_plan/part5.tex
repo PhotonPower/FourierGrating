@@ -12,8 +12,13 @@ Fourierdarstellung für metallische Strukturen. Es gelten alle Regeln der Abschn
 
 \subsection{Annahmen und Festlegungen}
 \begin{enumerate}[nosep]
-  \item \enquote{PML für iso Strukturen} wird als \emph{isolierte}, also aperiodische Strukturen gelesen
-        (Abschnitt~\ref{sec:pml}). Sollte \enquote{isotrop} gemeint sein, entfällt M18 in dieser Form.
+  \item \enquote{PML für iso Strukturen} meint \emph{isolierte}, also aperiodische Strukturen wie Steg, Graben und
+        Kontaktloch (vom Projektinhaber bestätigt, Abschnitt~\ref{sec:pml}).
+  \item Zwei Installationsarten: \textbf{Server} AlmaLinux~10 mit RTX 6000 Ada (Build aus den Quellen, GPU-Standard FP64)
+        und \textbf{Anwender} Windows~11 mit RTX~3090 (Python-Wheel, GPU-Standard FP32, M16).
+  \item CAD-Geometrie wird von einem Sprachmodell über Nurbforge (Ollama-Werkzeuge) erzeugt und mit dem nativen
+        STEP-Schreiber von Nurbforge ausgegeben. Der Slicer muss fehlerhafte Geometrie daher sicher erkennen und
+        maschinenlesbar melden, damit die Prüfschleife des Sprachmodells sie korrigieren kann (Abschnitt~\ref{sec:cad}).
   \item \enquote{Nicht gleichmäßige Fouriertransformation für Metalle} wird als adaptive räumliche Auflösung
         (ASR, Koordinatentransformation $x=f(X)$) umgesetzt (Abschnitt~\ref{sec:ctrans}). Das ist die in der
         FMM-Literatur etablierte Form; eine NUFFT im numerischen Sinn löst das Konvergenzproblem an
@@ -69,12 +74,27 @@ was \verb|fgsolve| kann, ohne Umweg über Dateien, und das für Optimierungsschl
         \verb|python/fouriergrating/| (Python-Paket), \verb|tests/python/| (pytest), \verb|pyproject.toml| im Wurzelverzeichnis.
   \item Wheels per cibuildwheel: \verb|manylinux_2_28| x86\_64 (installiert auf AlmaLinux 8--10), CPython 3.10--3.13,
         CPU-Variante mit OpenMP (\verb|libgomp| bündelt auditwheel). Workflow \verb|.github/workflows/wheels.yml| für
-        \verb|v*|-Tags, Artefakte wie bei Nurbforge. Windows-Wheel: optional, später (der Windows-Build nutzt bisher MinGW;
-        MSVC-Kompatibilität ist vorher zu prüfen).
-  \item CUDA: kein CUDA im CI-Wheel. Lokaler Build auf dem Zielsystem (im Benutzerhandbuch dokumentieren):
-{\footnotesize\begin{verbatim}
-pip install . -C cmake.define.FG_ENABLE_CUDA=ON -C cmake.define.CMAKE_CUDA_ARCHITECTURES="86;89"
-\end{verbatim}}
+        \verb|v*|-Tags, Artefakte wie bei Nurbforge.
+  \item \textbf{Windows-Wheel (Pflicht, Anwenderinstallation Windows~11 + RTX~3090):} Python unter Windows ist mit MSVC
+        gebaut, deshalb werden die Wheels mit MSVC (Visual Studio 2022, wie Nurbforge) gebaut; der MinGW-Pfad bleibt für
+        die Entwicklung. Dafür ist FourierGrating MSVC-fähig zu machen (Warnungsflags, \verb|/permissive-|, \verb|/utf-8|,
+        \verb|M_PI| u.\,ä.). OpenMP: MSVC kann standardmäßig nur OpenMP~2.0; für Tasks (M15) \verb|/openmp:llvm|
+        verwenden und prüfen. Auch die CUDA-Host-API ist unter Windows offiziell nur mit MSVC unterstützt; der Port ersetzt
+        damit den experimentellen MinGW-CUDA-Pfad.
+  \item \textbf{CUDA-Wheel für Windows:} zweite Distribution \verb|fouriergrating-cuda12| mit nur dem Erweiterungsmodul
+        \verb|fouriergrating_cuda12._core| (gleiche API, mit \verb|FG_ENABLE_CUDA=ON|, Architekturen \verb|86;89| plus PTX).
+        Sie hängt von \verb|fouriergrating| und den Pip-Paketen \verb|nvidia-cuda-runtime-cu12|, \verb|nvidia-cublas-cu12|,
+        \verb|nvidia-cusolver-cu12| ab; die DLL-Verzeichnisse werden beim Import mit \verb|os.add_dll_directory| eingetragen.
+        \verb|import fouriergrating| lädt den CUDA-Kern, wenn er installiert ist und eine GPU vorhanden ist, sonst den
+        CPU-Kern (\verb|fg.core_variant()| meldet die Wahl). CI baut mit installiertem CUDA-Toolkit ($\ge12.6$ Update~2)
+        ohne GPU; die Abnahme läuft auf dem Anwenderrechner. Keine CUDA-DLLs ins Wheel bündeln.
+  \item \textbf{Server (AlmaLinux~10):} Installation aus den Quellen mit CUDA (im Benutzerhandbuch dokumentieren); ein
+        Linux-CUDA-Wheel ist nicht erforderlich:
+\begin{footnotesize}
+\begin{verbatim}
+pip install . -C cmake.define.FG_ENABLE_CUDA=ON -C cmake.define.CMAKE_CUDA_ARCHITECTURES="89"
+\end{verbatim}
+\end{footnotesize}
 \end{itemize}
 
 \subsection{API}
@@ -111,7 +131,10 @@ fg.set_backend("auto", threshold=1000); fg.cuda_available(); fg.__version__
         \verb|fgsolve| (CSV) auf $10^{-12}$ relativ überein.
   \item GIL-Test: zwei Threads mit je einer \verb|Simulation| laufen gleichzeitig und liefern dieselben Werte wie sequentiell.
   \item \verb|set_parameter|: Ergebnis gleich einem Neuaufbau aus der geänderten Konfiguration (bitgleich).
-  \item Wheel aus CI installiert in einer frischen venv; \verb|import fouriergrating; fg.solve(...)| läuft.
+  \item Wheels aus CI (Linux, Windows) installieren in einer frischen venv; \verb|import fouriergrating; fg.solve(...)| läuft.
+  \item Windows-Anwenderrechner: \verb|pip install fouriergrating-cuda12| (aus dem CI-Artefakt), \verb|fg.cuda_available()|
+        ist wahr, Backend-Tests GPU $=$ CPU auf $10^{-10}$ (Protokoll in \verb|docs/benchmarks.md|).
+  \item MSVC-Build der gesamten Testsuite grün (CI-Job \verb|windows-latest|).
   \item Dokumentation \verb|docs/python.md|, Beispiel \verb|examples/python/scan_lamellar.py|.
 \end{itemize}
 
@@ -288,7 +311,10 @@ Tag \verb|v0.6.0| ein.
   \item \verb|bool nf::is_extrusion_band(const Shell&, const Vec3& dir, double h0, double h1, const Tolerance&)|:
         alle Flächen, die das Band schneiden, haben dort $\mathbf n\cdot\mathbf d=0$ (Prüfung an Stichproben und an
         den Bézier-Kontrollnetzen).
-  \item STEP-Namen: \verb|read_step_named| liefert je Shell den Namen (PRODUCT bzw.\ MANIFOLD\_SOLID\_BREP-Name).
+  \item STEP-Namen: \verb|read_step_named| liefert je Shell den Namen (PRODUCT bzw.\ MANIFOLD\_SOLID\_BREP-Name);
+        \verb|write_step| schreibt Shell-Namen, damit Körper aus dem Sprachmodell über Namen Materialien zugeordnet werden.
+  \item Einheit Mikrometer: \verb|StepLengthUnit::Micrometre| (SI\_UNIT mit Präfix MICRO) für Lesen und Schreiben. Konvention
+        für FourierGrating: Modelle werden in µm konstruiert und mit dieser Einheit geschrieben (keine Faktor-1000-Fehler).
   \item Thread-Sicherheit aller \verb|const|-Abfragen dokumentieren und mit einem TSAN-Test prüfen (für M15).
   \item Tests in Nurbforge: Quader, Zylinder, Kugel, Kegel, Torus, Quader mit Hohlraum; Schleifenzahl, Orientierung,
         Fläche gegen analytische Werte ($10^{-9}$); kritische Höhen (Kugel: Pole; Torus: vier Höhen bei
@@ -368,6 +394,33 @@ Ziel $10^{-10}\max|f_{pq}|$, sonst $K$ verdoppeln (bis 256, dann exakte Schnitte
 \verb|fgsolve --cad-report| schreibt die Bandzerlegung (Höhen, Typ je Band, Flächenanteile je Material, Warnungen)
 als JSON; \verb|scripts/plot_cad_sections.py| zeichnet ausgewählte Schnitte.
 
+\subsection{Geometrieprüfung für das Sprachmodell}\label{sec:cadcheck}
+Weil die STEP-Dateien von einem Sprachmodell stammen, prüft der Slicer vor dem Schneiden und meldet jeden Befund mit
+festem Code, Text und Ort (µm, FG-Koordinaten):
+\begin{center}
+\small
+\begin{tabular}{p{3.6cm}p{10.6cm}}
+\toprule
+Code & Prüfung \\
+\midrule
+\verb|SHELL_OPEN| & Shell nicht geschlossen (\verb|free_edges|), mit Kantenposition \\
+\verb|SHELL_ORIENTATION| & nicht konsistent orientiert oder negatives Volumen (wird korrigiert, Warnung) \\
+\verb|BODY_OVERLAP| & zwei Körper überlappen (Volumen der Schnittmenge $>$ Toleranz) \\
+\verb|PERIODIC_OVERLAP| & ein Körper überlappt sein periodisches Bild \\
+\verb|OUT_OF_RANGE| & Geometrie außerhalb des $y$-Bereichs oder (bei isolierten Strukturen) in einer PML-Zone \\
+\verb|UNIT_SUSPECT| & Abmessungen passen nicht zu Periode/Wellenlänge (Faktor $10^3$ daneben) \\
+\verb|FEATURE_SMALL| & Merkmal kleiner als zwei Rasterabstände des Normalenfeldes bzw.\ dünnes Band (Warnung) \\
+\verb|BODY_UNASSIGNED| & Shell ohne Materialzuordnung \\
+\verb|STEP_UNSUPPORTED| & nicht unterstützte Entität (Name und Instanz) \\
+\bottomrule
+\end{tabular}
+\end{center}
+Schnittstelle: \verb|fg::cad::check| bzw.\ Python \verb|fg.cad.check(step, cfg) -> dict| mit \verb|ok|, \verb|errors|,
+\verb|warnings| und der Bandzerlegung (wie \verb|--cad-report|). Zusätzlich liefert \verb|fg.cad.llm_tool_spec()| eine
+Werkzeugbeschreibung (JSON-Schema), die die Ollama-Prüfschleife von Nurbforge als Werkzeug registrieren kann, und
+\verb|fg.cad.preview(step, cfg, y_um)| ein SVG des Schnitts mit Materialfarben. Die Kopplung bleibt einseitig: Nurbforge
+kennt FourierGrating nicht.
+
 \subsection{Tests und Abnahme (M14)}
 STEP-Testdateien werden zur Testlaufzeit mit Nurbforge erzeugt (\verb|nf::write_step| in ein temporäres
 Verzeichnis); zusätzlich zwei kleine Dateien unter \verb|tests/data/cad/| für Regressionstests.
@@ -382,6 +435,9 @@ Verzeichnis); zusätzlich zwei kleine Dateien unter \verb|tests/data/cad/| für 
         RCWA-Treppe konvergiert mit der Scheibenzahl gegen denselben Wert; Energie $10^{-10}$ (verlustfrei).
   \item Zwei Materialien (Au-Säule mit SiO$_2$-Deckel) und Hohlraum: RK $=$ RCWA im Grenzwert, Energie, Reziprozität.
   \item Tschebyschow-Interpolation: Ergebnis gleich exakten Schnitten auf $10^{-9}$.
+  \item Absichtlich fehlerhafte Dateien (offene Shell, überlappende Körper, Einheit mm statt µm, Körper ohne Material,
+        Struktur in der PML-Zone) liefern genau den erwarteten Code; korrekte Dateien liefern \verb|ok|.
+  \item Testmenge: nur Dateien aus dem nativen Nurbforge-Schreiber (das ist die einzige Quelle); Fremd-CAD ist kein Ziel.
   \item Doku \verb|docs/cad.md|, Beispiel \verb|examples/cad_pillar_array.json|, Skript
         \verb|scripts/make_cad_examples.py| (erzeugt die STEP-Beispiele mit dem Nurbforge-Python-Paket).
 \end{itemize}

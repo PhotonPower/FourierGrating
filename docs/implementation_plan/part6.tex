@@ -108,6 +108,14 @@ Diagnosen je Rechnung: Energiebilanz (verlustfrei), Konditionszahlen ($T_{11}$, 
 Option \verb|"precision_fallback": true| (Standard in \verb|fp32|): Rechnung automatisch in FP64 wiederholen, wenn bei
 verlustfreien Strukturen $|\sum e-1|>10^{-3}$ oder $\operatorname{cond}(T_{11})>10^{5}$; Warnung im Ergebnis.
 
+\subsection{Standardwahl (Entscheidung des Projektinhabers)}
+\verb|"precision": "auto"| ist der Standard und bedeutet: CPU-Pfad immer \verb|fp64|; auf der GPU \verb|fp32| mit
+\verb|precision_fallback| auf einer GeForce RTX~3090 (Anwenderinstallation Windows~11), sonst \verb|fp64|
+(Server, RTX 6000 Ada). Erkennung über \verb|cudaGetDeviceProperties| (Name und Compute Capability 8.6); die Regel steht
+in einer Tabelle \verb|src/cuda/device_policy.cpp|, damit weitere Karten ergänzt werden können. Überschreibbar mit
+\verb|FG_PRECISION| und in der Konfiguration. Das Ergebnis meldet die tatsächlich verwendete Genauigkeit
+(\verb|diagnostics.precision|) und ob ein Rückfall auf FP64 stattfand.
+
 \subsection{Build}
 \verb|CMAKE_CUDA_ARCHITECTURES| \verb|"86;89"| in den CUDA-Presets (RTX 3090 und RTX 6000 Ada); Preset
 \verb|win-cuda| ebenfalls \verb|86|. Speichertabelle (Abschnitt Architektur) um FP32 und 24\,GB (3090) ergänzen.
@@ -223,8 +231,10 @@ Gekrümmte Ränder in 2D (\enquote{matched coordinates}, nicht separabel) sind \
 %=====================================================================
 
 \subsection{Ziel}
-Aperiodische (isolierte) Strukturen: Ein einzelnes Objekt (Steg, Säule, Wellenleiterende) wird in einer Rechenzelle
-mit absorbierenden Randzonen (PML) gerechnet. Die PML ist eine komplexe Koordinatenstreckung nach
+Aperiodische (isolierte) Strukturen: Ein einzelnes Objekt wird in einer Rechenzelle mit absorbierenden Randzonen (PML)
+gerechnet. Zielanwendungen (Projektinhaber): \textbf{Steg} und \textbf{Graben} (1D) sowie \textbf{Kontaktloch} (2D, Loch
+in einem Film), dazu Säulen und Wellenleiterenden. Weil diese Anwendungen schrägen Einfall brauchen, gehört die
+Streufeldformulierung (Abschnitt~\ref{sec:scatfield}) zum Pflichtumfang von M18. Die PML ist eine komplexe Koordinatenstreckung nach
 \eqref{eq:ct_map}--\eqref{eq:ct_deriv} (M17).
 
 \subsection{PML-Abbildung}
@@ -246,13 +256,57 @@ Konvergenzstudie mit der Formulierung von Hugonin/Lalanne (JOSA A 22, 1844, 2005
         Aufbau (Schnittkurven/Bruchstellen in den Zonen $\Rightarrow$ Fehler). Geschichtete Hintergründe (Substrat,
         Filme) laufen durch die Zonen.
   \item Einfall (a): ebene Welle bei Normaleinfall ($\alpha_0=\gamma_0=0$). Das konstante Feld ist auch in gestreckten
-        Koordinaten exakt ($c_{nm}=\delta_{n0}\delta_{m0}$). Schräger Einfall ist mit seitlichen PML nicht verträglich
-        und wird abgelehnt.
+        Koordinaten exakt ($c_{nm}=\delta_{n0}\delta_{m0}$). Schräger Einfall ist mit seitlichen PML in der
+        Totalfeldrechnung nicht darstellbar (die einfallende Welle würde in den Zonen gedämpft); dafür gibt es die
+        Streufeldformulierung (c).
   \item Einfall (b): Mode eines \emph{strukturierten} Ein- oder Ausgangsmediums. Substrat und Superstrat dürfen
         $y$-invariant strukturiert sein (Lamellen, Polygon, Kontur), z.\,B.\ ein Wellenleiter, der sich in $y$ ausbreitet.
         Modenbasis aus der RCWA-Eigenzerlegung dieses Mediums; Auswahl über effektiven Index oder Modennummer.
         Normierung der Moden unkonjugiert, $\int(\mathbf E\times\mathbf H)\cdot\hat{\mathbf y}\,dx=1$ (übliche Wahl mit PML);
         für geführte Moden ist $|r|^2$ dann die Leistungsreflexion.
+  \item Einfall (c): ebene Welle unter beliebigem Winkel über die Streufeldformulierung (Abschnitt~\ref{sec:scatfield}).
+  \item Graben und Kontaktloch sind Löcher in Filmen, die durch die PML-Zonen laufen; das ist zulässig, weil der Film in den
+        Zonen $x$-invariant ist. Hintergrund einer Schicht ist dann das Filmmaterial.
+\end{itemize}
+
+\subsection{Streufeldformulierung (schräger Einfall)}\label{sec:scatfield}
+Hintergrundstapel: jede strukturierte Schicht durch ihr Hintergrundmaterial ersetzt. Seine Lösung für die einfallende
+ebene Welle ist analytisch (Airy/Fresnel, bestehender Code für V2):
+$\mathbf E_{\text{bg}}=e^{i(\alpha_0x+\gamma_0z)}\mathbf e(y)$, $\mathbf H_{\text{bg}}$ analog, in jeder Schicht eine Summe aus
+$e^{\pm i\beta y}$-Termen. Mit $\mathbf E=\mathbf E_{\text{bg}}+\mathbf E_s$ erfüllt das Streufeld die Maxwellgleichungen
+mit der Polarisationsquelle
+\begin{equation}
+  \mathbf D_s=\overline{\overline\varepsilon}\,\mathbf E_s+\mathbf P,\qquad
+  \mathbf P=(\overline{\overline\varepsilon}-\overline{\overline\varepsilon}_{\text{bg}})\,\mathbf E_{\text{bg}},
+  \label{eq:scat_source}
+\end{equation}
+die nur in der Struktur, also im physikalischen Bereich ($f(X)=X$), von null verschieden ist. Das Streufeld wird ohne
+Blochphase entwickelt ($\alpha_n=nK_x$, $\gamma_m=mK_z$); es klingt in den PML-Zonen ab.
+\begin{itemize}[nosep]
+  \item \textbf{Koeffizienten der Quelle:} $\mathbf E_{\text{bg}}$ ist innerhalb einer Schicht in $x,z$ stetig, also gilt für das
+        Produkt die Laurent-Regel exakt. Für jedes Material $b$ der Schicht:
+        $[\chi_be^{i(\alpha_0x+\gamma_0z)}]_{pq}$ ist \eqref{eq:contour} bzw.\ \eqref{eq:polygon}/\eqref{eq:interval} mit dem
+        verschobenen Wellenvektor $\mathbf k=(pK_x-\alpha_0,\ qK_z-\gamma_0)$ (der Fall $\mathbf k=0$ tritt nur für
+        $\alpha_0\in K_x\mathbb Z$ auf). Damit $[\mathbf P](y)=\sum_b[\chi_be^{i(\cdot)}](\varepsilon_b-\varepsilon_{\text{bg}})\mathbf e(y)$.
+  \item \textbf{Inhomogene Propagationsgleichung:} Aus \eqref{eq:Ey} mit $[D_y]=\dots+[P_y]$ und den Zeilen von \eqref{eq:ode}
+        ($Q_\mu=\mathbb 1$, mit $A,G$ aus M17):
+        \begin{equation}
+          \frac{dF_s}{dy}=M\,F_s+\sigma(y),\qquad
+          \sigma=\begin{pmatrix}-iA\,\mathcal E[P_y]\\ -iG\,\mathcal E[P_y]\\ i\big([P_z]-Q_{\varepsilon,zy}\mathcal E[P_y]\big)\\
+          -i\big([P_x]-Q_{\varepsilon,xy}\mathcal E[P_y]\big)\end{pmatrix}.
+          \label{eq:scat_ode}
+        \end{equation}
+        Vorzeichen und Faktorisierung werden mit dem Test \enquote{Streufeld + Hintergrund $=$ Totalfeld} (V20d) geprüft.
+  \item \textbf{RK:} Das implizite RK-Verfahren behandelt \eqref{eq:scat_ode} direkt (Quellterm in den Stufengleichungen).
+        Jede Scheibe liefert neben $S$ zwei Quellvektoren: die von der Quelle erzeugten aus- und abwärts laufenden
+        Amplituden bei verschwindendem Einfall.
+  \item \textbf{RCWA:} Je Scheibe partikuläre Lösung je Exponentialterm von $\sigma$: für $\sigma=\sigma_\kappa e^{i\kappa y}$ ist
+        $F_p=(i\kappa\mathbb 1-M)^{-1}\sigma_\kappa e^{i\kappa y}$; liegt $i\kappa$ nahe an einem Eigenwert von $M$
+        (Abstand $<10^{-8}\max|\lambda|$), wird die Scheibe mit RK gerechnet (Warnung).
+  \item \textbf{Verkettung:} erweitertes Sternprodukt, das die Quellvektoren der Teilstapel mitführt (Quellen wirken wie
+        zusätzliche einlaufende Amplituden an den Scheibengrenzen). Herleitung im Plan nachtragen, sobald implementiert,
+        mit Test gegen die sequentielle Rechnung.
+  \item \textbf{Ausgaben:} wie unten; Leistungsflüsse und Nahfeld des Streufeldes direkt, das Totalfeld als Summe.
 \end{itemize}
 
 \subsection{Ausgaben}
@@ -280,7 +334,15 @@ Konfiguration:
         Absorption $=0$ bei verlustfreiem Material ($10^{-6}$).
   \item \textbf{V20c}: Reflexion der Grundmode an einem abrupt endenden Schichtwellenleiter gegen Silberstein et~al.\
         (JOSA A 18, 2865, 2001; Wert vor Verwendung bibliographisch prüfen), Toleranz $10^{-3}$.
-  \item 2D (PML in $x$ und $z$): eine isolierte Säule; Konvergenz in Zellgröße wie V20b (qualitativ, Zielsystem).
+  \item \textbf{V20d} (Streufeldformulierung, ohne PML): periodisches Lamellengitter und \verb|Contour2D|-Säulen unter
+        schrägem Einfall (auch konisch). Hintergrund $+$ Streufeld (Entwicklung mit $\alpha_n=\alpha_0+nK_x$) $=$ Totalfeldrechnung
+        auf $10^{-10}$ (RCWA) bzw.\ RK-Toleranz. Damit sind \eqref{eq:scat_source}--\eqref{eq:scat_ode} unabhängig von der PML geprüft.
+  \item \textbf{V20e}: Normaleinfall mit PML: Streufeldformulierung $=$ Totalfeld minus Hintergrund (Einfall a) auf $10^{-8}$.
+  \item \textbf{V20f} (Graben und Steg schräg, 1D, TE/TM, $\Phi=0^\circ,30^\circ,60^\circ$): Streubreite konvergiert in der
+        Zellbreite auf $10^{-3}$, unabhängig von $w,\beta$; Reziprozität der Streuamplituden bei Vertauschung von Einfalls- und
+        Beobachtungsrichtung (qualitativ, Toleranz nach Studie festlegen).
+  \item \textbf{V20g} (Kontaktloch, 2D, PML in $x$ und $z$): rundes Loch in einem Film auf Substrat, Normal- und Schrägeinfall;
+        Konvergenz in Zellgröße und $N$ (Zielsystem); Kontaktloch als \verb|Contour2D| und als CAD-Körper identisch ($10^{-10}$).
 \end{itemize}
 
 %=====================================================================
@@ -421,13 +483,17 @@ rechnen). GPU: Rückwärtsfunktionen über das Backend (M15/M16).
   \item \textbf{Fehlerfunde im Plan:} wie bisher (Test, Plan und Code im selben Commit, CHANGELOG).
 \end{itemize}
 
-\subsection{Offene Entscheidungen (beim Projektinhaber erfragen, bevor der betroffene Meilenstein beginnt)}
+\subsection{Entscheidungen des Projektinhabers (5.~November 2026)}
 \begin{enumerate}[nosep]
-  \item M18: Ist mit \enquote{iso} wirklich \enquote{isoliert} gemeint?
-  \item M12: Werden Windows-Wheels gebraucht, und soll es ein CUDA-Wheel geben (statt lokalem Build)?
-  \item M14: Typische Herkunft der STEP-Dateien (CAD-System), damit die Testmenge realistische Entitäten enthält.
-  \item M16: Soll \verb|fp32| auf der RTX~3090 automatisch gewählt werden, oder nur auf ausdrücklichen Wunsch?
+  \item M18: \enquote{iso} heißt isolierte Strukturen (Steg, Graben, Kontaktloch usw.) $\Rightarrow$ Streufeldformulierung für
+        schrägen Einfall ist Pflicht (Abschnitt~\ref{sec:scatfield}).
+  \item Installationen: Server AlmaLinux~10 mit RTX 6000 Ada; Anwender Windows~11 mit RTX~3090 $\Rightarrow$ MSVC-Port,
+        Windows-Wheels (CPU und \verb|fouriergrating-cuda12|), Server aus den Quellen (M12).
+  \item CAD-Daten erzeugt ein Sprachmodell mit Nurbforge $\Rightarrow$ einzige STEP-Quelle ist der native Nurbforge-Schreiber;
+        Geometrieprüfung mit Fehlercodes für die Prüfschleife des Sprachmodells (Abschnitt~\ref{sec:cadcheck}); Einheit µm.
+  \item Auf der RTX~3090 ist FP32 der Standard (mit Rückfall auf FP64), auf dem Server FP64 (M16).
 \end{enumerate}
+Weitere Rückfragen nur, wenn ein Meilenstein auf eine im Plan nicht entschiedene Frage stößt.
 
 \subsection*{Literatur zu Version 2 (vor Verwendung bibliographisch prüfen)}
 \begin{enumerate}[label={[\arabic*]},nosep,leftmargin=2em,start=11]

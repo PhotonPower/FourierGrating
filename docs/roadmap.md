@@ -64,34 +64,43 @@ Abnahme = alle genannten Tests grün (`ctest`), Details im Plan, Abschnitt „Me
 Reihenfolge verbindlich (Abhängigkeiten im Plan, Abschnitt „Erweiterungen ab Version 2.0: Überblick“).
 Vor dem ersten Eingriff: Golden Files aller `examples/` nach `tests/regression/golden/` (Stand v0.10), Test
 `Regression.*` – mit Standardoptionen bleiben alle bisherigen Ergebnisse bitgleich.
-Offene Entscheidungen (Plan, Abschnitt „Querschnittsthemen“) vor dem betroffenen Meilenstein beim Projektinhaber erfragen.
+Entscheidungen des Projektinhabers (5. 11. 2026, Plan „Querschnittsthemen“): iso = isolierte Strukturen (Steg, Graben,
+Kontaktloch); Server AlmaLinux 10 + RTX 6000 Ada, Anwender Windows 11 + RTX 3090; CAD-Daten erzeugt ein Sprachmodell
+mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
 
 - [ ] **M12** Python-Anbindung (pybind11, scikit-build-core, Wheel manylinux_2_28, `fg.Simulation`)
-  - Abnahme: Python = `fgsolve` auf 1e-12 für alle Beispiele; GIL-Test; `set_parameter` = Neuaufbau; Wheel aus CI
-    installierbar; `docs/python.md`
+  - MSVC-Port (Wheels unter Windows nur mit MSVC; OpenMP `/openmp:llvm`), Windows-Wheels `fouriergrating` (CPU) und
+    `fouriergrating-cuda12` (CUDA-Kern, nvidia-*-cu12 als Abhängigkeiten); Server: Build aus den Quellen
+  - Abnahme: Python = `fgsolve` auf 1e-12 für alle Beispiele; GIL-Test; `set_parameter` = Neuaufbau; Wheels (Linux,
+    Windows) aus CI installierbar; MSVC-CI grün; auf dem Windows-Rechner `fg.cuda_available()` und GPU = CPU;
+    `docs/python.md`
 - [ ] **M13** Gekrümmte Querschnitte: Konturkoeffizienten (Plan eq:contour), `Contour2D`, Algorithmus NF mit
   Randstichproben und 3D-Normalen, `LayerModel` mit y-abhängigem Normalenfeld, `SectionedLayer` + `SectionProvider`
   - Abnahme: Unit-Tests (Polygon 1e-14, Kreis/Bessel 1e-13, NF bitgleich), V15 (Kreissäulen), V16a (Kegelstumpf
     gegen Profile2D 1e-6), Golden Files bitgleich
 - [ ] **M14** CAD-Slicer mit Nurbforge
   - Vorleistung in Nurbforge v0.6.0 (eigener PR): `nf::section(Shell, Plane)`, `nf::critical_heights`,
-    `nf::is_extrusion_band`, STEP-Namen, Thread-Sicherheit
+    `nf::is_extrusion_band`, STEP-Namen lesen/schreiben, `StepLengthUnit::Micrometre`, Thread-Sicherheit
+  - Geometrieprüfung mit Fehlercodes für die Prüfschleife des Sprachmodells (`fg.cad.check`, `llm_tool_spec`, `preview`)
   - FG: `FG_ENABLE_NURBFORGE`, Modul `fg::cad`, Achsen/Einheiten, Bandzerlegung, Materialzuordnung, Schichttyp `cad`,
     `--cad-report`, optionale Tschebyschow-Interpolation in y
   - Abnahme: V16b (Prisma/Chiralität), V17 (Zylinder), V18 (Kugelkappe, Kegelstumpf), zwei Materialien, Hohlraum;
-    `docs/cad.md`, Beispiel `examples/cad_pillar_array.json`
+    absichtlich fehlerhafte Dateien liefern den erwarteten Fehlercode; `docs/cad.md`, Beispiel `examples/cad_pillar_array.json`
 - [ ] **M15** Profiling und Parallelisierung
   - `fg::prof` und Profil vor M15 (Zielsystem); Threadmodell (scan/slices/blas); parallele Scheiben-S;
     Sternprodukt als Baum fester Form; parallele Koeffizienten/NF/CAD-Schnitte; GPU-residente Ketten (`DeviceMatrix`)
   - Abnahme: Ergebnisse bitgleich für 1/2/4 Threads; Baum = sequentiell 1e-12; TSAN-Job; Leistungsbericht
 - [ ] **M16** Genauigkeit `fp64` | `mixed` | `fp32` am Backend (kein TF32), angepasstes Scheibenkriterium,
-  Schutzmechanismus mit FP64-Rückfall, `CMAKE_CUDA_ARCHITECTURES` 86;89
+  Schutzmechanismus mit FP64-Rückfall, `CMAKE_CUDA_ARCHITECTURES` 86;89; Standard `auto`: FP32 auf der RTX 3090,
+  FP64 auf dem Server und der CPU (`src/cuda/device_policy.cpp`, `FG_PRECISION`)
   - Abnahme: Backend-Unit-Tests, Genauigkeitsstudie V1–V18 (Tabelle in `docs/validation.md`), Laufzeiten RTX 3090 /
     RTX 6000 Ada; Regel in `AGENTS.md` angepasst
 - [ ] **M17** Koordinatentransformationen (A = [[1/f']] α, G = [[1/g']] γ), ASR nach Granet für Metalle
   - Abnahme: η = 0 bitgleich; V1–V3, V9 mit η = 0,5 auf 1e-8; V19 (Metall-Lamellen TM, Konvergenztabelle)
-- [ ] **M18** PML (komplexe Streckung), isolierte Strukturen, strukturierte Ein-/Ausgangsmedien, gestreutes Feld
-  - Abnahme: V20a (Fresnel mit PML), V20b (isolierter Steg, Zellgrößenkonvergenz), V20c (Wellenleiterende, Literatur)
+- [ ] **M18** PML (komplexe Streckung), isolierte Strukturen (Steg, Graben, Kontaktloch), strukturierte Ein-/Ausgangsmedien,
+  Streufeldformulierung für schrägen Einfall (Plan eq:scat_source, eq:scat_ode)
+  - Abnahme: V20a (Fresnel mit PML), V20b (isolierter Steg), V20c (Wellenleiterende, Literatur), V20d (Streufeld =
+    Totalfeld im periodischen Fall, ohne PML), V20e (Normaleinfall), V20f (Graben/Steg schräg), V20g (Kontaktloch 2D)
 - [ ] **M19** Differenzierbarkeit: diskrete Adjungierte (Plan „Konvention“, Rückwärtsregeln), Formableitungen
   (eq:shape2d, eq:shape3d), C++-API `gradient`/`vjp`, Python `value_and_grad`, PyTorch-/JAX-Adapter
   - Abnahme: Rückwärtsfunktionen gegen Differenzenquotienten 1e-6; Ende-zu-Ende V3, V9, V13, V15, V18; Entartung;

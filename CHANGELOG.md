@@ -7,6 +7,9 @@
   höhenabhängige Schichtmodelle, CAD-Slicer mit Nurbforge, Profiling/Parallelisierung, wählbare Genauigkeit
   (FP64/gemischt/FP32), Koordinatentransformationen und ASR, PML für isolierte Strukturen, diskrete Adjungierte.
   Roadmap, `AGENTS.md` und `CLAUDE.md` entsprechend ergänzt.
+- Plan v2.1: Entscheidungen des Projektinhabers eingearbeitet (isolierte Strukturen mit Streufeldformulierung für
+  schrägen Einfall, Windows-Wheels mit MSVC und CUDA-Variante, Geometrieprüfung für LLM-erzeugte Nurbforge-Geometrie,
+  Einheit µm, FP32-Standard auf der RTX 3090).
 
 ### Hinzugefügt
 - Umgebungsvariablen `FG_BACKEND` / `FG_BACKEND_THRESHOLD` überschreiben die Backend-Wahl (ganze Testsuite auf
