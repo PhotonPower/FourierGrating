@@ -17,6 +17,7 @@ set(FG_UNIT_TESTS
   test_backend
   test_scan
   test_polarization_split
+  test_contour
 )
 foreach(t ${FG_UNIT_TESTS})
   add_executable(${t} unit/${t}.cpp)

@@ -3,10 +3,13 @@ configure_file(${PROJECT_SOURCE_DIR}/include/fg/version.hpp.in
 
 add_library(fg_core
   core/index_map.cpp
+  core/quadrature.cpp
   fourier/coefficients.cpp
   fourier/toeplitz.cpp
   fourier/sampling.cpp
+  fourier/contour.cpp
   geometry/stack.cpp
+  geometry/contour.cpp
   geometry/normal_field.cpp
   geometry/profile.cpp
   physics/propagation_matrix.cpp
