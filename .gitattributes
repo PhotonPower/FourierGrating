@@ -1,0 +1,2 @@
+# STEP files are written by Nurbforge with LF and read back byte-exact
+*.step -text
