@@ -11,13 +11,17 @@ endif()
 # --- Eigen3 (header-only linear algebra, CPU reference backend) ---
 find_package(Eigen3 3.4 QUIET NO_MODULE)
 if(NOT TARGET Eigen3::Eigen)
-  message(STATUS "Eigen3 not found on the system - fetching 3.4.0")
+  message(STATUS "Eigen3 not found on the system - fetching 3.4.0 (headers only)")
+  # SOURCE_SUBDIR without CMakeLists.txt: Eigen's own CMake (BLAS/Fortran probes, which fail with a
+  # foreign gfortran on the PATH, e.g. GitHub's Windows runners) is not run; Eigen is header-only.
   FetchContent_Declare(eigen
     URL https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
-  set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
-  set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    SOURCE_SUBDIR fg-headers-only)
   FetchContent_MakeAvailable(eigen)
+  add_library(fg_eigen INTERFACE)
+  target_include_directories(fg_eigen SYSTEM INTERFACE ${eigen_SOURCE_DIR})
+  add_library(Eigen3::Eigen ALIAS fg_eigen)
 endif()
 
 # --- nlohmann_json (configuration files) ---

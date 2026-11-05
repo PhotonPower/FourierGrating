@@ -73,7 +73,7 @@ Tiefen-Sweep mit `Simulation`).
 
 ```bash
 pip install .[test]
-pytest tests/python                         # Beispiele = Golden Files (1e-12), Simulation, Threads, GIL
+pytest tests/python                         # Beispiele = Golden Files (1e-11), Simulation, Threads, GIL
 FG_FGSOLVE=build/cpu-release/apps/fgsolve pytest tests/python   # zusätzlich Nahfeld = fgsolve-Dateien
 ```
 

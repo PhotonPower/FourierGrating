@@ -16,7 +16,12 @@
 - `fg::derivedFields`, `fg::nearFieldMeta` (gemeinsam für `NearFieldWriter` und Python).
 - pytest `tests/python`, Beispiel `examples/python/scan_lamellar.py`, `docs/python.md`.
 - CI: Jobs `regression`, `windows-msvc`, `python`; `.github/workflows/wheels.yml` (cibuildwheel: manylinux_2_28 und
-  Windows für CPython 3.10–3.13, CUDA-Wheel für Windows) – noch nicht gelaufen.
+  Windows für CPython 3.10–3.13, CUDA-Wheel für Windows).
+
+### Geändert
+- Plan v2.4: Toleranz der Golden Files über Plattformen 1e-11 absolut (statt 1e-13); gemessen Linux-GCC 13 gegen
+  MinGW-GCC 16 bis 1,3e-12 (RK Gold-Echelette, V10), MSVC gegen MinGW ≤ 1,2e-14. Gleiche Maschine: bitgleich.
+- Eigen per `FetchContent` nur als Header (Eigens CMake scheiterte auf GitHub-Windows-Runnern an gfortran).
 
 ## [Unreleased] (vor M12)
 

@@ -1,8 +1,8 @@
 """Python results = fgsolve for all examples (Plan section "M12: Tests und Abnahme").
 
 Reference: the golden files (tests/regression/golden, computed exactly as fgsolve with 17 digits).
-Tolerance 1e-12 of the incident power (absolute on the efficiencies, as Regression.*; the core may be
-built with another compiler than the golden files).
+Tolerance 1e-11 of the incident power (absolute on the efficiencies, as Regression.*): the core may be
+built with another compiler / C library than the golden files (Plan v2.4). Same build: identical.
 """
 
 import csv
@@ -33,9 +33,9 @@ def test_scan_equals_golden(name):
         assert math.isclose(c["lambda_um"][k], float(r["lambda_um"]), rel_tol=1e-15)
         assert math.isclose(c["sweep_value"][k], float(r["sweep_value"]), rel_tol=1e-15, abs_tol=0)
         for col in ("efficiency", "eff_s", "eff_p"):
-            assert abs(c[col][k] - float(r[col])) <= 1e-12, (name, k, col)
+            assert abs(c[col][k] - float(r[col])) <= 1e-11, (name, k, col)
     for p, a in zip(scan.points, absorption):
-        assert abs(p.absorption - a) <= 1e-12
+        assert abs(p.absorption - a) <= 1e-11
 
 
 @pytest.mark.parametrize("name", ["v3_lamellar_dielectric", "v7_cobalt_anisotropic", "sweep_lamellar_depth"])

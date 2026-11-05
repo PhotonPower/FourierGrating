@@ -80,7 +80,9 @@ MinGW-Header bzw. Eigen-Kopien anderer Projekte gefunden; Eigen, nlohmann_json u
 `_USE_MATH_DEFINES`, `NOMINMAX`. OpenMP: MSVC-Standard (`-openmp`, OpenMP 2.0); für Tasks (M15) `/openmp:llvm`.
 `win-msvc-cuda` baut zusätzlich das CUDA-Backend (`86;89`) und ersetzt den experimentellen MinGW-CUDA-Pfad.
 
-Unterschiede zu GCC liegen bei ≤ 1,2·10⁻¹⁴ in den Effizienzen (Test `Regression.*`).
+Unterschiede zu MinGW-GCC liegen bei ≤ 1,2·10⁻¹⁴ in den Effizienzen, zu Linux-GCC bei ≤ 1,3·10⁻¹² (Test
+`Regression.*`, Toleranz 10⁻¹¹). Eigen wird per `FetchContent` nur als Header eingebunden (Eigens CMake prüft
+sonst auf Fortran und scheitert an einem fremden `gfortran` im PATH).
 
 ## 5. Einschränkungen
 
