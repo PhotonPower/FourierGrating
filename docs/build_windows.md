@@ -60,7 +60,28 @@ Getestet mit CUDA Toolkit 13.4 und einer RTX 3090 (sm_86) — abweichend vom spe
 Zielsystem (RTX 6000 Ada, sm_89, AlmaLinux 10). `Backend.CudaEqualsCpu`/`CudaSolverEqualsCpu`
 laufen dabei gegen die echte GPU statt übersprungen zu werden.
 
-## 4. Einschränkungen
+## 4. MSVC 2022 (M12: Python-Wheels, offizieller Windows-Pfad)
+
+Python unter Windows ist mit MSVC gebaut; die Wheels (M12) und die CUDA-Host-API brauchen daher MSVC.
+Voraussetzung: Visual Studio 2022 oder die Build Tools mit „Desktopentwicklung mit C++“ (enthält CMake und
+Ninja). `scripts\msvc.cmd` führt einen Befehl in der `vcvars64`-Umgebung aus:
+
+```powershell
+scripts\msvc.cmd cmake --preset win-msvc
+scripts\msvc.cmd cmake --build --preset win-msvc
+scripts\msvc.cmd ctest --preset win-msvc -L unit
+scripts\msvc.cmd ctest --preset win-msvc -L "validation|regression"
+```
+
+Das Preset ignoriert die MSYS2-Präfixe (`CMAKE_IGNORE_PREFIX_PATH`) und die CMake-Paketregistry, sonst würden
+MinGW-Header bzw. Eigen-Kopien anderer Projekte gefunden; Eigen, nlohmann_json und GoogleTest kommen per
+`FetchContent`. Flags: `/W4 /permissive- /utf-8 /bigobj`, externe Header (`<...>`) mit `/external:W0`,
+`_USE_MATH_DEFINES`, `NOMINMAX`. OpenMP: MSVC-Standard (`-openmp`, OpenMP 2.0); für Tasks (M15) `/openmp:llvm`.
+`win-msvc-cuda` baut zusätzlich das CUDA-Backend (`86;89`) und ersetzt den experimentellen MinGW-CUDA-Pfad.
+
+Unterschiede zu GCC liegen bei ≤ 1,2·10⁻¹⁴ in den Effizienzen (Test `Regression.*`).
+
+## 5. Einschränkungen
 
 * **Kein LaTeX-Setup.** `./scripts/build_docs.sh` (PDF des Plans) ist für Linux/`pdflatex`
   geschrieben; unter Windows z. B. über eine MiKTeX-Installation und Anpassung des Skripts möglich,

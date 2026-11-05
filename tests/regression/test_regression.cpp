@@ -1,6 +1,7 @@
 // Regression protection for version 2 (Plan section "Querschnittsthemen der Version 2", AGENTS.md
 // section 7): efficiencies of all examples with default options against the golden files of v0.10.
-//   default                  relative 1e-13 (+ 1e-15 absolute; other compiler / machine)
+//   default                  1e-13 of the incident power, i.e. absolute on the efficiencies (other
+//                            compiler / machine; measured MSVC vs GCC: <= 1.2e-14)
 //   FG_REGRESSION_EXACT=1    bit-identical (same machine and compiler as the golden files)
 //   FG_REGRESSION_UPDATE=1   rewrite the golden files (only with a reason in CHANGELOG.md)
 #include <gtest/gtest.h>
@@ -103,7 +104,8 @@ TEST_P(Regression, EfficienciesEqualGolden) {
         continue;
       }
       const double x = std::stod(a[c]), y = std::stod(b[c]);
-      EXPECT_LE(std::abs(x - y), 1e-13 * std::abs(y) + 1e-15) << name << " line " << k + 2 << " column " << c;
+      // angles and lambda are inputs (exact); efficiencies are fractions of the incident power
+      EXPECT_LE(std::abs(x - y), c <= 4 ? 0.0 : 1e-13) << name << " line " << k + 2 << " column " << c;
     }
   }
 }

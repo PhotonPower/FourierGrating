@@ -13,8 +13,12 @@
   Einheit µm, FP32-Standard auf der RTX 3090).
 
 ### Hinzugefügt
+- MSVC-Port (M12): Presets `win-msvc` und `win-msvc-cuda` (`86;89`), `scripts/msvc.cmd` (vcvars64), MSVC-Flags
+  `/W4 /permissive- /utf-8 /bigobj`, externe Header `/external:W0`; MSYS2-Präfixe und Paketregistry im Preset
+  ausgeschlossen. Alle Tests grün, `Backend.*` mit CUDA 13.4 auf der RTX 3090 grün. `docs/build_windows.md` Abschnitt 4.
 - Golden Files `tests/regression/golden/` und Test `Regression.*` (Label `regression`): Effizienzen aller Beispiele mit
-  Standardoptionen; 1e-13 relativ, `FG_REGRESSION_EXACT=1` bitgleich, `FG_REGRESSION_UPDATE=1` erzeugt neu.
+  Standardoptionen; 1e-13 bezogen auf die einfallende Leistung (Plan v2.3; rein relativ scheitern sehr kleine
+  Ordnungen beim Compilerwechsel), `FG_REGRESSION_EXACT=1` bitgleich, `FG_REGRESSION_UPDATE=1` erzeugt neu.
 - Option `"split_polarizations"` (`SolverOptions::splitPolarizations`, Standard aus): 1D in-plane isotrop
   (γ = 0, isotropes Substrat und isotrope Schichten) rechnet `solve()` TE und TM als getrennte 2n_f-Systeme
   (Plan eq:TE, eq:TM) – Grenzflächen, Schicht-S-Matrizen, RK-Transfer und Sternprodukte mit halber Größe;

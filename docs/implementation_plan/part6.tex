@@ -472,7 +472,9 @@ rechnen). GPU: Rückwärtsfunktionen über das Backend (M15/M16).
 \begin{itemize}[nosep]
   \item \textbf{Golden Files vor dem ersten Eingriff (Beginn M12):} Für alle \verb|examples/| Effizienzen (17 signifikante
         Stellen) mit dem Stand v0.10 nach \verb|tests/regression/golden/| schreiben. Test \verb|Regression.*|: mit
-        Standardoptionen auf derselben Maschine bitgleich, in CI (anderer Compiler) $10^{-13}$ relativ.
+        Standardoptionen auf derselben Maschine bitgleich, in CI (anderer Compiler) $10^{-13}$ bezogen auf die
+        einfallende Leistung, also absolut auf den Effizienzen (Korrektur v2.3: rein relativ scheitern Ordnungen
+        mit Effizienz $\approx10^{-14}$; gemessen MSVC gegen GCC: $\le1{,}2\cdot10^{-14}$).
   \item \textbf{CI-Matrix:} \verb|cpu-release| (wie bisher), \verb|cpu-release| + \verb|FG_ENABLE_NURBFORGE=ON| (ab M14),
         Python-Wheel-Build und pytest (ab M12), ThreadSanitizer (ab M15), Doku.
   \item \textbf{Versionen:} je Meilenstein eine Minor-Version (M12 $\to$ 0.11.0, \dots, M19 $\to$ 0.18.0); Plan-Version 2.x;

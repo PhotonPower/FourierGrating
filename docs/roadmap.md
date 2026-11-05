@@ -79,9 +79,11 @@ Kontaktloch); Server AlmaLinux 10 + RTX 6000 Ada, Anwender Windows 11 + RTX 3090
 mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
 
 - [x] Golden Files: `tests/regression/golden/` (alle Beispiele aus `tests/regression/examples.txt`, 17 Stellen),
-  Test `Regression.*` (Label `regression`; Standard 1e-13 relativ, `FG_REGRESSION_EXACT=1` bitgleich,
+  Test `Regression.*` (Label `regression`; Standard 1e-13 absolut auf den Effizienzen (Plan v2.3), `FG_REGRESSION_EXACT=1` bitgleich,
   `FG_REGRESSION_UPDATE=1` schreibt neu); erzeugt mit Standardoptionen auf dem Stand 5c037da (= v0.10, bitgleich geprüft)
 - [ ] **M12** Python-Anbindung (pybind11, scikit-build-core, Wheel manylinux_2_28, `fg.Simulation`)
+  - [x] MSVC-Port: Presets `win-msvc`, `win-msvc-cuda` (`scripts\msvc.cmd`), Flags `/W4 /permissive- /utf-8`, ohne
+    Warnungen; unit, validation, regression grün; `win-msvc-cuda` auf der RTX 3090: `Backend.*` (GPU = CPU) grün
   - MSVC-Port (Wheels unter Windows nur mit MSVC; OpenMP `/openmp:llvm`), Windows-Wheels `fouriergrating` (CPU) und
     `fouriergrating-cuda12` (CUDA-Kern, nvidia-*-cu12 als Abhängigkeiten); Server: Build aus den Quellen
   - Abnahme: Python = `fgsolve` auf 1e-12 für alle Beispiele; GIL-Test; `set_parameter` = Neuaufbau; Wheels (Linux,

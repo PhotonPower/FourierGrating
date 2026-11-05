@@ -54,19 +54,44 @@
       },
       "environment": { "PATH": "C:/msys64/ucrt64/bin;$penv{PATH}" }
     }
+,
+    {
+      "name": "win-msvc",
+      "displayName": "Windows (MSVC 2022, Developer PowerShell / vcvars64), CPU only, Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/win-msvc",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release", "FG_ENABLE_CUDA": "OFF",
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_IGNORE_PREFIX_PATH": "C:/msys64/ucrt64;C:/msys64/mingw64;C:/msys64/clang64;C:/msys64/usr",
+        "CMAKE_FIND_USE_PACKAGE_REGISTRY": "OFF"
+      }
+    },
+    {
+      "name": "win-msvc-cuda",
+      "displayName": "Windows (MSVC 2022) + CUDA (RTX 3090 sm_86, RTX 6000 Ada sm_89), Release",
+      "inherits": "win-msvc",
+      "binaryDir": "${sourceDir}/build/win-msvc-cuda",
+      "cacheVariables": { "FG_ENABLE_CUDA": "ON", "CMAKE_CUDA_ARCHITECTURES": "86;89" }
+    }
   ],
   "buildPresets": [
     { "name": "cpu-release",  "configurePreset": "cpu-release" },
     { "name": "cpu-debug",    "configurePreset": "cpu-debug" },
     { "name": "cuda-release", "configurePreset": "cuda-release" },
     { "name": "win-release",  "configurePreset": "win-release" },
-    { "name": "win-cuda",     "configurePreset": "win-cuda" }
+    { "name": "win-cuda",     "configurePreset": "win-cuda" },
+    { "name": "win-msvc",     "configurePreset": "win-msvc" },
+    { "name": "win-msvc-cuda","configurePreset": "win-msvc-cuda" }
   ],
   "testPresets": [
     { "name": "cpu-release", "configurePreset": "cpu-release", "output": { "outputOnFailure": true } },
     { "name": "cpu-debug",   "configurePreset": "cpu-debug",   "output": { "outputOnFailure": true } },
     { "name": "cuda-release","configurePreset": "cuda-release","output": { "outputOnFailure": true } },
     { "name": "win-release", "configurePreset": "win-release", "output": { "outputOnFailure": true } },
-    { "name": "win-cuda",    "configurePreset": "win-cuda",    "output": { "outputOnFailure": true } }
+    { "name": "win-cuda",    "configurePreset": "win-cuda",    "output": { "outputOnFailure": true } },
+    { "name": "win-msvc",    "configurePreset": "win-msvc",    "output": { "outputOnFailure": true } },
+    { "name": "win-msvc-cuda","configurePreset": "win-msvc-cuda","output": { "outputOnFailure": true } }
   ]
 }
