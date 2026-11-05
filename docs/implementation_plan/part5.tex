@@ -1,0 +1,387 @@
+%=====================================================================
+\clearpage
+\section{Erweiterungen ab Version 2.0: Überblick}\label{sec:ext}
+%=====================================================================
+Die Abschnitte \ref{sec:ext}--\ref{sec:extcross} spezifizieren die zweite Ausbaustufe (Meilensteine M12--M19).
+Grundlage ist die Verbesserungsliste des Projekts:
+CAD-Slicer für NURBS-Geometrie aus STEP-Dateien (über die eigene Bibliothek Nurbforge),
+Python-Anbindung als Wheel, Differenzierbarkeit für Optimierung, mehr Parallelität, wählbare einfache
+Genauigkeit (performant auch auf einer RTX~3090), PML für isolierte Strukturen und eine nicht gleichmäßige
+Fourierdarstellung für metallische Strukturen. Es gelten alle Regeln der Abschnitte
+\ref{sec:scope}--\ref{sec:errata} weiter, soweit hier nichts anderes steht.
+
+\subsection{Annahmen und Festlegungen}
+\begin{enumerate}[nosep]
+  \item \enquote{PML für iso Strukturen} wird als \emph{isolierte}, also aperiodische Strukturen gelesen
+        (Abschnitt~\ref{sec:pml}). Sollte \enquote{isotrop} gemeint sein, entfällt M18 in dieser Form.
+  \item \enquote{Nicht gleichmäßige Fouriertransformation für Metalle} wird als adaptive räumliche Auflösung
+        (ASR, Koordinatentransformation $x=f(X)$) umgesetzt (Abschnitt~\ref{sec:ctrans}). Das ist die in der
+        FMM-Literatur etablierte Form; eine NUFFT im numerischen Sinn löst das Konvergenzproblem an
+        Metallkanten nicht.
+  \item PML und ASR verwenden \emph{dieselbe} Maschinerie (Koordinatentransformation im Fourierraum);
+        M17 ist deshalb Voraussetzung für M18.
+  \item Nurbforge (\url{https://github.com/PhotonPower/Nurbforge}, MIT, C++20) wird optional eingebunden
+        (\verb|FG_ENABLE_NURBFORGE|). Der Kern von FourierGrating bleibt ohne Nurbforge baubar.
+  \item Standard bleibt \verb|std::complex<double>|. Einfache Genauigkeit wird nur innerhalb des
+        Linear-Algebra-Backends verwendet (M16).
+  \item Wenn eine neue Option ausgeschaltet ist, rechnen alle bestehenden Pfade \textbf{bitgleich} wie in
+        Version~1.9. Das wird mit Golden Files geprüft (Abschnitt~\ref{sec:extcross}).
+\end{enumerate}
+
+\subsection{Meilensteine und Abhängigkeiten}
+\begin{center}
+\small
+\begin{tabular}{p{1.0cm}p{6.4cm}p{3.0cm}p{4.0cm}}
+\toprule
+M & Inhalt & setzt voraus & prüfbar in der Sandbox \\
+\midrule
+M12 & Python-Anbindung (pybind11, Wheel), \verb|Simulation|-Objekt & M11 & ja \\
+M13 & Gekrümmte Querschnitte: Konturkoeffizienten, \verb|Contour2D|, Normalenfeld mit 3D-Normalen,
+      höhenabhängige Schichtmodelle & M9 & ja \\
+M14 & CAD-Slicer: STEP $\to$ Schichten (Nurbforge, Bandzerlegung, Materialzuordnung) & M13 (+ Nurbforge 0.6) & ja \\
+M15 & Profiling und Parallelisierung (Scheiben, Baumreduktion, Koeffizienten, GPU-residente Ketten) & M10, M14 & Korrektheit ja, Leistung nein \\
+M16 & Wählbare Genauigkeit FP64 / gemischt / FP32 (RTX 3090, RTX 6000 Ada) & M15 & CPU-Pfad ja, GPU nein \\
+M17 & Koordinatentransformationen, adaptive räumliche Auflösung (Metalle) & M13 & ja \\
+M18 & PML, isolierte Strukturen, strukturierte Ein-/Ausgangsmedien & M17 & ja \\
+M19 & Differenzierbarkeit (diskrete Adjungierte), PyTorch/JAX-Adapter, Optimierungsbeispiele & M12, M13 (besser M14) & ja \\
+\bottomrule
+\end{tabular}
+\end{center}
+Die Meilensteine werden in dieser Reihenfolge abgearbeitet. Die offene GPU-Abnahme von M10 blockiert
+M12--M14 und M17--M19 nicht; M15 (GPU-Teil) und M16 (GPU-Teil) werden erst auf einem Rechner mit GPU
+abgenommen. Die Sandbox hat nur einen Kern und keine GPU: Testgrößen klein halten, Leistungsmessungen
+gehören auf das Zielsystem (AlmaLinux 10, RTX 6000 Ada) bzw.\ den Windows-Rechner mit RTX~3090.
+
+%=====================================================================
+\section{M12: Python-Anbindung}\label{sec:python}
+%=====================================================================
+
+\subsection{Ziel}
+\verb|pip install fouriergrating| (bzw.\ \verb|pip install .| im Repository) liefert ein Modul, das alles kann,
+was \verb|fgsolve| kann, ohne Umweg über Dateien, und das für Optimierungsschleifen (M19) geeignet ist.
+
+\subsection{Build}
+\begin{itemize}[nosep]
+  \item pybind11 ($\ge2.12$) und scikit-build-core ($\ge0.10$), wie in Nurbforge (gleiche Struktur,
+        damit beide Projekte gleich gepflegt werden). CMake-Option \verb|FG_BUILD_PYTHON| (Standard \verb|OFF|;
+        scikit-build setzt sie auf \verb|ON|).
+  \item Verzeichnisse: \verb|python/bindings/| (C++-Modul \verb|fouriergrating._core|),
+        \verb|python/fouriergrating/| (Python-Paket), \verb|tests/python/| (pytest), \verb|pyproject.toml| im Wurzelverzeichnis.
+  \item Wheels per cibuildwheel: \verb|manylinux_2_28| x86\_64 (installiert auf AlmaLinux 8--10), CPython 3.10--3.13,
+        CPU-Variante mit OpenMP (\verb|libgomp| bündelt auditwheel). Workflow \verb|.github/workflows/wheels.yml| für
+        \verb|v*|-Tags, Artefakte wie bei Nurbforge. Windows-Wheel: optional, später (der Windows-Build nutzt bisher MinGW;
+        MSVC-Kompatibilität ist vorher zu prüfen).
+  \item CUDA: kein CUDA im CI-Wheel. Lokaler Build auf dem Zielsystem (im Benutzerhandbuch dokumentieren):
+{\footnotesize\begin{verbatim}
+pip install . -C cmake.define.FG_ENABLE_CUDA=ON -C cmake.define.CMAKE_CUDA_ARCHITECTURES="86;89"
+\end{verbatim}}
+\end{itemize}
+
+\subsection{API}
+Die JSON-Konfiguration bleibt die kanonische Beschreibung: Ein Python-\verb|dict| mit demselben Schema wie
+\verb|docs/config_format.md| wird über nlohmann::json an \verb|io::loadConfig| übergeben. Damit gibt es genau
+eine Semantik für CLI und Python.
+{\footnotesize\begin{verbatim}
+import fouriergrating as fg
+cfg = fg.load_config("examples/v3_lamellar_dielectric.json")   # -> dict (Pfade relativ zur Datei aufgeloest)
+res = fg.solve(cfg)                  # ein Punkt (erster Scanpunkt); -> fg.Result
+res.reflected                        # numpy structured array: n, m, eff, eff_s, eff_p, amp_s, amp_p
+res.transmitted, res.absorption, res.diagnostics   # dict: energy_balance, rk_steps, warnings, timings
+scan = fg.solve_scan(cfg)            # Scan/Sweep aus cfg -> fg.ScanResult (Spalten als numpy-Arrays, to_pandas())
+nf = fg.near_field(cfg)              # dict: Gitter + Felder als numpy-Arrays + meta (wie meta.json)
+sim = fg.Simulation(cfg)             # Aufbau einmal (Schichtmodelle, Normalenfelder, IndexMap) ...
+sim.solve(lambda_um=0.6328, phi_deg=30.0, psi_deg=0.0, delta_deg=90.0)   # ... viele Rechnungen
+sim.set_parameter("/layers/0/thickness_um", 0.25)   # JSON-Pointer wie bei Sweeps; baut nur Betroffenes neu
+fg.set_backend("auto", threshold=1000); fg.cuda_available(); fg.__version__
+\end{verbatim}}
+\begin{itemize}[nosep]
+  \item Einheiten wie in JSON (µm, Grad); die Normierung bleibt intern.
+  \item Während jeder Rechnung wird der GIL freigegeben (\verb|py::gil_scoped_release|); mehrere Python-Threads dürfen
+        parallel rechnen (jeder mit eigener \verb|Simulation|).
+  \item Ausnahmen: \verb|fg::Error| $\to$ \verb|fouriergrating.FourierGratingError| (Unterklasse von \verb|RuntimeError|),
+        \verb|NotImplemented| $\to$ \verb|NotImplementedError|.
+  \item \verb|Simulation| speichert die Schichtmodelle und baut beim Ändern eines Parameters nur die betroffenen
+        Schichten neu (Grundlage für M19).
+  \item Typannotationen (\verb|py.typed|, \verb|_core.pyi|).
+\end{itemize}
+
+\subsection{Tests und Abnahme}
+\begin{itemize}[nosep]
+  \item pytest: Für alle Dateien in \verb|examples/| (Nahfeld nur für die kleinen) stimmen Python-Ergebnisse mit
+        \verb|fgsolve| (CSV) auf $10^{-12}$ relativ überein.
+  \item GIL-Test: zwei Threads mit je einer \verb|Simulation| laufen gleichzeitig und liefern dieselben Werte wie sequentiell.
+  \item \verb|set_parameter|: Ergebnis gleich einem Neuaufbau aus der geänderten Konfiguration (bitgleich).
+  \item Wheel aus CI installiert in einer frischen venv; \verb|import fouriergrating; fg.solve(...)| läuft.
+  \item Dokumentation \verb|docs/python.md|, Beispiel \verb|examples/python/scan_lamellar.py|.
+\end{itemize}
+
+%=====================================================================
+\section{M13: Gekrümmte Querschnitte und höhenabhängige Schichtmodelle}\label{sec:contour}
+%=====================================================================
+
+\subsection{Ziel}
+Querschnitte $y=\text{const}$ mit gekrümmten Rändern (Kreise, Ellipsen, NURBS) bekommen \emph{exakte}
+Fourierkoeffizienten (bis auf Quadraturgenauigkeit $\approx10^{-14}$), ohne Polygonisierung und ohne Abtastung.
+Außerdem werden Schichten möglich, deren Querschnitt und Normalenfeld sich mit $y$ ändern und die nicht als
+Profil $y=g(x,z)$ darstellbar sind (Grundlage für den CAD-Slicer, M14). Das Modul ist von Nurbforge unabhängig.
+
+\subsection{Konturdarstellung}
+\begin{itemize}[nosep]
+  \item \verb|fg::geometry::BezierSegment|: rationale Bézierkurve in der $(x,z)$-Ebene, Grad $p\le9$,
+        Kontrollpunkte $\mathbf P_j$ und Gewichte $w_j>0$.
+  \item \verb|fg::geometry::Contour2D|: geschlossene Kette von Segmenten (Ende = Anfang des nächsten, Toleranz
+        $10^{-12}\,d$). Orientierung gegen den Uhrzeigersinn in $(x,z)$ heißt: Material links (wie \eqref{eq:polygon}).
+  \item \verb|fg::geometry::Region|: eine äußere Kontur, beliebig viele Löcher, Materialname.
+        Konstruktoren: Polygon, Kreis und Ellipse (exakt als rationale Quadratik, vier Segmente),
+        NURBS (Grad, Knoten, Kontrollpunkte, Gewichte; Zerlegung in Bézierstücke per Knoteneinfügung, Piegl--Tiller A5.6).
+\end{itemize}
+
+\subsection{Fourierkoeffizienten aus Konturintegralen}
+Für ein Gebiet $\Omega$ mit Rand $\partial\Omega$ (äußere Kontur gegen, Löcher im Uhrzeigersinn) und
+$\mathbf k=(pK_x,qK_z)\neq0$ folgt wie bei \eqref{eq:polygon} aus dem Gaußschen Satz
+\begin{equation}
+  f_{pq}=\frac{1}{d_xd_z}\iint_\Omega e^{-i\mathbf k\cdot\mathbf r}\,d^2r
+  =\frac{i}{|\mathbf k|^2d_xd_z}\sum_{\text{Segmente}}\int_0^1\big(k_x\,z'(t)-k_z\,x'(t)\big)\,
+  e^{-i(k_xx(t)+k_zz(t))}\,dt,
+  \label{eq:contour}
+\end{equation}
+denn für eine gegen den Uhrzeigersinn laufende Kurve $\mathbf r(t)=(x(t),z(t))$ ist $\mathbf n\,ds=(z'(t),-x'(t))\,dt$.
+Für $\mathbf k=0$:
+\begin{equation}
+  f_{00}=\frac{1}{d_xd_z}\cdot\frac12\sum_{\text{Segmente}}\int_0^1\big(x(t)z'(t)-z(t)x'(t)\big)\,dt .
+  \label{eq:contour0}
+\end{equation}
+\textbf{Prüfung:} Für Grad~1 ergibt \eqref{eq:contour} exakt \eqref{eq:polygon} (die Integration über eine Strecke
+liefert $\ell_je^{-i\mathbf k\cdot\mathbf c_j}\operatorname{sinc}(\mathbf k\cdot\mathbf t_j/2)$).
+Für einen Kreis mit Radius $R$ und Mittelpunkt $\mathbf c$ gilt analytisch
+\begin{equation}
+  f_{pq}=\frac{2\pi R\,J_1(|\mathbf k|R)}{|\mathbf k|\,d_xd_z}\,e^{-i\mathbf k\cdot\mathbf c},\qquad f_{00}=\frac{\pi R^2}{d_xd_z}.
+  \label{eq:circle}
+\end{equation}
+\textbf{Periodische Bilder:} Da $e^{-i\mathbf k\cdot\mathbf r}$ für alle $\mathbf k$ des reziproken Gitters periodisch
+ist, darf ein Gebiet über den Zellrand ragen; \eqref{eq:contour} liefert dann den Koeffizienten der periodisierten
+Indikatorfunktion, solange sich die periodischen Bilder nicht überlappen (wie bei \verb|Polygon2D|).
+
+\paragraph{Quadratur.} Je Bézierstück Gauß--Legendre. Der Integrand ist glatt, oszilliert aber mit der Phase
+$\Phi=|\mathbf k|_{\max}L$ ($L$ = Bogenlänge des Stücks, $|\mathbf k|_{\max}$ für $|p|\le2N_x$, $|q|\le2N_z$).
+Adaptiv: Stück mit $n$ und $2n$ Punkten auswerten ($n_0=\max(16,\lceil\Phi/2\rceil+8)$); weichen die Beiträge um
+mehr als $10^{-14}\max_{pq}|f_{pq}|\,d_xd_z$ ab, Stück halbieren (de Casteljau, rational im homogenen Raum).
+Die Polynomordnung ändert sich bei rationalen Stücken nicht; die Gewichte gehen nur über $x(t),z(t)$ ein.
+
+\paragraph{Effiziente Auswertung aller $(p,q)$.} Mit den Quadraturknoten $t_\ell$, Gewichten $\omega_\ell$ und
+$E^x_{\ell p}=e^{-ipK_xx(t_\ell)}$, $E^z_{\ell q}=e^{-iqK_zz(t_\ell)}$ (Rekursion über Potenzen) gilt
+\[
+  G^{(1)}=\sum_\ell\omega_\ell z'(t_\ell)\,E^x_{\ell\cdot}{}^{\!T}E^z_{\ell\cdot},\qquad
+  G^{(2)}=\sum_\ell\omega_\ell x'(t_\ell)\,E^x_{\ell\cdot}{}^{\!T}E^z_{\ell\cdot},\qquad
+  f_{pq}=\frac{i\,(k_xG^{(1)}_{pq}-k_zG^{(2)}_{pq})}{|\mathbf k|^2d_xd_z},
+\]
+also zwei Matrixprodukte $(E^x)^T\operatorname{diag}(\cdot)E^z$. Ergebnis in \verb|fourier::CoefficientGrid|.
+Implementierung: \verb|fourier::regionCoefficients| (Argumente: Region, Perioden, $P_x$, $P_z$) in
+\verb|src/fourier/contour.cpp|; Formelverweise \verb|// Plan eq:contour|.
+
+\subsection{Neuer Schichttyp \texttt{Contour2D}}
+\verb|Contour2DLayer| ist die Verallgemeinerung von \verb|Polygon2DLayer|: $y$-invariant, Hintergrundmaterial,
+Liste von \verb|Region|s (paarweise disjunkt; geprüft über Kurvenschnitte der Ränder und Enthaltensein eines Punktes).
+Koeffizienten: $\varepsilon=\varepsilon_{\text{bg}}+\sum_r(\varepsilon_r-\varepsilon_{\text{bg}})\chi_r$ (Linearität;
+für $1/\varepsilon$ und Tensoren analog wie bei \verb|Polygon2D|). Faktorisierungen wie \verb|Polygon2D|
+(Laurent, FFF\_iso/FFF\_sym mit Tensorfeld, FFF\_B; FFF\_rig nicht zulässig).
+JSON:
+{\footnotesize\begin{verbatim}
+{"type": "contour2d", "thickness_um": 0.2, "background": "air",
+ "regions": [ {"material": "Au", "circle": {"center_um": [0.25, 0.25], "radius_um": 0.1}},
+              {"material": "Au", "ellipse": {"center_um": [0.6, 0.6], "radii_um": [0.12, 0.06], "angle_deg": 30}},
+              {"material": "SiO2", "polygon_um": [[0,0],[0.1,0],[0.1,0.1]]},
+              {"material": "Si", "nurbs": {"degree": 2, "knots": [...], "points_um": [[x,z],...],
+                                           "weights": [...]}, "holes": [ ... ]} ]}
+\end{verbatim}}
+
+\subsection{Normalenfeld mit Randstichproben und 3D-Normalen}
+Algorithmus~NF (Abschnitt~\ref{sec:fff}) wird so verallgemeinert, dass er statt Polygonkanten eine Liste von
+\emph{Randstichproben} $(\mathbf p_s,\mathbf n_s)$ verarbeitet, mit $\mathbf n_s$ als 3D-Einheitsvektor
+(bei $y$-invarianten Schichten $n_{s,y}=0$, bei geneigten Wänden aus M14 $n_{s,y}\neq0$):
+\begin{enumerate}[nosep]
+  \item Kurven adaptiv abtasten, bis die Sehnenabweichung $\le10^{-3}$ Rasterabstände beträgt; $\mathbf n_s$ exakt aus
+        der Kurventangente (2D) bzw.\ von außen geliefert (3D, M14). Die Prüfung \enquote{Materialgrenze ja/nein}
+        bleibt wie in Algorithmus~NF (Material beidseits verschieden, periodische Punktsuche).
+  \item Nächste Stichprobe je Rasterpunkt mit Bucket-Gitter (Zellgröße $\approx$ Stichprobenabstand), periodische Bilder.
+        Anforderung: $512^2$ Raster mit $10^4$ Stichproben in unter 1\,s auf einem Kern.
+        Zwischen zwei benachbarten Stichproben wird der Fußpunkt auf der Sehne bestimmt und die Normale linear
+        interpoliert und normiert.
+  \item Tensorvariante: geglättet wird das $3\times3$-Projektorfeld $\mathbf n\mathbf n^T$; Koeffizienten aller sechs
+        Komponenten $N_iN_j$. Für $n_{s,y}=0$ ist das Ergebnis bitgleich mit der bisherigen $2\times2$-Variante
+        (Regressionstest gegen \verb|Polygon2D|).
+\end{enumerate}
+
+\subsection{Höhenabhängige Schichtmodelle}
+Die interne Schnittstelle \verb|detail::LayerModel| (Datei \verb|src/solvers/layer_model.hpp|) wird erweitert:
+{\footnotesize\begin{verbatim}
+virtual Vec3D normalAt(double x_um, double y_um, double z_um) const;          // bisher (x, z)
+virtual Eigen::Matrix3d projectorAt(double x_um, double y_um, double z_um) const;
+virtual const NormalFieldCoefficients& NN(double y_um) const;                // bisher ohne y
+\end{verbatim}}
+$y$-invariante Schichten und Profile ignorieren $y$ (Profile: Normale überträgt sich, Abschnitt~\ref{sec:fff});
+alle Aufrufer (Q-Matrizen, FFF-konsistente Rekonstruktion, Nahfeld) übergeben die Höhe. Neues Modell
+\verb|detail::SectionedLayer| für Schichten, deren Querschnitt sich mit $y$ ändert:
+{\footnotesize\begin{verbatim}
+struct CrossSection { std::vector<Region> regions; std::vector<BoundarySample> samples; };
+class SectionProvider {                       // M14: Nurbforge; Tests: analytische Provider
+ public: virtual CrossSection section(double y_um) const = 0;   // y relativ zur Schichtunterkante
+         virtual double thickness_um() const = 0; };
+\end{verbatim}}
+\verb|SectionedLayer| berechnet bei Bedarf Querschnitt, Koeffizienten von $\varepsilon$, $1/\varepsilon$, $N_iN_j$
+und $Q(y)$ und speichert sie in einem Cache (Schlüssel: $y$ bitgenau; dieselben Knoten werden bei der Nahfeldrekonstruktion
+wieder gebraucht, Abschnitt~\ref{sec:layers}). RK wertet an den Stufenknoten aus; RCWA verwendet die Scheibenmitten
+(Treppe, \verb|slices|). Der Kontaminationsschutz \eqref{eq:slicecrit} gilt unverändert.
+
+\paragraph{Analytischer Testprovider.} Für die Abnahme ohne Nurbforge: Kegelstumpf (Kreis mit Radius
+$R(y)=R_0+(R_1-R_0)y/h$, 3D-Normale $\propto(\cos\theta,\,-(R_1-R_0)/h,\,\sin\theta)$ mit dem Umfangswinkel $\theta$)
+und Kugelkappe. Beide sind auch als \verb|Profile2D| mit Funktion $g(x,z)$ darstellbar (Referenz).
+
+\subsection{Tests und Abnahme (M13)}
+\begin{itemize}[nosep]
+  \item Unit: Grad-1-Konturen $=$ \eqref{eq:polygon} auf $10^{-14}$; Kreis $=$ \eqref{eq:circle} auf $10^{-13}$ (bis
+        $|p|,|q|\le60$); Ellipse $=$ gestreckter Kreis; Verschiebung um eine Periode ändert nichts ($10^{-13}$);
+        Loch $=$ negative Fläche; Adaptivität (Ergebnis unabhängig von $n_0$ auf $10^{-14}$).
+  \item Unit: NF mit Randstichproben auf Polygonen bitgleich zur bisherigen Implementierung; 3D-Normalen mit $n_y=0$
+        bitgleich; Projektor symmetrisch, Spur 1.
+  \item \textbf{V15} (Säulen mit Kreisquerschnitt): \verb|Contour2D| mit exaktem Kreis gegen \verb|Polygon2D| mit $L$ Ecken
+        ($L=16,32,\dots,512$): Abweichung der Effizienzen fällt wie $O(L^{-2})$, Richardson-Extrapolation stimmt mit
+        \verb|Contour2D| auf $10^{-8}$ überein. RK $=$ RCWA ($y$-invariant).
+  \item \textbf{V16a} (geneigte Wand ohne CAD): \verb|SectionedLayer| mit Kegelstumpf-Provider gegen \verb|Profile2D|
+        (gleiche Geometrie, RK, gleiche Faktorisierung): $10^{-6}$ bei \verb|rk.tol| $=10^{-9}$; Energieerhaltung bei
+        verlustfreiem Material $10^{-10}$.
+  \item Alle bisherigen Tests bitgleich (Golden Files).
+\end{itemize}
+
+%=====================================================================
+\section{M14: CAD-Slicer (STEP $\to$ Schichten) mit Nurbforge}\label{sec:cad}
+%=====================================================================
+
+\subsection{Ziel und Datenfluss}
+Eine STEP-Datei (B-rep, NURBS und analytische Flächen) beschreibt den Inhalt einer Einheitszelle. FourierGrating
+zerlegt sie entlang $y$ in Bänder, ordnet Materialien zu und erzeugt daraus homogene, $y$-invariante
+(\verb|Contour2D|) und $y$-variable (\verb|SectionedLayer|) Schichten.
+{\footnotesize\begin{verbatim}
+STEP --nf::read_step--> Shells (+ Namen) --Achsen/Einheiten--> FG-Koordinaten (um)
+  --nf::critical_heights--> Baender [y_k, y_k+1]
+  --je Band: homogen | y-invariant (1 Schnitt) | y-variabel (Schnitte bei Bedarf)
+  --nf::section--> Schleifen + Flaechennormalen --> Region/Contour2D + Randstichproben --> M13
+\end{verbatim}}
+
+\subsection{Vorleistung in Nurbforge (Version 0.6.0, eigener Pull Request)}
+Diese Funktionen gehören fachlich in den CAD-Kern und werden \emph{dort} implementiert und getestet
+(Repository \verb|PhotonPower/Nurbforge|, Regeln dort in \verb|CONTRIBUTING.md|). FourierGrating bindet danach das
+Tag \verb|v0.6.0| ein.
+\begin{enumerate}[nosep]
+  \item \verb|nf::PlanarSection nf::section(const Shell&, const Plane&, const SectionOptions&)|:
+        geschlossene Schleifen in den Ebenenkoordinaten $(s,t)$, je Schleife eine Kette von \verb|NurbsCurve|
+        (z = 0). Orientierung: Festkörper links (äußere Schleifen gegen den Uhrzeigersinn, Hohlräume im Uhrzeigersinn).
+        Je Kurve: Index der Quellfläche und die p-Kurve, damit die nach außen zeigende Flächennormale an jedem
+        Schnittpunkt ausgewertet werden kann. Umsetzung: \verb|planar_section| je Fläche, Kurven auf den
+        Trimmbereich beschneiden (\verb|TrimmedSurface::contains|, Schnitt mit den Trimmkurven), Stücke an den Enden
+        verketten (Toleranz der Shell). Offene Ketten $\Rightarrow$ \verb|GeometryError| mit Ort.
+        Ebenen, die eine Fläche tangential schneiden, sind nicht erlaubt (der Aufrufer wählt keine kritischen Höhen).
+  \item \verb|std::vector<double> nf::critical_heights(const Shell&, const Vec3& dir, const Tolerance&)|:
+        sortierte Höhen $h=\mathbf r\cdot\mathbf d$ von Ecken, ebenen Flächen mit $\mathbf n\parallel\mathbf d$, inneren
+        Extrema der Höhe auf Flächen ($S_u\cdot\mathbf d=S_v\cdot\mathbf d=0$, Newton aus Bézier-Unterteilung) und auf
+        Kanten ($C'\cdot\mathbf d=0$). Zwischen zwei kritischen Höhen ändert sich die Topologie der Schnitte nicht.
+  \item \verb|bool nf::is_extrusion_band(const Shell&, const Vec3& dir, double h0, double h1, const Tolerance&)|:
+        alle Flächen, die das Band schneiden, haben dort $\mathbf n\cdot\mathbf d=0$ (Prüfung an Stichproben und an
+        den Bézier-Kontrollnetzen).
+  \item STEP-Namen: \verb|read_step_named| liefert je Shell den Namen (PRODUCT bzw.\ MANIFOLD\_SOLID\_BREP-Name).
+  \item Thread-Sicherheit aller \verb|const|-Abfragen dokumentieren und mit einem TSAN-Test prüfen (für M15).
+  \item Tests in Nurbforge: Quader, Zylinder, Kugel, Kegel, Torus, Quader mit Hohlraum; Schleifenzahl, Orientierung,
+        Fläche gegen analytische Werte ($10^{-9}$); kritische Höhen (Kugel: Pole; Torus: vier Höhen bei
+        $\mathbf d\parallel$ Achse \dots).
+\end{enumerate}
+
+\subsection{Einbindung in FourierGrating}
+\begin{itemize}[nosep]
+  \item CMake-Option \verb|FG_ENABLE_NURBFORGE| (Standard \verb|OFF| im Kern-CI, eigener CI-Job mit \verb|ON|);
+        \verb|FetchContent| auf das Tag \verb|v0.6.0| (\verb|NF_BUILD_PYTHON=OFF|, \verb|NF_BUILD_TESTS=OFF|), statisch gelinkt.
+        Die Python-Wheels (M12) werden mit \verb|ON| gebaut. Lizenzhinweis (MIT) in \verb|README.md|.
+  \item Neuer Namensraum \verb|fg::cad| (\verb|include/fg/cad|, \verb|src/cad|). Kein anderes Modul inkludiert Nurbforge-Header.
+  \item Python-Nutzer von Nurbforge übergeben Geometrie als STEP-Text (\verb|nf.to_step(shells)|); C++-Objekte werden
+        nicht zwischen den beiden Python-Modulen ausgetauscht (ABI-Risiko).
+\end{itemize}
+
+\subsection{Koordinaten, Einheiten, Einheitszelle}
+\begin{itemize}[nosep]
+  \item STEP wird in mm gelesen (Nurbforge rechnet aus der Dateieinheit um), dann mit 1000 auf µm skaliert;
+        die Option \verb|unit| (\verb|auto|, \verb|mm|, \verb|um|) korrigiert falsche Dateieinheiten.
+  \item Achsen: Standard CAD-$+Z\to$ FG-$+y$ (Stapelrichtung), CAD-$X\to x$; $z$ folgt aus Rechtshändigkeit
+        $\hat{\mathbf z}=\hat{\mathbf x}\times\hat{\mathbf y}$, also FG-$z=-$CAD-$Y$. Konfigurierbar über
+        \verb|"axes": {"y": "+Z", "x": "+X"}|; eine Spiegelung (Linkssystem) ist verboten, weil sie chirale Strukturen
+        verfälscht. Test V16b prüft das.
+  \item Zelle: Ursprung \verb|cell_origin_um| $=(x_0,z_0)$ (Standard: Minimum der Hüllquader-Projektion) und Perioden aus
+        \verb|period_um|. Geometrie darf über die Zelle ragen (periodische Bilder, M13). Überlappen sich Bilder in
+        einem Schnitt (Kurvenschnitt der Schleife mit ihren um $\pm d_x,\pm d_z$ verschobenen Kopien), bricht der Slicer
+        mit einer Meldung ab; \verb|"periodic_union": true| vereinigt vorher in 3D mit den verschobenen Kopien
+        (\verb|nf::boolean|, Union).
+  \item $y$-Bereich: \verb|y_range_um| (Standard: Hüllquader). Der CAD-Block ist ein Eintrag in \verb|layers| und
+        wird beim Laden in mehrere Schichten (Bänder) expandiert.
+\end{itemize}
+
+\subsection{Materialzuordnung}
+\verb|"bodies"| ordnet Shells (Index oder STEP-Name) Materialien zu; nicht genannte Shells sind ein Fehler.
+\verb|"background"| ist das Material außerhalb aller Körper (Name oder \verb|"superstrate"|/\verb|"substrate"|).
+Körper müssen disjunkt sein. Überlappen sie, gilt die Reihenfolge der Liste als Priorität:
+$B_i\leftarrow B_i\setminus\bigcup_{j<i}B_j$ (\verb|nf::boolean|, Difference) bei \verb|"overlap": "priority"|,
+sonst Abbruch. Hohlräume (BREP\_WITH\_VOIDS) werden Löcher. Permittivität im Schnitt:
+$\varepsilon=\varepsilon_{\text{bg}}+\sum_b(\varepsilon_b-\varepsilon_{\text{bg}})\chi_b$.
+
+\subsection{Bandzerlegung und Klassifikation}
+\begin{enumerate}[nosep]
+  \item Kritische Höhen aller Shells im $y$-Bereich bestimmen und zusammenführen; Höhen mit Abstand
+        $<$ \verb|critical_tol_um| (Standard $10^{-6}$) werden zusammengelegt. Bänder dünner als
+        \verb|min_band_um| (Standard $10^{-5}$) werden dem Nachbarband zugeschlagen (Warnung).
+  \item Je Band: kein Rand im Band $\Rightarrow$ \verb|Homogeneous| (Material per \verb|point_in_shell| in Bandmitte,
+        Zellmitte); \verb|is_extrusion_band| $\Rightarrow$ \verb|Contour2D| aus \emph{einem} Schnitt in Bandmitte
+        (exakt); sonst \verb|SectionedLayer| mit \verb|NurbforgeSectionProvider|.
+  \item Es wird nie genau auf einer kritischen Höhe geschnitten. RK-Stufenknoten liegen im Inneren; RCWA-Scheibenmitten
+        ebenfalls. Bandgrenzen sind Schichtgrenzen des Stapels.
+\end{enumerate}
+
+\subsection{Schnitt $\to$ Regionen und Randstichproben}
+Schleifen aus \verb|nf::section| werden in Bézierstücke zerlegt (\verb|nf| Bézier-Zerlegung), in FG-Koordinaten
+abgebildet und zu \verb|Region|s geordnet (äußere Schleife = positive Fläche; Löcher der kleinsten umgebenden
+äußeren Schleife zugeordnet). Randstichproben: Punkte auf den Schleifen (Abstand wie M13) mit der 3D-Flächennormale
+der Quellfläche, umgerechnet in FG-Achsen. Für das Normalenfeld genügt die Projektorform, das Vorzeichen ist egal.
+
+\paragraph{Kosten und Interpolation in $y$.} Ein Schnitt kostet Flächen-Ebenen-Schnitte (Marching); RK fordert viele
+Höhen an. Deshalb: (a) Cache je Höhe; (b) Option \verb|"y_interpolation": "chebyshev"|: je Band die
+Koeffizientengitter von $\varepsilon$, $1/\varepsilon$ (bzw.\ Tensorgrößen) und $N_iN_j$ an $K$ Tschebyschow-Knoten
+(Standard $K=16$) berechnen und baryzentrisch interpolieren. Innerhalb eines Bandes sind die Koeffizienten glatt in
+$y$; an Bandenden können Wurzelsingularitäten auftreten (Kuppenspitze). Fehlerkontrolle: Vergleich $K$ gegen $2K$,
+Ziel $10^{-10}\max|f_{pq}|$, sonst $K$ verdoppeln (bis 256, dann exakte Schnitte mit Warnung).
+
+\subsection{Konfiguration}
+{\footnotesize\begin{verbatim}
+{"type": "cad", "file": "pillars.step", "unit": "auto", "axes": {"y": "+Z", "x": "+X"},
+ "y_range_um": [0.0, 0.35], "cell_origin_um": [0.0, 0.0], "background": "superstrate",
+ "bodies": [ {"name": "Pillar", "material": "Au"}, {"index": 1, "material": "SiO2"} ],
+ "overlap": "error", "periodic_union": false,
+ "slicing": {"critical_tol_um": 1e-6, "min_band_um": 1e-5, "rcwa_slices": 40,
+             "y_interpolation": "none", "chebyshev_nodes": 16},
+ "factorization": "auto", "normal_field": {"method": "tensor", "grid": 512, "sigma": 3}}
+\end{verbatim}}
+\verb|fgsolve --cad-report| schreibt die Bandzerlegung (Höhen, Typ je Band, Flächenanteile je Material, Warnungen)
+als JSON; \verb|scripts/plot_cad_sections.py| zeichnet ausgewählte Schnitte.
+
+\subsection{Tests und Abnahme (M14)}
+STEP-Testdateien werden zur Testlaufzeit mit Nurbforge erzeugt (\verb|nf::write_step| in ein temporäres
+Verzeichnis); zusätzlich zwei kleine Dateien unter \verb|tests/data/cad/| für Regressionstests.
+\begin{itemize}[nosep]
+  \item \textbf{V16b} (Prisma, Chiralität): extrudiertes L-Profil $\to$ ein $y$-invariantes Band; Koeffizienten
+        $=$ \verb|Polygon2D| mit von Hand abgebildetem Polygon ($10^{-13}$); Effizienzen RK und RCWA $10^{-12}$.
+        Gespiegelte Achsenwahl muss abgelehnt werden.
+  \item \textbf{V17} (Zylindersäulen): STEP-Zylinder $=$ \verb|Contour2D| mit Kreis ($10^{-12}$), Koeffizienten gegen
+        \eqref{eq:circle}.
+  \item \textbf{V18} (Kugelkappe, Kegelstumpf, geneigte Wände): \verb|SectionedLayer| aus CAD gegen \verb|Profile2D| mit
+        Funktion $g(x,z)$ (RK, \verb|rk.tol| $=10^{-9}$): $10^{-6}$; gegen den analytischen Provider aus M13: $10^{-9}$;
+        RCWA-Treppe konvergiert mit der Scheibenzahl gegen denselben Wert; Energie $10^{-10}$ (verlustfrei).
+  \item Zwei Materialien (Au-Säule mit SiO$_2$-Deckel) und Hohlraum: RK $=$ RCWA im Grenzwert, Energie, Reziprozität.
+  \item Tschebyschow-Interpolation: Ergebnis gleich exakten Schnitten auf $10^{-9}$.
+  \item Doku \verb|docs/cad.md|, Beispiel \verb|examples/cad_pillar_array.json|, Skript
+        \verb|scripts/make_cad_examples.py| (erzeugt die STEP-Beispiele mit dem Nurbforge-Python-Paket).
+\end{itemize}

@@ -14,7 +14,8 @@ Diese Datei gilt für jeden, der an FourierGrating arbeitet. Lies sie vollständ
 
 ## 2. Reihenfolge
 
-* Arbeite die Meilensteine in `docs/roadmap.md` **der Reihe nach** ab (M0 → M11).
+* Arbeite die Meilensteine in `docs/roadmap.md` **der Reihe nach** ab (M0 → M11, dann Version 2: M12 → M19,
+  Plan Teile 5–6). Die offene GPU-Abnahme von M10 blockiert nur die GPU-Teile von M15 und M16.
   Ein Meilenstein ist erst fertig, wenn alle seine Abnahmetests grün sind.
 * Status in `docs/roadmap.md` nach jedem Meilenstein aktualisieren (`[x]`).
 * Keine Funktionen „auf Vorrat“ implementieren, die der aktuelle Meilenstein nicht braucht.
@@ -33,6 +34,7 @@ Diese Datei gilt für jeden, der an FourierGrating arbeitet. Lies sie vollständ
 ## 4. Numerik-Regeln
 
 * Kern ausschließlich in `std::complex<double>`; normierte Einheiten (`k0 = 1`, `H̃ = Z0 H`).
+  Einfache bzw. gemischte Genauigkeit nur innerhalb des Linear-Algebra-Backends (ab M16, Plan „Wählbare Genauigkeit“).
   Einheiten (µm, Grad) nur an der IO-Grenze umrechnen.
 * Keine expliziten Inversen, wenn ein LU-Solve genügt.
 * Wurzelzweig für β, Moden-Klassifikation und Rayleigh-Anomalie exakt wie im Plan.
@@ -61,8 +63,19 @@ Diese Datei gilt für jeden, der an FourierGrating arbeitet. Lies sie vollständ
 * Erzeugte Dateien (Build, Ausgaben) gehören nicht ins Repo (`.gitignore`). Ausnahme: das PDF des
   Plans (`docs/implementation_plan/main.pdf`) wird bei Änderungen des Plans neu erzeugt und eingecheckt.
 
-## 7. Zielsystem
+## 7. Version 2: Abhängigkeiten und Regressionsschutz
+
+* Mit ausgeschalteten neuen Optionen bleiben alle Ergebnisse bitgleich zu v0.10 (Golden Files in
+  `tests/regression/golden/`, Test `Regression.*`). Golden Files nur mit Begründung im CHANGELOG neu erzeugen.
+* Nurbforge (`PhotonPower/Nurbforge`) wird nur über `FG_ENABLE_NURBFORGE` und ein festes Tag eingebunden; nur
+  `src/cad/` inkludiert Nurbforge-Header. Fehlende CAD-Funktionen werden in Nurbforge selbst ergänzt (eigener PR mit
+  Tests, neues Tag), nicht in FourierGrating nachgebaut.
+* Python-Bindungen (`python/`) enthalten keine Physik, nur Umwandlung und Aufrufe.
+* Gradienten (M19) werden nur über die dokumentierten Rückwärtsfunktionen in `src/adjoint/` gebildet; jede bekommt
+  einen Test gegen Differenzenquotienten.
+
+## 8. Zielsystem
 
 AlmaLinux 10 (x86_64, GCC 14), CMake ≥ 3.24, CUDA ≥ 12.6 Update 2 (für `cusolverDnXgeev`),
-GPU NVIDIA RTX 6000 Ada (sm_89, 48 GB). Die FP64-Leistung dieser GPU ist begrenzt; der CPU-Pfad
+GPU NVIDIA RTX 6000 Ada (sm_89, 48 GB); zusätzlich Windows mit RTX 3090 (sm_86, 24 GB) für M15/M16. Die FP64-Leistung dieser GPU ist begrenzt; der CPU-Pfad
 bleibt Referenz und muss immer funktionieren (CI baut nur CPU).

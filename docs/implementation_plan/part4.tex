@@ -3,7 +3,8 @@
 %=====================================================================
 \begin{itemize}
   \item Durchgehend \verb|std::complex<double>| bzw.\ \verb|cuDoubleComplex|; keine einfache Genauigkeit
-        im Kern. (Gemischte Genauigkeit nur optional für LU mit iterativer Verfeinerung, M10.)
+        im Kern. Ab M16 darf das Linear-Algebra-Backend $O(n^3)$-Operationen wahlweise in einfacher bzw.\ gemischter
+        Genauigkeit ausführen (Abschnitt~\ref{sec:precision}); der Physikcode bleibt FP64.
   \item Matrizen nie explizit invertieren, wenn ein Gleichungssystem genügt (LU + Lösen).
         Ausnahme: $\Li$, $\tp{C_\varepsilon}^{-1}$, $Q_{\varepsilon,yy}^{-1}$, die mehrfach gebraucht werden
         (dann LU speichern und Produkte per Lösen bilden).
@@ -257,6 +258,16 @@ M10 & CUDA-Backend (cuBLAS, cuSOLVER getrf/geev, cuFFT), Batching über Wellenl�
 M11 & Parameter-Scans, Performance, Doku für Anwender & Beispielskripte, Laufzeittabelle
   (erledigt v0.10: Scans $\lambda\times\varphi\times\psi\times\delta$, Sweeps per JSON-Pointer, paralleler Scan,
   \verb|plot_efficiencies.py|, \verb|docs/user_guide.md|) \\
+\midrule
+\multicolumn{3}{l}{\emph{Version 2 (Abschnitte \ref{sec:ext}--\ref{sec:extcross})}}\\
+M12 & Python-Anbindung (pybind11, Wheel, \verb|Simulation|) & Python = \verb|fgsolve| ($10^{-12}$), Wheel installierbar \\
+M13 & Konturkoeffizienten, \verb|Contour2D|, NF mit 3D-Normalen, höhenabhängige Schichtmodelle & Unit-Tests, V15, V16a, Golden Files \\
+M14 & CAD-Slicer (STEP, Nurbforge 0.6) & V16b, V17, V18 \\
+M15 & Profiling, parallele Scheiben, Baumreduktion, GPU-residente Ketten & Determinismus, TSAN, Leistungsbericht \\
+M16 & Genauigkeit FP64/gemischt/FP32 & Genauigkeitsstudie V1--V18, Laufzeiten RTX 3090/6000 Ada \\
+M17 & Koordinatentransformationen, ASR & $\eta=0$ bitgleich, V19 \\
+M18 & PML, isolierte Strukturen, modaler Einfall & V20a--c \\
+M19 & Diskrete Adjungierte, PyTorch/JAX, Optimierungsbeispiele & Gradiententests, Beispiele \\
 \bottomrule
 \end{longtable}
 

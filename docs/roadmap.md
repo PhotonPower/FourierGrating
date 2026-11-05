@@ -58,3 +58,41 @@ Abnahme = alle genannten Tests grün (`ctest`), Details im Plan, Abschnitt „Me
     – `tests/unit/test_scan.cpp`, Beispiel `examples/sweep_lamellar_depth.json` (Smoke-Test)
   - `scripts/plot_efficiencies.py` (Spektren, Sweeps), Anwenderhandbuch `docs/user_guide.md` mit Laufzeittabelle
   - Performance: CPU-Referenzwerte in `docs/benchmarks.md`; GPU-Werte und Schwelle auf dem Zielsystem (M10)
+
+## Version 2 (Plan v2.0, Abschnitte „Erweiterungen“ M12–M19)
+
+Reihenfolge verbindlich (Abhängigkeiten im Plan, Abschnitt „Erweiterungen ab Version 2.0: Überblick“).
+Vor dem ersten Eingriff: Golden Files aller `examples/` nach `tests/regression/golden/` (Stand v0.10), Test
+`Regression.*` – mit Standardoptionen bleiben alle bisherigen Ergebnisse bitgleich.
+Offene Entscheidungen (Plan, Abschnitt „Querschnittsthemen“) vor dem betroffenen Meilenstein beim Projektinhaber erfragen.
+
+- [ ] **M12** Python-Anbindung (pybind11, scikit-build-core, Wheel manylinux_2_28, `fg.Simulation`)
+  - Abnahme: Python = `fgsolve` auf 1e-12 für alle Beispiele; GIL-Test; `set_parameter` = Neuaufbau; Wheel aus CI
+    installierbar; `docs/python.md`
+- [ ] **M13** Gekrümmte Querschnitte: Konturkoeffizienten (Plan eq:contour), `Contour2D`, Algorithmus NF mit
+  Randstichproben und 3D-Normalen, `LayerModel` mit y-abhängigem Normalenfeld, `SectionedLayer` + `SectionProvider`
+  - Abnahme: Unit-Tests (Polygon 1e-14, Kreis/Bessel 1e-13, NF bitgleich), V15 (Kreissäulen), V16a (Kegelstumpf
+    gegen Profile2D 1e-6), Golden Files bitgleich
+- [ ] **M14** CAD-Slicer mit Nurbforge
+  - Vorleistung in Nurbforge v0.6.0 (eigener PR): `nf::section(Shell, Plane)`, `nf::critical_heights`,
+    `nf::is_extrusion_band`, STEP-Namen, Thread-Sicherheit
+  - FG: `FG_ENABLE_NURBFORGE`, Modul `fg::cad`, Achsen/Einheiten, Bandzerlegung, Materialzuordnung, Schichttyp `cad`,
+    `--cad-report`, optionale Tschebyschow-Interpolation in y
+  - Abnahme: V16b (Prisma/Chiralität), V17 (Zylinder), V18 (Kugelkappe, Kegelstumpf), zwei Materialien, Hohlraum;
+    `docs/cad.md`, Beispiel `examples/cad_pillar_array.json`
+- [ ] **M15** Profiling und Parallelisierung
+  - `fg::prof` und Profil vor M15 (Zielsystem); Threadmodell (scan/slices/blas); parallele Scheiben-S;
+    Sternprodukt als Baum fester Form; parallele Koeffizienten/NF/CAD-Schnitte; GPU-residente Ketten (`DeviceMatrix`)
+  - Abnahme: Ergebnisse bitgleich für 1/2/4 Threads; Baum = sequentiell 1e-12; TSAN-Job; Leistungsbericht
+- [ ] **M16** Genauigkeit `fp64` | `mixed` | `fp32` am Backend (kein TF32), angepasstes Scheibenkriterium,
+  Schutzmechanismus mit FP64-Rückfall, `CMAKE_CUDA_ARCHITECTURES` 86;89
+  - Abnahme: Backend-Unit-Tests, Genauigkeitsstudie V1–V18 (Tabelle in `docs/validation.md`), Laufzeiten RTX 3090 /
+    RTX 6000 Ada; Regel in `AGENTS.md` angepasst
+- [ ] **M17** Koordinatentransformationen (A = [[1/f']] α, G = [[1/g']] γ), ASR nach Granet für Metalle
+  - Abnahme: η = 0 bitgleich; V1–V3, V9 mit η = 0,5 auf 1e-8; V19 (Metall-Lamellen TM, Konvergenztabelle)
+- [ ] **M18** PML (komplexe Streckung), isolierte Strukturen, strukturierte Ein-/Ausgangsmedien, gestreutes Feld
+  - Abnahme: V20a (Fresnel mit PML), V20b (isolierter Steg, Zellgrößenkonvergenz), V20c (Wellenleiterende, Literatur)
+- [ ] **M19** Differenzierbarkeit: diskrete Adjungierte (Plan „Konvention“, Rückwärtsregeln), Formableitungen
+  (eq:shape2d, eq:shape3d), C++-API `gradient`/`vjp`, Python `value_and_grad`, PyTorch-/JAX-Adapter
+  - Abnahme: Rückwärtsfunktionen gegen Differenzenquotienten 1e-6; Ende-zu-Ende V3, V9, V13, V15, V18; Entartung;
+    Aufwand ≤ 5× Vorwärtsrechnung; Beispiele `optimize_littrow.py`, `optimize_nurbs_pillar.py`

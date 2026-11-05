@@ -1,0 +1,443 @@
+%=====================================================================
+\section{M15: Profiling und Parallelisierung}\label{sec:parallel}
+%=====================================================================
+
+\subsection{Ziel}
+Eine \emph{einzelne} Rechnung (nicht nur ein Scan) nutzt alle Kerne bzw.\ die GPU gut aus. Ergebnisse sind
+deterministisch und unabhängig von der Threadzahl.
+
+\subsection{Schritt 1: Messen}
+\begin{itemize}[nosep]
+  \item \verb|fg::prof|: Scope-Timer (\verb|FG_PROF_SCOPE("rcwa.eig")|), threadsichere Aggregation (Summe, Anzahl, Max
+        je Name), Ausgabe als JSON (\verb|fgsolve --profile|, Python \verb|res.diagnostics["timings"]|). Kosten
+        abgeschaltet $<1\,\%$.
+  \item Profile für V3, V9, V10 ($N=10$), V13 und das CAD-Beispiel auf dem Zielsystem (CPU und GPU) in
+        \verb|docs/benchmarks.md| (\enquote{Profil vor M15}). Die folgenden Schritte werden nach diesem Profil priorisiert;
+        was nicht messbar hilft, entfällt.
+\end{itemize}
+
+\subsection{Schritt 2: Threadmodell}
+Drei Ebenen: Scanpunkte (bestehend, \verb|solveScan|), Schichten/Scheiben einer Rechnung (neu), BLAS/Eigen
+innerhalb einer Matrixoperation. Konfiguration \verb|"threads"| mit den Schlüsseln \verb|scan|, \verb|slices| (je Zahl oder \verb|auto|) und \verb|blas| (Standard 1),
+Umgebungsvariable \verb|FG_NUM_THREADS|. Regel gegen Überbelegung: Produkt der Ebenen $\le$ Kernzahl; \verb|auto|
+verteilt zuerst auf die Scanebene (wenn Scanpunkte $\ge$ Kerne), sonst auf die Scheibenebene. OpenMP-Tasks;
+verschachtelte Parallelität explizit (\verb|omp_set_max_active_levels(2)|), Eigen über \verb|Eigen::setNbThreads|.
+
+\subsection{Schritt 3: Parallele Scheiben-S-Matrizen und Baumreduktion}
+\begin{itemize}[nosep]
+  \item Die S-Matrizen aller Schichten und Scheiben (RCWA-Scheiben, RK-Stabilisierungsscheiben) sind unabhängig und werden
+        parallel berechnet; Ablage nach Index.
+  \item Das Sternprodukt ist assoziativ. Verkettung als balancierter Binärbaum mit \emph{fester} Form (Paare $(0,1),(2,3),\dots$,
+        dann rekursiv), unabhängig von der Threadzahl $\Rightarrow$ bitgleiche Ergebnisse für jede Threadzahl.
+        Abweichung zur sequentiellen Verkettung $\le10^{-12}$ relativ (Test). Option \verb!"reduction": "tree" | "sequential"!.
+  \item Nahfeld (\verb|storeInternal|) braucht $S_L$ und $S_U$ an jeder inneren Grenzfläche: zunächst sequentiell
+        (Präfix/Suffix); parallele Präfixsumme nur, wenn das Profil es verlangt.
+  \item RK: Stufenauswertungen $Q(y+c_ih)$ einer Scheibe parallel; Scheiben untereinander parallel.
+\end{itemize}
+
+\subsection{Schritt 4: Geometrie und Koeffizienten}
+Raster von Algorithmus~NF, Konturquadratur (je Thread eigenes Teilgitter, Summation in fester Reihenfolge),
+Profil-Schnittpunkte und CAD-Schnitte je Höhe parallel. Für Nurbforge nur die als threadsicher dokumentierten
+\verb|const|-Abfragen verwenden (M14).
+
+\subsection{Schritt 5: GPU-residente Ketten}
+Das CUDA-Backend arbeitet bisher über die Host-API (jede Operation kopiert Ein- und Ausgaben). Bei FP32 (M16) wird der
+PCIe-Transfer sonst zum Engpass (Beispiel $n=3362$: eine Matrix 90--180\,MB, CGEMM auf der RTX~3090 nur wenige ms).
+Daher:
+\begin{itemize}[nosep]
+  \item \verb|linalg::DeviceMatrix| (RAII-Handle) und Operationen \verb|gemm|, \verb|solve|, \verb|eig|, \verb|add|,
+        \verb|scaleRows| auf Handles; \verb|upload|/\verb|download| explizit.
+  \item RCWA-Scheiben-S und Sternproduktkette laufen vollständig auf dem Gerät; nur das Gesamt-$S$ (bzw.\ die für das
+        Nahfeld nötigen Matrizen) wird zurückkopiert. Mehrere Streams für unabhängige Scheiben.
+  \item Kontrolle mit Nsight Systems: Anteil der Transferzeit $<10\,\%$ bei 2D, $N\ge10$.
+\end{itemize}
+
+\subsection{Tests und Abnahme (M15)}
+\begin{itemize}[nosep]
+  \item Determinismus: Threadzahl 1, 2, 4 liefern bitgleiche Ergebnisse (alle Validierungsfälle, kleine $N$).
+  \item Baum = sequentiell auf $10^{-12}$; GPU-residente Kette = Host-Kette auf $10^{-10}$ (GPU-Rechner).
+  \item CI-Job mit ThreadSanitizer (Unit-Tests, kleine Größen) ohne Befund.
+  \item Leistungsbericht in \verb|docs/benchmarks.md| (Zielsystem und RTX~3090): Laufzeit einer 2D-Rechnung mit
+        $\ge32$ Scheiben vor/nach, parallele Effizienz (Zielwert $\ge60\,\%$ auf 16 Kernen), Transferanteil GPU.
+\end{itemize}
+
+%=====================================================================
+\section{M16: Wählbare Genauigkeit (FP64 / gemischt / FP32)}\label{sec:precision}
+%=====================================================================
+
+\subsection{Motivation und Grundsatz}
+Auf der RTX~3090 (GA102, \verb|sm_86|) und der RTX 6000 Ada (\verb|sm_89|) beträgt die FP64-Rate etwa 1/64 der
+FP32-Rate. Die $O(n^3)$-Operationen (GEMM, LU, Eigenwerte) dominieren die Laufzeit. Die Genauigkeit wird deshalb
+\textbf{am Backend} gewählt: Matrizen bleiben im Physikcode \verb|MatC| (FP64); das Backend wandelt an seiner Grenze
+($O(n^2)$) um und rechnet die $O(n^3)$-Operation in der gewählten Genauigkeit. Der Physikcode wird nicht templatisiert.
+
+\subsection{Modi}
+\begin{center}
+\small
+\begin{tabular}{p{4.6cm}p{2.6cm}p{3.6cm}p{3.0cm}}
+\toprule
+Operation & \verb|fp64| (Standard) & \verb|mixed| & \verb|fp32| \\
+\midrule
+Toeplitz, $Q$, $M$, Koeffizienten, Normalenfeld & FP64 & FP64 & FP64 \\
+GEMM & Z & C & C \\
+LU / Lösen & Z & C-Faktorisierung + FP64-Nachiteration (IRS) & C \\
+Eigenwerte (RCWA) & Z & C & C \\
+Exponentiale, stabile $S$-Formeln, Effizienzen & FP64 & FP64 & FP64 \\
+\bottomrule
+\end{tabular}
+\end{center}
+GPU: \verb|cublasCgemm| (Math-Mode ausdrücklich \verb|CUBLAS_DEFAULT_MATH|, \textbf{kein TF32}; zusätzlich
+\verb|NVIDIA_TF32_OVERRIDE=0| in der Doku), \verb|cusolverDnXgetrf|/\verb|Xgetrs| und \verb|cusolverDnXgeev| mit
+\verb|CUDA_C_32F|, gemischtes Lösen mit der IRS-API (\verb|cusolverDnZCgesv| bzw.\ \verb|cusolverDnIRSXgesv|).
+CPU: Eigen \verb|MatrixXcf| (bzw.\ LAPACK \verb|cgetrf|/\verb|cgeev|), Nachiteration selbst implementiert:
+$x\leftarrow x+A^{-1}_{32}(b-Ax)$ mit Residuum in FP64, höchstens 10 Schritte, Abbruch bei
+$\|b-Ax\|\le\epsilon_{64}\|A\|\|x\|\cdot10$, sonst Rückfall auf FP64-LU (Diagnose).
+
+\subsection{Angepasste Parameter}
+\begin{itemize}[nosep]
+  \item Scheibenkriterium \eqref{eq:slicecrit}: Wachstumsgrenze $G_{\max}=\epsilon^{-1/2}$ der Arbeitsgenauigkeit der
+        Propagation. FP64: $6.7\cdot10^{7}\approx10^8$ (wie bisher), FP32/mixed: $\approx4\cdot10^{3}$, also
+        $\ln G_{\max}\approx8.3$ statt 18.4 $\Rightarrow$ mehr, dünnere Scheiben. \verb|growthLimit| bekommt den Standard
+        \verb|auto| (abhängig vom Modus); ein expliziter Wert gilt weiter.
+  \item RK: \verb|rk.tol| wird in FP32 auf $\ge10^{-5}$ angehoben (Warnung).
+  \item Eigenwertklassifikation: Toleranzen relativ zu $\max|\lambda|$ mit $\epsilon_{32}$ skalieren.
+\end{itemize}
+
+\subsection{Schutzmechanismen}
+Diagnosen je Rechnung: Energiebilanz (verlustfrei), Konditionszahlen ($T_{11}$, $G$), Zahl der Nachiterationen.
+Option \verb|"precision_fallback": true| (Standard in \verb|fp32|): Rechnung automatisch in FP64 wiederholen, wenn bei
+verlustfreien Strukturen $|\sum e-1|>10^{-3}$ oder $\operatorname{cond}(T_{11})>10^{5}$; Warnung im Ergebnis.
+
+\subsection{Build}
+\verb|CMAKE_CUDA_ARCHITECTURES| \verb|"86;89"| in den CUDA-Presets (RTX 3090 und RTX 6000 Ada); Preset
+\verb|win-cuda| ebenfalls \verb|86|. Speichertabelle (Abschnitt Architektur) um FP32 und 24\,GB (3090) ergänzen.
+
+\subsection{Tests und Abnahme (M16)}
+\begin{itemize}[nosep]
+  \item Unit: Backend-Operationen in \verb|fp32| gegen \verb|fp64| (gut konditionierte Zufallsmatrizen, $n=50\dots400$):
+        relativer Fehler $\le10^{-5}$; IRS-Lösen erreicht FP64-Genauigkeit ($10^{-12}$) für $\operatorname{cond}\le10^6$.
+  \item Genauigkeitsstudie: alle Validierungsfälle (V1--V18) in allen drei Modi, Tabelle in \verb|docs/validation.md|
+        (maximaler relativer Fehler der Effizienzen gegen \verb|fp64|, Energiebilanz, Fallback ausgelöst ja/nein).
+        Zielwerte vor der Studie: \verb|mixed| $\le10^{-6}$, \verb|fp32| $\le10^{-4}$ für V1--V9; nach der Studie im Plan
+        festschreiben.
+  \item Laufzeittabelle RTX~3090 und RTX 6000 Ada: 2D, $N=10,15,20$, alle Modi.
+  \item \verb|AGENTS.md| Abschnitt 4: \enquote{Kern ausschließlich \texttt{complex<double>}; einfache Genauigkeit nur im
+        Backend (M16).}
+\end{itemize}
+
+%=====================================================================
+\section{M17: Koordinatentransformationen, adaptive räumliche Auflösung}\label{sec:ctrans}
+%=====================================================================
+
+\subsection{Formalismus}
+Neue Koordinaten $X,Z$ mit
+\begin{equation}
+  x=f(X),\qquad z=g(Z),\qquad f(X+d_x)=f(X)+d_x,\quad g(Z+d_z)=g(Z)+d_z
+  \label{eq:ct_map}
+\end{equation}
+(separabel, $f',g'\neq0$; ASR: reell und monoton; PML, M18: komplex in Randzonen). Die Maxwellgleichungen bleiben
+unverändert, nur $\partial_x=(1/f'(X))\,\partial_X$, $\partial_z=(1/g'(Z))\,\partial_Z$. Da $f(X)-X$ periodisch ist, sind
+die Felder in $X$ pseudoperiodisch mit denselben $\alpha_n$:
+$e^{i\alpha_0f(X)}=e^{i\alpha_0X}\cdot(\text{periodisch})$. In der Entwicklung \eqref{eq:pseudo} nach $X,Z$ gilt
+\begin{equation}
+  \partial_x\to i\,A,\quad A=\tp{1/f'}\,\alpha,\qquad \partial_z\to i\,G,\quad G=\tp{1/g'}\,\gamma .
+  \label{eq:ct_deriv}
+\end{equation}
+$\tp{1/f'}$ ist im 2D-Einzelindexraum Toeplitz in $n$ und Einheit in $m$ (umgekehrt für $\tp{1/g'}$). Deshalb
+kommutieren $\tp{1/f'}$ und $\tp{1/g'}$ mit $\gamma$ bzw.\ $\alpha$ und miteinander, also $AG=GA$. $1/f'$ ist stetig;
+die Laurent-Regel ist zulässig.
+
+\begin{tcolorbox}[title=Ersetzungsregel]
+In \eqref{eq:Ey}, \eqref{eq:Hy}, \eqref{eq:Mgeneral}, \eqref{eq:Mmu1a}, \eqref{eq:Mmu1b} wird jedes $\alpha$ durch $A$ und
+jedes $\gamma$ durch $G$ ersetzt, \textbf{unter Beibehaltung der Reihenfolge}. Die Kurzformen in \eqref{eq:Mmu1b}
+stammen aus $\alpha\,\mathcal U\,\alpha$ usw.\ mit $\mathcal U=\mathbb 1$; daraus werden
+$\alpha^2\to AA$, $\alpha\gamma\to AG$, $\gamma^2\to GG$, $\gamma\alpha\to GA$. Beispiel:
+$M_{14}=iA\,\mathcal E\,A-i\mathbb 1$, $M_{32}=i\big(Q_{\varepsilon,zz}-Q_{\varepsilon,zy}\mathcal EQ_{\varepsilon,yz}-AA\big)$.
+Unit-Test: Für $f'\equiv g'\equiv1$ ist der Pfad mit Matrizen $A,G$ gleich dem Diagonalpfad ($10^{-15}$);
+der Diagonalpfad bleibt Standard (bitgleich).
+\end{tcolorbox}
+
+\subsection{Permittivität und Normalenfeld in transformierten Koordinaten}
+$\varepsilon$ wird als Funktion von $(X,Z)$ entwickelt: $\varepsilon(f(X),y,g(Z))$.
+\begin{itemize}[nosep]
+  \item Lamellen: Bruchstellen $X_j=f^{-1}(x_j)$, dann \eqref{eq:interval} unverändert.
+  \item Polygone, Konturen, CAD-Schnitte: Rand abbilden $X(t)=f^{-1}(x(t))$, $Z(t)=g^{-1}(z(t))$ (Newton; $f$ monoton im
+        physikalischen Bereich), $X'=x'/f'(X)$, dann \eqref{eq:contour} mit derselben adaptiven Quadratur.
+  \item Profile: Nullstellen von $g(f(X))-y$ in $X$.
+  \item Normalenfeld: \emph{physikalische} Normalen an den Bildpunkten. Die Feldkomponenten $E_x,E_z,\dots$ bleiben
+        kartesische Komponenten im physikalischen Raum, daher werden die Normalen nicht transformiert.
+\end{itemize}
+
+\subsection{Homogene Halbräume, Einfall und Effizienzen}
+In transformierten Koordinaten sind die Ordnungen keine Eigenvektoren mehr. Daher:
+\begin{itemize}[nosep]
+  \item Modenbasis von Substrat und Superstrat numerisch: Eigenzerlegung von $M$ (mit $A$, $G$, $Q_{\varepsilon}=\varepsilon\mathbb 1$),
+        Klassifikation auf/ab wie bei anisotropen Medien (Abschnitt~\ref{sec:homog}).
+  \item Einfallende Welle: Koeffizienten von $e^{i\alpha_0f(X)+i\gamma_0g(Z)}$ in der Basis $e^{i(\alpha_nX+\gamma_mZ)}$,
+        \begin{equation}
+          c_{nm}=\frac{1}{d_xd_z}\int_0^{d_x}\!\!\int_0^{d_z}e^{i\alpha_0(f(X)-X)+i\gamma_0(g(Z)-Z)}\,e^{-i(nK_xX+mK_zZ)}\,dX\,dZ
+          \label{eq:ct_inc}
+        \end{equation}
+        (separabel, DFT), multipliziert mit der Polarisation \eqref{eq:polarization}; danach in die Modenbasis projizieren.
+  \item Physikalische Rayleigh-Amplituden aus dem reflektierten bzw.\ transmittierten Tangentialfeld $U(X)=\sum_mu_me^{i\alpha_mX}$
+        (1D; 2D separabel analog):
+        \begin{equation}
+          R_n=\frac{1}{d_x}\int_0^{d_x}U(X)\,e^{-i\alpha_nf(X)}\,f'(X)\,dX .
+          \label{eq:ct_rayleigh}
+        \end{equation}
+        Der Integrand ist periodisch und glatt; Trapezregel mit $\ge8(2N_x+1)$ Punkten. Effizienzen dann mit
+        \eqref{eq:eff_closed} aus den physikalischen Amplituden.
+  \item Nahfeld: Synthese in $X$, Ausgabe auf einem Gitter in $x$ über $X=f^{-1}(x)$.
+\end{itemize}
+
+\subsection{ASR-Abbildung (Granet)}
+Für Bruchstellen $0\le x_0<x_1<\dots<x_J=x_0+d_x$ (Standard: alle Materialsprünge aller Schichten in $x$, oder Liste aus
+der Konfiguration) und Stärke $0\le\eta<1$, auf $[x_{j-1},x_j]$ mit $\Delta_j=x_j-x_{j-1}$:
+\begin{equation}
+  f(X)=X-\frac{\eta\,\Delta_j}{2\pi}\sin\frac{2\pi(X-x_{j-1})}{\Delta_j},\qquad
+  f'(X)=1-\eta\cos\frac{2\pi(X-x_{j-1})}{\Delta_j}.
+  \label{eq:asr}
+\end{equation}
+$f(x_j)=x_j$, $f'$ ist stetig (an jeder Bruchstelle $1-\eta$), monoton für $\eta<1$; ein gleichmäßiges Raster in $X$ wird an
+den Bruchstellen in $x$ um den Faktor $1-\eta$ verdichtet. Lamellenbruchstellen bleiben unverändert ($X_j=x_j$).
+Koeffizienten von $1/f'$ per DFT mit $\ge64(2N_x+1)$ Punkten ($1/f'$ ist stetig mit stetiger Ableitung).
+Konfiguration:
+{\footnotesize\begin{verbatim}
+"coordinate_transform": {"x": {"type": "asr", "eta": 0.8, "breakpoints_um": "auto"}, "z": {...}}
+\end{verbatim}}
+Gekrümmte Ränder in 2D (\enquote{matched coordinates}, nicht separabel) sind \emph{nicht} Teil von M17.
+
+\subsection{Tests und Abnahme (M17)}
+\begin{itemize}[nosep]
+  \item $\eta=0$: bitgleich mit dem Pfad ohne Transformation.
+  \item V1, V2, V3, V9 mit $\eta=0.5$: Ergebnisse auf $10^{-8}$ (bei moderatem $N$) wie ohne Transformation;
+        Energiebilanz und Reziprozität wie bisher.
+  \item \textbf{V19} (Metall-Lamellengitter TM, z.\,B.\ Gold oder Aluminium wie V13 als Lamelle): Referenz ohne ASR bei sehr
+        großem $N$; mit ASR ($\eta=0.8$) gleicher Grenzwert ($10^{-4}$); Konvergenztabelle (benötigtes $N$ für $10^{-3}$
+        mit/ohne ASR) in \verb|docs/validation.md|. Literaturvergleich mit Granet (1999), sofern die dortigen Daten
+        bibliographisch geprüft sind.
+\end{itemize}
+
+%=====================================================================
+\section{M18: PML und isolierte Strukturen}\label{sec:pml}
+%=====================================================================
+
+\subsection{Ziel}
+Aperiodische (isolierte) Strukturen: Ein einzelnes Objekt (Steg, Säule, Wellenleiterende) wird in einer Rechenzelle
+mit absorbierenden Randzonen (PML) gerechnet. Die PML ist eine komplexe Koordinatenstreckung nach
+\eqref{eq:ct_map}--\eqref{eq:ct_deriv} (M17).
+
+\subsection{PML-Abbildung}
+Rechenzelle $[0,d_x)$, physikalischer Bereich $[w,d_x-w]$ mit $f(X)=X$, Randzonen der Breite $w$ an beiden Enden.
+Mit der Eindringtiefe $\xi\in[0,1]$ ($\xi=(w-X)/w$ links, $\xi=(X-d_x+w)/w$ rechts) und $u(\xi)=\sin^2(\pi\xi/2)$:
+\begin{equation}
+  \frac{1}{f'(X)}=\frac{1-u(\xi)}{1+i\beta\,u(\xi)} .
+  \label{eq:pml}
+\end{equation}
+Eigenschaften: $1/f'=1$ und stetig differenzierbar am Übergang ($u'(0)=0$); $1/f'\to0$ am Zellrand (Abbildung
+nach $|x|\to\infty$, vgl.\ Hugonin/Lalanne); $\operatorname{Im}f'>0$ dämpft bei der Zeitkonvention $e^{-i\omega t}$
+auslaufende Wellen. Standard $w=0.15\,d_x$, $\beta=1$. \eqref{eq:pml} ist ein Vorschlag; der Agent vergleicht ihn in der
+Konvergenzstudie mit der Formulierung von Hugonin/Lalanne (JOSA A 22, 1844, 2005; vor Verwendung prüfen) und
+übernimmt die bessere als Standard. Analog in $z$ (2D).
+
+\subsection{Voraussetzungen und Einfall}
+\begin{itemize}[nosep]
+  \item In den PML-Zonen ist jede Schicht in $x$ (bzw.\ $z$) homogen; Strukturen reichen nicht hinein. Geprüft beim
+        Aufbau (Schnittkurven/Bruchstellen in den Zonen $\Rightarrow$ Fehler). Geschichtete Hintergründe (Substrat,
+        Filme) laufen durch die Zonen.
+  \item Einfall (a): ebene Welle bei Normaleinfall ($\alpha_0=\gamma_0=0$). Das konstante Feld ist auch in gestreckten
+        Koordinaten exakt ($c_{nm}=\delta_{n0}\delta_{m0}$). Schräger Einfall ist mit seitlichen PML nicht verträglich
+        und wird abgelehnt.
+  \item Einfall (b): Mode eines \emph{strukturierten} Ein- oder Ausgangsmediums. Substrat und Superstrat dürfen
+        $y$-invariant strukturiert sein (Lamellen, Polygon, Kontur), z.\,B.\ ein Wellenleiter, der sich in $y$ ausbreitet.
+        Modenbasis aus der RCWA-Eigenzerlegung dieses Mediums; Auswahl über effektiven Index oder Modennummer.
+        Normierung der Moden unkonjugiert, $\int(\mathbf E\times\mathbf H)\cdot\hat{\mathbf y}\,dx=1$ (übliche Wahl mit PML);
+        für geführte Moden ist $|r|^2$ dann die Leistungsreflexion.
+\end{itemize}
+
+\subsection{Ausgaben}
+\begin{itemize}[nosep]
+  \item Gestreutes Feld $\mathbf E_s=\mathbf E-\mathbf E_{\text{bg}}$ mit der Hintergrundlösung: derselbe Stapel, jede
+        strukturierte Schicht durch ihr Hintergrundmaterial ersetzt, gleiche Transformation und gleiches $N$
+        (Diskretisierungsfehler heben sich auf).
+  \item Leistungsflüsse des gestreuten Feldes durch Ebenen $y=\text{const}$ über den physikalischen Bereich,
+        $P=\tfrac12\operatorname{Re}\int(\mathbf E_s\times\overline{\mathbf H_s})\cdot\hat{\mathbf y}\,dx$, normiert auf die
+        einfallende Intensität: Streubreite (1D, in µm) bzw.\ Streuquerschnitt (2D). Absorption aus der Flussbilanz.
+  \item Bei modalem Einfall: Modenkoeffizienten $r_{jk}$, $t_{jk}$ direkt aus der S-Matrix in der Modenbasis,
+        Leistungsanteile $|r_{jk}|^2$, $|t_{jk}|^2$ für geführte Moden, Abstrahlverlust $1-\sum$.
+  \item Nahfeld (gesamt und gestreut) auf dem physikalischen Bereich.
+\end{itemize}
+Konfiguration:
+{\footnotesize\begin{verbatim}
+"aperiodic": {"pml": {"x": {"width_um": 0.3, "beta": 1.0}}, "excitation": "plane_wave"}   // oder {"mode": 0}
+\end{verbatim}}
+
+\subsection{Tests und Abnahme (M18)}
+\begin{itemize}[nosep]
+  \item \textbf{V20a}: homogener Schichtstapel mit PML bei Normaleinfall $=$ Fresnel/Airy auf $10^{-10}$.
+  \item \textbf{V20b}: isolierter dielektrischer Steg auf Substrat (1D, TE und TM): Streubreite konvergiert bei
+        Zellbreite $4,6,8\times$ Stegbreite auf $10^{-3}$ und hängt nicht von $w$, $\beta$ ab ($10^{-3}$);
+        Absorption $=0$ bei verlustfreiem Material ($10^{-6}$).
+  \item \textbf{V20c}: Reflexion der Grundmode an einem abrupt endenden Schichtwellenleiter gegen Silberstein et~al.\
+        (JOSA A 18, 2865, 2001; Wert vor Verwendung bibliographisch prüfen), Toleranz $10^{-3}$.
+  \item 2D (PML in $x$ und $z$): eine isolierte Säule; Konvergenz in Zellgröße wie V20b (qualitativ, Zielsystem).
+\end{itemize}
+
+%=====================================================================
+\section{M19: Differenzierbarkeit und Optimierung}\label{sec:adjoint}
+%=====================================================================
+
+\subsection{Ziel und Umfang}
+Gradienten reeller Zielfunktionen $L$ von Effizienzen oder komplexen Amplituden nach Strukturparametern, mit einem
+Aufwand von höchstens 3--5 Vorwärtsrechnungen \emph{unabhängig von der Zahl der Parameter}. Parameter (Phase~1):
+Dicke $y$-invarianter Schichten; Materialpermittivität (komplex); Lamellen-Bruchstellen; Polygonecken;
+Kontrollpunkte und Gewichte von \verb|Contour2D|; Profilparameter (Tiefe, Verschiebung); CAD-Kontrollpunkte für
+seitliche Bewegungen (Abschnitt~\ref{sec:adj_shape}). Phase~2 (optional): Einfallswinkel und Wellenlänge.
+
+\subsection{Methode: diskrete Adjungierte}
+Abgeleitet wird die \emph{tatsächlich berechnete} diskrete Abbildung (erst diskretisieren, dann differenzieren), im
+Rückwärtsmodus über die aufgezeichneten Zwischenergebnisse (\verb|storeInternal| plus neue Felder). Zwei bewusste
+Festlegungen, im Ergebnis als Diagnose ausgewiesen:
+\begin{enumerate}[nosep]
+  \item RK-Schrittfolge, Scheibenzerlegung und Bandtopologie (M14) gelten als fest.
+  \item Das Normalenfeld ($\tp{N_iN_j}$) gilt als parameterunabhängig (\enquote{eingefroren}). Es beeinflusst nur die
+        Konvergenzgeschwindigkeit, nicht den Grenzwert; Algorithmus~NF ist wegen der Nächster-Punkt-Suche nicht glatt.
+        Der Unterschied zum vollen Differenzenquotienten wird in den Tests gemessen und fällt mit $N$.
+\end{enumerate}
+
+\subsection{Konvention (komplex, PyTorch-kompatibel)}
+Für reelles $L$ und komplexe Größe $A$ heißt $\bar A:=\partial L/\partial\operatorname{Re}A+i\,\partial L/\partial\operatorname{Im}A$;
+dann $dL=\operatorname{Re}\operatorname{tr}(\bar A^HdA)$. Rückwärtsregeln (Kotangenten werden \emph{addiert}):
+\begin{center}
+\small
+\begin{tabular}{p{4.2cm}p{10.2cm}}
+\toprule
+Vorwärts & Rückwärts \\
+\midrule
+$C=AB$ & $\bar A\mathrel{+}=\bar CB^H$, $\bar B\mathrel{+}=A^H\bar C$ \\
+$X=A^{-1}B$ (LU) & $\hat B=A^{-H}\bar X$ (Lösen mit $A^H$), $\bar B\mathrel{+}=\hat B$, $\bar A\mathrel{+}=-\hat BX^H$ \\
+$C=A^{-1}$ & $\bar A\mathrel{+}=-C^H\bar CC^H$ \\
+$z=\phi(w)$ holomorph & $\bar w\mathrel{+}=\overline{\phi'(w)}\,\bar z$ (z.\,B.\ $e^{\lambda h}$, $\sqrt{\cdot}$ für $\beta$) \\
+$h$ reell, $X=\operatorname{diag}(e^{\lambda_ih})$ & $\bar h\mathrel{+}=\operatorname{Re}\sum_i\overline{\bar X_{ii}}\,\lambda_iX_{ii}$ (normiert: Faktor $k_0$ für µm) \\
+$A=W\Lambda W^{-1}$ (Eig) & $\bar A=W^{-H}\big(\operatorname{diag}(\bar\lambda)+\overline{P}\circ(W^H\bar W)\big)W^H$,
+  $P_{ij}=1/(\lambda_j-\lambda_i)$ ($i\neq j$), $P_{ii}=0$ \\
+Toeplitz $T=\tp f$, $T_{rr'}=f_{n-n',m-m'}$ & $\bar f_{pq}\mathrel{+}=\sum_{n-n'=p,\ m-m'=q}\bar T_{rr'}$ (Summe über die Diagonalen) \\
+$e=\frac{a|B_x|^2+b|B_z|^2+2c\operatorname{Re}(B_x\overline{B_z})}{D}$ \eqref{eq:eff_closed} &
+  $\bar B_x\mathrel{+}=2\bar e(aB_x+cB_z)/D$, $\bar B_z\mathrel{+}=2\bar e(bB_z+cB_x)/D$ ($a,b,c,D$ reell) \\
+\bottomrule
+\end{tabular}
+\end{center}
+\textbf{Eigenzerlegung:} Die Formel setzt voraus, dass $L$ von der Normierung und Phase der Eigenvektoren nicht abhängt
+(gilt für die S-Matrix). Entartete Cluster ($|\lambda_i-\lambda_j|<\tau\max|\lambda|$, $\tau=10^{-10}$) liegen in derselben
+Klasse (auf/ab) und gehen nur über ihren Unterraum ein: dort $P_{ij}:=0$. Fast entartete Paare werden mit
+Lorentz-Verbreiterung $P_{ij}=\overline{(\lambda_j-\lambda_i)}/(|\lambda_j-\lambda_i|^2+\delta^2)$, $\delta=10^{-12}\max|\lambda|$
+behandelt. Test mit Normaleinfall auf symmetrische Gitter (exakte Entartung).
+
+\textbf{RK-Propagator} eines Schrittes (lineare ODE, $s$ Stufen, Butcher $\mathcal A,b,c$):
+$\mathbb M=\operatorname{blockdiag}(M(y+c_ih))$, $Z=\mathbb 1-h\,\mathbb M(\mathcal A\otimes\mathbb 1)$,
+$K=Z^{-1}\mathbb M(\mathbf 1\otimes\mathbb 1)$, $P=\mathbb 1+h(b^T\otimes\mathbb 1)K$. Rückwärts über die Regeln oben:
+$\bar K=h(b\otimes\mathbb 1)\bar P$, $\bar R=Z^{-H}\bar K$, $\bar Z=-\bar RK^H$,
+$\bar{\mathbb M}\mathrel{+}=-h\bar Z(\mathcal A\otimes\mathbb 1)^H+\bar R(\mathbf 1\otimes\mathbb 1)^H$, davon die Diagonalblöcke.
+(Ist der RK-Schritt im Code anders organisiert, gilt dieselbe Herleitung für die dortige Form.)
+
+Sternprodukt \eqref{eq:star}, $T\to S$, Grenzflächen, $Q$-Matrizen (Laurent, Li-Inverse, FFF-Varianten) und der Aufbau
+von $M$ \eqref{eq:Mgeneral} werden aus diesen Primitiven zusammengesetzt; jede Funktion bekommt eine eigene
+Rückwärtsfunktion in \verb|src/adjoint/| und einen eigenen Gradiententest.
+
+\subsection{Formableitungen der Koeffizienten}\label{sec:adj_shape}
+Bewegt sich der Rand eines Gebiets mit der Geschwindigkeit $\mathbf V=\partial\mathbf r/\partial\theta$, dann gilt
+(Reynolds/Hadamard, mit $\mathbf n\,ds=(z',-x')\,dt$), für \emph{alle} $\mathbf k$ einschließlich $\mathbf k=0$:
+\begin{equation}
+  \frac{\partial f_{pq}}{\partial\theta}=\frac{1}{d_xd_z}\oint\big(V_x\,z'(t)-V_z\,x'(t)\big)\,e^{-i\mathbf k\cdot\mathbf r(t)}\,dt .
+  \label{eq:shape2d}
+\end{equation}
+NURBS-Kontur $\mathbf r(t)=\sum_jR_j(t)\mathbf P_j$: $\partial\mathbf r/\partial P_{j,x}=R_j(t)\hat{\mathbf x}$,
+$\partial\mathbf r/\partial P_{j,z}=R_j(t)\hat{\mathbf z}$, für Gewichte
+$\partial\mathbf r/\partial w_j=\frac{B_j(t)}{\sum_iw_iB_i(t)}(\mathbf P_j-\mathbf r(t))$. Polygonecken sind der Fall Grad~1
+(Hutfunktionen). Lamellenbruchstellen ($\varepsilon=\sum_j\varepsilon_j\chi_{[x_j,x_{j+1}]}$): $\partial f_p/\partial x_j=-\frac{\varepsilon_j-\varepsilon_{j-1}}{d}\,e^{-ipKx_j}$
+(Wert rechts minus links der Bruchstelle). Gleiche Quadratur wie \eqref{eq:contour}.
+
+\textbf{CAD (3D):} Ein Flächenparameter $\theta$ (z.\,B.\ Kontrollpunkt $\mathbf P_{ij}$ in Richtung $\mathbf e$:
+$\mathbf V=R_{ij}(u,v)\,\mathbf e$) verschiebt die Schnittkurve in der Ebene mit der Normalgeschwindigkeit
+$v_n=(\mathbf V\cdot\mathbf N)/|\mathbf N_\parallel|$ ($\mathbf N$ Flächennormale, $\mathbf N_\parallel$ ihr Anteil in der
+$(x,z)$-Ebene):
+\begin{equation}
+  \frac{\partial f_{pq}(y)}{\partial\theta}=\frac{1}{d_xd_z}\oint\frac{\mathbf V\cdot\mathbf N}{|\mathbf N_\parallel|}\,
+  e^{-i\mathbf k\cdot\mathbf r}\,ds .
+  \label{eq:shape3d}
+\end{equation}
+$(u,v)$ entlang der Schnittkurve aus den p-Kurven (M14). Phase~1 erlaubt nur Parameter, die keine kritische Höhe
+verschieben (seitliche Bewegungen); bewegt ein Parameter eine waagrechte ebene Fläche, ist zusätzlich
+$\partial y_k/\partial\theta=\mathbf V\cdot\hat{\mathbf y}$ über die Dickengradienten der beiden angrenzenden Bänder
+einzurechnen; andere Fälle $\Rightarrow$ \verb|NotImplemented("M19 Phase 2")|.
+
+\subsection{Schnittstellen}
+{\footnotesize\begin{verbatim}
+// C++ (include/fg/adjoint/gradient.hpp)
+struct ParameterRef { std::string pointer; };      // JSON-Pointer, z. B. "/layers/2/regions/0/nurbs/points_um/3/0"
+struct Objective { std::vector<std::pair<OrderRef, double>> weights; };   // L = sum w * e  (oder Kotangenten)
+struct GradientResult { double value; std::vector<double> grad; Diagnostics diag; };
+GradientResult gradient(const SolverOptions&, const Stack&, const Wavelength&, const Objective&,
+                        const std::vector<ParameterRef>&);
+// allgemeine VJP: Kotangenten fuer alle Effizienzen und/oder komplexen Amplituden -> Parameterkotangenten
+std::vector<double> vjp(const Simulation&, const Cotangents&, const std::vector<ParameterRef>&);
+\end{verbatim}}
+Python: \verb|sim.value_and_grad(objective, params)|, \verb|sim.vjp(cotangents, params)|;
+\verb|fouriergrating.torch| (\verb|torch.autograd.Function|: vorwärts Effizienzen als Tensor, rückwärts \verb|vjp|) und
+\verb|fouriergrating.jax| (\verb|jax.custom_vjp| mit \verb|jax.pure_callback|); beide optional importierbar.
+Komplexe Parameter (Permittivität) folgen der Konvention oben und sind damit direkt mit PyTorch kompatibel.
+Speicher: Zwischenergebnisse je Scheibe; Option \verb|"checkpoint_every": k| (nur jede $k$-te Scheibe speichern, Rest neu
+rechnen). GPU: Rückwärtsfunktionen über das Backend (M15/M16).
+
+\subsection{Tests und Abnahme (M19)}
+\begin{itemize}[nosep]
+  \item Jede Rückwärtsfunktion: zentraler Differenzenquotient mit Zufallsmatrizen ($h=10^{-7}$, Real- und Imaginärteil),
+        relative Übereinstimmung $10^{-6}$.
+  \item Ende-zu-Ende je Parameterart auf V3, V9, V13, V15, V18: Adjungierte gegen Differenzenquotient mit eingefrorenem
+        Normalenfeld und fester Scheibenfolge $10^{-6}$; gegen den vollen Differenzenquotienten: Abweichung tabellieren.
+  \item Entartung: Normaleinfall auf symmetrisches Lamellengitter, Gradient endlich und $=$ Differenzenquotient.
+  \item RK- und RCWA-Gradient stimmen im Grenzwert überein (Lamellen: $10^{-8}$).
+  \item Aufwand: Gradient $\le5\times$ Vorwärtsrechnung (gemessen, Bericht).
+  \item Beispiel 1 (\verb|examples/python/optimize_littrow.py|): binäres Gitter, Littrow $-1$. Ordnung, Dicke und Tastgrad
+        mit \verb|scipy.optimize.minimize| (L-BFGS-B); Optimum $=$ Rasterscan-Optimum auf $10^{-3}$.
+  \item Beispiel 2 (\verb|examples/python/optimize_nurbs_pillar.py|): Kontrollpunkte einer \verb|Contour2D|-Säule mit
+        PyTorch-Adam; Zielfunktion fällt monoton (Demonstration, kein Referenzwert).
+\end{itemize}
+
+%=====================================================================
+\section{Querschnittsthemen der Version 2}\label{sec:extcross}
+%=====================================================================
+\begin{itemize}[nosep]
+  \item \textbf{Golden Files vor dem ersten Eingriff (Beginn M12):} Für alle \verb|examples/| Effizienzen (17 signifikante
+        Stellen) mit dem Stand v0.10 nach \verb|tests/regression/golden/| schreiben. Test \verb|Regression.*|: mit
+        Standardoptionen auf derselben Maschine bitgleich, in CI (anderer Compiler) $10^{-13}$ relativ.
+  \item \textbf{CI-Matrix:} \verb|cpu-release| (wie bisher), \verb|cpu-release| + \verb|FG_ENABLE_NURBFORGE=ON| (ab M14),
+        Python-Wheel-Build und pytest (ab M12), ThreadSanitizer (ab M15), Doku.
+  \item \textbf{Versionen:} je Meilenstein eine Minor-Version (M12 $\to$ 0.11.0, \dots, M19 $\to$ 0.18.0); Plan-Version 2.x;
+        \verb|CHANGELOG.md| je Meilenstein.
+  \item \textbf{Dokumentation:} \verb|docs/config_format.md| (neue Schichttypen und Blöcke), \verb|docs/user_guide.md|,
+        \verb|docs/architecture.md| (Module \verb|cad|, \verb|adjoint|, Python), \verb|docs/validation.md| (V15--V20),
+        \verb|docs/benchmarks.md|.
+  \item \textbf{Fehlerfunde im Plan:} wie bisher (Test, Plan und Code im selben Commit, CHANGELOG).
+\end{itemize}
+
+\subsection{Offene Entscheidungen (beim Projektinhaber erfragen, bevor der betroffene Meilenstein beginnt)}
+\begin{enumerate}[nosep]
+  \item M18: Ist mit \enquote{iso} wirklich \enquote{isoliert} gemeint?
+  \item M12: Werden Windows-Wheels gebraucht, und soll es ein CUDA-Wheel geben (statt lokalem Build)?
+  \item M14: Typische Herkunft der STEP-Dateien (CAD-System), damit die Testmenge realistische Entitäten enthält.
+  \item M16: Soll \verb|fp32| auf der RTX~3090 automatisch gewählt werden, oder nur auf ausdrücklichen Wunsch?
+\end{enumerate}
+
+\subsection*{Literatur zu Version 2 (vor Verwendung bibliographisch prüfen)}
+\begin{enumerate}[label={[\arabic*]},nosep,leftmargin=2em,start=11]
+  \item L.~Piegl, W.~Tiller, \emph{The NURBS Book}, 2.\ Aufl., Springer 1997.
+  \item G.~Granet, \enquote{Reformulation of the lamellar grating problem through the concept of adaptive spatial resolution}, JOSA A 16, 2510 (1999).
+  \item T.~Vallius, M.~Honkanen, \enquote{Reformulation of the Fourier modal method with adaptive spatial resolution: application to multilevel profiles}, Opt.\ Express 10, 24 (2002).
+  \item T.~Weiss, G.~Granet, N.~A.~Gippius, S.~G.~Tikhodeev, H.~Giessen, \enquote{Matched coordinates and adaptive spatial resolution in the Fourier modal method}, Opt.\ Express 17, 8051 (2009).
+  \item J.~P.~Hugonin, P.~Lalanne, \enquote{Perfectly matched layers as nonlinear coordinate transforms: a generalized formalization}, JOSA A 22, 1844 (2005).
+  \item E.~Silberstein, P.~Lalanne, J.~P.~Hugonin, Q.~Cao, \enquote{Use of grating theories in integrated optics}, JOSA A 18, 2865 (2001).
+  \item M.~B.~Giles, \enquote{Collected matrix derivative results for forward and reverse mode algorithmic differentiation}, in: Advances in Automatic Differentiation, Springer (2008).
+  \item C.~Kim, B.~Lee, \enquote{TORCWA: GPU-accelerated Fourier modal method and gradient-based optimization for metasurface design}, Comput.\ Phys.\ Commun.\ 282, 108552 (2023).
+  \item NVIDIA cuSOLVER Documentation, Iterative-Refinement-Löser (\verb|cusolverDnIRSXgesv|, \verb|cusolverDn<t1><t2>gesv|).
+\end{enumerate}

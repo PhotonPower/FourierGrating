@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Plan
+- Plan v2.0: Erweiterungsplan Version 2 (Teile 5–6, Meilensteine M12–M19): Python-Anbindung, Konturkoeffizienten und
+  höhenabhängige Schichtmodelle, CAD-Slicer mit Nurbforge, Profiling/Parallelisierung, wählbare Genauigkeit
+  (FP64/gemischt/FP32), Koordinatentransformationen und ASR, PML für isolierte Strukturen, diskrete Adjungierte.
+  Roadmap, `AGENTS.md` und `CLAUDE.md` entsprechend ergänzt.
+
 ### Hinzugefügt
 - Umgebungsvariablen `FG_BACKEND` / `FG_BACKEND_THRESHOLD` überschreiben die Backend-Wahl (ganze Testsuite auf
   der GPU: `FG_BACKEND=cuda FG_BACKEND_THRESHOLD=0 ctest`); Test `Backend.EnvironmentOverride` (portabel, auch MinGW).
