@@ -1,6 +1,9 @@
 // FourierGrating - RCWA building blocks (Plan section "Loeser B").
 #pragma once
 
+#include <functional>
+#include <vector>
+
 #include "fg/physics/modes.hpp"
 #include "fg/smatrix/smatrix.hpp"
 
@@ -12,6 +15,13 @@ struct LayerModes {
   MatC Wu, Wd;
   VecC lu, ld;
 };
+
+/// Order of the modes for the up/down classification (Plan eq:classify): sorted by Re lambda, modes
+/// with |Re lambda| <= tau by the flux sign (flux(k) of eigenvector k); first half up-going.
+std::vector<Eigen::Index> modeOrder(const VecC& lam, const std::function<double(Eigen::Index)>& flux);
+/// Flux 1/2 Re(Ez Hx* - Ex Hz*) of a 4 n_f state vector; of a TE/TM block (E, H) with its sign.
+double modeFlux(const VecC& w);
+double blockModeFlux(const VecC& w, double fluxSign);
 
 /// True if M has the block anti-diagonal structure of isotropic y-invariant layers.
 bool isBlockAntiDiagonal(const MatC& M, double tol = 1e-13);

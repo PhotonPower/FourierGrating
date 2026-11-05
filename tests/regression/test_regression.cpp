@@ -5,6 +5,8 @@
 //                            vs MinGW GCC 16 <= 1.3e-12 for adaptive RK and the 2D hole array)
 //   FG_REGRESSION_EXACT=1    bit-identical (same machine and compiler as the golden files)
 //   FG_REGRESSION_UPDATE=1   rewrite the golden files (only with a reason in CHANGELOG.md)
+// ThreadCount (M15): 1, 2, 4 slice threads (and 2 x 2 scan x slices) give bit-identical results,
+// for the sequential chain and for the tree reduction; tree = sequential to 1e-12.
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -43,12 +45,23 @@ std::string num(double v) {
   return buf;
 }
 
+struct Threads {
+  int scan = 0, slices = 0;  ///< 0: the configuration's (auto)
+  bool tree = false;
+};
+
 /// One line per order (and one "A" line per scan point with the absorption), 17 significant digits.
-std::vector<std::string> compute(const std::string& name) {
+std::vector<std::string> compute(const std::string& name, const Threads* th = nullptr) {
   const auto runs = fg::io::loadSweep(kSrc + "/examples/" + name + ".json");
   std::vector<std::string> lines;
   for (const auto& run : runs) {
-    const auto res = fg::solveScan(run.solver, run.stack, run.scan);
+    fg::SolverOptions opt = run.solver;
+    if (th) {
+      opt.threadsScan = th->scan;
+      opt.threadsSlices = th->slices;
+      opt.treeReduction = th->tree;
+    }
+    const auto res = fg::solveScan(opt, run.stack, run.scan);
     for (std::size_t i = 0; i < res.size(); ++i) {
       const auto& w = run.scan[i];
       const std::string pre = num(run.sweepValue) + ',' + num(w.lambda_um) + ',' + num(w.phi) + ',' + num(w.psi) +
@@ -70,17 +83,18 @@ std::vector<std::string> split(const std::string& s) {
   return f;
 }
 
+bool needsMissingSlicer(const std::string& name) {
+  std::ifstream in(kSrc + "/examples/" + name + ".json");
+  std::stringstream ss;
+  ss << in.rdbuf();
+  return ss.str().find("\"cad\"") != std::string::npos && !fg::cad::available();
+}
+
 class Regression : public ::testing::TestWithParam<std::string> {};
 
 TEST_P(Regression, EfficienciesEqualGolden) {
   const std::string name = GetParam();
-  {
-    std::ifstream in(kSrc + "/examples/" + name + ".json");
-    std::stringstream ss;
-    ss << in.rdbuf();
-    if (ss.str().find("\"cad\"") != std::string::npos && !fg::cad::available())
-      GTEST_SKIP() << "cad layer: build with FG_ENABLE_NURBFORGE";
-  }
+  if (needsMissingSlicer(name)) GTEST_SKIP() << "cad layer: build with FG_ENABLE_NURBFORGE";
   const std::string file = kSrc + "/tests/regression/golden/" + name + ".csv";
   const auto lines = compute(name);
   if (envSet("FG_REGRESSION_UPDATE")) {
@@ -115,6 +129,33 @@ TEST_P(Regression, EfficienciesEqualGolden) {
       const double x = std::stod(a[c]), y = std::stod(b[c]);
       // angles and lambda are inputs (exact); efficiencies are fractions of the incident power
       EXPECT_LE(std::abs(x - y), c <= 4 ? 0.0 : 1e-11) << name << " line " << k + 2 << " column " << c;
+    }
+  }
+}
+
+// Plan section "M15", tests: determinism over the thread count (sequential chain and tree).
+TEST_P(Regression, ThreadCountDoesNotChangeTheBits) {
+  const std::string name = GetParam();
+  if (needsMissingSlicer(name)) GTEST_SKIP() << "cad layer: build with FG_ENABLE_NURBFORGE";
+  const auto ref = compute(name);  // default options (auto threads)
+  for (const bool tree : {false, true}) {
+    std::vector<std::string> first;
+    for (const Threads th : {Threads{1, 1, tree}, Threads{1, 2, tree}, Threads{1, 4, tree}, Threads{2, 2, tree}}) {
+      const auto lines = compute(name, &th);
+      const std::string what = name + (tree ? " tree" : " sequential") + ", scan " + std::to_string(th.scan) +
+                               ", slices " + std::to_string(th.slices);
+      ASSERT_EQ(lines.size(), ref.size()) << what;
+      if (!tree) {
+        EXPECT_EQ(lines, ref) << what;
+        continue;
+      }
+      if (first.empty()) first = lines;
+      EXPECT_EQ(lines, first) << what;
+      for (std::size_t k = 0; k < lines.size(); ++k) {
+        const auto a = split(lines[k]), b = split(ref[k]);
+        for (std::size_t c = 8; c < a.size(); ++c)
+          EXPECT_LE(std::abs(std::stod(a[c]) - std::stod(b[c])), 1e-12) << what << " line " << k + 2;
+      }
     }
   }
 }

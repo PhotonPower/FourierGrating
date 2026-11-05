@@ -4,10 +4,13 @@
 #include <exception>
 #include <cmath>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <variant>
 
 #include "fg/core/error.hpp"
+#include "fg/core/parallel.hpp"
+#include "fg/core/prof.hpp"
 #include "fg/fourier/sampling.hpp"
 #include "fg/fourier/toeplitz.hpp"
 #include "fg/linalg/backend.hpp"
@@ -15,6 +18,7 @@
 #include "fg/physics/efficiency.hpp"
 #include "fg/physics/modes.hpp"
 #include "fg/solvers/rcwa.hpp"
+#include "fg/solvers/resident.hpp"
 #include "fg/solvers/rk.hpp"
 #include "fg/solvers/solver.hpp"
 
@@ -64,6 +68,22 @@ std::optional<std::vector<std::string>> layerMaterials(const LayerSpec& spec) {
   return std::nullopt;
 }
 
+/// Eigen's own threads (blas level) and nested OpenMP levels (Plan section "M15", step 2). Both are
+/// process-wide settings: changed only outside parallel regions.
+void setEigenThreads(const ThreadPlan& p) {
+#ifdef FG_HAVE_OPENMP
+  if (omp_in_parallel()) return;
+  if (Eigen::nbThreads() != p.blas) Eigen::setNbThreads(p.blas);
+#if _OPENMP >= 200805  // OpenMP 3.0
+  if (p.scan > 1 && p.slices > 1 && omp_get_max_active_levels() < 2) omp_set_max_active_levels(2);
+#else  // MSVC /openmp (2.0)
+  if (p.scan > 1 && p.slices > 1) omp_set_nested(1);
+#endif
+#else
+  (void)p;
+#endif
+}
+
 double rhoEstimate(const Setup& s, const std::vector<cplx>& eps) {
   double rho = 0;
   for (Eigen::Index r = 0; r < s.alpha.size(); ++r)
@@ -76,6 +96,7 @@ double rhoEstimate(const Setup& s, const std::vector<cplx>& eps) {
 /// n = 800 (all 1D cases); above (2D) a deterministic power iteration, which is cheap and errs on
 /// the safe side (transient growth); the a-posteriori growth check bisects slices if needed.
 double spectralRadius(const MatC& M) {
+  FG_PROF_SCOPE("rk.spectral_radius");
   if (M.rows() <= 800) {
     Eigen::ComplexEigenSolver<MatC> es(M, false);
     return es.eigenvalues().cwiseAbs().maxCoeff();
@@ -99,6 +120,7 @@ struct Element {
   enum class Kind { Interface, Modes, RK } kind = Kind::Interface;
   double y0 = 0, y1 = 0;
   SMatrix S;
+  resident::SMatrixD dS;  ///< resident chain (M15, step 5): S on the device instead of S
   // modal slices (RCWA, homogeneous layers)
   LayerModes modes;
   MatC G;
@@ -124,7 +146,7 @@ class StackSolver final : public Solver {
   // ------------------------------------------------------------------ efficiencies
   Result solve(const Stack& stack, const Wavelength& wl) override {
     const Setup s = setup(stack, wl);
-    return solveModels(stack, s, detail::buildLayerModels(stack, s.map, opt_.rcwaSlices));
+    return solveModels(stack, s, buildModels(stack, s));
   }
 
   /// solve() with prebuilt layer models (wavelength independent; Simulation, M12).
@@ -133,6 +155,7 @@ class StackSolver final : public Solver {
   }
 
   Result solveModels(const Stack& stack, const Setup& s, const detail::LayerModels& models) {
+    FG_PROF_SCOPE("solve");  // without building the layer models ("solve.layer_models")
     Result res;
     for (const auto& m : models) res.diag.warnings.insert(res.diag.warnings.end(), m->warnings.begin(), m->warnings.end());
     if (decoupled(stack, s)) {
@@ -163,20 +186,22 @@ class StackSolver final : public Solver {
   // ------------------------------------------------------------------ field coefficients
   FieldSampleSet fieldCoefficients(const Stack& stack, const Wavelength& wl, const std::vector<double>& y_um) override {
     const Setup s = setup(stack, wl);
-    const auto models = detail::buildLayerModels(stack, s.map, opt_.rcwaSlices);
+    const auto models = buildModels(stack, s);
     return samples(s, models, y_um, nullptr);
   }
 
   // ------------------------------------------------------------------ near field cuts
   NearFieldResult nearField(const Stack& stack, const Wavelength& wl, const NearFieldRequest& req) override {
+    FG_PROF_SCOPE("nearfield");
     const Setup s = setup(stack, wl);
-    const auto models = detail::buildLayerModels(stack, s.map, opt_.rcwaSlices);
+    const auto models = buildModels(stack, s);
     std::vector<double> ys;
     for (int k = 0; k < req.ny; ++k)
       ys.push_back(req.ny == 1 ? req.y_min_um : req.y_min_um + (req.y_max_um - req.y_min_um) * k / (req.ny - 1));
     ys.push_back(req.horizontal_y_um);
     std::vector<const Element*> where;
     const FieldSampleSet fs = samples(s, models, ys, &where);
+    FG_PROF_SCOPE("nearfield.synthesize");
     std::vector<double> xs, zs;
     for (int k = 0; k < req.nx; ++k) xs.push_back(stack.dx_um * req.periods * k / req.nx);
     if (stack.is2D())
@@ -196,9 +221,15 @@ class StackSolver final : public Solver {
   }
 
  private:
+  detail::LayerModels buildModels(const Stack& stack, const Setup& s) const {
+    FG_PROF_SCOPE("solve.layer_models");
+    return detail::buildLayerModels(stack, s.map, opt_.rcwaSlices);
+  }
+
   // ------------------------------------------------------------------ setup
   Setup setup(const Stack& stack, const Wavelength& wl) const {
     detail::applyThreadSettings(opt_);
+    setEigenThreads({1, sliceThreads(), std::max(1, opt_.threadsBlas)});
     Setup s;
     s.map = IndexMap(opt_.Nx, stack.is2D() ? opt_.Nz : 0);
     s.k0 = 2.0 * PI / wl.lambda_um;
@@ -238,98 +269,192 @@ class StackSolver final : public Solver {
   }
 
   // ------------------------------------------------------------------ assembly
+  /// One unit of work of the assembly: the element(s) of a homogeneous layer, an RCWA slice or an
+  /// RK stability slice (bisection may give several), in stack order.
+  using Task = std::function<void(std::vector<Element>&, Diagnostics&)>;
+
+  /// Threads for the layers/slices of one computation (Plan section "M15", step 2).
+  int sliceThreads() const {
+    return opt_.threadsSlices > 0 ? opt_.threadsSlices : threadPlan(opt_, 1, availableThreads()).slices;
+  }
+
   /// Builds the total S-matrix. With record = true every element is kept (S, modes, RK transfer
   /// matrices at the requested normalized heights 'sampleY', sorted).
   /// Reduced systems (sys.pol set) only for the total S-matrix (record = false).
+  /// The elements are independent (Plan section "M15", step 3): they are computed in blocks of
+  /// sliceThreads() tasks in parallel and chained in stack order (sequential or fixed-shape tree).
   Assembly assemble(const Setup& s, const System& sys, const std::vector<std::unique_ptr<LayerModel>>& models,
                     bool record, const std::vector<double>& sampleY, Diagnostics& diag) {
+    FG_PROF_SCOPE("solve.assemble");
     FG_REQUIRE(!record || !sys.pol, "field records need the full 4 n_f system");
-    Assembly as;
-    Element e0;
-    e0.S = fromTransfer(sys.ref.PsiInv * sys.sub.Psi);  // substrate -> reference (Plan eq:Stot)
-    as.total = e0.S;
-    if (record) as.elems.push_back(std::move(e0));
+    // resident chain (Plan section "M15", step 5): slice modes, slice S-matrices and star products
+    // stay on the device; only the total S-matrix is downloaded (not for near-field records)
+    const bool res = !record && linalg::offload(sys.ref.Psi.rows()) && linalg::device().resident();
+    std::shared_ptr<const linalg::DeviceMatrix> psiInvD;
+    if (res) {
+      linalg::Backend& d = linalg::device();
+      psiInvD = std::make_shared<const linalg::DeviceMatrix>(d.upload(sys.ref.PsiInv));
+      d.synchronize();  // read by the task threads (their own streams)
+    }
+    std::vector<Task> tasks;
     double y = 0;
     for (const auto& mp : models) {
       const LayerModel& m = *mp;
       const double H = m.thickness_um() * s.k0;
       const double y0 = y;
       if (m.homogeneous()) {
-        const Material& mat = m.material();
-        const ModeBasis mb = sys.basis(mat.isotropic ? isotropicModes(mat.eps, s.alpha, s.gamma)
-                                                     : anisotropicModes(mat.epsTensor, s.alpha, s.gamma));
-        Element e;
-        e.kind = Element::Kind::Modes;
-        e.y0 = y0;
-        e.y1 = y0 + H;
-        e.model = &m;
-        e.layerY0 = y0;
-        RCWASliceRecord rec;
-        e.S = stableLayerSMatrix(layerModesHomogeneous(mb), H, sys.ref, &rec);
-        e.modes = rec.modes;
-        e.G = rec.G;
-        addElement(as, std::move(e), record);
-      } else if (opt_.kind == SolverKind::RCWA) {
-        const int K = m.yInvariant() ? 1 : m.rcwaSlices;
-        for (int k = 0; k < K; ++k) {
-          const double yq = (k + 0.5) * m.thickness_um() / K;  // staircase: Q at slice centre
-          const MatC M = sys.M(m.Q(yq), s);
+        tasks.push_back([&s, &sys, &m, y0, H, record, res, psiInvD](std::vector<Element>& out, Diagnostics&) {
+          const Material& mat = m.material();
+          const ModeBasis mb = sys.basis(mat.isotropic ? isotropicModes(mat.eps, s.alpha, s.gamma)
+                                                       : anisotropicModes(mat.epsTensor, s.alpha, s.gamma));
           Element e;
           e.kind = Element::Kind::Modes;
-          e.y0 = y0 + H * k / K;
-          e.y1 = y0 + H * (k + 1) / K;
+          e.y0 = y0;
+          e.y1 = y0 + H;
           e.model = &m;
           e.layerY0 = y0;
-          e.qHeight_um = yq;
+          if (res) {
+            linalg::Backend& d = linalg::device();
+            e.dS = resident::layerSMatrix(d, resident::upload(d, layerModesHomogeneous(mb)), H, *psiInvD);
+            d.synchronize();
+            out.push_back(std::move(e));
+            return;
+          }
           RCWASliceRecord rec;
-          e.S = stableLayerSMatrix(sys.modes(M), H / K, sys.ref, &rec);
-          e.modes = rec.modes;
-          e.G = rec.G;
-          addElement(as, std::move(e), record);
-        }
+          e.S = stableLayerSMatrix(layerModesHomogeneous(mb), H, sys.ref, record ? &rec : nullptr);
+          e.modes = std::move(rec.modes);
+          e.G = std::move(rec.G);
+          out.push_back(std::move(e));
+        });
+      } else if (opt_.kind == SolverKind::RCWA) {
+        const int K = m.yInvariant() ? 1 : m.rcwaSlices;
+        for (int k = 0; k < K; ++k)
+          tasks.push_back([&s, &sys, &m, y0, H, K, k, record, res, psiInvD](std::vector<Element>& out, Diagnostics&) {
+            const double yq = (k + 0.5) * m.thickness_um() / K;  // staircase: Q at slice centre
+            const MatC M = sys.M(m.Q(yq), s);
+            Element e;
+            e.kind = Element::Kind::Modes;
+            e.y0 = y0 + H * k / K;
+            e.y1 = y0 + H * (k + 1) / K;
+            e.model = &m;
+            e.layerY0 = y0;
+            e.qHeight_um = yq;
+            if (res) {
+              linalg::Backend& d = linalg::device();
+              e.dS = resident::layerSMatrix(d, resident::layerModes(d, M, sys.pol), H / K, *psiInvD);
+              d.synchronize();
+              out.push_back(std::move(e));
+              return;
+            }
+            RCWASliceRecord rec;
+            e.S = stableLayerSMatrix(sys.modes(M), H / K, sys.ref, record ? &rec : nullptr);
+            e.modes = std::move(rec.modes);
+            e.G = std::move(rec.G);
+            out.push_back(std::move(e));
+          });
       } else {
-        rkLayer(s, sys, m, y0, H, record, sampleY, as, diag);
+        rkLayer(s, sys, m, y0, H, record, sampleY, tasks);
       }
       y += H;
     }
+
+    Assembly as;
     as.yTop = y;
+    // with the GPU: at most deviceStreams() threads (one stream and its workspace each)
+    const int threads = res ? std::min(sliceThreads(), linalg::deviceStreams()) : sliceThreads();
+    StarChain chain(opt_.treeReduction, threads);
+    BasicStarChain<resident::SMatrixD> dchain(opt_.treeReduction, threads,
+                                              [](const resident::SMatrixD& a, const resident::SMatrixD& b) {
+                                                linalg::Backend& d = linalg::device();
+                                                resident::SMatrixD c = resident::star(d, a, b);
+                                                d.synchronize();
+                                                return c;
+                                              });
+    auto push = [&](Element& e) {
+      if (!res) {
+        chain.push(record ? e.S : std::move(e.S));
+        return;
+      }
+      if (e.dS.S11.empty()) {  // host element (substrate, RK slice)
+        linalg::Backend& d = linalg::device();
+        e.dS = resident::upload(d, e.S);
+        d.synchronize();
+      }
+      dchain.push(std::move(e.dS));
+    };
+    {
+      Element e0;
+      e0.S = fromTransfer(sys.ref.PsiInv * sys.sub.Psi);  // substrate -> reference (Plan eq:Stot)
+      push(e0);
+      if (record) as.elems.push_back(std::move(e0));
+    }
+    // blocks of `threads` tasks bound the memory to O(threads) S-matrices
+    const int nt = static_cast<int>(tasks.size());
+    for (int b0 = 0; b0 < nt; b0 += threads) {
+      const int nb = std::min(threads, nt - b0);
+      std::vector<std::vector<Element>> out(static_cast<std::size_t>(nb));
+      std::vector<Diagnostics> dg(static_cast<std::size_t>(nb));
+      parallelFor(nb, threads, [&](int i) {
+        detail::applyThreadSettings(opt_);  // thread-local backend / FFT settings
+        tasks[static_cast<std::size_t>(b0 + i)](out[static_cast<std::size_t>(i)], dg[static_cast<std::size_t>(i)]);
+      });
+      for (int i = 0; i < nb; ++i) {
+        diag.rkSteps += dg[static_cast<std::size_t>(i)].rkSteps;
+        for (Element& e : out[static_cast<std::size_t>(i)]) {
+          push(e);
+          if (record) as.elems.push_back(std::move(e));
+        }
+      }
+    }
+    if (res) {
+      linalg::Backend& d = linalg::device();
+      as.total = resident::download(d, dchain.result());
+    } else {
+      as.total = chain.result();
+    }
     return as;
   }
 
-  void addElement(Assembly& as, Element&& e, bool record) {
-    as.total = star(as.total, e.S);
-    if (record) as.elems.push_back(std::move(e));
-  }
-
   /// RK treatment of one layer: stability sub-slices (Plan eq:slicecrit) with the spectral radius
-  /// of the truncated M, a posteriori bisection, transfer matrices at recorded heights.
+  /// of the truncated M, a posteriori bisection, transfer matrices at recorded heights. Adds one
+  /// task per stability slice.
   void rkLayer(const Setup& s, const System& sys, const LayerModel& m, double y0, double H, bool record,
-               const std::vector<double>& sampleY, Assembly& as, Diagnostics& diag) {
+               const std::vector<double>& sampleY, std::vector<Task>& tasks) {
     const double a = m.thickness_um();
     std::function<MatC(double)> Mfun;
-    MatC Mconst;
     if (m.yInvariant()) {
-      Mconst = sys.M(m.Q(0.0), s);
-      Mfun = [&Mconst](double) { return Mconst; };
+      auto Mconst = std::make_shared<const MatC>(sys.M(m.Q(0.0), s));
+      Mfun = [Mconst](double) { return *Mconst; };
     } else {
-      Mfun = [&](double yl) { return sys.M(m.Q(yl / s.k0), s); };
+      Mfun = [&s, &sys, &m](double yl) { return sys.M(m.Q(yl / s.k0), s); };
     }
     double rho = rhoEstimate(s, m.epsList);
-    if (m.yInvariant())
-      rho = std::max(rho, spectralRadius(Mconst));
-    else
-      for (double t : {0.02, 0.25, 0.5, 0.75, 0.98}) rho = std::max(rho, spectralRadius(Mfun(t * a * s.k0)));
+    if (m.yInvariant()) {
+      rho = std::max(rho, spectralRadius(Mfun(0.0)));
+    } else {
+      const double ts[5] = {0.02, 0.25, 0.5, 0.75, 0.98};
+      double r[5];
+      parallelFor(5, sliceThreads(), [&](int i) {
+        detail::applyThreadSettings(opt_);
+        r[i] = spectralRadius(Mfun(ts[i] * a * s.k0));
+      });
+      for (double v : r) rho = std::max(rho, v);
+    }
     const int K = std::max(1, static_cast<int>(std::ceil(rho * H / std::log(opt_.growthLimit))));
-    const auto tab = ButcherTableau::byName(opt_.rkTableau);
+    const auto tab = std::make_shared<const ButcherTableau>(ButcherTableau::byName(opt_.rkTableau));
     for (int k = 0; k < K; ++k)
-      rkSlice(s, sys, m, Mfun, m.yInvariant(), y0, H * k / K, H * (k + 1) / K, rho, tab, record, sampleY, as, diag, 0);
+      tasks.push_back([this, &s, &sys, &m, &sampleY, Mfun, tab, y0, H, K, k, rho, record](std::vector<Element>& out,
+                                                                                         Diagnostics& diag) {
+        rkSlice(s, sys, m, Mfun, m.yInvariant(), y0, H * k / K, H * (k + 1) / K, rho, *tab, record, sampleY, out, diag,
+                0);
+      });
   }
 
   /// Field transfer over [ya, yb] (layer-local normalized y), recording the transfer matrices at
   /// the requested heights; bisects while the growth exceeds growthLimit.
   void rkSlice(const Setup& s, const System& sys, const LayerModel& m, const std::function<MatC(double)>& Mfun, bool constant,
                double y0, double ya, double yb, double rho, const ButcherTableau& tab, bool record,
-               const std::vector<double>& sampleY, Assembly& as, Diagnostics& diag, int depth) {
+               const std::vector<double>& sampleY, std::vector<Element>& out, Diagnostics& diag, int depth) const {
     auto transfer = [&](double from, double to) {
       RKStats st;
       MatC T = constant  ? rkTransferConstant(Mfun(0), to - from, tab, opt_.rkTol, rho, st)
@@ -360,17 +485,18 @@ class StackSolver final : public Solver {
     T = transfer(prev, yb) * T;
     if ((!T.allFinite() || T.cwiseAbs().maxCoeff() > opt_.growthLimit) && depth < 12) {
       const double ym = 0.5 * (ya + yb);
-      rkSlice(s, sys, m, Mfun, constant, y0, ya, ym, rho, tab, record, sampleY, as, diag, depth + 1);
-      rkSlice(s, sys, m, Mfun, constant, y0, ym, yb, rho, tab, record, sampleY, as, diag, depth + 1);
+      rkSlice(s, sys, m, Mfun, constant, y0, ya, ym, rho, tab, record, sampleY, out, diag, depth + 1);
+      rkSlice(s, sys, m, Mfun, constant, y0, ym, yb, rho, tab, record, sampleY, out, diag, depth + 1);
       return;
     }
     FG_REQUIRE(T.allFinite(), "RK transfer matrix not finite");
     e.S = rkSliceSMatrix(T, sys.ref);
-    addElement(as, std::move(e), record);
+    out.push_back(std::move(e));
   }
 
   // ------------------------------------------------------------------ efficiencies
   void efficiencies(const Setup& s, const SMatrix& S, Result& res) const {
+    FG_PROF_SCOPE("solve.efficiencies");
     const int nf = s.map.size(), nh = 2 * nf;
     const VecC a_in = incidentAmplitudes(s);
     const int c = s.map.center();
@@ -432,6 +558,7 @@ class StackSolver final : public Solver {
   // ------------------------------------------------------------------ field coefficients
   FieldSampleSet samples(const Setup& s, const std::vector<std::unique_ptr<LayerModel>>& models,
                          const std::vector<double>& y_um, std::vector<const Element*>* where) {
+    FG_PROF_SCOPE("nearfield.coefficients");
     std::vector<double> yn;
     for (double y : y_um) yn.push_back(y * s.k0);
     std::vector<double> sorted = yn;
@@ -624,24 +751,31 @@ Result solveWithModels(const SolverOptions& opt, const Stack& stack, const Wavel
 
 }  // namespace detail
 
+ThreadPlan threadPlan(const SolverOptions& opt, std::size_t scanPoints, int cores) {
+  ThreadPlan p;
+  cores = std::max(1, cores);
+  p.blas = std::clamp(opt.threadsBlas, 1, cores);
+  const int avail = std::max(1, cores / p.blas);
+  const int points = static_cast<int>(std::clamp<std::size_t>(scanPoints, 1, 1 << 30));
+  p.scan = std::min(opt.threadsScan > 0 ? std::min(opt.threadsScan, avail) : avail, points);
+  const int rest = std::max(1, avail / p.scan);
+  p.slices = opt.threadsSlices > 0 ? std::min(opt.threadsSlices, rest) : rest;
+  return p;
+}
+
 std::vector<Result> solveScan(const SolverOptions& opt, const Stack& stack, const std::vector<Wavelength>& scan) {
+  FG_PROF_SCOPE("scan");
+  const ThreadPlan plan = threadPlan(opt, scan.size(), availableThreads());
+  SolverOptions o = opt;
+  o.threadsScan = plan.scan;
+  o.threadsSlices = plan.slices;
+  o.threadsBlas = plan.blas;
+  setEigenThreads(plan);
   std::vector<Result> out(scan.size());
-  std::vector<std::exception_ptr> err(scan.size());
-  const long n = static_cast<long>(scan.size());
-#pragma omp parallel
-  {
-    auto solver = makeSolver(opt);
-#pragma omp for schedule(dynamic, 1)
-    for (long i = 0; i < n; ++i) {
-      try {
-        out[static_cast<std::size_t>(i)] = solver->solve(stack, scan[static_cast<std::size_t>(i)]);
-      } catch (...) {
-        err[static_cast<std::size_t>(i)] = std::current_exception();
-      }
-    }
-  }
-  for (const auto& e : err)
-    if (e) std::rethrow_exception(e);
+  // one solver per point (with the CUDA backend: one stream per thread, M10)
+  parallelFor(static_cast<int>(scan.size()), plan.scan, [&](int i) {
+    out[static_cast<std::size_t>(i)] = makeSolver(o)->solve(stack, scan[static_cast<std::size_t>(i)]);
+  });
   return out;
 }
 

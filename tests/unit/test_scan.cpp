@@ -76,3 +76,46 @@ TEST(Scan, SweepResultsAndCsv) {
   EXPECT_EQ(header.rfind("sweep_parameter,sweep_value,lambda_um,", 0), 0u);
   EXPECT_EQ(row.rfind("/layers/0/thickness_um,0.15,0.6,", 0), 0u);
 }
+
+// ---- thread model (Plan section "M15", step 2) ----
+TEST(ThreadPlan, AutoPrefersScanPointsThenSlices) {
+  fg::SolverOptions o;  // scan = slices = auto, blas = 1
+  auto p = fg::threadPlan(o, 100, 16);
+  EXPECT_EQ(p.scan, 16);
+  EXPECT_EQ(p.slices, 1);
+  p = fg::threadPlan(o, 3, 16);  // fewer points than cores: the rest goes to the slices
+  EXPECT_EQ(p.scan, 3);
+  EXPECT_EQ(p.slices, 5);
+  p = fg::threadPlan(o, 1, 16);
+  EXPECT_EQ(p.scan, 1);
+  EXPECT_EQ(p.slices, 16);
+}
+
+TEST(ThreadPlan, ProductNeverExceedsCores) {
+  fg::SolverOptions o;
+  o.threadsScan = 8;
+  o.threadsSlices = 8;
+  o.threadsBlas = 2;
+  for (int cores : {1, 2, 7, 16, 64})
+    for (std::size_t pts : {1u, 5u, 1000u}) {
+      const auto p = fg::threadPlan(o, pts, cores);
+      EXPECT_GE(p.scan, 1);
+      EXPECT_GE(p.slices, 1);
+      EXPECT_GE(p.blas, 1);
+      EXPECT_LE(p.scan * p.slices * p.blas, std::max(cores, 1)) << cores << " " << pts;
+      EXPECT_LE(p.scan, static_cast<int>(pts));
+    }
+}
+
+TEST(ThreadPlan, ConfigurationKeys) {
+  auto c = fg::io::parseConfig(
+      config(R"(, "threads": {"scan": 2, "slices": "auto", "blas": 1}, "reduction": "tree")"));
+  EXPECT_EQ(c.solver.threadsScan, 2);
+  EXPECT_EQ(c.solver.threadsSlices, 0);
+  EXPECT_EQ(c.solver.threadsBlas, 1);
+  EXPECT_TRUE(c.solver.treeReduction);
+  c = fg::io::parseConfig(config(""));
+  EXPECT_FALSE(c.solver.treeReduction);  // default: sequential chain (bit-identical to v0.10)
+  EXPECT_THROW(fg::io::parseConfig(config(R"(, "threads": {"slices": 0})")), fg::Error);
+  EXPECT_THROW(fg::io::parseConfig(config(R"(, "reduction": "parallel")")), fg::Error);
+}

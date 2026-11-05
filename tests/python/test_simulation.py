@@ -117,3 +117,23 @@ def test_backend_default():
     assert isinstance(fg.cuda_available(), bool)
     assert fg.core_variant() in ("cpu", "cuda12")
     assert fg.__version__.count(".") == 2
+
+
+def test_profile_and_threads():
+    """M15: scope times from fg::prof; thread settings and the tree reduction do not change the result
+    beyond 1e-12 (bit-identical for the sequential chain)."""
+    r = fg.solve(CFG, profile=True)
+    scopes = r.diagnostics["timings"]["scopes"]
+    assert {"solve", "solve.assemble", "linalg.eig"} <= set(scopes)
+    assert scopes["solve"]["count"] == 1 and scopes["solve"]["total_s"] > 0
+    assert "scopes" not in fg.solve(CFG).diagnostics["timings"]
+    ref = fg.solve(CFG)
+    for threads in ({"scan": 1, "slices": 1}, {"slices": 3}):
+        c = copy.deepcopy(CFG)
+        c["threads"] = threads
+        assert identical(fg.solve(c), ref)
+        c["reduction"] = "tree"
+        t = fg.solve(c)
+        assert np.allclose(t.reflected["eff"], ref.reflected["eff"], rtol=0, atol=1e-12)
+    scan = fg.solve_scan(CFG, profile=True)
+    assert "scan" in scan.points[0].diagnostics["timings"]["scopes"]

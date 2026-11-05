@@ -1,6 +1,7 @@
 #include "fg/smatrix/smatrix.hpp"
 
 #include "fg/core/error.hpp"
+#include "fg/core/prof.hpp"
 #include "fg/linalg/backend.hpp"
 
 namespace fg {
@@ -22,6 +23,7 @@ MatC SMatrix::full() const {
 }
 
 SMatrix fromTransfer(const MatC& T) {
+  FG_PROF_SCOPE("smatrix.from_transfer");
   FG_REQUIRE(T.rows() == T.cols() && T.rows() % 2 == 0, "transfer matrix must be 2nh x 2nh");
   const Eigen::Index n = T.rows() / 2;
   const MatC T11 = T.topLeftCorner(n, n), T12 = T.topRightCorner(n, n);
@@ -47,6 +49,7 @@ SMatrix fromTransfer(const MatC& T) {
 }
 
 SMatrix star(const SMatrix& A, const SMatrix& B) {
+  FG_PROF_SCOPE("smatrix.star");
   FG_REQUIRE(A.nh() == B.nh(), "S-matrix size mismatch in star product");
   const int n = A.nh();
   const MatC Id = MatC::Identity(n, n);

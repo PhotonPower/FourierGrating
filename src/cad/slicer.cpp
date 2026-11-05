@@ -15,6 +15,7 @@
 
 #include "fg/cad/cad.hpp"
 #include "fg/core/error.hpp"
+#include "fg/core/prof.hpp"
 #include "fg/geometry/section.hpp"
 
 namespace fg::cad {
@@ -336,6 +337,7 @@ void sectionOf(const Body& b, double y, double sampleTol, CrossSection& cs) {
 
 /// Section of all bodies at height y.
 CrossSection sectionAt(const std::vector<Body>& bodies, double y, double sampleTol) {
+  FG_PROF_SCOPE("cad.section");
   CrossSection cs;
   for (const Body& b : bodies) sectionOf(b, y, sampleTol, cs);
   return cs;

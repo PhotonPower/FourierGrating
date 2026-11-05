@@ -4,6 +4,8 @@ configure_file(${PROJECT_SOURCE_DIR}/include/fg/version.hpp.in
 add_library(fg_core
   core/index_map.cpp
   core/quadrature.cpp
+  core/prof.cpp
+  core/parallel.cpp
   fourier/coefficients.cpp
   fourier/toeplitz.cpp
   fourier/sampling.cpp
@@ -23,6 +25,7 @@ add_library(fg_core
   solvers/solver.cpp
   solvers/layer_model.cpp
   solvers/rcwa.cpp
+  solvers/resident.cpp
   solvers/rk.cpp
   solvers/simulation.cpp
   field/nearfield.cpp
@@ -46,6 +49,10 @@ target_include_directories(fg_core PUBLIC
   $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/generated>)
 target_link_libraries(fg_core PUBLIC Eigen3::Eigen PRIVATE nlohmann_json::nlohmann_json fg_warnings)
 target_compile_features(fg_core PUBLIC cxx_std_20)
+
+# parallelFor falls back to std::thread without OpenMP (M15)
+find_package(Threads REQUIRED)
+target_link_libraries(fg_core PUBLIC Threads::Threads)
 
 if(FG_ENABLE_OPENMP AND OpenMP_CXX_FOUND)
   target_link_libraries(fg_core PUBLIC OpenMP::OpenMP_CXX)

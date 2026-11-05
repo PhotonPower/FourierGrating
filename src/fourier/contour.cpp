@@ -3,8 +3,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 #include "fg/core/error.hpp"
+#include "fg/core/parallel.hpp"
+#include "fg/core/prof.hpp"
 #include "fg/core/quadrature.hpp"
 
 namespace fg::fourier {
@@ -67,32 +70,46 @@ struct Accumulator {
     return d;
   }
 
-  void add(const geometry::BezierSegment& s, int depth) {
+  /// Accepted (converged) piece sums of segment s in contour order (adaptive bisection).
+  void pieces(const geometry::BezierSegment& s, int depth, std::vector<PieceSums>& out) const {
     const int n = n0 > 0 ? n0 : std::max(16, static_cast<int>(std::ceil(0.5 * kmax * s.controlLength())) + 8);
-    const PieceSums a = pieceSums(s, n, Kx, Kz, Px, Pz), b = pieceSums(s, 2 * n, Kx, Kz, Px, Pz);
+    PieceSums a = pieceSums(s, n, Kx, Kz, Px, Pz), b = pieceSums(s, 2 * n, Kx, Kz, Px, Pz);
     if (difference(a, b) > tolAbs && depth < 30) {
       geometry::BezierSegment l, r;
       s.split(0.5, l, r);
-      add(l, depth + 1);
-      add(r, depth + 1);
+      pieces(l, depth + 1, out);
+      pieces(r, depth + 1, out);
       return;
     }
-    G1 += b.G1;
-    G2 += b.G2;
-    area += b.area;
+    out.push_back(std::move(b));
+  }
+  /// The segments are independent (Plan section "M15", step 4); the sums are added in contour order.
+  void add(const std::vector<const geometry::BezierSegment*>& segs) {
+    std::vector<std::vector<PieceSums>> parts(segs.size());
+    parallelFor(static_cast<int>(segs.size()), innerThreads(),
+                [&](int k) { pieces(*segs[static_cast<std::size_t>(k)], 0, parts[static_cast<std::size_t>(k)]); });
+    for (const auto& part : parts)
+      for (const PieceSums& b : part) {
+        G1 += b.G1;
+        G2 += b.G2;
+        area += b.area;
+      }
   }
 };
 
 }  // namespace
 
 CoefficientGrid regionCoefficients(const geometry::Region& region, double dx, double dz, int Px, int Pz, int n0) {
+  FG_PROF_SCOPE("contour.coefficients");
   FG_REQUIRE(dx > 0 && dz > 0 && Px >= 0 && Pz >= 0, "regionCoefficients: invalid period or orders");
   const double Kx = 2 * PI / dx, Kz = 2 * PI / dz;
   Accumulator acc{Kx, Kz, std::hypot(Px * Kx, Pz * Kz), 1e-14 * std::abs(region.area()), Px, Pz, n0,
                   MatC::Zero(2 * Px + 1, 2 * Pz + 1), MatC::Zero(2 * Px + 1, 2 * Pz + 1), 0.0};
-  for (const auto& s : region.outer.segments) acc.add(s, 0);
+  std::vector<const geometry::BezierSegment*> segs;
+  for (const auto& s : region.outer.segments) segs.push_back(&s);
   for (const auto& h : region.holes)
-    for (const auto& s : h.segments) acc.add(s, 0);
+    for (const auto& s : h.segments) segs.push_back(&s);
+  acc.add(segs);
   CoefficientGrid g(Px, Pz);
   const double cell = dx * dz;
   for (int p = -Px; p <= Px; ++p)

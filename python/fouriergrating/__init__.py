@@ -162,14 +162,16 @@ def _columns(points: list) -> dict:
 
 
 # ----------------------------------------------------------------------------- computations
-def solve(cfg: Config) -> Result:
-    """Efficiencies for the first scan point of the configuration ("sweep" is ignored)."""
-    return _result(_core.solve(_to_json(cfg)))
+def solve(cfg: Config, profile: bool = False) -> Result:
+    """Efficiencies for the first scan point of the configuration ("sweep" is ignored).
+    ``profile=True``: ``diagnostics["timings"]["scopes"]`` holds the time per scope (fg::prof, M15)."""
+    return _result(_core.solve(_to_json(cfg), profile))
 
 
-def solve_scan(cfg: Config) -> ScanResult:
-    """All sweep values and scan points, as ``fgsolve`` (scan points run in parallel, OpenMP)."""
-    runs = _core.solve_scan(_to_json(cfg))
+def solve_scan(cfg: Config, profile: bool = False) -> ScanResult:
+    """All sweep values and scan points, as ``fgsolve`` (scan points run in parallel, OpenMP).
+    ``profile=True``: scope times of each sweep run in the ``diagnostics["timings"]["scopes"]`` of its points."""
+    runs = _core.solve_scan(_to_json(cfg), profile)
     points = []
     for run in runs:
         for p in run["points"]:

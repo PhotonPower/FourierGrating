@@ -282,6 +282,25 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
   cfg.solver.backendThreshold = j.value("backend_threshold", cfg.solver.backendThreshold);
   cfg.solver.splitPolarizations = j.value("split_polarizations", cfg.solver.splitPolarizations);
   cfg.solver.fftSampling = j.value("fft_sampling", cfg.solver.fftSampling);
+  // thread model (Plan section "M15", step 2): {"scan": n | "auto", "slices": n | "auto", "blas": n}
+  if (j.contains("threads")) {
+    const json& t = j["threads"];
+    FG_REQUIRE(t.is_object(), "threads must be an object {\"scan\", \"slices\", \"blas\"}");
+    auto count = [&](const char* key, int def, bool autoAllowed) {
+      if (!t.contains(key)) return def;
+      const json& v = t[key];
+      if (autoAllowed && v.is_string() && v.get<std::string>() == "auto") return 0;
+      FG_REQUIRE(v.is_number_integer() && v.get<int>() >= 1,
+                 std::string("threads.") + key + (autoAllowed ? " must be a positive integer or \"auto\"" : " must be a positive integer"));
+      return v.get<int>();
+    };
+    cfg.solver.threadsScan = count("scan", cfg.solver.threadsScan, true);
+    cfg.solver.threadsSlices = count("slices", cfg.solver.threadsSlices, true);
+    cfg.solver.threadsBlas = count("blas", cfg.solver.threadsBlas, false);
+  }
+  const std::string reduction = j.value("reduction", std::string("sequential"));
+  FG_REQUIRE(reduction == "sequential" || reduction == "tree", "reduction must be \"sequential\" or \"tree\"");
+  cfg.solver.treeReduction = reduction == "tree";
 
   cfg.stack.dx_um = j.at("period_um").at("x").get<double>();
   cfg.stack.dz_um = dim == "2D" ? j.at("period_um").at("z").get<double>() : 0.0;

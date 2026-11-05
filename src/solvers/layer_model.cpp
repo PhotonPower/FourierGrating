@@ -5,9 +5,12 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <variant>
 
 #include "fg/core/error.hpp"
+#include "fg/core/parallel.hpp"
+#include "fg/core/prof.hpp"
 #include "fg/fourier/coefficients.hpp"
 #include "fg/fourier/contour.hpp"
 #include "fg/fourier/sampling.hpp"
@@ -249,6 +252,7 @@ class ProfileModel final : public LayerModel {
   double thickness_um() const override { return p_.depth_um; }
   bool yInvariant() const override { return false; }
   QBlocks Q(double y) const override {
+    FG_PROF_SCOPE("profile.Q");
     const double a = p_.depth_um;
     std::vector<double> br;
     std::vector<bool> below;
@@ -771,7 +775,7 @@ class SectionedModel final : public LayerModel {
   bool yInvariant() const override { return false; }
   QBlocks Q(double y) const override {
     if (l_.chebyshevNodes > 0 && interpolant()) return interpolate(*cheb_, y);
-    return at(y).Q(0.0);
+    return get(y)->Q(0.0);
   }
   Mat3C epsAt(double x, double y, double z) const override { return at(y).epsAt(x, 0.0, z); }
   Vec3D normalAt(double x, double y, double z) const override { return at(y).normalAt(x, 0.0, z); }
@@ -780,17 +784,27 @@ class SectionedModel final : public LayerModel {
   const NormalFieldCoefficients& NN(double y) const override { return at(y).NN(0.0); }
 
  private:
-  const LayerModel& at(double y) const {
+  /// Thread-safe (parallel RCWA slices / RK stages, M15): the section is built outside the lock; a
+  /// concurrent build of the same height keeps the first entry (identical content).
+  std::shared_ptr<const LayerModel> get(double y) const {
     const double yc = std::clamp(y, 1e-14 * h_, h_ * (1 - 1e-14));
-    const auto it = cache_.find(yc);
-    if (it != cache_.end()) return *it->second;
-    if (cache_.size() >= 4096) cache_.clear();  // bounds the memory; references are used immediately
+    {
+      const std::lock_guard<std::mutex> lock(mu_);
+      const auto it = cache_.find(yc);
+      if (it != cache_.end()) return it->second;
+    }
+    FG_PROF_SCOPE("sectioned.section_model");
     CrossSection cs = l_.provider->section(yc);
     auto geo = std::make_shared<ContourGeometry>(h_, l_.background, std::move(cs.regions), std::move(cs.chains),
                                                  l_.normalField, stack_.dx_um, stack_.dz_um, "sectioned layer");
-    auto m = std::make_unique<CrossSectionModel>(stack_, std::move(geo), fac_, map_, "sectioned layer");
-    return *cache_.emplace(yc, std::move(m)).first->second;
+    std::shared_ptr<const LayerModel> m =
+        std::make_shared<CrossSectionModel>(stack_, std::move(geo), fac_, map_, "sectioned layer");
+    const std::lock_guard<std::mutex> lock(mu_);
+    if (cache_.size() >= 4096) cache_.clear();  // bounds the memory; holders keep their shared_ptr
+    return cache_.emplace(yc, std::move(m)).first->second;
   }
+  /// Sequential callers (near-field reconstruction) use the reference immediately.
+  const LayerModel& at(double y) const { return *get(y); }
 
   /// Q blocks at K Chebyshev nodes (first kind) of the band and the barycentric weights.
   struct Chebyshev {
@@ -803,8 +817,15 @@ class SectionedModel final : public LayerModel {
       const double th = PI * (k + 0.5) / K;
       c.x.push_back(-std::cos(th));
       c.w.push_back((k % 2 ? -1.0 : 1.0) * std::sin(th));
-      c.Q.push_back(at(0.5 * h_ * (1.0 + c.x.back())).Q(0.0));
     }
+    // the sections of the nodes are independent (Plan section "M15", step 4)
+    c.Q.resize(static_cast<std::size_t>(K));
+    const bool fft = fourier::fftSampling();  // thread-local setting of the calling solver
+    parallelFor(K, innerThreads(), [&](int k) {
+      fourier::setFFTSampling(fft);
+      const auto i = static_cast<std::size_t>(k);
+      c.Q[i] = get(0.5 * h_ * (1.0 + c.x[i]))->Q(0.0);
+    });
     return c;
   }
   static QBlocks interpolate(const Chebyshev& c, double y, double h) {
@@ -834,8 +855,10 @@ class SectionedModel final : public LayerModel {
   }
   /// Builds the interpolant on first use: K and 2K nodes compared at the K midpoints (1e-10 max|Q|).
   bool interpolant() const {
-    if (chebReady_) return static_cast<bool>(cheb_);
-    chebReady_ = true;
+    std::call_once(chebOnce_, [this] { buildInterpolant(); });
+    return static_cast<bool>(cheb_);
+  }
+  void buildInterpolant() const {
     for (int K = l_.chebyshevNodes; K <= 256; K *= 2) {
       const Chebyshev a = chebyshev(K), b = chebyshev(2 * K);
       double err = 0, ref = 0;
@@ -849,11 +872,10 @@ class SectionedModel final : public LayerModel {
       }
       if (err <= 1e-10 * ref) {
         cheb_ = std::make_unique<Chebyshev>(b);
-        return true;
+        return;
       }
     }
     warnings.push_back("sectioned layer: Chebyshev interpolation in y did not reach 1e-10 with 256 nodes; exact sections used");
-    return false;
   }
 
   SectionedLayer l_;
@@ -861,8 +883,9 @@ class SectionedModel final : public LayerModel {
   IndexMap map_;
   Stack stack_;  ///< periods and materials
   double h_ = 0;
-  mutable std::map<double, std::unique_ptr<LayerModel>> cache_;
-  mutable bool chebReady_ = false;
+  mutable std::mutex mu_;
+  mutable std::map<double, std::shared_ptr<const LayerModel>> cache_;
+  mutable std::once_flag chebOnce_;
   mutable std::unique_ptr<Chebyshev> cheb_;
 };
 
@@ -904,6 +927,7 @@ class Profile2DModel final : public LayerModel {
   double thickness_um() const override { return p_.depth_um; }
   bool yInvariant() const override { return false; }
   QBlocks Q(double y) const override {
+    FG_PROF_SCOPE("profile.Q");
     const double a = p_.depth_um;
     const double yc = std::clamp(y, 1e-14 * a, a * (1 - 1e-14));
     const int Px = 2 * map_.Nx(), Pz = 2 * map_.Nz();

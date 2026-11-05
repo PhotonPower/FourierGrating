@@ -34,7 +34,21 @@ struct SolverOptions {
   /// Sampled Fourier coefficients via fourier::fft for any sample count (Plan "Allgemeine
   /// Funktionen", v2.2); off: v0.10 paths (bit-identical).
   bool fftSampling = false;
+  /// Thread model (Plan section "M15", step 2), 0 = auto: threads over scan points, over the
+  /// layers/slices of one computation, and inside Eigen (blas). Their product never exceeds
+  /// availableThreads() (FG_NUM_THREADS). Results do not depend on scan/slice threads.
+  int threadsScan = 0, threadsSlices = 0, threadsBlas = 1;
+  /// Star-product chain: false = sequential (v0.10 order, bit-identical), true = balanced tree of
+  /// fixed shape (parallel; bit-identical for any thread count, <= 1e-12 from sequential).
+  bool treeReduction = false;
 };
+
+/// Resolved thread counts of a run with `scanPoints` points (Plan section "M15", step 2): auto
+/// gives the scan level min(points, cores / blas) threads and the slice level the rest.
+struct ThreadPlan {
+  int scan = 1, slices = 1, blas = 1;
+};
+ThreadPlan threadPlan(const SolverOptions& opt, std::size_t scanPoints, int cores);
 
 struct OrderEfficiency {
   int n = 0, m = 0;

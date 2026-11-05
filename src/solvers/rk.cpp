@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "fg/core/error.hpp"
+#include "fg/core/prof.hpp"
 
 namespace fg {
 
@@ -23,6 +24,7 @@ MatC matPow(MatC P, long k) {
 
 MatC rkTransferConstant(const MatC& M, double H, const ButcherTableau& tab, double tol,
                         double rho, RKStats& stats) {
+  FG_PROF_SCOPE("rk.transfer");
   long k = std::max(1L, static_cast<long>(std::ceil(H * rho / stepFactor(tab))));
   const std::size_t s = static_cast<std::size_t>(tab.stages());
   MatC T1 = matPow(rkStepPropagator(std::vector<MatC>(s, M), H / static_cast<double>(k), tab), k);
@@ -41,6 +43,7 @@ MatC rkTransferConstant(const MatC& M, double H, const ButcherTableau& tab, doub
 
 MatC rkTransfer(const std::function<MatC(double)>& M, double y0, double y1,
                 const ButcherTableau& tab, double tol, double rho, RKStats& stats) {
+  FG_PROF_SCOPE("rk.transfer");
   const Eigen::Index n = M(y0).rows();
   MatC T = MatC::Identity(n, n);
   const int s = tab.stages();
@@ -100,6 +103,7 @@ MatC rkTransferAuto(const std::function<MatC(double)>& M, double y0, double y1,
 }
 
 SMatrix rkSliceSMatrix(const MatC& TF, const ModeBasis& ref) {
+  FG_PROF_SCOPE("rk.slice_smatrix");
   return fromTransfer(ref.PsiInv * TF * ref.Psi);
 }
 

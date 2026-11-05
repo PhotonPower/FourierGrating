@@ -78,7 +78,8 @@ Profilschichten werden vom RK-Löser direkt integriert, von RCWA in `slices` Tre
 ## 5. Scans und Sweeps
 
 Jeder Einfallsparameter darf eine Zahl, eine Liste oder ein Bereich `{"from", "to", "steps"}` sein; gerechnet
-wird das kartesische Produkt λ × φ × ψ × δ, parallel auf `OMP_NUM_THREADS` Threads.
+wird das kartesische Produkt λ × φ × ψ × δ, parallel über Scanpunkte und Scheiben (Threadmodell in
+`docs/config_format.md`, Schlüssel `threads`; Threadzahl `FG_NUM_THREADS`).
 
 Beliebige Zahlenwerte der Konfiguration lassen sich per JSON-Pointer variieren:
 
@@ -131,7 +132,9 @@ Richtwerte (eine Wellenlänge, ein CPU-Kern der Sandbox, v0.10; Zielsystem: `doc
 Die Rechenzeit wächst etwa mit n³ (n = 4 n_f, n_f = (2Nx+1)(2Nz+1)); das Eigenwertproblem der RCWA dominiert.
 Hinweise:
 
-* Scans parallelisieren: `OMP_NUM_THREADS=<Kerne> fgsolve scan.json`.
+* Parallel: Scans und auch einzelne Rechnungen nutzen alle Kerne (`FG_NUM_THREADS=<n>` begrenzt). Bei vielen
+  Scheiben hilft zusätzlich `"reduction": "tree"` (Sternprodukte parallel). Wo die Zeit bleibt, zeigt
+  `fgsolve --profile config.json` (`<output.dir>/profile.json`, Python `fg.solve(cfg, profile=True)`).
 * GPU: `"backend": "auto"` nutzt die GPU ab `backend_threshold` (Standard n = 1000), `"cuda"` immer,
   `"cpu"` nie. Lohnt sich vor allem in 2D ab N ≈ 8. Die Umgebungsvariablen `FG_BACKEND` und
   `FG_BACKEND_THRESHOLD` überschreiben die Konfiguration (z. B. `FG_BACKEND=cpu` zum Vergleich).

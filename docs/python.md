@@ -39,8 +39,9 @@ res.reflected                        # numpy structured array: n, m, eff, eff_s,
 res.efficiency("T", 0)               # Effizienz einer Ordnung (0, falls nicht propagierend)
 res.transmitted, res.absorption
 res.diagnostics                      # energy_balance, max_condition_t11, rk_steps, warnings, timings
+fg.solve(cfg, profile=True).diagnostics["timings"]["scopes"]   # Zeit je Abschnitt (fg::prof, M15)
 
-scan = fg.solve_scan(cfg)            # alle Sweep-Werte und Scanpunkte wie fgsolve (parallel, OpenMP)
+scan = fg.solve_scan(cfg)            # alle Sweep-Werte und Scanpunkte wie fgsolve (parallel, "threads")
 scan.points                          # Liste von fg.Result (mit .incidence)
 scan.columns                         # Spalten wie efficiencies.csv als numpy-Arrays
 scan.to_pandas()                     # benötigt pandas

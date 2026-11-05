@@ -1,6 +1,7 @@
 #include "fg/physics/propagation_matrix.hpp"
 
 #include "fg/core/error.hpp"
+#include "fg/core/prof.hpp"
 
 namespace fg {
 
@@ -20,6 +21,7 @@ QBlocks homogeneousTensorQ(const Mat3C& eps, int nf) {
 }
 
 MatC buildPropagationMatrix(const QBlocks& Q, const VecC& alpha, const VecC& gamma) {
+  FG_PROF_SCOPE("physics.M");
   const int n = Q.nf();
   FG_REQUIRE(alpha.size() == n && gamma.size() == n, "alpha/gamma size mismatch");
   constexpr int X = 0, Y = 1, Z = 2;
@@ -59,6 +61,7 @@ MatC buildPropagationMatrix(const QBlocks& Q, const VecC& alpha, const VecC& gam
 }
 
 MatC buildPropagationMatrix(const QBlocks& Q, const VecC& alpha, Polarization p) {
+  FG_PROF_SCOPE("physics.M");
   const int n = Q.nf();
   FG_REQUIRE(alpha.size() == n, "alpha size mismatch");
   constexpr int X = 0, Y = 1, Z = 2;

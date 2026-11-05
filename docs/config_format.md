@@ -62,6 +62,8 @@ Eine Einführung mit Beispielen steht im Anwenderhandbuch `docs/user_guide.md`.
   "backend_threshold": 1000,             // Matrixgröße, ab der auto die GPU nutzt
   "split_polarizations": false,          // 1D, psi = 0, isotrop: TE/TM getrennt mit 2 n_f (schneller); false = 4 n_f
   "fft_sampling": false,                 // abgetastete Koeffizienten per FFT jeder Länge; false = v0.10 (DFT)
+  "threads": { "scan": "auto", "slices": "auto", "blas": 1 },  // Threadmodell (M15), siehe unten
+  "reduction": "sequential",             // Sternprodukt-Kette: "sequential" (v0.10) | "tree" (parallel, M15)
   "nearfield": {
     "enabled": true,
     "horizontal_y_um": 0.1,              // horizontaler Schnitt (1D: Linie in x; 2D: Karte x-z, nz Punkte je Periode)
@@ -91,7 +93,18 @@ Orientierung ist beliebig. Koeffizienten aus Konturintegralen (Plan eq:contour, 
 Randstichproben der Kurven (Algorithmus NF, M13). Ein `contour2d`-Polygon ist identisch mit `polygon2d`.
 Kommentare (`//`) dienen nur der Erläuterung; echte Dateien sind reines JSON.
 
-Scanpunkte werden parallel gerechnet (OpenMP-Threads, `OMP_NUM_THREADS`); Sweep-Werte nacheinander.
+**Threads (M15).** Drei Ebenen: Scanpunkte (`threads.scan`), Schichten/Scheiben einer Rechnung
+(`threads.slices`: RCWA-Scheiben, RK-Stabilitätsscheiben, homogene Schichten; dazu Normalenfeld-Raster,
+Konturkoeffizienten und Tschebyschow-Knoten, wenn die Ebene darüber sequentiell ist) und Eigen innerhalb einer
+Matrixoperation (`threads.blas`, Standard 1). Das Produkt bleibt ≤ der Threadzahl `FG_NUM_THREADS` (sonst
+`OMP_NUM_THREADS`, sonst alle Kerne). `auto` gibt der Scanebene min(Scanpunkte, Kerne) Threads und den
+Scheiben den Rest; eine einzelne Wellenlänge nutzt also alle Kerne für ihre Scheiben. Die Ergebnisse hängen
+nicht von der Threadzahl ab (bitgleich). `"reduction": "tree"` verkettet die Scheiben als balancierten
+Binärbaum fester Form (parallel; bitgleich für jede Threadzahl, ≤ 1e-12 von `sequential`); Standard ist die
+sequentielle Kette (bitgleich zu v0.10). Mit der GPU (`backend` cuda/auto über der Schwelle) bleiben
+Scheiben-S-Matrizen und Kette auf dem Gerät; höchstens `FG_GPU_STREAMS` (Standard 4) Scheiben gleichzeitig.
+Benutzerfunktionen (`profile2d` mit Funktion in C++, eigene `SectionProvider`) werden parallel aufgerufen und
+müssen threadsicher sein. Sweep-Werte laufen nacheinander.
 Bei einem Sweep beginnen die CSV-Zeilen mit `sweep_parameter, sweep_value`; das Nahfeld wird für den ersten
 Scanpunkt des ersten Sweep-Werts berechnet. Darstellung: `scripts/plot_efficiencies.py`.
 

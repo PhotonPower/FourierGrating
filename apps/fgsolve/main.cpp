@@ -4,6 +4,8 @@
 //   fgsolve --cad-report <config>  (geometry check and band decomposition of the cad layers, JSON)
 //   fgsolve <config.json>          (diffraction efficiencies, scans and sweeps, optional near fields;
 //                                   near fields for the first scan point of the first sweep value)
+//   fgsolve --profile <config.json> (as above, plus <output.dir>/profile.json: time per scope, M15)
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -13,6 +15,7 @@
 
 #include "fg/cad/cad.hpp"
 #include "fg/core/error.hpp"
+#include "fg/core/prof.hpp"
 #include "fg/io/config.hpp"
 #include "fg/linalg/backend.hpp"
 #include "fg/version.hpp"
@@ -33,7 +36,7 @@ void printResult(const fg::Wavelength& w, const fg::Result& r) {
 
 int main(int argc, char** argv) {
   if (argc < 2 || std::strcmp(argv[1], "--help") == 0) {
-    std::cout << "usage: fgsolve [--version | --info | --cad-report <config.json> | <config.json>]\n";
+    std::cout << "usage: fgsolve [--version | --info | --cad-report <config.json> | [--profile] <config.json>]\n";
     return argc < 2 ? 1 : 0;
   }
   try {
@@ -66,8 +69,12 @@ int main(int argc, char** argv) {
                 << "\n";
       return 0;
     }
+    const bool profile = std::strcmp(argv[1], "--profile") == 0;
+    FG_REQUIRE(!profile || argc >= 3, "--profile needs a configuration file");
+    fg::prof::enable(profile);
+    const auto t0 = std::chrono::steady_clock::now();
     // one configuration, or one per value of a parameter sweep (M11); scan points run in parallel
-    const auto runs = fg::io::loadSweep(argv[1]);
+    const auto runs = fg::io::loadSweep(argv[profile ? 2 : 1]);
     const auto& cfg = runs.front();
     auto solver = fg::makeSolver(cfg.solver);
     std::vector<std::vector<fg::Result>> all;
@@ -86,6 +93,16 @@ int main(int argc, char** argv) {
       fg::NearFieldWriter::write(nf.vertical, (base / "nearfield_vertical").string());
       std::cout << "written: " << (base / "nearfield_horizontal").string() << ", "
                 << (base / "nearfield_vertical").string() << "\n";
+    }
+    if (profile) {
+      // busy time per scope summed over all threads; "wall" is the elapsed time of the whole run
+      fg::prof::record("wall", std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+      const auto pf = std::filesystem::path(cfg.outputDir) / "profile.json";
+      std::ofstream(pf) << fg::prof::json() << "\n";
+      std::printf("profile (busy time summed over threads):\n");
+      for (const auto& e : fg::prof::snapshot())
+        std::printf("  %-26s %10.4f s  %8ld x  max %.4f s\n", e.name.c_str(), e.total_s, e.count, e.max_s);
+      std::cout << "written: " << pf.string() << "\n";
     }
     return 0;
   } catch (const fg::NotImplemented& e) {

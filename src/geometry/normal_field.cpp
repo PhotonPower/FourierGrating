@@ -6,6 +6,8 @@
 #include <string>
 
 #include "fg/core/error.hpp"
+#include "fg/core/parallel.hpp"
+#include "fg/core/prof.hpp"
 #include "fg/fourier/coefficients.hpp"
 #include "fg/fourier/sampling.hpp"
 #include "fg/geometry/profile.hpp"
@@ -176,21 +178,24 @@ void gaussSmooth(std::vector<double>& f, int Gx, int Gz, double sx, double sz) {
     return w;
   };
   const std::vector<int> nz = wrap(Gz, Rz), nx = wrap(Gx, Rx);
-  for (int i = 0; i < Gx; ++i)
+  // rows are independent (Plan section "M15", step 4); every value keeps its summation order
+  const int threads = innerThreads();
+  parallelFor(Gx, threads, [&](int i) {
     for (int k = 0; k < Gz; ++k) {
       double s = 0;
       const int* nk = &nz[static_cast<std::size_t>(k) * static_cast<std::size_t>(2 * Rz + 1)];
       for (int r = -Rz; r <= Rz; ++r) s += wz[static_cast<std::size_t>(r + Rz)] * f[at(i, nk[r + Rz])];
       tmp[at(i, k)] = s;
     }
-  for (int i = 0; i < Gx; ++i) {
+  });
+  parallelFor(Gx, threads, [&](int i) {
     const int* ni = &nx[static_cast<std::size_t>(i) * static_cast<std::size_t>(2 * Rx + 1)];
     for (int k = 0; k < Gz; ++k) {
       double s = 0;
       for (int r = -Rx; r <= Rx; ++r) s += wx[static_cast<std::size_t>(r + Rx)] * tmp[at(ni[r + Rx], k)];
       f[at(i, k)] = s;
     }
-  }
+  });
 }
 
 }  // namespace
@@ -212,6 +217,7 @@ int polygonRegion(const Polygon2DLayer& l, double dx, double dz, double x, doubl
 }
 
 NormalFieldRaster normalFieldRaster(const Polygon2DLayer& l, double dx, double dz, int Gx, int Gz) {
+  FG_PROF_SCOPE("nf.raster");
   // Plan alg:nfield, steps 1-4 (method: see NormalFieldOptions)
   FG_REQUIRE(Gx > 0 && Gz > 0 && dx > 0 && dz > 0, "normal field raster: invalid size");
   const bool vec = l.normalField.method == NormalFieldOptions::Method::Vector;
@@ -226,7 +232,7 @@ NormalFieldRaster normalFieldRaster(const Polygon2DLayer& l, double dx, double d
   R.region.assign(n, -1);
   std::vector<double> vx(n, 0.0), vz(n, 0.0);
   const double L = std::max(dx, dz), tie = 1e-12 * L;
-  for (int i = 0; i < Gx; ++i)
+  parallelFor(Gx, innerThreads(), [&](int i) {  // rows are independent (M15)
     for (int k = 0; k < Gz; ++k) {
       const std::size_t idx = static_cast<std::size_t>(i) * static_cast<std::size_t>(Gz) + static_cast<std::size_t>(k);
       const double x = dx * i / Gx, z = dz * k / Gz;
@@ -273,6 +279,7 @@ NormalFieldRaster normalFieldRaster(const Polygon2DLayer& l, double dx, double d
       vx[idx] = ax / cnt;
       vz[idx] = az / cnt;
     }
+  });
   R.nx.assign(n, 1.0);
   R.nz.assign(n, 0.0);
   if (segs.empty()) return R;
@@ -516,6 +523,7 @@ NormalFieldRaster normalFieldRaster(const std::vector<BoundaryChain>& chains,
                                     const std::function<int(double, double)>& regionAt,
                                     const std::function<std::string(int)>& materialOf, const NormalFieldOptions& opt,
                                     double dx, double dz, int Gx, int Gz) {
+  FG_PROF_SCOPE("nf.raster");
   FG_REQUIRE(Gx > 0 && Gz > 0 && dx > 0 && dz > 0, "normal field raster: invalid size");
   const bool vec = opt.method == NormalFieldOptions::Method::Vector;
   const double h = std::min(dx / Gx, dz / Gz);
@@ -542,9 +550,9 @@ NormalFieldRaster normalFieldRaster(const std::vector<BoundaryChain>& chains,
     int s, di, dj;
     double d, t, rx, rz;
   };
-  std::vector<Cand> cand;
   const double stepZ = dz / Gz * (1 + 1e-9);
-  for (int i = 0; i < Gx; ++i) {
+  parallelFor(Gx, innerThreads(), [&](int i) {  // rows are independent (M15): prev restarts per row
+    std::vector<Cand> cand;
     double prev = std::numeric_limits<double>::infinity();  // nearest distance of the previous point
     for (int k = 0; k < Gz; ++k) {
       const std::size_t idx = static_cast<std::size_t>(i) * static_cast<std::size_t>(Gz) + static_cast<std::size_t>(k);
@@ -634,7 +642,7 @@ NormalFieldRaster normalFieldRaster(const std::vector<BoundaryChain>& chains,
       vy[idx] = ay / cnt;
       vz[idx] = az / cnt;
     }
-  }
+  });
   R.nx.assign(n, 1.0);
   R.nz.assign(n, 0.0);
   if (threeD) R.ny.assign(n, 0.0);
@@ -712,6 +720,7 @@ NormalFieldRaster normalFieldRaster(const std::vector<BoundaryChain>& chains,
 }
 
 NormalFieldCoefficients rasterCoefficients(const NormalFieldRaster& R, const IndexMap& map) {
+  FG_PROF_SCOPE("nf.coefficients");
   const int Px = 2 * map.Nx(), Pz = 2 * map.Nz();
   NormalFieldCoefficients nf;
   for (auto& row : nf.NN)

@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "fg/core/error.hpp"
+#include "fg/core/prof.hpp"
 #include "fg/field/nearfield.hpp"
 #include "fg/cad/cad.hpp"
 #include "fg/io/config.hpp"
@@ -33,7 +34,39 @@ py::list orders(const std::vector<fg::OrderEfficiency>& v) {
   return l;
 }
 
-py::dict toDict(const fg::Result& r, double seconds) {
+/// Scope times of fg::prof (M15) as {name: {"total_s", "count", "max_s"}}.
+py::dict scopes(const std::vector<fg::prof::Entry>& entries) {
+  py::dict d;
+  for (const auto& e : entries) {
+    py::dict x;
+    x["total_s"] = e.total_s;
+    x["count"] = e.count;
+    x["max_s"] = e.max_s;
+    d[py::str(e.name)] = x;
+  }
+  return d;
+}
+
+/// Runs f with fg::prof enabled (if profile) and returns the collected entries.
+template <typename F>
+std::vector<fg::prof::Entry> profiled(bool profile, F&& f) {
+  if (!profile) {
+    f();
+    return {};
+  }
+  fg::prof::reset();
+  fg::prof::enable(true);
+  try {
+    f();
+  } catch (...) {
+    fg::prof::enable(false);
+    throw;
+  }
+  fg::prof::enable(false);
+  return fg::prof::snapshot();
+}
+
+py::dict toDict(const fg::Result& r, double seconds, const std::vector<fg::prof::Entry>& prof = {}) {
   py::dict d;
   d["reflected"] = orders(r.reflected);
   d["transmitted"] = orders(r.transmitted);
@@ -45,6 +78,7 @@ py::dict toDict(const fg::Result& r, double seconds) {
   diag["warnings"] = r.diag.warnings;
   py::dict timings;
   timings["solve_s"] = seconds;
+  if (!prof.empty()) timings["scopes"] = scopes(prof);
   diag["timings"] = timings;
   d["diagnostics"] = diag;
   return d;
@@ -164,32 +198,35 @@ PYBIND11_MODULE(_core, m) {
 
   m.def(
       "solve",
-      [](const std::string& json) {
+      [](const std::string& json, bool profile) {
         double t = 0;
         fg::Result r;
+        std::vector<fg::prof::Entry> prof;
         {
           py::gil_scoped_release nogil;
-          r = timed([&] { return fg::Simulation(json).solve(); }, t);
+          prof = profiled(profile, [&] { r = timed([&] { return fg::Simulation(json).solve(); }, t); });
         }
-        return toDict(r, t);
+        return toDict(r, t, prof);
       },
-      py::arg("config_json"), "First scan point of the configuration.");
+      py::arg("config_json"), py::arg("profile") = false, "First scan point of the configuration.");
 
   m.def(
       "solve_scan",
-      [](const std::string& json) {
+      [](const std::string& json, bool profile) {
         struct Run {
           fg::io::RunConfig cfg;
           std::vector<fg::Result> res;
           double seconds = 0;
+          std::vector<fg::prof::Entry> prof;
         };
         std::vector<Run> runs;
         {
           py::gil_scoped_release nogil;
           for (auto& c : fg::io::parseSweep(json)) {
-            Run r{std::move(c), {}, 0};
-            r.res = timed([&] { return fg::solveScan(r.cfg.solver, r.cfg.stack, r.cfg.scan); },
-                          r.seconds);
+            Run r{std::move(c), {}, 0, {}};
+            r.prof = profiled(profile, [&] {
+              r.res = timed([&] { return fg::solveScan(r.cfg.solver, r.cfg.stack, r.cfg.scan); }, r.seconds);
+            });
             runs.push_back(std::move(r));
           }
         }
@@ -200,7 +237,7 @@ PYBIND11_MODULE(_core, m) {
           d["sweep_value"] = r.cfg.sweepValue;
           py::list pts;
           for (std::size_t i = 0; i < r.res.size(); ++i) {
-            py::dict p = toDict(r.res[i], r.seconds / static_cast<double>(r.res.size()));
+            py::dict p = toDict(r.res[i], r.seconds / static_cast<double>(r.res.size()), r.prof);
             p["incidence"] = wavelength(r.cfg.scan[i]);
             pts.append(p);
           }
@@ -209,7 +246,8 @@ PYBIND11_MODULE(_core, m) {
         }
         return out;
       },
-      py::arg("config_json"), "All sweep values and scan points (as fgsolve).");
+      py::arg("config_json"), py::arg("profile") = false,
+      "All sweep values and scan points (as fgsolve); profile: scope times of the whole run in every point.");
 
   m.def(
       "near_field",

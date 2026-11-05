@@ -36,6 +36,24 @@ jobs:
       - name: Golden files (other compiler, 1e-13 of the incident power)
         run: ctest --preset cpu-release -L regression
 
+  tsan:
+    # ThreadSanitizer (M15): parallel slices, tree reduction, scan, lazy layer models. Without OpenMP,
+    # parallelFor runs on std::thread, which TSAN sees completely (libgomp is not instrumented).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libeigen3-dev nlohmann-json3-dev libgtest-dev
+      - name: Build
+        run: cmake --preset cpu-tsan && cmake --build --preset cpu-tsan
+      - name: Unit tests under ThreadSanitizer
+        env:
+          TSAN_OPTIONS: halt_on_error=1 second_deadlock_stack=1
+          FG_NUM_THREADS: "4"
+        run: ctest --preset cpu-tsan -L unit --timeout 3000
+
   cad:
     # CAD slicer (M14): FG_ENABLE_NURBFORGE=ON (Nurbforge v0.6.0 via FetchContent)
     runs-on: ubuntu-24.04

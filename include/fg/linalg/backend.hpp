@@ -4,6 +4,8 @@
 
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "fg/core/types.hpp"
 
@@ -14,6 +16,31 @@ struct EigResult {
   MatC vectors;
 };
 
+/// Complex column-major matrix in the memory of a backend (Plan section "M15", step 5: GPU-resident
+/// chains). RAII handle: the memory goes back to the pool of the creating backend when the last
+/// handle is dropped (after the dropping thread's queued work has finished).
+class DeviceMatrix {
+ public:
+  DeviceMatrix() = default;
+  DeviceMatrix(std::shared_ptr<void> mem, Eigen::Index rows, Eigen::Index cols)
+      : mem_(std::move(mem)), rows_(rows), cols_(cols) {}
+  Eigen::Index rows() const { return rows_; }
+  Eigen::Index cols() const { return cols_; }
+  Eigen::Index size() const { return rows_ * cols_; }
+  bool empty() const { return size() == 0; }
+  cplx* data() const { return static_cast<cplx*>(mem_.get()); }
+
+ private:
+  std::shared_ptr<void> mem_;
+  Eigen::Index rows_ = 0, cols_ = 0;
+};
+
+/// Eigenvalues (host) and unit-norm right eigenvectors (device) of a general complex matrix.
+struct DeviceEig {
+  VecC values;
+  DeviceMatrix vectors;
+};
+
 class Backend {
  public:
   virtual ~Backend() = default;
@@ -21,6 +48,38 @@ class Backend {
   virtual MatC gemm(const MatC& A, const MatC& B) = 0;
   virtual MatC solve(const MatC& A, const MatC& B) = 0;   ///< LU with partial pivoting
   virtual EigResult eig(const MatC& A) = 0;               ///< general complex eigenproblem
+
+  // ---- resident operations on DeviceMatrix handles (M15, step 5) ----
+  // The default implementations keep the matrices in host memory (Eigen): reference for the tests
+  // of the resident physics path. The CUDA backend keeps them on the GPU (resident() = true); only
+  // then does the solver use the resident path.
+  virtual bool resident() const { return false; }
+  virtual DeviceMatrix upload(const MatC& A);
+  virtual MatC download(const DeviceMatrix& A);
+  virtual DeviceMatrix zeros(Eigen::Index rows, Eigen::Index cols);
+  virtual DeviceMatrix identity(Eigen::Index n);
+  /// alpha A B + beta C (C may be null: beta ignored)
+  virtual DeviceMatrix multiply(const DeviceMatrix& A, const DeviceMatrix& B, cplx alpha = 1.0,
+                                const DeviceMatrix* C = nullptr, cplx beta = 0.0);
+  /// A^-1 B (LU with partial pivoting)
+  virtual DeviceMatrix luSolve(const DeviceMatrix& A, const DeviceMatrix& B);
+  /// alpha op(A) + beta op(B), op = transpose if the flag is set; B may be empty (alpha op(A))
+  virtual DeviceMatrix add(cplx alpha, const DeviceMatrix& A, bool transA, cplx beta, const DeviceMatrix& B,
+                           bool transB);
+  virtual DeviceMatrix scaleRows(const VecC& d, const DeviceMatrix& A);  ///< diag(d) A
+  virtual DeviceMatrix scaleCols(const DeviceMatrix& A, const VecC& d);  ///< A diag(d)
+  virtual DeviceMatrix block(const DeviceMatrix& A, Eigen::Index r0, Eigen::Index c0, Eigen::Index nr,
+                             Eigen::Index nc);
+  virtual void setBlock(DeviceMatrix& A, Eigen::Index r0, Eigen::Index c0, const DeviceMatrix& B);
+  /// Columns idx of A (in this order).
+  virtual DeviceMatrix columns(const DeviceMatrix& A, const std::vector<Eigen::Index>& idx);
+  virtual DeviceEig eigResident(const DeviceMatrix& A);
+  /// Waits for all queued work of this backend (results visible to other threads).
+  virtual void synchronize() {}
+
+ protected:
+  /// Host storage for the default implementations.
+  static DeviceMatrix hostMatrix(Eigen::Index rows, Eigen::Index cols);
 };
 
 /// CPU backend (Eigen). Always available.
@@ -44,5 +103,13 @@ void setPreference(const std::string& preference, Eigen::Index threshold = 1000)
 bool offload(Eigen::Index n);
 /// Thread-local device backend (created on first use).
 Backend& device();
+/// Threads (streams) for independent slices on the device (FG_GPU_STREAMS, default 4; M15).
+int deviceStreams();
+
+namespace detail {
+/// The calling thread's device backend if it has one (else nullptr): a DeviceMatrix released by
+/// another thread first waits for that thread's queued work (resident chain, M15).
+Backend* currentDevice();
+}  // namespace detail
 
 }  // namespace fg::linalg

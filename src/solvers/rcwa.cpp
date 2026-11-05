@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <numeric>
 
 #include "fg/core/error.hpp"
+#include "fg/core/prof.hpp"
 #include "fg/linalg/backend.hpp"
 
 namespace fg {
@@ -18,6 +20,7 @@ bool isBlockAntiDiagonal(const MatC& M, double tol) {
 
 /// General eigenproblem: device backend for large matrices (M10), Eigen otherwise.
 static linalg::EigResult eigen(const MatC& A, const char* what) {
+  FG_PROF_SCOPE("linalg.eig");
   if (linalg::offload(A.rows())) return linalg::device().eig(A);
   Eigen::ComplexEigenSolver<MatC> es(A, true);
   FG_REQUIRE(es.info() == Eigen::Success, what);
@@ -48,13 +51,11 @@ LayerModes layerModesReduced(const MatC& M, double eta) {
   return m;
 }
 
-LayerModes layerModesGeneral(const MatC& M) {
+std::vector<Eigen::Index> modeOrder(const VecC& lam, const std::function<double(Eigen::Index)>& flux) {
   // Classification (Plan eq:classify): field ~ exp(lambda y); up-going modes decay towards +y.
   // Robust variant: sort by a score (Re lambda, or -sign(S_y) * tau for |Re lambda| <= tau)
   // and take the lower half as up-going. This always yields n_h modes per direction.
-  const linalg::EigResult es = eigen(M, "eigen decomposition failed (RCWA general)");
-  const Eigen::Index N = M.rows(), n = N / 2, nf = N / 4;
-  const VecC& lam = es.values;
+  const Eigen::Index N = lam.size();
   const double tau = 1e-9 * lam.cwiseAbs().maxCoeff();
   std::vector<double> score(static_cast<std::size_t>(N));
   for (Eigen::Index k = 0; k < N; ++k) {
@@ -62,11 +63,7 @@ LayerModes layerModesGeneral(const MatC& M) {
     if (std::abs(re) > tau) {
       score[static_cast<std::size_t>(k)] = re;
     } else {
-      const VecC w = es.vectors.col(k);
-      double sy = 0;
-      for (Eigen::Index r = 0; r < nf; ++r)
-        sy += 0.5 * std::real(w(nf + r) * std::conj(w(2 * nf + r)) - w(r) * std::conj(w(3 * nf + r)));
-      score[static_cast<std::size_t>(k)] = sy > 0 ? -0.5 * tau : 0.5 * tau;
+      score[static_cast<std::size_t>(k)] = flux(k) > 0 ? -0.5 * tau : 0.5 * tau;
     }
   }
   std::vector<Eigen::Index> idx(static_cast<std::size_t>(N));
@@ -74,6 +71,30 @@ LayerModes layerModesGeneral(const MatC& M) {
   std::stable_sort(idx.begin(), idx.end(), [&](Eigen::Index i, Eigen::Index j) {
     return score[static_cast<std::size_t>(i)] < score[static_cast<std::size_t>(j)];
   });
+  return idx;
+}
+
+double modeFlux(const VecC& w) {
+  const Eigen::Index nf = w.size() / 4;
+  double sy = 0;
+  for (Eigen::Index r = 0; r < nf; ++r)
+    sy += 0.5 * std::real(w(nf + r) * std::conj(w(2 * nf + r)) - w(r) * std::conj(w(3 * nf + r)));
+  return sy;
+}
+
+double blockModeFlux(const VecC& w, double fluxSign) {
+  const Eigen::Index n = w.size() / 2;
+  double sy = 0;
+  for (Eigen::Index r = 0; r < n; ++r) sy += fluxSign * 0.5 * std::real(w(r) * std::conj(w(n + r)));
+  return sy;
+}
+
+LayerModes layerModesGeneral(const MatC& M) {
+  const linalg::EigResult es = eigen(M, "eigen decomposition failed (RCWA general)");
+  const Eigen::Index N = M.rows(), n = N / 2;
+  const VecC& lam = es.values;
+  const double tau = 1e-9 * lam.cwiseAbs().maxCoeff();
+  const std::vector<Eigen::Index> idx = modeOrder(lam, [&](Eigen::Index k) { return modeFlux(es.vectors.col(k)); });
   LayerModes m;
   m.Wu.resize(N, n);
   m.Wd.resize(N, n);
@@ -97,24 +118,8 @@ static LayerModes blockModes(const MatC& Mb, double fluxSign) {
   const Eigen::Index n = Mb.rows() / 2;
   const linalg::EigResult es = eigen(Mb, "eigen decomposition failed (RCWA TE/TM block)");
   const VecC& lam = es.values;
-  const double tau = 1e-9 * lam.cwiseAbs().maxCoeff();
-  std::vector<double> score(static_cast<std::size_t>(2 * n));
-  for (Eigen::Index k = 0; k < 2 * n; ++k) {
-    const double re = lam(k).real();
-    if (std::abs(re) > tau) {
-      score[static_cast<std::size_t>(k)] = re;
-    } else {
-      const VecC w = es.vectors.col(k);
-      double sy = 0;
-      for (Eigen::Index r = 0; r < n; ++r) sy += fluxSign * 0.5 * std::real(w(r) * std::conj(w(n + r)));
-      score[static_cast<std::size_t>(k)] = sy > 0 ? -0.5 * tau : 0.5 * tau;
-    }
-  }
-  std::vector<Eigen::Index> idx(static_cast<std::size_t>(2 * n));
-  std::iota(idx.begin(), idx.end(), 0);
-  std::stable_sort(idx.begin(), idx.end(), [&](Eigen::Index i, Eigen::Index j) {
-    return score[static_cast<std::size_t>(i)] < score[static_cast<std::size_t>(j)];
-  });
+  const std::vector<Eigen::Index> idx =
+      modeOrder(lam, [&](Eigen::Index k) { return blockModeFlux(es.vectors.col(k), fluxSign); });
   LayerModes m;
   m.Wu.resize(2 * n, n);
   m.Wd.resize(2 * n, n);
@@ -181,6 +186,7 @@ LayerModes layerModesHomogeneous(const ModeBasis& mb) {
 
 SMatrix stableLayerSMatrix(const LayerModes& m, double h, const ModeBasis& ref,
                            RCWASliceRecord* record) {
+  FG_PROF_SCOPE("rcwa.layer_smatrix");
   const Eigen::Index n = m.lu.size();
   const MatC Cu = ref.PsiInv * m.Wu, Cd = ref.PsiInv * m.Wd;
   const MatC Au = Cu.topRows(n), Bu = Cu.bottomRows(n);

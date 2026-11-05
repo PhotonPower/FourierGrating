@@ -54,6 +54,20 @@ JSON-Konfiguration (µm, Grad)
 Nahfeld benötigt je innere Grenzfläche zwei S-Matrizen (S_L, S_U), bei 2D und vielen Scheiben
 also mehrere GB – auf der RTX 6000 Ada (48 GB) machbar, sonst Zwei-Durchlauf-Variante (Plan).
 
+## Parallelität und Profil (M15)
+
+* `fg::prof` (`fg/core/prof.hpp`): `FG_PROF_SCOPE("rcwa.eig")` misst Abschnitte, aggregiert über alle Threads
+  (Summe, Anzahl, Maximum); abgeschaltet eine atomare Abfrage. Ausgabe: `fgsolve --profile`, Python
+  `solve(..., profile=True)`.
+* `fg::parallelFor` (`fg/core/parallel.hpp`): OpenMP, ohne OpenMP `std::thread` (ThreadSanitizer-Job);
+  Ergebnisse nach Index, erste Ausnahme (kleinster Index) wird weitergereicht. `innerThreads()` verhindert
+  Überbelegung (innere Schleifen nur, wenn der Aufrufer sequentiell ist).
+* `StackSolver::assemble` erzeugt je Schicht/Scheibe eine Aufgabe, rechnet sie blockweise parallel und verkettet
+  in Stapelreihenfolge über `BasicStarChain` (sequentiell oder Baum fester Form). Lazy aufgebaute Schichtdaten
+  (`SectionedModel`: Schnitt-Cache, Tschebyschow-Interpolant) sind mit Mutex bzw. `call_once` geschützt.
+* GPU-residente Kette (`fg/solvers/resident.hpp`): `linalg::DeviceMatrix` (RAII, Speicherpool je Backend),
+  Moden, Scheiben-S und Sternprodukte auf dem Gerät; ein Stream je Thread, Synchronisation beim Übergeben.
+
 ## Backend-Auswahl
 
 `fg::linalg::makeBackend("auto", n)` wählt CUDA ab einer Matrixgröße (Standard 1000), sonst CPU.

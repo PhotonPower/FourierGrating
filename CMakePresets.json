@@ -19,6 +19,16 @@
       }
     },
     {
+      "name": "cpu-tsan",
+      "displayName": "CPU, ThreadSanitizer (parallelFor on std::thread: no OpenMP, M15)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/cpu-tsan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo", "FG_ENABLE_CUDA": "OFF", "FG_ENABLE_OPENMP": "OFF",
+        "CMAKE_CXX_FLAGS": "-fsanitize=thread -fno-omit-frame-pointer"
+      }
+    },
+    {
       "name": "cuda-release",
       "displayName": "CUDA (RTX 6000 Ada, sm_89), Release",
       "generator": "Ninja",
@@ -91,6 +101,7 @@
   "buildPresets": [
     { "name": "cpu-release",  "configurePreset": "cpu-release" },
     { "name": "cpu-debug",    "configurePreset": "cpu-debug" },
+    { "name": "cpu-tsan",     "configurePreset": "cpu-tsan" },
     { "name": "cuda-release", "configurePreset": "cuda-release" },
     { "name": "win-release",  "configurePreset": "win-release" },
     { "name": "win-cuda",     "configurePreset": "win-cuda" },
@@ -102,6 +113,7 @@
   "testPresets": [
     { "name": "cpu-release", "configurePreset": "cpu-release", "output": { "outputOnFailure": true } },
     { "name": "cpu-debug",   "configurePreset": "cpu-debug",   "output": { "outputOnFailure": true } },
+    { "name": "cpu-tsan",    "configurePreset": "cpu-tsan",    "output": { "outputOnFailure": true } },
     { "name": "cuda-release","configurePreset": "cuda-release","output": { "outputOnFailure": true } },
     { "name": "win-release", "configurePreset": "win-release", "output": { "outputOnFailure": true } },
     { "name": "win-cuda",    "configurePreset": "win-cuda",    "output": { "outputOnFailure": true } },
