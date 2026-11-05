@@ -1,0 +1,46 @@
+{
+ "dimension": "2D",
+ "solver": "rcwa",
+ "truncation": {
+  "Nx": 7,
+  "Nz": 7
+ },
+ "period_um": {
+  "x": 0.6,
+  "z": 0.6
+ },
+ "incidence": {
+  "lambda_um": 0.6328,
+  "phi_deg": 10,
+  "psi_deg": 20,
+  "delta_deg": 45
+ },
+ "rcwa": {
+  "slices": 32
+ },
+ "materials": {
+  "air": {
+   "n": 1.0
+  },
+  "si": {
+   "n": [
+    3.88,
+    0.02
+   ]
+  }
+ },
+ "superstrate": "air",
+ "substrate": "si",
+ "layers": [
+  {
+   "type": "profile2d",
+   "shape": "egg_crate",
+   "depth_um": 0.15,
+   "below": "si",
+   "above": "air"
+  }
+ ],
+ "output": {
+  "dir": "out/bench/egg_crate_rcwa_2d"
+ }
+}

@@ -1,0 +1,40 @@
+{
+ "dimension": "2D",
+ "solver": "rk",
+ "truncation": {
+  "Nx": 8,
+  "Nz": 1
+ },
+ "period_um": {
+  "x": 0.5,
+  "z": 0.5
+ },
+ "incidence": {
+  "lambda_um": 0.6328,
+  "phi_deg": 20,
+  "psi_deg": 30,
+  "delta_deg": 45
+ },
+ "materials": {
+  "air": {
+   "n": 1.0
+  },
+  "glass": {
+   "n": 1.5
+  }
+ },
+ "superstrate": "air",
+ "substrate": "glass",
+ "layers": [
+  {
+   "type": "profile2d",
+   "shape": "sinus_x",
+   "depth_um": 0.2,
+   "below": "glass",
+   "above": "air"
+  }
+ ],
+ "output": {
+  "dir": "out/bench/v9_sinus_x_2d_rk"
+ }
+}

@@ -1,0 +1,67 @@
+{
+ "dimension": "2D",
+ "solver": "rcwa",
+ "truncation": {
+  "Nx": 10,
+  "Nz": 10
+ },
+ "period_um": {
+  "x": 0.9,
+  "z": 0.9
+ },
+ "incidence": {
+  "lambda_um": 1.388,
+  "phi_deg": 0,
+  "psi_deg": 180,
+  "delta_deg": 0
+ },
+ "materials": {
+  "air": {
+   "n": 1.0
+  },
+  "glass": {
+   "n": 1.5
+  },
+  "ag": {
+   "n": [
+    0.1,
+    8.94
+   ]
+  }
+ },
+ "superstrate": "air",
+ "substrate": "glass",
+ "layers": [
+  {
+   "type": "polygon2d",
+   "thickness_um": 0.2,
+   "background": "ag",
+   "inclusions": [
+    {
+     "material": "air",
+     "vertices_um": [
+      [
+       0.325,
+       0.325
+      ],
+      [
+       0.575,
+       0.325
+      ],
+      [
+       0.575,
+       0.575
+      ],
+      [
+       0.325,
+       0.575
+      ]
+     ]
+    }
+   ]
+  }
+ ],
+ "output": {
+  "dir": "out/bench/v10_hole_array"
+ }
+}

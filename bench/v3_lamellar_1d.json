@@ -1,0 +1,49 @@
+{
+ "dimension": "1D",
+ "solver": "rcwa",
+ "truncation": {
+  "Nx": 100,
+  "Nz": 0
+ },
+ "period_um": {
+  "x": 1.0,
+  "z": 0.0
+ },
+ "incidence": {
+  "lambda_um": 0.6328,
+  "phi_deg": 20,
+  "psi_deg": 0,
+  "delta_deg": 90
+ },
+ "materials": {
+  "air": {
+   "n": 1.0
+  },
+  "glass": {
+   "n": 1.5
+  },
+  "bar": {
+   "n": 2.0
+  }
+ },
+ "superstrate": "air",
+ "substrate": "glass",
+ "layers": [
+  {
+   "type": "lamellar1d",
+   "thickness_um": 0.4,
+   "breakpoints_um": [
+    0.0,
+    0.45,
+    1.0
+   ],
+   "materials": [
+    "bar",
+    "air"
+   ]
+  }
+ ],
+ "output": {
+  "dir": "out/bench/v3_lamellar_1d"
+ }
+}

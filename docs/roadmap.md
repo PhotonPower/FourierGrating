@@ -135,10 +135,13 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
     1e-12), V18 (gegen Profile2D 1e-6, gegen M13-Provider 1e-9, Treppe konvergiert, Energie 1e-10, Tschebyschow 1e-9),
     zwei Materialien + Hohlraum (Bandfolge, Energie, RK ≈ RCWA), fehlerhafte Dateien → Codes; Golden File des Beispiels
   - Nicht umgesetzt: Reziprozitätstest (zwei Materialien), PML-Zone in `OUT_OF_RANGE` (kommt mit M18)
-- [ ] **M15** Profiling und Parallelisierung
-  - `fg::prof` und Profil vor M15 (Zielsystem); Threadmodell (scan/slices/blas); parallele Scheiben-S;
+- [x] **M15** Profiling und Parallelisierung
+  - `fg::prof` und Profil vor M15 (Ryzen 9 5900X statt Zielsystem); Threadmodell (scan/slices/blas); parallele Scheiben-S;
     Sternprodukt als Baum fester Form; parallele Koeffizienten/NF/CAD-Schnitte; GPU-residente Ketten (`DeviceMatrix`)
-  - Abnahme: Ergebnisse bitgleich für 1/2/4 Threads; Baum = sequentiell 1e-12; TSAN-Job; Leistungsbericht
+  - Abnahme: Ergebnisse bitgleich für 1/2/4 Threads (alle Beispiele, sequentiell und Baum); Baum = sequentiell 1e-12;
+    GPU-residente Kette = CPU 1e-10 (RTX 3090); TSAN-Job; Leistungsbericht (`docs/benchmarks.md`): Transferanteil 1,3 %
+  - Offen: parallele Effizienz 36 % auf 12 Kernen (Ziel 60 % auf 16 Kernen; Eigenwertlöser bandbreitenbegrenzt) – auf dem
+    Zielsystem nachmessen; RK-Stufen innerhalb einer Scheibe nicht parallel
 - [ ] **M16** Genauigkeit `fp64` | `mixed` | `fp32` am Backend (kein TF32), angepasstes Scheibenkriterium,
   Schutzmechanismus mit FP64-Rückfall, `CMAKE_CUDA_ARCHITECTURES` 86;89; Standard `auto`: FP32 auf der RTX 3090,
   FP64 auf dem Server und der CPU (`src/cuda/device_policy.cpp`, `FG_PRECISION`)

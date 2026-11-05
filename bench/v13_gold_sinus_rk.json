@@ -1,0 +1,44 @@
+{
+ "dimension": "1D",
+ "solver": "rk",
+ "truncation": {
+  "Nx": 16,
+  "Nz": 0
+ },
+ "period_um": {
+  "x": 1.0,
+  "z": 0.0
+ },
+ "incidence": {
+  "lambda_um": 0.6328,
+  "phi_deg": 20,
+  "psi_deg": 0,
+  "delta_deg": 0
+ },
+ "materials": {
+  "air": {
+   "n": 1.0
+  },
+  "au": {
+   "n": [
+    0.2,
+    3.4
+   ]
+  }
+ },
+ "superstrate": "air",
+ "substrate": "au",
+ "layers": [
+  {
+   "type": "profile1d",
+   "shape": "sinus",
+   "depth_um": 0.25,
+   "below": "au",
+   "above": "air",
+   "factorization": "FFF_rig"
+  }
+ ],
+ "output": {
+  "dir": "out/bench/v13_gold_sinus_rk"
+ }
+}

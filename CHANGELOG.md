@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.14.0] – M15 (Profiling und Parallelisierung)
+
+### Hinzugefügt
+- `fg::prof` (`fg/core/prof.hpp`): `FG_PROF_SCOPE`, threadsichere Aggregation (Summe, Anzahl, Maximum), JSON;
+  `fgsolve --profile` (`<output.dir>/profile.json`), Python `solve(cfg, profile=True)` / `solve_scan(..., profile=True)`
+  (`diagnostics["timings"]["scopes"]`).
+- Threadmodell: `"threads": {"scan", "slices", "blas"}` (`auto` = Scanebene zuerst, Rest auf die Scheiben),
+  `FG_NUM_THREADS`, `fg::threadPlan`, `fg::parallelFor` (OpenMP, sonst `std::thread`), `innerThreads()`.
+- Parallele Assemblierung: S-Matrizen aller Schichten/RCWA-Scheiben/RK-Stabilitätsscheiben parallel (blockweise,
+  Speicher O(Threads)); Spektralradien der RK-Schichten parallel.
+- `"reduction": "tree"`: Sternprodukt-Kette als Binärbaum fester Form (`fg::starTree`, `BasicStarChain`); bitgleich für
+  jede Threadzahl, ≤ 1e-12 von der sequentiellen Kette.
+- Parallele Geometrie: Raster von Algorithmus NF (zeilenweise), Gauß-Glättung, Konturkoeffizienten je Segment,
+  Tschebyschow-Knoten (bitgleich).
+- GPU-residente Kette (`fg/solvers/resident.hpp`): `linalg::DeviceMatrix` mit Speicherpool, residente Operationen im
+  Backend (Host-Referenz in Eigen, CUDA über cuBLAS/cuSOLVER), Moden, Scheiben-S und Sternprodukte auf dem Gerät,
+  `FG_GPU_STREAMS` (Standard 4) Streams.
+- Tests: `test_prof`, `test_parallel`, `test_resident`, `StarChain.*`, `ThreadPlan.*`,
+  `Regression.ThreadCountDoesNotChangeTheBits` (alle Beispiele, 1/2/4 Threads, sequentiell und Baum); CI-Job `tsan`
+  (Preset `cpu-tsan`); `bench/` mit den Profilfällen; Leistungsbericht in `docs/benchmarks.md`.
+
+### Geändert
+- Einzelne Rechnungen nutzen alle Kerne (vorher nur Scans); Ergebnisse bitgleich zu v0.13 (Golden Files unverändert).
+- `SectionedModel`: Schnitt-Cache mit Mutex und `shared_ptr`, Interpolant über `call_once` (threadsicher).
+- Modenklassifikation als `modeOrder` ausgelagert (bitgleich); Eigen-Threads nur noch über `threads.blas`.
+- Plan v2.7 (Umsetzung M15).
+
 ## [0.13.0] – M14 (CAD-Slicer mit Nurbforge)
 
 ### Hinzugefügt

@@ -52,6 +52,21 @@ Daher:
   \item Kontrolle mit Nsight Systems: Anteil der Transferzeit $<10\,\%$ bei 2D, $N\ge10$.
 \end{itemize}
 
+\paragraph{Umsetzung (v2.7).} Die Baumform wird ohne vollständige Ablage aller Scheiben erreicht: ausgerichtete
+Blöcke von $2^m\ge$ Threads Elementen werden parallel paarweise reduziert, vollständige Teilbäume wie ein
+Binärzähler zusammengefasst und der Rest von rechts gefaltet; das ergibt dieselbe Form wie die stufenweise
+Paarbildung für jede Blockgröße (Test bitgleich), Speicher $O(\text{Threads}+\log K)$. Standard bleibt
+\verb!"reduction": "sequential"! (bitgleich zu v0.10); die parallele Berechnung der Scheiben selbst ändert keine Bits und
+ist immer aktiv. \verb|auto| gibt der Scanebene $\min(\text{Scanpunkte},\text{Kerne})$ Threads und der Scheibenebene den
+Rest. Innere Schleifen (Raster von Algorithmus~NF zeilenweise, Gauß-Glättung, Konturstücke je Segment,
+Tschebyschow-Knoten) laufen nur parallel, wenn der Aufrufer selbst sequentiell ist; Summationsreihenfolgen bleiben
+erhalten (bitgleich). Ohne OpenMP verteilt \verb|parallelFor| auf \verb|std::thread|; der TSAN-Job baut so, weil
+libgomp nicht instrumentiert ist. MSVC: OpenMP~2.0 genügt (\verb|omp_set_nested| statt \verb|omp_set_max_active_levels|).
+GPU: \verb|DeviceMatrix| mit Speicherpool je Backend (kein \verb|cudaFree| im Lauf); ein Stream je Thread, eine Matrix
+wird erst nach \verb|synchronize()| des erzeugenden Threads weitergegeben, beim Freigeben durch einen anderen Thread
+wartet dieser auf seinen Stream. Die residenten Operationen haben eine Host-Referenz (Eigen), gegen die der
+Gerätepfad auch ohne GPU geprüft wird. Höchstens \verb|FG_GPU_STREAMS| (Standard 4) Scheiben gleichzeitig auf dem Gerät.
+
 \subsection{Tests und Abnahme (M15)}
 \begin{itemize}[nosep]
   \item Determinismus: Threadzahl 1, 2, 4 liefern bitgleiche Ergebnisse (alle Validierungsfälle, kleine $N$).

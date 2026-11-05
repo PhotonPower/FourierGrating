@@ -104,3 +104,57 @@ nicht gesetzt (die DLLs kommen nur aus den Pip-Paketen).
 
 C++: `ctest --preset win-msvc-cuda -R Backend` (MSVC, CUDA 13.4) auf derselben GPU: `CudaEqualsCpu`,
 `CudaSolverEqualsCpu` bestanden (GPU = CPU auf 1e-10).
+
+## M15: Profil vor M15 und Leistungsbericht (v0.14.0)
+
+Rechner: Windows 11, AMD Ryzen 9 5900X (12 Kerne, 24 Threads mit SMT, Dual-Channel DDR4, 128 GB), RTX 3090.
+CPU: Preset `win-cad` (MinGW GCC 16, OpenMP); GPU: `win-msvc-cuda` (MSVC, CUDA 13.4). Konfigurationen in
+`bench/` (je eine Wellenlänge), gemessen mit `fgsolve --profile` (Zeiten je Abschnitt summiert über alle Threads;
+„wall“ = Laufzeit). Threadzahl über `FG_NUM_THREADS`.
+
+### Profil vor M15 (ein Thread)
+
+| Fall | wall | Hauptanteile |
+|---|---|---|
+| V3 Lamellen 1D, RCWA, N = 100 | 2,4 s | Scheiben-S 0,79 s, Sternprodukt 0,51 s, Eigenwerte 0,35 s |
+| V9 `sinus_x` im 2D-Code, RK, N = 8 × 1 | 73 s | RK-Transfer (2 Stabilitätsscheiben) 73 s, davon Q(y) 9 s |
+| V13 Gold-Sinus TM, RK, N = 16 | 32 s | RK-Transfer (10 Scheiben) 32 s, davon Q(y) 14,5 s, M 5,3 s |
+| Eierkarton 2D, RCWA 32 Scheiben, N = 7 | 354 s | Eigenwerte 255 s, Scheiben-S 50 s, Sternprodukt 32 s |
+| CAD-Säulen (Beispiel), RCWA 30 + 1 Scheiben, N = 8 | 881 s¹ | Eigenwerte 664 s, Scheiben-S 117 s, Sternprodukt 65 s, Schnitte + NF 30 s |
+| V10 Lochgitter, N = 10 (eine Schicht) | 39 s | Scheiben-S 12 s, Sternprodukt 10 s, Eigenwerte 7 s, T→S 3 s |
+
+¹ teilweise parallel zu anderen Läufen gemessen (zu hoch).
+
+Priorisierung danach: Scheiben parallel (Eigenwerte dominieren 2D), Sternprodukte als Baum, BLAS-Ebene für
+Einzelschichten, GPU-residente Kette. Koeffizienten, Normalenfeld und CAD-Schnitte liegen unter 5 % (trotzdem
+parallel, wenn der Aufrufer sequentiell ist).
+
+### Nach M15 (CPU)
+
+| Fall | 1 Thread | 12 Threads | 16 Threads | 24 Threads |
+|---|---|---|---|---|
+| Eierkarton 2D, 32 Scheiben, `tree` | 354 s | 82,5 s | 74 s | 82 s |
+| Eierkarton 2D, 32 Scheiben, `sequential` | – | – | 91 s | 108 s |
+| CAD-Säulen, `tree` | (881 s) | 220 s | 188 s | 208 s |
+| V13 Gold-Sinus RK (10 Scheiben) | 32 s | – | 5,0 s | 4,9 s |
+| V9 RK (2 Scheiben) | 73 s | – | 52 s | 48 s |
+| V10, `threads.blas = 24` (Eigen-GEMM parallel) | 39 s | – | 21 s | 19 s |
+
+Parallele Effizienz (2D, 32 Scheiben, Baum): 4,3× auf 12 Kernen (36 %), 4,8× mit 16 Threads – unter dem Ziel
+60 % auf 16 Kernen. Ursache: Eigens `ComplexEigenSolver` (Hessenberg/Schur, überwiegend Level-2) ist auf diesem
+Rechner speicherbandbreitenbegrenzt; unter Last dauert ein Eigenproblem 2× (12 Threads) bis 4× (24 Threads) so
+lange wie allein. Dazu kommt die Granularität (32 Scheiben auf 12 Threads = 3 Runden). Die sequentielle Kette
+begrenzt zusätzlich (Sternprodukte ≈ 10 % der Arbeit); `"reduction": "tree"` gewinnt hier 15–25 %. Auf dem
+Zielsystem (mehr Speicherkanäle) erneut zu messen. V9 (2 Stabilitätsscheiben) profitiert kaum; die parallele
+Auswertung der RK-Stufen innerhalb einer Scheibe (Plan Schritt 3) ist nicht umgesetzt.
+
+### GPU-residente Kette (RTX 3090, FP64)
+
+| Fall | CPU 1 Thread | CPU bester Wert | GPU 1 Stream | GPU 4 Streams |
+|---|---|---|---|---|
+| Eierkarton 2D, 32 Scheiben, N = 7 | 354 s | 74 s | 128 s | 48 s |
+| V10 Lochgitter, N = 10 | 39 s | 19 s | 11,0 s | 10,7 s |
+
+Transferanteil (Nsight Systems 2026.3, V10): Host→Device 0,7 %, Device→Host ≈ 0,5 %, Device→Device 0,1 % der
+GPU-Zeit (Ziel < 10 %). Die GPU-Zeit dominieren `Xgeev` (Bulge-Chasing) und ZGEMM. Auf der RTX 3090 hat FP64 nur 1/64
+der FP32-Rate; der Gewinn durch FP32 folgt mit M16. GPU-Ergebnisse = CPU auf 1e-10 (`Resident.*`, `Backend.*`).
