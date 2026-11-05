@@ -18,6 +18,7 @@ set(FG_UNIT_TESTS
   test_scan
   test_polarization_split
   test_contour
+  test_normal_field_samples
 )
 foreach(t ${FG_UNIT_TESTS})
   add_executable(${t} unit/${t}.cpp)

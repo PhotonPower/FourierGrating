@@ -1,6 +1,8 @@
 // FourierGrating - normal vector fields for FFF (Plan section "Normalen- und Tangentenfelder").
 #pragma once
 
+#include <functional>
+#include <string>
 #include <vector>
 
 #include "fg/core/index_map.hpp"
@@ -28,7 +30,39 @@ struct NormalFieldRaster {
   std::vector<double> nxx, nxz, nzz;
   std::vector<double> nx, nz;
   std::vector<int> region;     ///< -1 background, k = inclusion k (periodic lookup)
+  /// 3D normals (boundary samples with n_y != 0, M13): the y components; empty otherwise
+  std::vector<double> nxy, nyy, nyz, ny;
+  bool has3D() const { return !nyy.empty(); }
 };
+
+/// Boundary sample of Algorithm NF (Plan section "M13: Normalenfeld mit Randstichproben"): point
+/// (x, z) on a material boundary and unit normal (3D; y-invariant layers: n_y = 0), oriented out of
+/// the region it belongs to. exactChord: the chord to the next sample is the boundary itself
+/// (polygon edge); otherwise it approximates a curve with sagitta <= 1e-3 raster spacings.
+struct BoundarySample {
+  double x = 0, z = 0;
+  Vec3D n = Vec3D(1, 0, 0);
+  bool exactChord = false;
+};
+/// Consecutive samples of one boundary curve (closed: chord from the last to the first sample).
+struct BoundaryChain {
+  std::vector<BoundarySample> samples;
+  bool closed = true;
+};
+
+/// Algorithm NF steps 1-4 from boundary samples (M13): nearest chord per raster point via a bucket
+/// grid (periodic images), foot point on the chord; in-plane direction as in Algorithm NF, n_y
+/// interpolated linearly along the chord. Only chords with different materials on both sides count
+/// (regionAt: index of the region at (x, z), -1 background; materialOf(k): its material name).
+/// For polygons (one exact chord per edge) the result is bit-identical to normalFieldRaster(Polygon2D).
+NormalFieldRaster normalFieldRaster(const std::vector<BoundaryChain>& chains,
+                                    const std::function<int(double, double)>& regionAt,
+                                    const std::function<std::string(int)>& materialOf, const NormalFieldOptions& opt,
+                                    double dx_um, double dz_um, int Gx, int Gz);
+/// One exact chord per polygon edge, normal (t_z, 0, -t_x)/|t| (counter-clockwise: outward).
+std::vector<BoundaryChain> polygonChains(const std::vector<std::array<double, 2>>& vertices);
+/// Step 5 (DFT of the smooth raster): coefficients of the projector field, |p| <= 2Nx, |q| <= 2Nz.
+NormalFieldCoefficients rasterCoefficients(const NormalFieldRaster& R, const IndexMap& map);
 /// Raster size used for N Fourier orders: max(grid, 8 (2N + 1)), rounded up to a power of two.
 int normalFieldGrid(const NormalFieldOptions& o, int N);
 /// Algorithm NF steps 1-4 (Plan alg:nfield): exact distances to the material boundaries of the
