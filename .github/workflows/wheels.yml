@@ -41,7 +41,7 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-      - uses: Jimver/cuda-toolkit@v0.2.19
+      - uses: Jimver/cuda-toolkit@v0.2.36
         with:
           cuda: "12.6.3"   # cusolverDnXgeev needs >= 12.6 Update 2
           method: network
