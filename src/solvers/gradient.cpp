@@ -1,7 +1,9 @@
 // FourierGrating - discrete adjoint of the RCWA computation (Plan section "M19: Methode"): the forward
 // chain is recorded (slice matrices, modes, S-matrices, prefix products) and differentiated in reverse:
 // efficiencies -> amplitudes -> star products -> slice S-matrices -> eigen-decompositions -> M -> Q ->
-// coefficient grids -> parameters (thickness, permittivity, breakpoints, shapes, profiles).
+// coefficient grids -> parameters (thickness, permittivity, breakpoints, shapes, profiles). Phase 2: wavelength,
+// angles and the superstrate/substrate permittivity through alpha, gamma, k0, the half-space bases, the
+// incident vector and the efficiency normalization.
 #include "fg/adjoint/gradient.hpp"
 
 #include <algorithm>
@@ -37,7 +39,7 @@ using Grid = fourier::CoefficientGrid;
 constexpr std::size_t kNone = std::numeric_limits<std::size_t>::max();
 
 struct Param {
-  enum class Kind { Thickness, Material, Breakpoint, Shape, ProfileDepth, ProfileShift };
+  enum class Kind { Thickness, Material, Breakpoint, Shape, ProfileDepth, ProfileShift, Lambda, Phi, Psi, Delta };
   Kind kind = Kind::Thickness;
   std::size_t layer = kNone;
   std::string material;
@@ -95,17 +97,27 @@ bool sameControlPoints(const geometry::Region& a, const geometry::Region& b) {
 
 Param resolve(const json& j, const io::RunConfig& cfg, const std::string& ptr, const IndexMap& map) {
   const json::json_pointer jp(ptr);
-  FG_REQUIRE(j.contains(jp) && j.at(jp).is_number(), "gradient: '" + ptr + "' is not a number of the configuration");
   const auto t = tokens(ptr);
   Param p;
+  if (t.size() == 2 && t[0] == "incidence") {  // M19 Phase 2: at the current scan point (lists and ranges too)
+    FG_REQUIRE(j.contains(jp), "gradient: '" + ptr + "' is not in the configuration");
+    const std::string& f = t[1];
+    if (f == "lambda_um") p.kind = Param::Kind::Lambda;
+    else if (f == "phi_deg") p.kind = Param::Kind::Phi;
+    else if (f == "psi_deg") p.kind = Param::Kind::Psi;
+    else if (f == "delta_deg") p.kind = Param::Kind::Delta;
+    else throw Error("gradient: unsupported incidence parameter '" + ptr + "'");
+    return p;
+  }
+  FG_REQUIRE(j.contains(jp) && j.at(jp).is_number(), "gradient: '" + ptr + "' is not a number of the configuration");
   if (t.size() >= 3 && t[0] == "materials") {
     p.kind = Param::Kind::Material;
     p.material = t[1];
     FG_REQUIRE(t[2] == "n" || t[2] == "eps", "gradient: material parameters are n or eps ('" + ptr + "')");
     p.viaN = t[2] == "n";
     p.comp = t.size() >= 4 ? std::stoi(t[3]) : 0;
-    FG_REQUIRE(p.material != cfg.stack.superstrate && p.material != cfg.stack.substrate,
-               "gradient: the permittivity of superstrate/substrate is not available (M19 Phase 2): '" + ptr + "'");
+    FG_REQUIRE(p.material != cfg.stack.superstrate || p.comp == 0,
+               "gradient: the superstrate stays lossless (no imaginary part as parameter): '" + ptr + "'");
     FG_REQUIRE(cfg.stack.material(p.material).isotropic, "gradient: anisotropic materials are not available: '" + ptr + "'");
     return p;
   }
@@ -175,6 +187,8 @@ struct Elem {
   bool rk = false, constant = false;
   MatC T, Mc;
   RKSteps steps;
+  double ya = 0, yb = 0, rho = 0;  ///< RK: slice range (normalized) and spectral bound, to recompute it
+  bool stored = true;              ///< false: slice data dropped (checkpoint_every > 1), recomputed backwards
 };
 
 /// Spectral radius for the slice criterion (as the solver: eigenvalues up to n = 800, else power iteration).
@@ -296,25 +310,70 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   if (!prebuilt) built = detail::buildLayerModels(st, map, opt.rcwaSlices);
   const detail::LayerModels& models = prebuilt ? *prebuilt : built;
   const ButcherTableau tab = ButcherTableau::byName(opt.rkTableau);
+  const std::size_t ckpt = static_cast<std::size_t>(std::max(1, opt.checkpointEvery));
+  /// slice data of a recorded element from its description (forward pass and checkpoint recomputation)
+  auto rebuild = [&](Elem& e) {
+    const auto& m = *models[e.layer];
+    if (e.homogeneous) {
+      const Material& mat = m.material();
+      e.Q = m.Q(0.0);
+      e.modes = layerModesHomogeneous(mat.isotropic ? isotropicModes(mat.eps, al, ga) : anisotropicModes(mat.epsTensor, al, ga));
+      e.S = stableLayerSMatrix(e.modes, e.h, ref);
+    } else if (e.rk) {
+      auto Mfun = [&m, &al, &ga, k0](double yl) { return buildPropagationMatrix(m.Q(yl / k0), al, ga); };
+      RKStats rs;
+      e.steps = RKSteps{};
+      if (e.constant) {
+        e.Mc = Mfun(0.0);
+        e.T = rkTransferConstant(e.Mc, e.yb - e.ya, tab, opt.rkTol, e.rho, rs, &e.steps);
+        for (double& y : e.steps.y) y += e.ya;
+      } else {
+        e.T = rkTransfer(Mfun, e.ya, e.yb, tab, opt.rkTol, e.rho, rs, &e.steps);
+      }
+      e.S = fromTransfer(ref.PsiInv * e.T * ref.Psi);
+    } else {
+      e.Q = m.Q(e.y_um);
+      e.modes = layerModesAuto(buildPropagationMatrix(e.Q, al, ga));
+      e.S = stableLayerSMatrix(e.modes, e.h, ref);
+    }
+    e.stored = true;
+  };
+  auto drop = [](Elem& e) {
+    e.Q = QBlocks{};
+    e.modes = LayerModes{};
+    e.S = SMatrix{};
+    e.T = MatC();
+    e.Mc = MatC();
+    e.steps = RKSteps{};
+    e.stored = false;
+  };
   std::vector<Elem> el;
+  std::vector<SMatrix> P;  // prefix products; with checkpoints only every ckpt-th (and the last)
+  SMatrix Plast;
+  auto push = [&](Elem&& e) {
+    const std::size_t i = el.size();
+    Plast = i == 0 ? e.S : star(Plast, e.S);
+    P.push_back(i % ckpt == 0 ? Plast : SMatrix{});
+    el.push_back(std::move(e));
+    if (ckpt > 1 && i > 0) drop(el.back());
+  };
   {
     Elem e0;
     e0.S = fromTransfer(ref.PsiInv * sm.Psi);
-    el.push_back(std::move(e0));
+    push(std::move(e0));
   }
   for (std::size_t k = 0; k < models.size(); ++k) {
     const auto& m = *models[k];
     const double H = m.thickness_um() * k0;
     if (m.homogeneous()) {
       const Material& mat = m.material();
+      (void)mat;
       Elem e;
       e.layer = k;
       e.homogeneous = true;
       e.h = H;
-      e.Q = m.Q(0.0);
-      e.modes = layerModesHomogeneous(mat.isotropic ? isotropicModes(mat.eps, al, ga) : anisotropicModes(mat.epsTensor, al, ga));
-      e.S = stableLayerSMatrix(e.modes, H, ref);
-      el.push_back(std::move(e));
+      rebuild(e);
+      push(std::move(e));
       continue;
     }
     if (opt.kind == SolverKind::RK) {
@@ -337,22 +396,17 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         e.layer = k;
         e.rk = true;
         e.constant = m.yInvariant();
-        e.Mc = Mc;
         e.y_um = 0.5 * (ya + yb) / k0;
-        RKStats rs;
-        if (e.constant) {
-          e.T = rkTransferConstant(Mc, yb - ya, tab, opt.rkTol, rho, rs, &e.steps);
-          for (double& y : e.steps.y) y += ya;
-        } else {
-          e.T = rkTransfer(Mfun, ya, yb, tab, opt.rkTol, rho, rs, &e.steps);
-        }
+        e.ya = ya;
+        e.yb = yb;
+        e.rho = rho;
+        rebuild(e);
         if ((!e.T.allFinite() || e.T.cwiseAbs().maxCoeff() > growth) && depth < 12) {
           slice(ya, 0.5 * (ya + yb), depth + 1);
           slice(0.5 * (ya + yb), yb, depth + 1);
           return;
         }
-        e.S = fromTransfer(ref.PsiInv * e.T * ref.Psi);
-        el.push_back(std::move(e));
+        push(std::move(e));
       };
       for (int s = 0; s < K; ++s) slice(H * s / K, H * (s + 1) / K, 0);
       continue;
@@ -364,16 +418,11 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       e.K = K;
       e.y_um = (s + 0.5) * m.thickness_um() / K;
       e.h = H / K;
-      e.Q = m.Q(e.y_um);
-      e.modes = layerModesAuto(buildPropagationMatrix(e.Q, al, ga));
-      e.S = stableLayerSMatrix(e.modes, e.h, ref);
-      el.push_back(std::move(e));
+      rebuild(e);
+      push(std::move(e));
     }
   }
-  std::vector<SMatrix> P(el.size());
-  P[0] = el[0].S;
-  for (std::size_t i = 1; i < el.size(); ++i) P[i] = star(P[i - 1], el[i].S);
-  const VecC b = P.back().S12 * a_in, t = P.back().S22 * a_in;
+  const VecC b = Plast.S12 * a_in, t = Plast.S22 * a_in;
 
   // ---------------------------------------------------------------- efficiencies and objective
   GradientResult out;
@@ -426,20 +475,15 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
 
   // ---------------------------------------------------------------- reverse sweep
   out.grad.assign(ps.size(), 0.0);
-  std::vector<SMatrix> Ebar(el.size());
-  {
-    SMatrix Pbar;
-    Pbar.S11 = MatC::Zero(nh, nh);
-    Pbar.S21 = MatC::Zero(nh, nh);
-    Pbar.S12 = bbar * a_in.adjoint();
-    Pbar.S22 = tbar * a_in.adjoint();
-    for (std::size_t i = el.size() - 1; i >= 1; --i) {
-      SMatrix Ab, Bb;
-      adjoint::star(P[i - 1], el[i].S, Pbar, Ab, Bb);
-      Ebar[i] = std::move(Bb);
-      Pbar = std::move(Ab);
-    }
-  }
+  // M19 Phase 2: global parameters (wavelength, angles, superstrate/substrate) act on every element
+  bool global = false;
+  for (const auto& p : ps)
+    global = global || p.kind == Param::Kind::Lambda || p.kind == Param::Kind::Phi || p.kind == Param::Kind::Psi ||
+             p.kind == Param::Kind::Delta ||
+             (p.kind == Param::Kind::Material && (p.material == st.superstrate || p.material == st.substrate));
+  VecC alb = VecC::Zero(nf), gab = VecC::Zero(nf);
+  MatC refPsib, refPsiInvb, smPsib;
+  double dLdlnk0 = 0;  // all normalized thicknesses scale with k0
   // material cotangents (complex, Plan convention) per material name
   std::map<std::string, cplx> epsBar;
   auto onLayer = [](const Param& p, std::size_t k) {
@@ -558,7 +602,8 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       }
     }
   };
-  for (std::size_t i = 1; i < el.size(); ++i) {
+  /// backward of element i >= 1 from the cotangent Eb of its S-matrix
+  auto backward = [&](std::size_t i, const SMatrix& Eb) {
     const Elem& e = el[i];
     const auto& model = *models[e.layer];
     std::vector<std::string> mats;
@@ -568,17 +613,30 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       detail::AdjointSlice a;
       if (model.adjointSlice(e.y_um, a)) mats = a.materials;
     }
-    if (!layerHasParams(e.layer, mats)) continue;
+    const bool own = layerHasParams(e.layer, mats);
+    if (!own && !global) return;
     // eigen-decompositions / stage matrices only if Q matters (materials, geometry, profile normal field)
     bool needQ = false;
     for (const auto& p : ps)
       needQ = needQ || (p.kind == Param::Kind::Material && std::find(mats.begin(), mats.end(), p.material) != mats.end()) ||
               (onLayer(p, e.layer) && (p.hasDnf || (p.kind != Param::Kind::Thickness && p.kind != Param::Kind::ProfileDepth)));
+    needQ = needQ || global;
+    // dL/dM of a node or slice -> Q (own parameters) and alpha, gamma (global parameters)
+    auto fromMbar = [&](const QBlocks& Q, const MatC& Mb, double y_um, bool homogeneous) {
+      QBlocks Qb;
+      if (global) adjoint::propagationMatrix(Q, al, ga, Mb, Qb, alb, gab);
+      else adjoint::propagationMatrix(Q, al, ga, Mb, Qb);
+      if (own) fromQbar(e.layer, homogeneous, y_um, Qb);
+    };
     if (e.rk) {
       // S = fromTransfer(Psi^-1 T Psi), T = P_m ... P_1 (fixed step sequence, Plan "RK-Propagator")
       const MatC Tref = ref.PsiInv * e.T * ref.Psi;
       MatC Trefb;
-      adjoint::fromTransfer(Tref, Ebar[i], Trefb);
+      adjoint::fromTransfer(Tref, Eb, Trefb);
+      if (global) {
+        adjoint::accumulate(refPsiInvb, MatC(Trefb * (e.T * ref.Psi).adjoint()));
+        adjoint::accumulate(refPsib, MatC((ref.PsiInv * e.T).adjoint() * Trefb));
+      }
       MatC G = ref.PsiInv.adjoint() * Trefb * ref.Psi.adjoint();
       const std::size_t ms = e.steps.h.size();
       const Eigen::Index nn = e.T.rows();
@@ -608,28 +666,24 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
           } else {
             for (int s = 0; s < tab.stages(); ++s) {
               const double y_um = (e.steps.y[k] + tab.c(s) * e.steps.h[k]) / k0;
-              QBlocks Qb;
-              adjoint::propagationMatrix(model.Q(y_um), al, ga, nb[static_cast<std::size_t>(s)], Qb);
-              fromQbar(e.layer, false, y_um, Qb);
+              fromMbar(model.Q(y_um), nb[static_cast<std::size_t>(s)], y_um, false);
             }
           }
         }
         G = Pk[k].adjoint() * G;
       }
       thicknessParam(e.layer, dLdH / model.thickness_um());
-      if (needQ && e.constant) {
-        QBlocks Qb;
-        adjoint::propagationMatrix(model.Q(0.0), al, ga, Msum, Qb);
-        fromQbar(e.layer, false, 0.0, Qb);
-      }
-      continue;
+      dLdlnk0 += dLdH;
+      if (needQ && e.constant) fromMbar(model.Q(0.0), Msum, 0.0, false);
+      return;
     }
     MatC Wub, Wdb;
     VecC lub, ldb;
     double hb = 0;
-    adjoint::layerSMatrix(e.modes, e.h, ref, Ebar[i], Wub, Wdb, lub, ldb, hb);
+    adjoint::layerSMatrix(e.modes, e.h, ref, Eb, Wub, Wdb, lub, ldb, hb, global ? &refPsiInvb : nullptr);
     thicknessParam(e.layer, hb * k0 / e.K);
-    if (!needQ) continue;
+    dLdlnk0 += hb * e.h;
+    if (!needQ) return;
     const Eigen::Index n = e.modes.lu.size();
     MatC W(4 * nf, 2 * n), Wb(4 * nf, 2 * n);
     W << e.modes.Wu, e.modes.Wd;
@@ -640,9 +694,128 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     std::vector<int> cls(static_cast<std::size_t>(2 * n), 0);
     for (Eigen::Index q = n; q < 2 * n; ++q) cls[static_cast<std::size_t>(q)] = 1;
     const MatC Mb = adjoint::eig(W, lam, Wb, lamb, cls);
-    QBlocks Qb;
-    adjoint::propagationMatrix(e.Q, al, ga, Mb, Qb);
-    fromQbar(e.layer, e.homogeneous, e.y_um, Qb);
+    fromMbar(e.Q, Mb, e.y_um, e.homogeneous);
+  };
+  // reverse sweep over the star chain, per checkpoint segment (recompute the dropped slices and prefixes)
+  SMatrix E0bar;
+  {
+    SMatrix Pbar;
+    Pbar.S11 = MatC::Zero(nh, nh);
+    Pbar.S21 = MatC::Zero(nh, nh);
+    Pbar.S12 = bbar * a_in.adjoint();
+    Pbar.S22 = tbar * a_in.adjoint();
+    std::size_t i = el.size() - 1;
+    while (i >= 1) {
+      const std::size_t s0 = (i - 1) / ckpt * ckpt;  // P[s0] is stored
+      for (std::size_t j = s0 + 1; j <= i; ++j) {
+        if (!el[j].stored) rebuild(el[j]);
+        if (j < i && P[j].S11.size() == 0) P[j] = star(P[j - 1], el[j].S);
+      }
+      for (std::size_t j = i; j > s0; --j) {
+        SMatrix Ab, Bb;
+        adjoint::star(P[j - 1], el[j].S, Pbar, Ab, Bb);
+        Pbar = std::move(Ab);
+        backward(j, Bb);
+        if (ckpt > 1) {
+          drop(el[j]);
+          if (j % ckpt != 0) P[j] = SMatrix{};
+        }
+      }
+      i = s0;
+    }
+    E0bar = std::move(Pbar);
+  }
+  if (global) {
+    // first element S0 = fromTransfer(PsiInv_sup Psi_sub)
+    MatC Xb;
+    adjoint::fromTransfer(MatC(ref.PsiInv * sm.Psi), E0bar, Xb);
+    adjoint::accumulate(refPsiInvb, MatC(Xb * sm.Psi.adjoint()));
+    smPsib = ref.PsiInv.adjoint() * Xb;
+    cplx epsSupb = 0, epsSubb = 0;
+    adjoint::isotropicModes(sup.eps, al, ga, ref, refPsib, refPsiInvb, VecC(), epsSupb, alb, gab);
+    adjoint::isotropicModes(sub.eps, al, ga, sm, smPsib, MatC(), VecC(), epsSubb, alb, gab);
+    // amplitudes b = S12 a_in, t = S22 a_in
+    const VecC ainb = Plast.S12.adjoint() * bbar + Plast.S22.adjoint() * tbar;
+    // directional derivatives w.r.t. the scalars the bases, M and the amplitudes depend on
+    double dAlpha0 = alb.real().sum(), dGamma0 = gab.real().sum(), dKx = 0, dKz = 0;
+    for (int r = 0; r < nf; ++r) {
+      const auto [n, m] = map.orders(r);
+      dKx += n * alb(r).real();
+      dKz += m * gab(r).real();
+    }
+    double dA0 = ainb(c).real(), dA2 = ainb(nf + c).real(), dEpsSup = epsSupb.real();
+    cplx dEpsSub = epsSubb;
+    // efficiency normalization and flux forms (b, t fixed): central differences of the objective
+    struct Glob {
+      double epsSup, alpha0, gamma0, Kx, Kz, A0, A2;
+      cplx epsSub;
+    };
+    const Glob g0{sup.eps.real(), inc.alpha0, inc.gamma0, Kx, Kz, inc.A(0), inc.A(2), sub.eps};
+    auto objectiveAt = [&](const Glob& g) {
+      double v = 0;
+      VecC a(nf), gg(nf);
+      for (int r = 0; r < nf; ++r) {
+        const auto [n, m] = map.orders(r);
+        a(r) = g.alpha0 + n * g.Kx;
+        gg(r) = g.gamma0 + m * g.Kz;
+      }
+      const auto io = planeWaveOrder(g.epsSup, a(c), gg(c), betaBranch(g.epsSup, a(c), gg(c)), -1, g.A0, g.A2);
+      const double S = std::abs(io.Sy);
+      for (int r = 0; r < nf; ++r) {
+        const auto [n, m] = map.orders(r);
+        if (const double w = weight('R', n, m); w != 0) {
+          const auto ro = planeWaveOrder(g.epsSup, a(r), gg(r), betaBranch(g.epsSup, a(r), gg(r)), +1, b(r), b(nf + r));
+          if (ro.propagating) v += w * ro.Sy / S;
+        }
+        if (!subLossless) continue;
+        if (const double w = weight('T', n, m); w != 0) {
+          const auto to = planeWaveOrder(g.epsSub, a(r), gg(r), betaBranch(g.epsSub, a(r), gg(r)), -1, t(r), t(nf + r));
+          if (to.propagating) v -= w * to.Sy / S;
+        }
+      }
+      return v;
+    };
+    auto central = [&](auto&& shift) {
+      constexpr double h = 1e-6;
+      Glob gp = g0, gm = g0;
+      shift(gp, h);
+      shift(gm, -h);
+      return (objectiveAt(gp) - objectiveAt(gm)) / (2 * h);
+    };
+    dAlpha0 += central([](Glob& g, double h) { g.alpha0 += h; });
+    dGamma0 += central([](Glob& g, double h) { g.gamma0 += h; });
+    dKx += central([](Glob& g, double h) { g.Kx += h; });
+    dKz += central([](Glob& g, double h) { g.Kz += h; });
+    dA0 += central([](Glob& g, double h) { g.A0 += h; });
+    dA2 += central([](Glob& g, double h) { g.A2 += h; });
+    dEpsSup += central([](Glob& g, double h) { g.epsSup += h; });
+    if (subLossless) {
+      dEpsSub += central([](Glob& g, double h) { g.epsSub += h; });  // the substrate stays lossless
+    } else {
+      dEpsSub += cplx(central([](Glob& g, double h) { g.epsSub += h; }), central([](Glob& g, double h) { g.epsSub += cplx(0, h); }));
+    }
+    // incident wave (alpha0, gamma0, A) as a function of nu_sup and the angles
+    auto incidenceDot = [&](double dnu, double dphi, double dpsi, double ddelta) {
+      constexpr double h = 1e-6;
+      const double nu = std::sqrt(sup.eps.real());
+      const IncidentWave p = makeIncidence(nu + h * dnu, wl.phi + h * dphi, wl.psi + h * dpsi, wl.delta + h * ddelta);
+      const IncidentWave m = makeIncidence(nu - h * dnu, wl.phi - h * dphi, wl.psi - h * dpsi, wl.delta - h * ddelta);
+      return (dAlpha0 * (p.alpha0 - m.alpha0) + dGamma0 * (p.gamma0 - m.gamma0) + dA0 * (p.A(0) - m.A(0)) +
+              dA2 * (p.A(2) - m.A(2))) / (2 * h);
+    };
+    epsBar[st.superstrate] += dEpsSup + incidenceDot(0.5 / std::sqrt(sup.eps.real()), 0, 0, 0);
+    epsBar[st.substrate] += dEpsSub;
+    constexpr double deg = PI / 180;
+    for (std::size_t q = 0; q < ps.size(); ++q) {
+      switch (ps[q].kind) {
+        // Kx = lambda / dx, Kz = lambda / dz, normalized thicknesses ~ k0 = 2 pi / lambda
+        case Param::Kind::Lambda: out.grad[q] = (dKx * Kx + dKz * Kz - dLdlnk0) / wl.lambda_um; break;
+        case Param::Kind::Phi: out.grad[q] = incidenceDot(0, 1, 0, 0) * deg; break;
+        case Param::Kind::Psi: out.grad[q] = incidenceDot(0, 0, 1, 0) * deg; break;
+        case Param::Kind::Delta: out.grad[q] = incidenceDot(0, 0, 0, 1) * deg; break;
+        default: break;
+      }
+    }
   }
   for (std::size_t q = 0; q < ps.size(); ++q) {
     const Param& p = ps[q];

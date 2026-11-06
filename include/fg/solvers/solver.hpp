@@ -55,6 +55,9 @@ struct SolverOptions {
   /// Repeat in FP64 if a lossless structure misses energy conservation by > 1e-3:
   /// -1 = auto (on for fp32), 0 = off, 1 = on (also for mixed).
   int precisionFallback = -1;
+  /// Gradients (Plan section "M19: Schnittstellen", Speicher): keep only every k-th prefix S-matrix and no
+  /// slice data in the forward pass; the backward pass recomputes them per segment (same result).
+  int checkpointEvery = 1;
 };
 
 /// Resolved thread counts of a run with `scanPoints` points (Plan section "M15", step 2): auto

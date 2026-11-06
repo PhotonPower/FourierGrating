@@ -84,9 +84,10 @@ Diskrete Adjungierte (exakter Gradient der tatsächlich berechneten Abbildung): 
 Vorwärtsrechnungen, unabhängig von der Zahl der Parameter. Parameter sind Zahlen der Konfiguration (JSON-Pointer
 wie bei `set_parameter`): Schichtdicken, `breakpoints_um/j` (Lamellen), `depth_um`/`x0_um` (Sinusprofil),
 alle Zahlen einer `polygon2d`- oder `contour2d`-Geometrie (Ecken, NURBS-Kontrollpunkte und -Gewichte, Kreis),
-`materials/<name>/n` bzw. `.../n/0|1` (Real-/Imaginärteil) und `.../eps`. RCWA und RK, periodische Gitter ohne
-Koordinatentransformation; Material von Superstrat/Substrat, anisotrope Materialien, `FFF_A`/`FFF_B`: noch nicht
-(Fehlermeldung). Festgelegt (Plan M19 „Methode“): Scheibenzerlegung und RK-Schrittfolge; das Normalenfeld der
+`materials/<name>/n` bzw. `.../n/0|1` (Real-/Imaginärteil) und `.../eps`, auch für Superstrat (nur Realteil, es
+bleibt verlustfrei) und Substrat, sowie `incidence/lambda_um`, `phi_deg`, `psi_deg`, `delta_deg` (am aktuellen
+Scanpunkt, auch wenn dort eine Liste steht). RCWA und RK, periodische Gitter ohne Koordinatentransformation;
+anisotrope Materialien, `FFF_A`/`FFF_B`: noch nicht (Fehlermeldung). Festgelegt (Plan M19 „Methode“): Scheibenzerlegung und RK-Schrittfolge; das Normalenfeld der
 2D-Querschnitte (Algorithmus NF) ist eingefroren, das der Profile wird mitdifferenziert. CAD-Körper: C++-API
 `fg::gradient(opt, stack, wl, objective, {StackParameter{...}})` mit dem neu geschnittenen Körper bei θ ± δ
 (seitliche Bewegungen). `sim.last_result` enthält die Effizienzen der Rechnung.

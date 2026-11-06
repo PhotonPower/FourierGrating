@@ -54,7 +54,29 @@ def test_vjp_equals_gradient_and_list_form():
 def test_unsupported_parameter_raises():
     sim = fg.Simulation(CFG)
     with pytest.raises(Exception):
-        sim.value_and_grad(OBJ, ["/materials/al/n/0"])  # substrate material: M19 Phase 2
+        sim.value_and_grad(OBJ, ["/period_um/x"])  # the period is no parameter
+
+
+def test_incidence_and_substrate_parameters():
+    """M19 Phase 2: angle, wavelength and the (lossy) substrate index."""
+    params = ["/incidence/phi_deg", "/incidence/lambda_um", "/materials/al/n/0", "/materials/al/n/1"]
+    sim = fg.Simulation(CFG)
+    _, grad = sim.value_and_grad(OBJ, params)
+    x0 = [39.26, 0.6328, 1.38, 7.62]
+
+    def value(x):
+        s = fg.Simulation(CFG)
+        for p, v in zip(params, x):
+            s.set_parameter(p, v)
+        r = s.solve()
+        return sum(w * r.efficiency(side, n, m) for (side, n, m), w in OBJ.items())
+
+    for k in range(len(params)):
+        h = 1e-6 * max(1.0, abs(x0[k]))
+        xp, xm = list(x0), list(x0)
+        xp[k] += h
+        xm[k] -= h
+        assert grad[k] == pytest.approx((value(xp) - value(xm)) / (2 * h), rel=1e-6, abs=1e-9)
 
 
 def test_torch_adapter():

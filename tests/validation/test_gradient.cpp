@@ -314,3 +314,80 @@ TEST(M19_Gradient, NurbsControlPointsAndWeights) {
          "/layers/0/regions/0/nurbs/weights/3"},
         1e-6, "nurbs");
 }
+
+// M19 Phase 2: wavelength, angles and the superstrate/substrate permittivity (through alpha, gamma, k0, the
+// half-space bases, the incident vector and the efficiency normalization).
+TEST(M19_Gradient, IncidenceAndHalfSpaces) {
+  const std::vector<std::string> inc{"/incidence/lambda_um", "/incidence/phi_deg", "/incidence/psi_deg",
+                                     "/incidence/delta_deg"};
+  // conical lamellae (air in the lamellae and as superstrate), glass substrate
+  auto params = inc;
+  params.insert(params.end(), {"/materials/air/n", "/materials/glass/n"});
+  const auto obj = objective({{'R', -1, 0, 1.0}, {'T', 0, 0, 0.5}, {'T', 1, 0, -0.4}, {'R', 0, 0, -0.3}});
+  check(lamellar1D("li_lamellar"), obj, params, 1e-6, "lamellar");
+  // lossy substrate (gold sinus profile, TM): complex substrate index
+  json gold{{"dimension", "1D"},
+            {"truncation", {{"Nx", 8}}},
+            {"period_um", {{"x", 1.0}}},
+            {"incidence", {{"lambda_um", 0.6328}, {"phi_deg", 20}, {"delta_deg", 90}}},
+            {"rcwa", {{"slices", 8}}},
+            {"materials", {{"air", {{"n", 1.0}}}, {"gold", {{"n", {0.2, 3.4}}}}}},
+            {"superstrate", "air"},
+            {"substrate", "gold"},
+            {"layers", json::array({json{{"type", "profile1d"},
+                                         {"shape", "sinus"},
+                                         {"depth_um", 0.25},
+                                         {"x0_um", 0.1},
+                                         {"below", "gold"},
+                                         {"above", "air"},
+                                         {"factorization", "laurent"}}})}};
+  check(gold, objective({{'R', -1, 0, 1.0}, {'R', 0, 0, 0.5}}),
+        {"/incidence/lambda_um", "/incidence/phi_deg", "/materials/gold/n/0", "/materials/gold/n/1", "/materials/air/n"},
+        1e-6, "gold");
+  // 2D pillars (Laurent), conical
+  check(pillars2D("laurent", true), objective({{'R', 0, 0, 1.0}, {'T', -1, 0, 0.7}, {'T', 0, -1, 0.4}}), inc, 1e-6,
+        "pillars");
+  // RK: the recorded steps scale with k0
+  json rk = lamellar1D("li_lamellar");
+  rk["solver"] = "rk";
+  rk["rk"] = {{"tol", 1e-10}};
+  rk["truncation"] = {{"Nx", 6}};
+  check(rk, objective({{'R', -1, 0, 1.0}, {'T', 0, 0, 0.5}}),
+        {"/incidence/lambda_um", "/incidence/phi_deg", "/materials/glass/n", "/materials/air/n"}, 1e-6, "rk");
+}
+
+// checkpoint_every (Plan "Schnittstellen", Speicher): only every k-th prefix S-matrix is kept and the
+// slices are recomputed per segment in the backward pass; the gradient is bit-identical.
+TEST(M19_Gradient, CheckpointEveryIsBitIdentical) {
+  json prof{{"dimension", "1D"},
+            {"truncation", {{"Nx", 6}}},
+            {"period_um", {{"x", 1.0}}},
+            {"incidence", {{"lambda_um", 0.6328}, {"phi_deg", 20}, {"delta_deg", 90}}},
+            {"rcwa", {{"slices", 10}}},
+            {"materials", {{"air", {{"n", 1.0}}}, {"glass", {{"n", 1.5}}}, {"bar", {{"n", 1.8}}}, {"film", {{"eps", 2.2}}}}},
+            {"superstrate", "air"},
+            {"substrate", "glass"},
+            {"layers", json::array({json{{"type", "homogeneous"}, {"thickness_um", 0.15}, {"material", "film"}},
+                                    json{{"type", "profile1d"},
+                                         {"shape", "sinus"},
+                                         {"depth_um", 0.25},
+                                         {"x0_um", 0.1},
+                                         {"below", "bar"},
+                                         {"above", "air"},
+                                         {"factorization", "laurent"}}})}};
+  const auto obj = objective({{'R', -1, 0, 1.0}, {'T', 1, 0, 0.3}});
+  const std::vector<std::string> params{"/layers/1/depth_um", "/materials/bar/n", "/layers/0/thickness_um",
+                                        "/incidence/lambda_um", "/materials/glass/n"};
+  for (const char* solver : {"rcwa", "rk"}) {
+    prof["solver"] = solver;
+    prof["rk"] = {{"tol", 1e-9}};
+    prof.erase("checkpoint_every");
+    const auto ref = fg::gradient(prof.dump(), obj, params);
+    for (int k : {2, 3, 7}) {
+      prof["checkpoint_every"] = k;
+      const auto g = fg::gradient(prof.dump(), obj, params);
+      EXPECT_EQ(g.value, ref.value) << solver << " k = " << k;
+      for (std::size_t q = 0; q < params.size(); ++q) EXPECT_EQ(g.grad[q], ref.grad[q]) << solver << " k = " << k << " " << params[q];
+    }
+  }
+}

@@ -67,6 +67,7 @@ Eine Einführung mit Beispielen steht im Anwenderhandbuch `docs/user_guide.md`.
   "precision": "auto",                   // auto | fp64 | mixed | fp32 (M16), siehe unten
   "precision_fallback": true,            // fp32: verlustfrei und |Σe − 1| > 1e-3 -> in fp64 wiederholen
   "growth_limit": 0,                     // Scheibenkriterium; 0 = auto (fp64 1e8, fp32/mixed 4e3)
+  "checkpoint_every": 1,                 // Gradienten (M19): nur jedes k-te Präfixprodukt speichern, Rest neu rechnen
   "nearfield": {
     "enabled": true,
     "horizontal_y_um": 0.1,              // horizontaler Schnitt (1D: Linie in x; 2D: Karte x-z, nz Punkte je Periode)

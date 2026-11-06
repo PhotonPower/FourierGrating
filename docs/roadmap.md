@@ -166,5 +166,7 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
   - Abnahme: Rückwärtsfunktionen gegen Differenzenquotienten 1e-6; Ende-zu-Ende V3, V9, V13, V15, V18 ≤ 7e-7
     (Laurent/Li ≤ 1e-7, Profil-Normalenfeld mitdifferenziert, Rasterfeld NF eingefroren); Entartung 1e-9; RK = RCWA
     2e-9; Aufwand 1,3–2,3× Vorwärtsrechnung; Beispiele `optimize_littrow.py`, `optimize_nurbs_pillar.py`; Plan v2.11
-  - Offen (Phase 2): `checkpoint_every`, GPU-Rückwärtsfunktionen, Material von Superstrat/Substrat, anisotrope
-    Materialien, FFF_A/FFF_B, Koordinatentransformationen/aperiodisch, Einfallswinkel und Wellenlänge
+  - Phase 2 umgesetzt: Wellenlänge, Winkel φ, ψ, δ, Brechzahl/Permittivität von Superstrat und Substrat (≤ 2e-7, RK 2e-6);
+    `checkpoint_every` (bitgleich)
+  - Offen (Phase 2): GPU-Rückwärtsfunktionen, anisotrope Materialien, FFF_A/FFF_B,
+    Koordinatentransformationen/aperiodisch

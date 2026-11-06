@@ -199,10 +199,16 @@ Abweichung Adjungierte gegen Differenzenquotient der Vorwärtsrechnung (h = 1e-6
 | V13-Typ, FFF_rig (Profil-Normalenfeld mitdifferenziert) | Tiefe | 7e-7 (eingefroren wäre der Gradient −7,0 statt −83,0) |
 | RK (Lamellen, Sinusprofil) | Dicke, Kante, n | ≤ 9e-7 (der Quotient sieht andere adaptive Schritte); RK = RCWA ≤ 2e-9 |
 | V18-Typ Kegelstumpf, Schnittschicht (analytisch) / CAD-Körper | oberer Radius | 1e-9 / 8e-9 |
+| Phase 2: konische Lamellen, Gold-Sinus (verlustbehaftetes Substrat), 2D-Säulen | λ, φ, ψ, δ, n Superstrat, n Substrat (Re, Im) | ≤ 3e-8, λ der 2D-Säulen 1,8e-7 |
+| Phase 2: RK (Lamellen) | λ, φ, n Superstrat/Substrat | ≤ 1,7e-6 (der Quotient sieht andere adaptive Schritte) |
 
 Aufwand (2D, N = 3, Laurent, 5 Parameter): Gradient = 1,3 × Vorwärtsrechnung (gemessen 1,3–2,3); die Kosten
 hängen nicht von der Zahl der Parameter ab (Formableitungen kosten nur die Konturquadratur). Beispiele:
 `optimize_littrow.py` (L-BFGS-B erreicht das Rasterscan-Optimum), `optimize_nurbs_pillar.py` (Adam über `fouriergrating.torch`, T(−1, 0) steigt in 25 Schritten monoton
 von 0,178 auf 0,337; als Test in der Python-CI, die PyTorch, JAX und scipy installiert).
-Offen: `checkpoint_every`, Rückwärtsfunktionen über das GPU-Backend, Superstrat/Substrat-Material, anisotrope
-Materialien, FFF_A/FFF_B, Einfallswinkel/Wellenlänge (Phase 2).
+`checkpoint_every` = 2, 3, 7: Gradient bitgleich zu 1 (RCWA mit Scheiben und RK); gespeichert werden nur jedes k-te
+Präfixprodukt, die Scheibendaten werden rückwärts je Abschnitt neu gerechnet (Aufwand: eine zusätzliche
+Vorwärtsrechnung der Scheiben). Phase 2 (λ, Winkel, Superstrat/Substrat): Kotangenten von α, γ aus allen M und den Basen der Halbräume, von k₀ aus
+den Dicken; Einfallsvektor und Effizienznormierung (wenige Skalare, O(n_f)) per lokalem zentralem
+Differenzenquotienten. Offen: Rückwärtsfunktionen über das GPU-Backend, anisotrope Materialien,
+FFF_A/FFF_B.

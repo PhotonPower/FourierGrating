@@ -306,6 +306,10 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
   if (cfg.solver.precision != "auto") (void)linalg::parsePrecision(cfg.solver.precision);
   if (j.contains("precision_fallback")) cfg.solver.precisionFallback = j["precision_fallback"].get<bool>() ? 1 : 0;
   if (j.contains("growth_limit")) cfg.solver.growthLimit = j["growth_limit"].get<double>();
+  if (j.contains("checkpoint_every")) {
+    cfg.solver.checkpointEvery = j["checkpoint_every"].get<int>();
+    FG_REQUIRE(cfg.solver.checkpointEvery >= 1, "checkpoint_every must be >= 1");
+  }
   const std::string reduction = j.value("reduction", std::string("sequential"));
   FG_REQUIRE(reduction == "sequential" || reduction == "tree", "reduction must be \"sequential\" or \"tree\"");
   cfg.solver.treeReduction = reduction == "tree";

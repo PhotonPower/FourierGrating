@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Hinzugefügt
+- M19 Phase 2: Gradienten nach Wellenlänge, Einfallswinkeln, Polarisationswinkel und Brechzahl/Permittivität von
+  Superstrat und Substrat (`/incidence/...`, `/materials/<superstrat|substrat>/...`); Rückwärtsregeln
+  `adjoint::isotropicModes`, Propagationsmatrix nach α, γ, Scheiben-S-Matrix nach der Referenzbasis.
+- `"checkpoint_every": k` (`SolverOptions::checkpointEvery`): Gradienten speichern nur jedes k-te Präfixprodukt
+  und keine Scheibendaten; rückwärts je Abschnitt neu gerechnet, Ergebnis bitgleich.
+- V20f: Reziprozität der Streuamplituden (Winkelspektrum des Streufeldes, 5e-2 bei L = 8 µm).
+- Python-CI mit PyTorch, JAX und scipy; NURBS-Beispiel als Test.
+
 ## [0.18.0] – M19 (Differenzierbarkeit)
 
 ### Hinzugefügt
