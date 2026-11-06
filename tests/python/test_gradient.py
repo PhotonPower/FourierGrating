@@ -87,3 +87,11 @@ def test_littrow_example_reaches_raster_optimum(root):
 
     mod = runpy.run_path(str(root / "examples" / "python" / "optimize_littrow.py"))
     assert mod["main"]() == 0
+
+
+def test_nurbs_pillar_example_falls_monotonically(root):
+    pytest.importorskip("torch")
+    import runpy
+
+    mod = runpy.run_path(str(root / "examples" / "python" / "optimize_nurbs_pillar.py"))
+    assert mod["main"]() == 0

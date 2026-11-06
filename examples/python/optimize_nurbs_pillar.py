@@ -52,11 +52,11 @@ def main() -> int:
         loss = -e[0]
         loss.backward()
         opt.step()
-        history.append(float(loss))
+        history.append(loss.item())
         print(f"iteration {it:2d}: T(-1, 0) = {-history[-1]:.6f}")
     monotone = all(b <= a + 1e-9 for a, b in zip(history, history[1:]))
     print("objective falls monotonically:", "yes" if monotone else "no")
-    return 0
+    return 0 if monotone else 1
 
 
 if __name__ == "__main__":

@@ -202,6 +202,7 @@ Abweichung Adjungierte gegen Differenzenquotient der Vorwärtsrechnung (h = 1e-6
 
 Aufwand (2D, N = 3, Laurent, 5 Parameter): Gradient = 1,3 × Vorwärtsrechnung (gemessen 1,3–2,3); die Kosten
 hängen nicht von der Zahl der Parameter ab (Formableitungen kosten nur die Konturquadratur). Beispiele:
-`optimize_littrow.py` (L-BFGS-B erreicht das Rasterscan-Optimum), `optimize_nurbs_pillar.py` (Demonstration).
+`optimize_littrow.py` (L-BFGS-B erreicht das Rasterscan-Optimum), `optimize_nurbs_pillar.py` (Adam über `fouriergrating.torch`, T(−1, 0) steigt in 25 Schritten monoton
+von 0,178 auf 0,337; als Test in der Python-CI, die PyTorch, JAX und scipy installiert).
 Offen: `checkpoint_every`, Rückwärtsfunktionen über das GPU-Backend, Superstrat/Substrat-Material, anisotrope
 Materialien, FFF_A/FFF_B, Einfallswinkel/Wellenlänge (Phase 2).
