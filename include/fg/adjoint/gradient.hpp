@@ -1,6 +1,7 @@
 // FourierGrating - gradients of efficiency objectives by the discrete adjoint (Plan section "M19").
 #pragma once
 
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -36,6 +37,18 @@ struct GradientResult {
 /// structures without coordinate transformation; the slices, the RK step sequence and the raster normal
 /// field of 2D cross-sections are fixed (profile normal fields are differentiated).
 GradientResult gradient(const std::string& configJson, const Objective& objective, const std::vector<std::string>& params);
+
+/// A geometric parameter given by the structure at theta + delta (C++ API): the regions of contour2d,
+/// polygon2d and sectioned (CAD) layers move with V = (r(theta + delta) - r(theta - delta)) / (2 delta),
+/// Plan eq:shape2d per section height (eq:shape3d for CAD bodies: lateral moves only, no critical height
+/// may move, and the segment structure of the sections must stay). at(delta) returns the whole stack.
+struct StackParameter {
+  std::string name;
+  std::function<Stack(double delta)> at;
+  double delta = 1e-6;
+};
+GradientResult gradient(const SolverOptions& opt, const Stack& stack, const Wavelength& wl, const Objective& objective,
+                        const std::vector<StackParameter>& params);
 GradientResult gradient(const std::string& configJson, const Wavelength& wl, const Objective& objective,
                         const std::vector<std::string>& params);
 

@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 
+#include "fg/adjoint/gradient.hpp"
 #include "fg/io/config.hpp"
 
 namespace fg {
@@ -35,6 +36,13 @@ class Simulation {
   std::string json() const;
   /// Number of layer models built so far (rebuild accounting).
   long modelBuilds() const;
+
+  /// Value and gradient of L = sum weight * efficiency (Plan section "M19: Schnittstellen") with respect to
+  /// numbers of the configuration (JSON pointers, fg::gradient); the kept layer models are reused.
+  GradientResult valueAndGrad(const Objective& objective, const std::vector<std::string>& params);
+  GradientResult valueAndGrad(const Wavelength& wl, const Objective& objective, const std::vector<std::string>& params);
+  /// Vector-Jacobian product: cotangents of the efficiencies -> dL/d(parameters).
+  std::vector<double> vjp(const Objective& cotangents, const std::vector<std::string>& params);
 
  private:
   struct Impl;

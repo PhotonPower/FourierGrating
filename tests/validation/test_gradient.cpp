@@ -11,6 +11,8 @@
 
 #include "fg/adjoint/gradient.hpp"
 #include "fg/io/config.hpp"
+#include "fg/geometry/section.hpp"
+#include "fg/solvers/simulation.hpp"
 
 using json = nlohmann::json;
 
@@ -215,4 +217,100 @@ TEST(M19_Gradient, RungeKutta) {
                                          {"factorization", "laurent"}}})}};
   check(prof, objective({{'R', -1, 0, 1.0}, {'T', 1, 0, 0.3}}), {"/layers/0/depth_um", "/materials/bar/n"}, 1e-5,
         "rk profile");
+}
+
+// Simulation API (Plan "Schnittstellen"): valueAndGrad with the kept layer models = gradient(); vjp = grad.
+TEST(M19_Gradient, SimulationApi) {
+  const json cfg = lamellar1D("li_lamellar");
+  const auto obj = objective({{'R', -1, 0, 1.0}, {'T', 0, 0, 0.5}});
+  const std::vector<std::string> params{"/layers/1/thickness_um", "/materials/bar/n/0"};
+  fg::Simulation sim(cfg.dump());
+  const auto a = sim.valueAndGrad(obj, params);
+  const auto b = fg::gradient(cfg.dump(), obj, params);
+  EXPECT_NEAR(a.value, b.value, 1e-14);
+  for (std::size_t k = 0; k < params.size(); ++k) EXPECT_NEAR(a.grad[k], b.grad[k], 1e-12 * std::abs(b.grad[k]));
+  const auto v = sim.vjp(obj, params);
+  for (std::size_t k = 0; k < params.size(); ++k) EXPECT_EQ(v[k], a.grad[k]);
+  sim.setParameter("/layers/1/thickness_um", 0.45);  // the models follow set_parameter
+  json c2 = cfg;
+  c2["layers"][1]["thickness_um"] = 0.45;
+  EXPECT_NEAR(sim.valueAndGrad(obj, params).grad[0], fg::gradient(c2.dump(), obj, params).grad[0], 1e-12);
+}
+
+// V18 type: sectioned layer (frustum, analytic section provider), the top radius as a StackParameter
+// (lateral move of the wall, Plan eq:shape3d); Laurent, so the adjoint equals the difference quotient.
+namespace {
+class FrustumProvider final : public fg::SectionProvider {
+ public:
+  FrustumProvider(double r0, double r1, double h) : r0_(r0), r1_(r1), h_(h) {}
+  fg::CrossSection section(double y) const override {
+    fg::CrossSection cs;
+    fg::geometry::Region r;
+    r.material = "pillar";
+    r.outer = fg::geometry::Contour2D::circle({0.25, 0.25}, r0_ + (r1_ - r0_) * y / h_);
+    r.normalize(1e-9);
+    cs.regions.push_back(r);
+    return cs;
+  }
+  double thickness_um() const override { return h_; }
+
+ private:
+  double r0_, r1_, h_;
+};
+
+fg::Stack frustumStack(double r1) {
+  fg::Stack st;
+  st.dx_um = 0.5;
+  st.dz_um = 0.5;
+  st.materials["air"] = fg::Material::fromIndex("air", 1.0);
+  st.materials["glass"] = fg::Material::fromIndex("glass", 1.5);
+  st.materials["pillar"] = fg::Material::fromIndex("pillar", 2.0);
+  st.superstrate = "air";
+  st.substrate = "glass";
+  fg::SectionedLayer l;
+  l.provider = std::make_shared<FrustumProvider>(0.15, r1, 0.2);
+  l.background = "air";
+  l.slices = 6;
+  st.layers.push_back(fg::LayerEntry{l, fg::Factorization::Laurent});
+  return st;
+}
+}  // namespace
+
+TEST(M19_Gradient, SectionedFrustum) {
+  fg::SolverOptions o;
+  o.Nx = 3;
+  o.Nz = 3;
+  const fg::Wavelength wl{0.6328, 15 * fg::PI / 180, 30 * fg::PI / 180, 35 * fg::PI / 180};
+  const auto obj = objective({{'R', 0, 0, 1.0}, {'T', -1, 0, 0.7}});
+  auto L = [&](double r1) {
+    const auto r = fg::makeSolver(o)->solve(frustumStack(r1), wl);
+    double v = 0;
+    for (const auto& e : r.reflected) v += (e.n == 0 && e.m == 0) ? e.efficiency : 0.0;
+    for (const auto& e : r.transmitted) v += (e.n == -1 && e.m == 0) ? 0.7 * e.efficiency : 0.0;
+    return v;
+  };
+  const double r1 = 0.1, h = 1e-6;
+  const auto g = fg::gradient(o, frustumStack(r1), wl, obj, {fg::StackParameter{"r1", [&](double d) { return frustumStack(r1 + d); }}});
+  const double num = (L(r1 + h) - L(r1 - h)) / (2 * h);
+  std::printf("frustum r1: adjoint %.10e fd %.10e value %.10e %.10e\n", g.grad[0], num, g.value, L(r1));
+  EXPECT_NEAR(g.value, L(r1), 1e-12);
+  EXPECT_NEAR(g.grad[0], num, 1e-6 * std::max(1.0, std::abs(num)));
+}
+
+// NURBS region (closed rational quadratic circle, as examples/python/optimize_nurbs_pillar.py): control points
+// (r linear in them: exact velocity) and weights (central difference of the curve, O(delta^2)).
+TEST(M19_Gradient, NurbsControlPointsAndWeights) {
+  const double s2 = std::sqrt(0.5), R = 0.15, cx = 0.25, cz = 0.25;
+  json pts = json::array({{cx + R, cz}, {cx + R, cz + R}, {cx, cz + R}, {cx - R, cz + R}, {cx - R, cz},
+                          {cx - R, cz - R}, {cx, cz - R}, {cx + R, cz - R}, {cx + R, cz}});
+  json cfg = pillars2D("laurent", true);
+  cfg["layers"][0]["regions"][0] = {{"material", "pillar"},
+                                    {"nurbs", {{"degree", 2},
+                                               {"knots", {0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 4}},
+                                               {"points_um", pts},
+                                               {"weights", {1, s2, 1, s2, 1, s2, 1, s2, 1}}}}};
+  check(cfg, objective({{'T', -1, 0, 1.0}, {'R', 0, 0, 0.5}}),
+        {"/layers/0/regions/0/nurbs/points_um/2/1", "/layers/0/regions/0/nurbs/points_um/5/0",
+         "/layers/0/regions/0/nurbs/weights/3"},
+        1e-6, "nurbs");
 }

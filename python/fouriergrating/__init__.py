@@ -18,7 +18,7 @@ import copy
 import json
 import os
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Optional, Union
+from typing import Any, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -193,6 +193,15 @@ def near_field(cfg: Config) -> dict:
     return d
 
 
+#: objective / cotangents: {("R", n, m): weight} or [(side, n, m, weight), ...]
+Objective = Union[Mapping[Tuple[str, int, int], float], Sequence[Tuple[str, int, int, float]]]
+
+
+def _weights(objective: "Objective") -> list:
+    items = objective.items() if isinstance(objective, Mapping) else [((s, n, m), w) for s, n, m, w in objective]
+    return [(str(s).upper(), int(n), int(m), float(w)) for (s, n, m), w in items]
+
+
 class Simulation:
     """Prepared computation: the layer models are built once and kept between ``solve`` calls;
     ``set_parameter`` rebuilds only what depends on the changed value. One object per thread."""
@@ -208,6 +217,22 @@ class Simulation:
     def set_parameter(self, pointer: str, value: float) -> None:
         """Sets a number of the configuration by JSON pointer (as in sweeps), e.g. "/layers/0/thickness_um"."""
         self._sim.set_parameter(pointer, float(value))
+
+    def value_and_grad(self, objective: "Objective", params: Sequence[str], lambda_um: Optional[float] = None,
+                       phi_deg: Optional[float] = None, psi_deg: Optional[float] = None,
+                       delta_deg: Optional[float] = None) -> Tuple[float, np.ndarray]:
+        """L = sum of weight * efficiency and its gradient with respect to numbers of the configuration
+        (JSON pointers as in ``set_parameter``) by the discrete adjoint (M19). ``objective``: a mapping
+        ``{("R", -1, 0): 1.0, ...}`` or a sequence of ``(side, n, m, weight)``. Cost: about 1.3 to 2.5
+        forward solves, independent of the number of parameters."""
+        d = self._sim.value_and_grad(_weights(objective), list(params), lambda_um, phi_deg, psi_deg, delta_deg)
+        self.last_result = _result(d["result"])
+        return float(d["value"]), np.asarray(d["grad"], dtype=float)
+
+    def vjp(self, cotangents: "Objective", params: Sequence[str]) -> np.ndarray:
+        """Vector-Jacobian product: cotangents of efficiencies (same form as an objective) -> cotangents of
+        the parameters."""
+        return np.asarray(self._sim.vjp(_weights(cotangents), list(params)), dtype=float)
 
     @property
     def config(self) -> dict:

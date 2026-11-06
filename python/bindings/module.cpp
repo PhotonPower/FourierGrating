@@ -8,7 +8,9 @@
 
 #include <chrono>
 #include <nlohmann/json.hpp>
+#include <cctype>
 #include <optional>
+#include <tuple>
 #include <string>
 #include <vector>
 
@@ -171,6 +173,16 @@ auto timed(F&& f, double& seconds) {
 
 /// Incidence of a Simulation call: given values in degrees / micrometres, the rest from the
 /// first scan point of the configuration.
+/// Objective / cotangents from (side, n, m, weight) tuples (M19).
+fg::Objective objective(const std::vector<std::tuple<std::string, int, int, double>>& w) {
+  fg::Objective o;
+  for (const auto& [side, n, m, v] : w) {
+    if (side != "R" && side != "T" && side != "r" && side != "t") throw fg::Error("objective: side must be 'R' or 'T'");
+    o.weights.push_back({fg::OrderRef{static_cast<char>(std::toupper(side[0])), n, m}, v});
+  }
+  return o;
+}
+
 fg::Wavelength incidence(const fg::Simulation& s, std::optional<double> lambda,
                          std::optional<double> phi, std::optional<double> psi,
                          std::optional<double> delta) {
@@ -332,6 +344,38 @@ PYBIND11_MODULE(_core, m) {
             s.setParameter(pointer, value);
           },
           py::arg("pointer"), py::arg("value"))
+      .def(
+          "value_and_grad",
+          [](fg::Simulation& s, const std::vector<std::tuple<std::string, int, int, double>>& weights,
+             const std::vector<std::string>& params, std::optional<double> lambda_um, std::optional<double> phi_deg,
+             std::optional<double> psi_deg, std::optional<double> delta_deg) {
+            const fg::Wavelength w = incidence(s, lambda_um, phi_deg, psi_deg, delta_deg);
+            const fg::Objective o = objective(weights);
+            double t = 0;
+            fg::GradientResult g;
+            {
+              py::gil_scoped_release nogil;
+              g = timed([&] { return s.valueAndGrad(w, o, params); }, t);
+            }
+            py::dict d;
+            d["value"] = g.value;
+            d["grad"] = g.grad;
+            d["result"] = toDict(g.result, t);
+            d["notes"] = g.notes;
+            return d;
+          },
+          py::arg("weights"), py::arg("params"), py::arg("lambda_um") = py::none(), py::arg("phi_deg") = py::none(),
+          py::arg("psi_deg") = py::none(), py::arg("delta_deg") = py::none(),
+          "L = sum weight * efficiency and dL/d(params) by the discrete adjoint (M19).")
+      .def(
+          "vjp",
+          [](fg::Simulation& s, const std::vector<std::tuple<std::string, int, int, double>>& cotangents,
+             const std::vector<std::string>& params) {
+            const fg::Objective o = objective(cotangents);
+            py::gil_scoped_release nogil;
+            return s.vjp(o, params);
+          },
+          py::arg("cotangents"), py::arg("params"))
       .def("config_json", &fg::Simulation::json)
       .def_property_readonly("model_builds", &fg::Simulation::modelBuilds);
 }

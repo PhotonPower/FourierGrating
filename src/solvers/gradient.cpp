@@ -44,7 +44,10 @@ struct Param {
   bool viaN = false;
   int comp = 0;    ///< material: 0 = real part, 1 = imaginary part
   int index = 0;   ///< breakpoint index
-  std::vector<std::pair<std::size_t, Grid>> dchi;  ///< shape: (index into the chi list, d chi / d theta)
+  // shape: the structure at theta +- delta; the layers whose regions may move
+  std::shared_ptr<const Stack> plus, minus;
+  double delta = 0;
+  std::vector<std::size_t> layers;
   /// profiles: d [[N_i N_j]] / d theta, d [[N_i]] / d theta (the analytic profile normal field is smooth and
   /// differentiated; the raster field of Algorithm NF of 2D cross-sections stays frozen)
   bool hasDnf = false;
@@ -143,17 +146,15 @@ Param resolve(const json& j, const io::RunConfig& cfg, const std::string& ptr, c
                "gradient: only inner breakpoints are parameters (0 and the period are fixed)");
   } else if (f == "regions" || f == "inclusions") {
     p.kind = Param::Kind::Shape;
-    const double v = j.at(jp).get<double>(), delta = 1e-6 * std::max(1.0, std::abs(v));
+    (void)regionsOf(spec);  // polygon2d / contour2d
+    const double v = j.at(jp).get<double>();
+    p.delta = 1e-6 * std::max(1.0, std::abs(v));
     json jp1 = j, jm1 = j;
-    jp1[jp] = v + delta;
-    jm1[jp] = v - delta;
-    const auto cp = io::parseConfig(jp1.dump()), cm = io::parseConfig(jm1.dump());
-    const auto R0 = regionsOf(spec), Rp = regionsOf(cp.stack.layers[p.layer].spec), Rm = regionsOf(cm.stack.layers[p.layer].spec);
-    FG_REQUIRE(R0.size() == Rp.size() && R0.size() == Rm.size(), "gradient: the parameter changes the number of regions");
-    for (std::size_t r = 0; r < R0.size(); ++r)
-      if (!sameControlPoints(R0[r], Rp[r]) || !sameControlPoints(R0[r], Rm[r]))
-        p.dchi.push_back({r + 1, adjoint::shapeDerivative(R0[r], Rp[r], Rm[r], delta, cfg.stack.dx_um, cfg.stack.dz_um,
-                                                         2 * map.Nx(), 2 * map.Nz())});
+    jp1[jp] = v + p.delta;
+    jm1[jp] = v - p.delta;
+    p.plus = std::make_shared<const Stack>(io::parseConfig(jp1.dump()).stack);
+    p.minus = std::make_shared<const Stack>(io::parseConfig(jm1.dump()).stack);
+    p.layers = {p.layer};
   } else {
     throw Error("gradient: unsupported layer parameter '" + ptr + "'");
   }
@@ -216,11 +217,57 @@ GradientResult gradient(const std::string& configJson, const Objective& objectiv
 
 GradientResult gradient(const std::string& configJson, const Wavelength& wl, const Objective& objective,
                         const std::vector<std::string>& params) {
-  FG_PROF_SCOPE("gradient");
+  return detail::gradientWithModels(configJson, io::parseConfig(configJson), wl, nullptr, objective, params);
+}
+
+namespace {
+GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wavelength& wl,
+                            const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps);
+}  // namespace
+
+GradientResult gradient(const SolverOptions& opt, const Stack& stack, const Wavelength& wl, const Objective& objective,
+                        const std::vector<StackParameter>& params) {
+  std::vector<Param> ps;
+  for (const auto& sp : params) {
+    Param p;
+    p.kind = Param::Kind::Shape;
+    p.delta = sp.delta;
+    p.plus = std::make_shared<const Stack>(sp.at(sp.delta));
+    p.minus = std::make_shared<const Stack>(sp.at(-sp.delta));
+    FG_REQUIRE(p.plus->layers.size() == stack.layers.size() && p.minus->layers.size() == stack.layers.size(),
+               "gradient: parameter '" + sp.name + "' changes the layer structure (critical heights, Plan M19 Phase 2)");
+    for (std::size_t k = 0; k < stack.layers.size(); ++k) {
+      const auto& s = stack.layers[k].spec;
+      if (std::holds_alternative<Contour2DLayer>(s) || std::holds_alternative<Polygon2DLayer>(s) ||
+          std::holds_alternative<SectionedLayer>(s))
+        p.layers.push_back(k);
+      else
+        FG_REQUIRE(p.plus->layers[k].spec.index() == s.index(), "gradient: parameter '" + sp.name + "' changes a layer type");
+    }
+    ps.push_back(std::move(p));
+  }
+  return gradientCore(stack, opt, wl, nullptr, objective, std::move(ps));
+}
+
+namespace detail {
+
+GradientResult gradientWithModels(const std::string& configJson, const io::RunConfig& cfg, const Wavelength& wl,
+                                  const LayerModels* prebuilt, const Objective& objective,
+                                  const std::vector<std::string>& params) {
   const json j = json::parse(configJson);
-  const io::RunConfig cfg = io::parseConfig(configJson);
-  const Stack& st = cfg.stack;
-  const SolverOptions& opt = cfg.solver;
+  std::vector<Param> ps;
+  const IndexMap map(cfg.solver.Nx, cfg.stack.is2D() ? cfg.solver.Nz : 0);
+  for (const auto& ptr : params) ps.push_back(resolve(j, cfg, ptr, map));
+  return gradientCore(cfg.stack, cfg.solver, wl, prebuilt, objective, std::move(ps));
+}
+
+}  // namespace detail
+
+namespace {
+
+GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wavelength& wl,
+                            const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps) {
+  FG_PROF_SCOPE("gradient");
   FG_REQUIRE(!st.aperiodic.enabled && !opt.scatteredField, "gradient: aperiodic structures are not available");
   FG_REQUIRE(!resolveTransform(st).active(), "gradient: coordinate transformations are not available");
   detail::applyThreadSettings(opt);
@@ -244,11 +291,10 @@ GradientResult gradient(const std::string& configJson, const Wavelength& wl, con
   a_in(c) = inc.A(0);
   a_in(nf + c) = inc.A(2);
 
-  std::vector<Param> ps;
-  for (const auto& ptr : params) ps.push_back(resolve(j, cfg, ptr, map));
-
   // ---------------------------------------------------------------- forward (recorded)
-  const auto models = detail::buildLayerModels(st, map, opt.rcwaSlices);
+  detail::LayerModels built;
+  if (!prebuilt) built = detail::buildLayerModels(st, map, opt.rcwaSlices);
+  const detail::LayerModels& models = prebuilt ? *prebuilt : built;
   const ButcherTableau tab = ButcherTableau::byName(opt.rkTableau);
   std::vector<Elem> el;
   {
@@ -396,9 +442,12 @@ GradientResult gradient(const std::string& configJson, const Wavelength& wl, con
   }
   // material cotangents (complex, Plan convention) per material name
   std::map<std::string, cplx> epsBar;
+  auto onLayer = [](const Param& p, std::size_t k) {
+    return p.layer == k || std::find(p.layers.begin(), p.layers.end(), k) != p.layers.end();
+  };
   auto layerHasParams = [&](std::size_t k, const std::vector<std::string>& mats) {
     for (const auto& p : ps) {
-      if (p.layer == k) return true;
+      if (onLayer(p, k)) return true;
       if (p.kind == Param::Kind::Material && std::find(mats.begin(), mats.end(), p.material) != mats.end()) return true;
     }
     return false;
@@ -463,7 +512,7 @@ GradientResult gradient(const std::string& configJson, const Wavelength& wl, con
     };
     for (std::size_t q = 0; q < ps.size(); ++q) {
       const Param& p = ps[q];
-      if (p.layer != layer) continue;
+      if (!onLayer(p, layer)) continue;
       if (p.kind == Param::Kind::Breakpoint) {
         const auto j0 = static_cast<std::size_t>(p.index);
         out.grad[q] += jump(a.breaks[j0], a.materials[j0 - 1], a.materials[j0]);
@@ -479,8 +528,24 @@ GradientResult gradient(const std::string& configJson, const Wavelength& wl, con
         for (std::size_t jj = 1; jj + 1 < a.breaks.size(); ++jj)
           out.grad[q] += jump(a.breaks[jj], a.materials[jj - 1], a.materials[jj]);
       } else if (p.kind == Param::Kind::Shape) {
+        // regions of this layer at this height for theta and theta +- delta (Plan eq:shape2d / eq:shape3d)
+        auto regionsAt = [&](const Stack& s, const detail::LayerModel* mdl) {
+          if (std::holds_alternative<SectionedLayer>(s.layers[layer].spec)) {
+            const auto& sl = std::get<SectionedLayer>(s.layers[layer].spec);
+            return sl.provider->section(std::clamp(y_um, 1e-14 * sl.provider->thickness_um(),
+                                                   sl.provider->thickness_um() * (1 - 1e-14))).regions;
+          }
+          (void)mdl;
+          return regionsOf(s.layers[layer].spec);
+        };
+        const auto R0 = regionsAt(st, &model), Rp = regionsAt(*p.plus, nullptr), Rm = regionsAt(*p.minus, nullptr);
+        FG_REQUIRE(R0.size() == Rp.size() && R0.size() == Rm.size() && R0.size() + 1 == a.materials.size(),
+                   "gradient: the parameter changes the number of regions");
         const cplx eb = epsOf(a.materials[0]);
-        for (const auto& [idx, dchi] : p.dchi) {
+        for (std::size_t r = 0; r < R0.size(); ++r) {
+          if (sameControlPoints(R0[r], Rp[r]) && sameControlPoints(R0[r], Rm[r])) continue;
+          const std::size_t idx = r + 1;
+          const Grid dchi = adjoint::shapeDerivative(R0[r], Rp[r], Rm[r], p.delta, st.dx_um, st.dz_um, Px, Pz);
           const cplx er = epsOf(a.materials[idx]);
           Grid de = dchi, di = dchi;
           for (int pp = -Px; pp <= Px; ++pp)
@@ -508,7 +573,7 @@ GradientResult gradient(const std::string& configJson, const Wavelength& wl, con
     bool needQ = false;
     for (const auto& p : ps)
       needQ = needQ || (p.kind == Param::Kind::Material && std::find(mats.begin(), mats.end(), p.material) != mats.end()) ||
-              (p.layer == e.layer && (p.hasDnf || (p.kind != Param::Kind::Thickness && p.kind != Param::Kind::ProfileDepth)));
+              (onLayer(p, e.layer) && (p.hasDnf || (p.kind != Param::Kind::Thickness && p.kind != Param::Kind::ProfileDepth)));
     if (e.rk) {
       // S = fromTransfer(Psi^-1 T Psi), T = P_m ... P_1 (fixed step sequence, Plan "RK-Propagator")
       const MatC Tref = ref.PsiInv * e.T * ref.Psi;
@@ -594,5 +659,7 @@ GradientResult gradient(const std::string& configJson, const Wavelength& wl, con
   out.notes = {"RCWA slices fixed (Plan M19 \"Methode\" 1.)", "normal field frozen (Plan M19 \"Methode\" 2.)"};
   return out;
 }
+
+}  // namespace
 
 }  // namespace fg

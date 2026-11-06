@@ -887,6 +887,16 @@ class SectionedModel final : public LayerModel {
   Eigen::Matrix3d projectorAt(double x, double y, double z) const override { return at(y).projectorAt(x, 0.0, z); }
   bool rank1Projector() const override { return at(0.5 * h_).rank1Projector(); }
   const NormalFieldCoefficients& NN(double y) const override { return at(y).NN(0.0); }
+  bool adjointSlice(double y, AdjointSlice& a) const override {
+    if (l_.chebyshevNodes > 0) return false;  // interpolated Q: no exact sections
+    auto m = get(y);
+    if (!m->adjointSlice(0.0, a)) return false;
+    a.keep = std::move(m);
+    return true;
+  }
+  std::vector<geometry::Region> sectionRegions(double y) const override {
+    return l_.provider->section(std::clamp(y, 1e-14 * h_, h_ * (1 - 1e-14))).regions;
+  }
 
  private:
   /// Thread-safe (parallel RCWA slices / RK stages, M15): the section is built outside the lock; a

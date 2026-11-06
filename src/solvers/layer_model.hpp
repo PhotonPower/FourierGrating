@@ -11,9 +11,13 @@
 #include "fg/geometry/stack.hpp"
 #include "fg/linalg/backend.hpp"
 #include "fg/physics/qmatrix.hpp"
+#include "fg/adjoint/gradient.hpp"
+#include "fg/io/config.hpp"
 #include "fg/solvers/solver.hpp"
 
 namespace fg::detail {
+
+class LayerModel;
 
 /// Adjoint data of one slice (M19): the factorization and its coefficient grids, and the grids as a
 /// linear combination eps = sum_k eps(materials[k]) chi[k] (1/eps likewise) of indicator coefficients;
@@ -25,6 +29,7 @@ struct AdjointSlice {
   std::vector<std::string> materials;
   std::vector<fourier::CoefficientGrid> chi;
   std::vector<double> breaks;
+  std::shared_ptr<const LayerModel> keep;  ///< keeps the section model of sc.normal alive (sectioned layers)
 };
 
 class LayerModel {
@@ -54,6 +59,8 @@ class LayerModel {
   virtual const NormalFieldCoefficients& NN(double y_um) const = 0;
   /// Adjoint data at height y (isotropic layers without coordinate transformation); false: not available.
   virtual bool adjointSlice(double /*y_um*/, AdjointSlice& /*out*/) const { return false; }
+  /// Sectioned layers: the cross-section regions at height y (shape derivatives); empty otherwise.
+  virtual std::vector<geometry::Region> sectionRegions(double /*y_um*/) const { return {}; }
   /// Permittivities occurring in the layer (spectral radius estimate).
   std::vector<cplx> epsList;
   /// Number of RCWA staircase slices (y-invariant layers: 1).
@@ -74,6 +81,10 @@ void applyThreadSettings(const SolverOptions& opt);
 /// Working precision of a solve: "precision" (FG_PRECISION overrides); auto = FP64 on the CPU, the
 /// device policy on the GPU (Plan section "M16: Standardwahl").
 linalg::Precision resolvePrecision(const SolverOptions& opt);
+/// fg::gradient with prebuilt layer models of cfg (Simulation); nullptr: built here.
+GradientResult gradientWithModels(const std::string& configJson, const io::RunConfig& cfg, const Wavelength& wl,
+                                  const LayerModels* prebuilt, const Objective& objective,
+                                  const std::vector<std::string>& params);
 /// Identical to makeSolver(opt)->solve(stack, wl) with the models of buildLayerModels.
 Result solveWithModels(const SolverOptions& opt, const Stack& stack, const Wavelength& wl, const LayerModels& models);
 

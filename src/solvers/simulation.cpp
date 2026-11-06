@@ -92,4 +92,16 @@ long Simulation::modelBuilds() const {
   return impl_->builds;
 }
 
+GradientResult Simulation::valueAndGrad(const Objective& objective, const std::vector<std::string>& params) {
+  FG_REQUIRE(!impl_->cfg.scan.empty(), "configuration has no incidence");
+  return valueAndGrad(impl_->cfg.scan.front(), objective, params);
+}
+GradientResult Simulation::valueAndGrad(const Wavelength& wl, const Objective& objective,
+                                        const std::vector<std::string>& params) {
+  return detail::gradientWithModels(impl_->j.dump(), impl_->cfg, wl, &impl_->models, objective, params);
+}
+std::vector<double> Simulation::vjp(const Objective& cotangents, const std::vector<std::string>& params) {
+  return valueAndGrad(cotangents, params).grad;
+}
+
 }  // namespace fg

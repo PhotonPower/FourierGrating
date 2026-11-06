@@ -1,0 +1,89 @@
+"""Gradients (Plan section "M19: Schnittstellen"): Simulation.value_and_grad / vjp against difference
+quotients, and the optional PyTorch / JAX adapters."""
+
+import copy
+
+import numpy as np
+import pytest
+
+import fouriergrating as fg
+
+CFG = {
+    "dimension": "1D", "solver": "rcwa", "truncation": {"Nx": 8},
+    "period_um": {"x": 0.5},
+    "incidence": {"lambda_um": 0.6328, "phi_deg": 39.26, "delta_deg": 0},
+    "materials": {"air": {"n": 1.0}, "al": {"n": [1.38, 7.62]}},
+    "superstrate": "air", "substrate": "al",
+    "layers": [{"type": "lamellar1d", "thickness_um": 0.12, "breakpoints_um": [0.0, 0.22, 0.5],
+                "materials": ["al", "air"]}],
+}
+PARAMS = ["/layers/0/thickness_um", "/layers/0/breakpoints_um/1"]
+OBJ = {("R", -1, 0): 1.0, ("R", 0, 0): -0.25}
+
+
+def objective_value(cfg, values):
+    sim = fg.Simulation(cfg)
+    for p, v in zip(PARAMS, values):
+        sim.set_parameter(p, v)
+    r = sim.solve()
+    return sum(w * r.efficiency(s, n, m) for (s, n, m), w in OBJ.items())
+
+
+def test_value_and_grad_matches_difference_quotient():
+    sim = fg.Simulation(CFG)
+    value, grad = sim.value_and_grad(OBJ, PARAMS)
+    x0 = [0.12, 0.22]
+    assert value == pytest.approx(objective_value(CFG, x0), abs=1e-13)
+    for k in range(len(PARAMS)):
+        h = 1e-6
+        xp, xm = list(x0), list(x0)
+        xp[k] += h
+        xm[k] -= h
+        num = (objective_value(CFG, xp) - objective_value(CFG, xm)) / (2 * h)
+        assert grad[k] == pytest.approx(num, rel=1e-6, abs=1e-9)
+
+
+def test_vjp_equals_gradient_and_list_form():
+    sim = fg.Simulation(CFG)
+    _, grad = sim.value_and_grad(OBJ, PARAMS)
+    v = sim.vjp([("R", -1, 0, 1.0), ("r", 0, 0, -0.25)], PARAMS)
+    np.testing.assert_allclose(v, grad, rtol=1e-12, atol=1e-15)
+    assert sim.last_result.efficiency("R", -1) > 0
+
+
+def test_unsupported_parameter_raises():
+    sim = fg.Simulation(CFG)
+    with pytest.raises(Exception):
+        sim.value_and_grad(OBJ, ["/materials/al/n/0"])  # substrate material: M19 Phase 2
+
+
+def test_torch_adapter():
+    torch = pytest.importorskip("torch")
+    from fouriergrating.torch import efficiencies
+
+    sim = fg.Simulation(copy.deepcopy(CFG))
+    x = torch.tensor([0.12, 0.22], dtype=torch.float64, requires_grad=True)
+    e = efficiencies(sim, PARAMS, x, [("R", -1, 0), ("R", 0, 0)])
+    (e[0] - 0.25 * e[1]).backward()
+    _, grad = fg.Simulation(CFG).value_and_grad(OBJ, PARAMS)
+    np.testing.assert_allclose(x.grad.numpy(), grad, rtol=1e-10)
+
+
+def test_jax_adapter():
+    jax = pytest.importorskip("jax")
+    jax.config.update("jax_enable_x64", True)
+    import jax.numpy as jnp
+    from fouriergrating.jax import efficiency_function
+
+    f = efficiency_function(fg.Simulation(copy.deepcopy(CFG)), PARAMS, [("R", -1, 0), ("R", 0, 0)])
+    g = jax.grad(lambda x: f(x)[0] - 0.25 * f(x)[1])(jnp.array([0.12, 0.22]))
+    _, grad = fg.Simulation(CFG).value_and_grad(OBJ, PARAMS)
+    np.testing.assert_allclose(np.asarray(g), grad, rtol=1e-10)
+
+
+def test_littrow_example_reaches_raster_optimum(root):
+    pytest.importorskip("scipy")
+    import runpy
+
+    mod = runpy.run_path(str(root / "examples" / "python" / "optimize_littrow.py"))
+    assert mod["main"]() == 0

@@ -11,6 +11,7 @@
 #include <nurbforge/modeling/construct.hpp>
 #include <nurbforge/topology/boolean.hpp>
 
+#include "fg/adjoint/gradient.hpp"
 #include "fg/cad/cad.hpp"
 #include "fg/core/error.hpp"
 #include "fg/fourier/contour.hpp"
@@ -484,4 +485,30 @@ TEST(CAD_V20g, ContactHoleEqualsContour2D) {
     EXPECT_NEAR(a.scattering.absorbed, b.scattering.absorbed, 1e-10) << phi;
     EXPECT_GT(a.scattering.total(), 0.1) << phi;
   }
+}
+
+// ------------------------------------------------------------------ M19: CAD gradient (V18)
+// Lateral move of a CAD wall (frustum top radius, Plan eq:shape3d): the structure at theta +- delta comes
+// from the re-sliced STEP body; adjoint = difference quotient of the forward computation (Laurent).
+TEST(CAD_M19, FrustumTopRadiusGradient) {
+  const double r0 = 0.15, r1 = 0.1, h = 0.2;
+  auto cfgFor = [&](double top) {
+    const std::string s = step({frustum(0.25, 0.25, r0, top, 0.0, h)}, {"Frustum"});
+    return base(json::array({cadLayer(s, json::array({{{"name", "Frustum"}, {"material", "pillar"}}}))}), "rcwa", 3);
+  };
+  const auto c = fg::io::parseConfig(cfgFor(r1).dump());
+  const fg::Objective obj{{{fg::OrderRef{'R', 0, 0}, 1.0}, {fg::OrderRef{'T', -1, 0}, 0.7}}};
+  const auto g = fg::gradient(c.solver, c.stack, c.scan.front(), obj,
+                              {fg::StackParameter{"r1", [&](double d) { return fg::io::parseConfig(cfgFor(r1 + d).dump()).stack; }}});
+  auto L = [&](double top) {
+    const auto r = solve(cfgFor(top));
+    double v = 0;
+    for (const auto& e : r.reflected) v += (e.n == 0 && e.m == 0) ? e.efficiency : 0.0;
+    for (const auto& e : r.transmitted) v += (e.n == -1 && e.m == 0) ? 0.7 * e.efficiency : 0.0;
+    return v;
+  };
+  const double dh = 1e-6, num = (L(r1 + dh) - L(r1 - dh)) / (2 * dh);
+  std::printf("CAD frustum r1: adjoint %.10e fd %.10e\n", g.grad[0], num);
+  EXPECT_NEAR(g.value, L(r1), 1e-12);
+  EXPECT_NEAR(g.grad[0], num, 1e-5 * std::max(1.0, std::abs(num)));
 }
