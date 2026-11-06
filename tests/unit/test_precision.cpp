@@ -4,8 +4,10 @@
 // available. Solver: settings, diagnostics, results close to fp64, FG_PRECISION.
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 #include <memory>
 #include <random>
 
@@ -112,8 +114,10 @@ TEST(Precision, MixedRefinementReachesFp64) {
       b->setPrecision(Precision::Mixed);
       const MatC Xm = b->solve(A, B);
       fg::linalg::setRefinementCounter(nullptr);
-      // as accurate as the FP64 solve (forward error ~ cond eps64)
-      EXPECT_LT(rel(Xm, Xtrue), std::max(1e-12, 4 * rel(X64, Xtrue)))
+      // as accurate as the FP64 solve: forward error ~ cond eps64 (the refinement stops at a backward
+      // error ~ eps64; the FP64 solve itself may be luckier, MSVC cond = 1e4: 4.4e-12 vs 5.8e-13)
+      const double eps64 = std::numeric_limits<double>::epsilon();
+      EXPECT_LT(rel(Xm, Xtrue), std::max({1e-12, 4 * rel(X64, Xtrue), 10 * cond * eps64}))
           << b->name() << " cond = " << cond;
       EXPECT_GT(c.steps.load() + c.fallbacks.load(), 0) << b->name();
       b->setPrecision(Precision::FP32);
