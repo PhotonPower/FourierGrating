@@ -149,8 +149,10 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
     mixed/fp32 ≤ 2e-5 für V1–V9, Ziel festgeschrieben ≤ 1e-4), Laufzeiten RTX 3090 (N = 10/15/20), `AGENTS.md` angepasst
   - Offen: Laufzeiten RTX 6000 Ada (Zielsystem); V16–V18 in der Studie (CUDA-Build mit Slicer); Schichtmodell-Aufbau
     begrenzt die GPU-Laufzeit
-- [ ] **M17** Koordinatentransformationen (A = [[1/f']] α, G = [[1/g']] γ), ASR nach Granet für Metalle
-  - Abnahme: η = 0 bitgleich; V1–V3, V9 mit η = 0,5 auf 1e-8; V19 (Metall-Lamellen TM, Konvergenztabelle)
+- [x] **M17** Koordinatentransformationen (A = [[1/f']] α, G = [[1/g']] γ), ASR nach Granet für Metalle
+  - Abnahme: η = 0 bitgleich; Matrixpfad mit f' = 1 = Diagonalpfad (1e-12); V1, V2 mit η = 0,5 auf 1e-8, V3, V9
+    gemeinsamer Grenzwert und z-invariantes 2D = 1D (1e-10, Plan v2.9); V19 (Gold-Lamellen TM, Konvergenztabelle in
+    `docs/validation.md`: 1e-3 ohne ASR ab N ≈ 60, mit η = 0,95 ab N ≤ 10)
 - [ ] **M18** PML (komplexe Streckung), isolierte Strukturen (Steg, Graben, Kontaktloch), strukturierte Ein-/Ausgangsmedien,
   Streufeldformulierung für schrägen Einfall (Plan eq:scat_source, eq:scat_ode)
   - Abnahme: V20a (Fresnel mit PML), V20b (isolierter Steg), V20c (Wellenleiterende, Literatur), V20d (Streufeld =

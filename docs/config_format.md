@@ -118,6 +118,24 @@ der GPU `fp32` auf einer GeForce RTX 3090, sonst `fp64` (Tabelle `src/cuda/devic
 Struktur mit |Σe − 1| > 1e-3 in fp64 wiederholt (Warnung). Das Ergebnis meldet `diagnostics.precision`,
 `precision_fallback`, `refinement_steps`. TF32 wird nie benutzt; zusätzlich kann `NVIDIA_TF32_OVERRIDE=0` gesetzt
 werden. Genauigkeit und Laufzeiten: `docs/validation.md`, `docs/benchmarks.md`.
+
+**Koordinatentransformation (M17).** Adaptive räumliche Auflösung nach Granet (ASR) für Metalle und scharfe Kanten:
+
+```jsonc
+"coordinate_transform": {
+  "x": {"type": "asr", "eta": 0.8, "breakpoints_um": "auto"},   // oder eine Liste [x0, x1, ...]
+  "z": {"type": "asr", "eta": 0.5, "breakpoints_um": [0.1, 0.4]} // nur 2D
+}
+```
+
+`eta` (0 ≤ η < 1) verdichtet das Fourier-Raster an den Bruchstellen um den Faktor 1 − η; `eta = 0` ist keine
+Transformation (bitgleich). `"auto"`: alle Materialsprünge der Lamellenschichten und die Eckkoordinaten der Polygone
+(`polygon2d`, polygonale `contour2d`-Gebiete) entlang der Achse; ohne solche (z. B. nur Profile) muss eine Liste
+angegeben werden. Mit einer einzigen Bruchstelle ist f analytisch (schnellste Konvergenz der Halbräume); bei mehreren
+ungleich langen Intervallen springt f‴ (algebraische Konvergenz ~N⁻⁵). Gilt für alle Schichttypen; `split_polarizations`
+wird dabei nicht genutzt. Empfehlung für Metall-Lamellen in TM: η = 0,8 … 0,95 (V19 in `docs/validation.md`).
+Nahfeld: die Ausgabe bleibt auf dem physikalischen Raster in x, z; die Feldkoeffizienten (`fieldCoefficients`)
+beziehen sich dann auf die transformierten Koordinaten X, Z.
 Bei einem Sweep beginnen die CSV-Zeilen mit `sweep_parameter, sweep_value`; das Nahfeld wird für den ersten
 Scanpunkt des ersten Sweep-Werts berechnet. Darstellung: `scripts/plot_efficiencies.py`.
 

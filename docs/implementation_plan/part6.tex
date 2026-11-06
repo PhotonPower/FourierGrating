@@ -244,11 +244,36 @@ Konfiguration:
 \end{verbatim}}
 Gekrümmte Ränder in 2D (\enquote{matched coordinates}, nicht separabel) sind \emph{nicht} Teil von M17.
 
+\paragraph{Umsetzung (v2.9).} \verb|CoordinateMap| (\verb|src/geometry/coordinate_transform.cpp|) mit $f$, $f'$, $f^{-1}$
+(Newton mit Bisektion). Alle Integrale über eine Periode in $X$ (Koeffizienten von $1/f'$, $C$ aus
+\eqref{eq:ct_rayleigh}, $D$ aus \eqref{eq:ct_inc}, Normalenfelder der Profile) mit zusammengesetzter
+Gauß-Legendre-Quadratur zwischen den Bruchstellen (16 Punkte, Panelbreite $\le d/(2\pi p_{\max})$ und
+$\le$ halber Abstand der Polstelle von $1/f'$); das ersetzt DFT ($\ge64(2N+1)$ Punkte) und Trapezregel, die an den
+Bruchstellen ($f'''$ springt) nur algebraisch konvergieren. Halbräume: Eigenzerlegung von $M$ (reduzierter Pfad), dann
+Klassifikation aller $4n_f$ Moden mit \eqref{eq:classify} (Fluss für $|\operatorname{Re}\lambda|\le\tau$): im reduzierten
+Pfad entscheidet sonst das Vorzeichen des Rundungsrauschens von $\operatorname{Im}\kappa$ propagierender Moden über
+auf/ab -- in inneren Schichten unschädlich, in der Referenzbasis nicht. Homogene isotrope Medien (Halbräume und
+Schichten): $PR=(A^2+G^2-\varepsilon)\otimes\mathbb 1_2$, die TE/TM-Paare sind exakt entartet und die Eigenvektoren der
+vollen reduzierten Matrix (Rückwärtssubstitution der Schur-Form, nicht normal) für kleines $\eta$ schlecht konditioniert
+(Energiefehler bis $3\cdot10^{-3}$ bei $\eta=10^{-6}$); daher wird nur der $n_f$-Block zerlegt und seine Eigenvektoren
+für beide Komponenten verwendet. Einfall: $D$ angewandt auf das Tangentialfeld
+der einfallenden Welle, Projektion auf die abwärts laufenden Moden, Anteile auf evaneszenten abwärts laufenden Moden
+(Abschneiderauschen, über dem Stapel mit $e^{\lambda y}$ verstärkt) werden verworfen; Effizienzen: $C$ auf die Tangentialfelder, dann die
+analytische Basis der physikalischen Ordnungen. Polygone: Rand als Kontur, abgebildet und mit \eqref{eq:contour}
+integriert; Raster von Algorithmus NF bilinear auf das $X,Z$-Raster umgetastet. Profile 2D: Linien bei $z=g(Z)$, die
+Bruchstellen von $g$ als zusätzliche kritische Linien. \verb|split_polarizations| wird mit Transformation nicht
+genutzt. Standard-Bruchstellen \enquote{auto}: Materialsprünge der Lamellen, Ecken der Polygone.
+
 \subsection{Tests und Abnahme (M17)}
 \begin{itemize}[nosep]
   \item $\eta=0$: bitgleich mit dem Pfad ohne Transformation.
   \item V1, V2, V3, V9 mit $\eta=0.5$: Ergebnisse auf $10^{-8}$ (bei moderatem $N$) wie ohne Transformation;
-        Energiebilanz und Reziprozität wie bisher.
+        Energiebilanz und Reziprozität wie bisher. \textbf{Nach der Umsetzung (v2.9):} $10^{-8}$ gilt für die ebenen Fälle
+        V1, V2 (eine Bruchstelle: $10^{-12}$; zwei: $10^{-8}$ ab $N=16$). Bei V3, V9 unterscheiden sich die Ergebnisse bei
+        gleichem $N$ um den Abschneidefehler ($10^{-6}$ bei $N=40$); geprüft werden der gemeinsame Grenzwert (Abweichung
+        von $N=120$ ohne Transformation kleiner als ohne ASR), die Energiebilanz ($10^{-7}$ bei $N=40$, die Umrechnung der
+        Ordnungen konvergiert wie $N^{-4}$), RK $=$ RCWA und z-invariantes 2D $=$ 1D konisch ($10^{-10}$). Zusätzlich:
+        transformierter Pfad mit $f'\equiv g'\equiv1$ $=$ Diagonalpfad ($10^{-12}$).
   \item \textbf{V19} (Metall-Lamellengitter TM, z.\,B.\ Gold oder Aluminium wie V13 als Lamelle): Referenz ohne ASR bei sehr
         großem $N$; mit ASR ($\eta=0.8$) gleicher Grenzwert ($10^{-4}$); Konvergenztabelle (benötigtes $N$ für $10^{-3}$
         mit/ohne ASR) in \verb|docs/validation.md|. Literaturvergleich mit Granet (1999), sofern die dortigen Daten

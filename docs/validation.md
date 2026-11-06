@@ -23,6 +23,7 @@ der Literatur. Konfigurationen liegen in `examples/`.
 | V14 | Gold-Dreieck TM (Spitze bei x = 0,7 µm), sonst wie V13 | **offen** – keine belastbare Referenz; geprüft: Σe < 1 | – |
 | V15 | Säulen mit Kreisquerschnitt (n = 3, h = 0,2 µm, R = 0,14 µm, Periode 0,5 µm, N = 4): `contour2d` (exakter Kreis) gegen `polygon2d` mit L = 16…512 Ecken, Laurent | Fehler ∝ L⁻² (Verhältnis 4,00); zweistufige Richardson (L = 128, 256, 512) = Contour2D; RK = RCWA | 1e-8 (gemessen ≤ 1,2e-10); 1e-8 |
 | V16a | Geneigte Wand ohne CAD: `SectionedLayer` (Kegelstumpf R 0,17 → 0,07 µm, h 0,2 µm; Kugelkappe ρ 0,25 µm, h 0,12 µm; n = 2 auf Glas) gegen `Profile2D` mit g(x, z), RK tol 1e-9, Laurent, N = 2 | gleiche Effizienzen, Energie verlustfrei | 1e-6 (gemessen ≤ 1e-15); 1e-10 |
+| V19 | Gold-Lamellen TM (M17): ν = 0,2+3,4i, Periode 1 µm, Breite 0,5 µm, Höhe 0,3 µm auf Gold, λ = 0,6328 µm, Φ = 20° | ohne ASR bis N = 800 (Richardson in 1/N): e₋₁ = 0,013591, e₀ = 0,79435 (±5e-5); mit ASR gleicher Grenzwert | 1e-4 (η = 0,95, N = 40: 8e-5); Tabelle unten |
 | V12 | Nahfeld: Airy-Schicht analytisch (RK, RCWA); Stetigkeit an allen Element-/Scheibengrenzen; Flusskonstanz in verlustfreien Lamellenstapeln; RK-Feld = RCWA-Feld; D_x-Stetigkeit an einer Lamellenwand | analytisch / Stetigkeit / Fluss = Σ T | 1e-12; 1e-6; 1e-12 (RCWA), 1e-8 (RK); 1e-7; FFF < 0,1 (direkt > 1) |
 
 Zusätzliche Kontrollen aus der Kapitelprüfung (Al-Sinus V4, TM, FFF-Treppe):
@@ -114,3 +115,41 @@ CPU: Eigen in einfacher Genauigkeit (`FG_BACKEND=cpu`); GPU: RTX 3090, alles auf
 Befund: `mixed` ist kaum genauer als `fp32`, weil die Eigenprobleme (in beiden Modi einfach genau) den Fehler
 bestimmen, nicht die LU-Zerlegungen. Festgeschriebene Zielwerte (Plan v2.8): `mixed` und `fp32` ≤ 1e-4 für V1–V9
 (gemessen ≤ 2e-5); resonante 2D-Fälle (V10, V15) bis ≈ 1e-4. Für Ergebnisse auf 1e-6 und besser: `fp64`.
+
+## Koordinatentransformationen und ASR (M17)
+
+`tests/validation/test_v19_asr.cpp`. η = 0 ist bitgleich zum Pfad ohne Transformation. Der transformierte Pfad
+(dichte A, G, numerische Halbraummoden, Umrechnung eq:ct_inc / eq:ct_rayleigh) mit f′ = g′ = 1 stimmt mit dem
+Diagonalpfad überein (V2, V3 dielektrisch/metallisch, RK, V9-Polygonstreifen 2D, Sinusprofil: ≤ 1e-12, RK 1e-10).
+
+| Fall (η = 0,5) | Ergebnis |
+|---|---|
+| V1/V2 eben, eine Bruchstelle | = analytisch ≤ 1e-12 ab N = 6 (f analytisch) |
+| V1/V2 eben, zwei Bruchstellen | 4,8e-5 (N = 4), 2,0e-7 (8), 5,3e-9 (16), 2,0e-10 (32): f‴ springt |
+| V3 dielektrisch, Abweichung von N = 120 ohne ASR | N = 10/20/40: 4,1e-5 / 6,5e-6 / 1,1e-6 (ohne ASR 3,4e-4 / 2,9e-5 / 4,2e-6) |
+| V3 dielektrisch, Energiebilanz | −9e-6 (N = 10), −1,4e-7 (20), −1,2e-8 (40): Umrechnung der Ordnungen |
+| V3 metallisch (0,5+3i) | N = 40: 1,9e-4 (ohne ASR 4,8e-4) |
+| V9 z-invariant (Polygonstreifen, sinus_x, 1D-Profil im 2D-Stapel) | = 1D konisch mit gleicher Transformation ≤ 1e-10 (auch mit z-Transformation) |
+| Nahfeld Airy-Schicht | = ohne Transformation ≤ 1e-10 |
+
+Die Abweichung vom untransformierten Ergebnis bei gleichem N ist der Abschneidefehler beider Rechnungen; der
+Planwert 1e-8 gilt nur für die ebenen Fälle (V1, V2). Für V3/V9 prüft der Test den gemeinsamen Grenzwert und die
+Übereinstimmung der z-invarianten 2D-Rechnung mit 1D.
+
+**V19 (Gold-Lamellen, TM).** e₀ und Abweichung vom Grenzwert 0,79435:
+
+| N | ohne ASR | ASR η = 0,8 | ASR η = 0,95 |
+|---|---|---|---|
+| 10 | – | 0,79305 (1,3e-3) | 0,79422 (1,3e-4) |
+| 20 | – | 0,79378 (5,7e-4) | 0,79421 (1,4e-4) |
+| 25 | 0,78713 (7,2e-3) | – | – |
+| 40 | – | 0,79408 (2,7e-4) | 0,79427 (8e-5) |
+| 50 | 0,79322 (1,1e-3) | – | – |
+| 80 | – | 0,79420 (1,6e-4) | 0,79429 (5,6e-5) |
+| 100 | 0,79365 (7,0e-4) | – | – |
+| 160 | – | 0,79422 (1,3e-4) | 0,79430 (5e-5) |
+| 200 / 400 / 800 | 0,79382 / 0,79406 / 0,79421 | – | – |
+
+Benötigtes N für 1e-3: ohne ASR ≈ 60, η = 0,8 ≈ 15, η = 0,95 ≤ 10. Der Rest von ≈ 5e-5 zwischen ASR (η = 0,95) und
+der Richardson-Extrapolation liegt in der Unsicherheit der Extrapolation (ohne ASR konvergiert e₀ nur wie 1/N).
+Literaturvergleich (Granet 1999) nicht durchgeführt: die Daten sind bibliographisch nicht geprüft.

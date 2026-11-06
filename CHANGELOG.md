@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.16.0] – M17 (Koordinatentransformationen, ASR)
+
+### Hinzugefügt
+- `"coordinate_transform": {"x"|"z": {"type": "asr", "eta", "breakpoints_um": "auto" | [...]}}` (Plan eq:asr):
+  `CoordinateMap` (f, f′, f⁻¹, [[1/f′]], Umrechnungen eq:ct_rayleigh / eq:ct_inc), `Stack::transform`,
+  `resolveTransform`.
+- Propagationsmatrix, E_y, H_y mit dichten A = [[1/f′]] α, G = [[1/g′]] γ (Plan eq:ct_deriv, Ersetzungsregel).
+- Schichtmodelle in X, Z: Lamellen und Profile über abgebildete Intervalle, Polygone/Konturen/CAD-Schnitte über das
+  abgebildete Konturintegral, Normalenfelder (Profile per Quadratur, Algorithmus NF umgetastet), Profile 2D mit Linien
+  bei z = g(Z).
+- Löser: numerische Halbraumbasen (Klassifikation mit Fluss), Moden homogener isotroper Medien aus dem n_f-Block von
+  P R (exakt entartete TE/TM-Paare), Einfall ohne evaneszente Anteile, und Effizienzen über die physikalischen
+  Ordnungen, Nahfeld auf dem physikalischen Raster.
+- Tests `test_coordinate_transform` (Unit) und `test_validation_v19` (η = 0 bitgleich, Matrixpfad = Diagonalpfad, V1–V3,
+  V9, Nahfeld, V19 mit Konvergenztabelle in `docs/validation.md`).
+
+### Geändert
+- Plan v2.9: Quadratur statt DFT/Trapezregel, Abnahmekriterium für V3/V9 präzisiert (gemeinsamer Grenzwert statt 1e-8
+  bei gleichem N). Ohne Transformation bitgleich (Golden Files unverändert).
+
 ## [0.15.0] – M16 (Wählbare Genauigkeit)
 
 ### Hinzugefügt
