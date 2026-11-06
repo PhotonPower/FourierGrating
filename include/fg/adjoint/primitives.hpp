@@ -65,7 +65,8 @@ void qFFFIsotropicRigorous(const SliceCoefficients& c, const IndexMap& map, cons
 /// Anisotropic Laurent: cotangents of the nine grids eps_ij.
 void qLaurentTensor(const IndexMap& map, const QBlocks& Qbar, std::array<std::array<fourier::CoefficientGrid, 3>, 3>& g);
 
-/// One RK step P = rkStepPropagator(nodes, h, tab): cotangents of the stage matrices.
-void rkStep(const std::vector<MatC>& nodes, double h, const ButcherTableau& tab, const MatC& Pbar, std::vector<MatC>& nodesBar);
+/// One RK step P = rkStepPropagator(nodes, h, tab): cotangents of the stage matrices (and of h).
+void rkStep(const std::vector<MatC>& nodes, double h, const ButcherTableau& tab, const MatC& Pbar, std::vector<MatC>& nodesBar,
+            double* hbar = nullptr);
 
 }  // namespace fg::adjoint

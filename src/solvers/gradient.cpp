@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <map>
 #include <variant>
@@ -21,7 +22,9 @@
 #include "fg/physics/efficiency.hpp"
 #include "fg/physics/incidence.hpp"
 #include "fg/physics/modes.hpp"
+#include "fg/solvers/butcher.hpp"
 #include "fg/solvers/rcwa.hpp"
+#include "fg/solvers/rk.hpp"
 
 #include "layer_model.hpp"
 
@@ -167,7 +170,31 @@ struct Elem {
   QBlocks Q;
   LayerModes modes;
   SMatrix S;
+  // RK slices: transfer matrix, fixed step sequence (layer-local normalized y), constant M if y-invariant
+  bool rk = false, constant = false;
+  MatC T, Mc;
+  RKSteps steps;
 };
+
+/// Spectral radius for the slice criterion (as the solver: eigenvalues up to n = 800, else power iteration).
+double spectralRadius(const MatC& M) {
+  if (M.rows() <= 800) {
+    Eigen::ComplexEigenSolver<MatC> es(M, false);
+    return es.eigenvalues().cwiseAbs().maxCoeff();
+  }
+  VecC v(M.rows());
+  for (Eigen::Index k = 0; k < v.size(); ++k) v(k) = std::exp(I * (0.7 * static_cast<double>(k)));
+  v.normalize();
+  double rho = 0;
+  for (int it = 0; it < 60; ++it) {
+    VecC w = M * v;
+    const double nw = w.norm();
+    if (nw == 0) break;
+    if (it >= 40) rho = std::max(rho, nw);
+    v = w / nw;
+  }
+  return rho;
+}
 
 /// Hermitian 2 x 2 form G of S_y(B) = B^H G B of an order (polarization identity on planeWaveOrder).
 Eigen::Matrix2cd fluxForm(cplx eps, cplx al, cplx ga, cplx beta, int dir) {
@@ -194,7 +221,6 @@ GradientResult gradient(const std::string& configJson, const Wavelength& wl, con
   const io::RunConfig cfg = io::parseConfig(configJson);
   const Stack& st = cfg.stack;
   const SolverOptions& opt = cfg.solver;
-  FG_REQUIRE(opt.kind == SolverKind::RCWA, "gradient: only the RCWA solver is available (RK: M19 Phase 2)");
   FG_REQUIRE(!st.aperiodic.enabled && !opt.scatteredField, "gradient: aperiodic structures are not available");
   FG_REQUIRE(!resolveTransform(st).active(), "gradient: coordinate transformations are not available");
   detail::applyThreadSettings(opt);
@@ -223,6 +249,7 @@ GradientResult gradient(const std::string& configJson, const Wavelength& wl, con
 
   // ---------------------------------------------------------------- forward (recorded)
   const auto models = detail::buildLayerModels(st, map, opt.rcwaSlices);
+  const ButcherTableau tab = ButcherTableau::byName(opt.rkTableau);
   std::vector<Elem> el;
   {
     Elem e0;
@@ -242,6 +269,46 @@ GradientResult gradient(const std::string& configJson, const Wavelength& wl, con
       e.modes = layerModesHomogeneous(mat.isotropic ? isotropicModes(mat.eps, al, ga) : anisotropicModes(mat.epsTensor, al, ga));
       e.S = stableLayerSMatrix(e.modes, H, ref);
       el.push_back(std::move(e));
+      continue;
+    }
+    if (opt.kind == SolverKind::RK) {
+      // stability slices (Plan eq:slicecrit) and adaptive steps as in the solver; the steps are recorded
+      auto Mfun = [&m, &al, &ga, k0](double yl) { return buildPropagationMatrix(m.Q(yl / k0), al, ga); };
+      double rho = 0;
+      for (int r = 0; r < nf; ++r)
+        for (const cplx eps : m.epsList) rho = std::max(rho, std::abs(std::sqrt(al(r) * al(r) + ga(r) * ga(r) - eps)));
+      MatC Mc;
+      if (m.yInvariant()) {
+        Mc = Mfun(0.0);
+        rho = std::max(rho, spectralRadius(Mc));
+      } else {
+        for (double tt : {0.02, 0.25, 0.5, 0.75, 0.98}) rho = std::max(rho, spectralRadius(Mfun(tt * H)));
+      }
+      const double growth = opt.growthLimit > 0 ? opt.growthLimit : 1e8;
+      const int K = std::max(1, static_cast<int>(std::ceil(rho * H / std::log(growth))));
+      std::function<void(double, double, int)> slice = [&](double ya, double yb, int depth) {
+        Elem e;
+        e.layer = k;
+        e.rk = true;
+        e.constant = m.yInvariant();
+        e.Mc = Mc;
+        e.y_um = 0.5 * (ya + yb) / k0;
+        RKStats rs;
+        if (e.constant) {
+          e.T = rkTransferConstant(Mc, yb - ya, tab, opt.rkTol, rho, rs, &e.steps);
+          for (double& y : e.steps.y) y += ya;
+        } else {
+          e.T = rkTransfer(Mfun, ya, yb, tab, opt.rkTol, rho, rs, &e.steps);
+        }
+        if ((!e.T.allFinite() || e.T.cwiseAbs().maxCoeff() > growth) && depth < 12) {
+          slice(ya, 0.5 * (ya + yb), depth + 1);
+          slice(0.5 * (ya + yb), yb, depth + 1);
+          return;
+        }
+        e.S = fromTransfer(ref.PsiInv * e.T * ref.Psi);
+        el.push_back(std::move(e));
+      };
+      for (int s = 0; s < K; ++s) slice(H * s / K, H * (s + 1) / K, 0);
       continue;
     }
     const int K = m.yInvariant() ? 1 : m.rcwaSlices;
@@ -341,48 +408,34 @@ GradientResult gradient(const std::string& configJson, const Wavelength& wl, con
       if (ps[q].layer == k && (ps[q].kind == Param::Kind::Thickness || ps[q].kind == Param::Kind::ProfileDepth))
         out.grad[q] += dLdH;
   };
-  for (std::size_t i = 1; i < el.size(); ++i) {
-    const Elem& e = el[i];
-    const auto& model = *models[e.layer];
-    detail::AdjointSlice a;
-    std::vector<std::string> mats;
-    if (e.homogeneous) {
-      mats = {std::get<HomogeneousLayer>(st.layers[e.layer].spec).material};
-    } else {
-      FG_REQUIRE(model.adjointSlice(e.y_um, a) || !layerHasParams(e.layer, {}),
-                 "gradient: layer " + std::to_string(e.layer) + " has no adjoint (anisotropic, FFF_B or transformed)");
-      mats = a.materials;
-    }
-    if (!layerHasParams(e.layer, mats)) continue;
-    MatC Wub, Wdb;
-    VecC lub, ldb;
-    double hb = 0;
-    adjoint::layerSMatrix(e.modes, e.h, ref, Ebar[i], Wub, Wdb, lub, ldb, hb);
-    thicknessParam(e.layer, hb * k0 / e.K);
-    // eigen-decomposition and M only if Q matters (materials, geometry)
-    bool needQ = false;
-    for (const auto& p : ps)
-      needQ = needQ || (p.kind == Param::Kind::Material && std::find(mats.begin(), mats.end(), p.material) != mats.end()) ||
-              (p.layer == e.layer && p.kind != Param::Kind::Thickness && p.kind != Param::Kind::ProfileDepth);
-    if (!needQ) continue;
-    const Eigen::Index n = e.modes.lu.size();
-    MatC W(4 * nf, 2 * n), Wb(4 * nf, 2 * n);
-    W << e.modes.Wu, e.modes.Wd;
-    Wb << Wub, Wdb;
-    VecC lam(2 * n), lamb(2 * n);
-    lam << e.modes.lu, e.modes.ld;
-    lamb << lub, ldb;
-    std::vector<int> cls(static_cast<std::size_t>(2 * n), 0);
-    for (Eigen::Index q = n; q < 2 * n; ++q) cls[static_cast<std::size_t>(q)] = 1;
-    const MatC Mb = adjoint::eig(W, lam, Wb, lamb, cls);
-    QBlocks Qb;
-    adjoint::propagationMatrix(e.Q, al, ga, Mb, Qb);
-    if (e.homogeneous) {
+  const int Px = 2 * map.Nx(), Pz = 2 * map.Nz();
+  auto gridDot = [&](const Grid& gb, const Grid& d) {  // Re sum conj(gbar) d
+    double s = 0;
+    if (gb.Px() < Px || gb.Pz() < Pz) return 0.0;
+    for (int p = -Px; p <= Px; ++p)
+      for (int q = -Pz; q <= Pz; ++q) s += std::real(std::conj(gb(p, q)) * d(p, q));
+    return s;
+  };
+  auto gridInner = [&](const Grid& gb, const Grid& chi) {  // sum gbar conj(chi)
+    cplx s = 0;
+    if (gb.Px() < Px || gb.Pz() < Pz) return s;
+    for (int p = -Px; p <= Px; ++p)
+      for (int q = -Pz; q <= Pz; ++q) s += gb(p, q) * std::conj(chi(p, q));
+    return s;
+  };
+  auto epsOf = [&](const std::string& name) { return st.material(name).eps; };
+  /// dL/dQ of the slice of layer k at height y_um -> parameters (materials, geometry, profiles)
+  auto fromQbar = [&](std::size_t layer, bool homogeneous, double y_um, const QBlocks& Qb) {
+    const auto& model = *models[layer];
+    if (homogeneous) {
       const Material& mat = model.material();
       FG_REQUIRE(mat.isotropic, "gradient: anisotropic materials are not available");
-      epsBar[mats[0]] += Qb(0, 0).trace() + Qb(1, 1).trace() + Qb(2, 2).trace();
-      continue;
+      epsBar[std::get<HomogeneousLayer>(st.layers[layer].spec).material] += Qb(0, 0).trace() + Qb(1, 1).trace() + Qb(2, 2).trace();
+      return;
     }
+    detail::AdjointSlice a;
+    FG_REQUIRE(model.adjointSlice(y_um, a),
+               "gradient: layer " + std::to_string(layer) + " has no adjoint (anisotropic, FFF_B or transformed)");
     adjoint::IsoGridBar g;
     switch (a.fac) {
       case Factorization::Laurent: adjoint::qLaurent(a.sc, map, Qb, g); break;
@@ -392,22 +445,6 @@ GradientResult gradient(const std::string& configJson, const Wavelength& wl, con
       case Factorization::FFF_rig: adjoint::qFFFIsotropicRigorous(a.sc, map, Qb, g); break;
       default: throw Error("gradient: factorization without adjoint");
     }
-    const int Px = 2 * map.Nx(), Pz = 2 * map.Nz();
-    auto gridDot = [&](const Grid& gb, const Grid& d) {  // Re sum conj(gbar) d
-      double s = 0;
-      if (gb.Px() < Px || gb.Pz() < Pz) return 0.0;
-      for (int p = -Px; p <= Px; ++p)
-        for (int q = -Pz; q <= Pz; ++q) s += std::real(std::conj(gb(p, q)) * d(p, q));
-      return s;
-    };
-    auto gridInner = [&](const Grid& gb, const Grid& chi) {  // sum gbar conj(chi)
-      cplx s = 0;
-      if (gb.Px() < Px || gb.Pz() < Pz) return s;
-      for (int p = -Px; p <= Px; ++p)
-        for (int q = -Pz; q <= Pz; ++q) s += gb(p, q) * std::conj(chi(p, q));
-      return s;
-    };
-    auto epsOf = [&](const std::string& name) { return st.material(name).eps; };
     // materials: eps grid = sum eps_k chi_k, 1/eps grid = sum chi_k / eps_k
     for (std::size_t k = 0; k < a.materials.size(); ++k) {
       const cplx ek = epsOf(a.materials[k]);
@@ -416,18 +453,17 @@ GradientResult gradient(const std::string& configJson, const Wavelength& wl, con
     // a moving jump at x (um) between the materials left and right: d chi = (1/d) e^{-i p K x} (left grows)
     auto jump = [&](double x, const std::string& left, const std::string& right) {
       const cplx eL = epsOf(left), eR = epsOf(right);
-      Grid d(Px, Pz);
-      for (int p = -Px; p <= Px; ++p) d(p, 0) = std::exp(-I * (2 * PI * p * x / st.dx_um)) / st.dx_um;
-      Grid de = d, di = d;
+      Grid de(Px, Pz), di(Px, Pz);
       for (int p = -Px; p <= Px; ++p) {
-        de(p, 0) *= eL - eR;
-        di(p, 0) *= 1.0 / eL - 1.0 / eR;
+        const cplx d = std::exp(-I * (2 * PI * p * x / st.dx_um)) / st.dx_um;
+        de(p, 0) = d * (eL - eR);
+        di(p, 0) = d * (1.0 / eL - 1.0 / eR);
       }
       return gridDot(g.eps, de) + gridDot(g.invEps, di);
     };
     for (std::size_t q = 0; q < ps.size(); ++q) {
       const Param& p = ps[q];
-      if (p.layer != e.layer) continue;
+      if (p.layer != layer) continue;
       if (p.kind == Param::Kind::Breakpoint) {
         const auto j0 = static_cast<std::size_t>(p.index);
         out.grad[q] += jump(a.breaks[j0], a.materials[j0 - 1], a.materials[j0]);
@@ -440,7 +476,8 @@ GradientResult gradient(const std::string& configJson, const Wavelength& wl, con
       }
       if (p.kind == Param::Kind::ProfileShift) {
         // the crossings move with the profile: dx_j / dx0 = 1 (the period ends 0 and d are no crossings)
-        for (std::size_t jj = 1; jj + 1 < a.breaks.size(); ++jj) out.grad[q] += jump(a.breaks[jj], a.materials[jj - 1], a.materials[jj]);
+        for (std::size_t jj = 1; jj + 1 < a.breaks.size(); ++jj)
+          out.grad[q] += jump(a.breaks[jj], a.materials[jj - 1], a.materials[jj]);
       } else if (p.kind == Param::Kind::Shape) {
         const cplx eb = epsOf(a.materials[0]);
         for (const auto& [idx, dchi] : p.dchi) {
@@ -455,6 +492,92 @@ GradientResult gradient(const std::string& configJson, const Wavelength& wl, con
         }
       }
     }
+  };
+  for (std::size_t i = 1; i < el.size(); ++i) {
+    const Elem& e = el[i];
+    const auto& model = *models[e.layer];
+    std::vector<std::string> mats;
+    if (e.homogeneous) {
+      mats = {std::get<HomogeneousLayer>(st.layers[e.layer].spec).material};
+    } else {
+      detail::AdjointSlice a;
+      if (model.adjointSlice(e.y_um, a)) mats = a.materials;
+    }
+    if (!layerHasParams(e.layer, mats)) continue;
+    // eigen-decompositions / stage matrices only if Q matters (materials, geometry, profile normal field)
+    bool needQ = false;
+    for (const auto& p : ps)
+      needQ = needQ || (p.kind == Param::Kind::Material && std::find(mats.begin(), mats.end(), p.material) != mats.end()) ||
+              (p.layer == e.layer && (p.hasDnf || (p.kind != Param::Kind::Thickness && p.kind != Param::Kind::ProfileDepth)));
+    if (e.rk) {
+      // S = fromTransfer(Psi^-1 T Psi), T = P_m ... P_1 (fixed step sequence, Plan "RK-Propagator")
+      const MatC Tref = ref.PsiInv * e.T * ref.Psi;
+      MatC Trefb;
+      adjoint::fromTransfer(Tref, Ebar[i], Trefb);
+      MatC G = ref.PsiInv.adjoint() * Trefb * ref.Psi.adjoint();
+      const std::size_t ms = e.steps.h.size();
+      const Eigen::Index nn = e.T.rows();
+      auto nodesAt = [&](std::size_t k) {
+        std::vector<MatC> nodes;
+        for (int s = 0; s < tab.stages(); ++s)
+          nodes.push_back(e.constant ? e.Mc : MatC(buildPropagationMatrix(model.Q((e.steps.y[k] + tab.c(s) * e.steps.h[k]) / k0), al, ga)));
+        return nodes;
+      };
+      std::vector<MatC> Pk(ms), Lk(ms);  // step propagators and prefix products L_k = P_k ... P_1
+      for (std::size_t k = 0; k < ms; ++k) {
+        Pk[k] = rkStepPropagator(nodesAt(k), e.steps.h[k], tab);
+        Lk[k] = k == 0 ? Pk[k] : MatC(Pk[k] * Lk[k - 1]);
+      }
+      double dLdH = 0;
+      MatC Msum = MatC::Zero(nn, nn);
+      for (std::size_t k = ms; k-- > 0;) {
+        const MatC Pb = k == 0 ? G : MatC(G * Lk[k - 1].adjoint());
+        std::vector<MatC> nb;
+        double hb = 0;
+        const auto nodes = nodesAt(k);
+        adjoint::rkStep(nodes, e.steps.h[k], tab, Pb, nb, &hb);
+        dLdH += hb * e.steps.h[k];  // h_k proportional to the thickness
+        if (needQ) {
+          if (e.constant) {
+            for (const auto& m : nb) Msum += m;
+          } else {
+            for (int s = 0; s < tab.stages(); ++s) {
+              const double y_um = (e.steps.y[k] + tab.c(s) * e.steps.h[k]) / k0;
+              QBlocks Qb;
+              adjoint::propagationMatrix(model.Q(y_um), al, ga, nb[static_cast<std::size_t>(s)], Qb);
+              fromQbar(e.layer, false, y_um, Qb);
+            }
+          }
+        }
+        G = Pk[k].adjoint() * G;
+      }
+      thicknessParam(e.layer, dLdH / model.thickness_um());
+      if (needQ && e.constant) {
+        QBlocks Qb;
+        adjoint::propagationMatrix(model.Q(0.0), al, ga, Msum, Qb);
+        fromQbar(e.layer, false, 0.0, Qb);
+      }
+      continue;
+    }
+    MatC Wub, Wdb;
+    VecC lub, ldb;
+    double hb = 0;
+    adjoint::layerSMatrix(e.modes, e.h, ref, Ebar[i], Wub, Wdb, lub, ldb, hb);
+    thicknessParam(e.layer, hb * k0 / e.K);
+    if (!needQ) continue;
+    const Eigen::Index n = e.modes.lu.size();
+    MatC W(4 * nf, 2 * n), Wb(4 * nf, 2 * n);
+    W << e.modes.Wu, e.modes.Wd;
+    Wb << Wub, Wdb;
+    VecC lam(2 * n), lamb(2 * n);
+    lam << e.modes.lu, e.modes.ld;
+    lamb << lub, ldb;
+    std::vector<int> cls(static_cast<std::size_t>(2 * n), 0);
+    for (Eigen::Index q = n; q < 2 * n; ++q) cls[static_cast<std::size_t>(q)] = 1;
+    const MatC Mb = adjoint::eig(W, lam, Wb, lamb, cls);
+    QBlocks Qb;
+    adjoint::propagationMatrix(e.Q, al, ga, Mb, Qb);
+    fromQbar(e.layer, e.homogeneous, e.y_um, Qb);
   }
   for (std::size_t q = 0; q < ps.size(); ++q) {
     const Param& p = ps[q];

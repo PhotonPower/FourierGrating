@@ -178,3 +178,41 @@ TEST(M19_Gradient, Cost) {
   std::printf("forward %.4f s, gradient (5 parameters) %.4f s, ratio %.2f\n", fwd, grad, grad / fwd);
   EXPECT_LT(grad / fwd, 5.0);
 }
+
+// RK: the adjoint of the recorded step sequence against the difference quotient (the quotient may see other
+// adaptive steps: measured <= 9e-7), and RK gradient = RCWA gradient for lamellae (Plan: 1e-8; measured 2e-9).
+TEST(M19_Gradient, RungeKutta) {
+  json cfg = lamellar1D("li_lamellar");
+  cfg["solver"] = "rk";
+  cfg["rk"] = {{"tol", 1e-10}};
+  cfg["truncation"] = {{"Nx", 6}};
+  const auto obj = objective({{'R', -1, 0, 1.0}, {'T', 0, 0, 0.5}});
+  const std::vector<std::string> params{"/layers/1/thickness_um", "/layers/1/breakpoints_um/1", "/materials/bar/n/1"};
+  check(cfg, obj, params, 1e-6, "rk lamellar");
+  const auto grk = fg::gradient(cfg.dump(), obj, params);
+  cfg["solver"] = "rcwa";
+  const auto grc = fg::gradient(cfg.dump(), obj, params);
+  for (std::size_t k = 0; k < params.size(); ++k) {
+    std::printf("rk %.12e rcwa %.12e  %s\n", grk.grad[k], grc.grad[k], params[k].c_str());
+    EXPECT_NEAR(grk.grad[k], grc.grad[k], 1e-8 * std::max(1.0, std::abs(grc.grad[k]))) << params[k];
+  }
+  // y-dependent layer (sinus profile, Laurent): stage matrices per node
+  json prof{{"dimension", "1D"},
+            {"solver", "rk"},
+            {"rk", {{"tol", 1e-10}}},
+            {"truncation", {{"Nx", 6}}},
+            {"period_um", {{"x", 1.0}}},
+            {"incidence", {{"lambda_um", 0.6328}, {"phi_deg", 20}, {"delta_deg", 90}}},
+            {"materials", {{"air", {{"n", 1.0}}}, {"glass", {{"n", 1.5}}}, {"bar", {{"n", 1.8}}}}},
+            {"superstrate", "air"},
+            {"substrate", "glass"},
+            {"layers", json::array({json{{"type", "profile1d"},
+                                         {"shape", "sinus"},
+                                         {"depth_um", 0.25},
+                                         {"x0_um", 0.1},
+                                         {"below", "bar"},
+                                         {"above", "air"},
+                                         {"factorization", "laurent"}}})}};
+  check(prof, objective({{'R', -1, 0, 1.0}, {'T', 1, 0, 0.3}}), {"/layers/0/depth_um", "/materials/bar/n"}, 1e-5,
+        "rk profile");
+}

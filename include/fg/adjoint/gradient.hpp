@@ -32,8 +32,9 @@ struct GradientResult {
 /// point: "/layers/k/thickness_um", "/layers/k/breakpoints_um/j", "/layers/k/depth_um" and "/x0_um"
 /// (sinus profile), "/layers/k/regions/..." and "/layers/k/inclusions/..." (any number of a contour2d or
 /// polygon2d geometry: control points, weights, circle centre and radius, vertices), "/materials/name/n",
-/// "/materials/name/n/0|1" (real/imaginary part), "/materials/name/eps", "/eps/0|1". RCWA, periodic
-/// structures without coordinate transformation; the slices and the normal field are fixed.
+/// "/materials/name/n/0|1" (real/imaginary part), "/materials/name/eps", "/eps/0|1". RCWA and RK, periodic
+/// structures without coordinate transformation; the slices, the RK step sequence and the raster normal
+/// field of 2D cross-sections are fixed (profile normal fields are differentiated).
 GradientResult gradient(const std::string& configJson, const Objective& objective, const std::vector<std::string>& params);
 GradientResult gradient(const std::string& configJson, const Wavelength& wl, const Objective& objective,
                         const std::vector<std::string>& params);

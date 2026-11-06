@@ -294,7 +294,9 @@ TEST(Adjoint, RKStep) {
     }
     const MatC K = random(n, n);
     std::vector<MatC> nb;
-    fg::adjoint::rkStep(nodes, 0.3, tab, K, nb);
+    double hb = 0;
+    fg::adjoint::rkStep(nodes, 0.3, tab, K, nb, &hb);
+    expectClose(hb, fd([&](double t) { return re(K, fg::rkStepPropagator(nodes, 0.3 + t, tab)); }));
     double adj = 0;
     for (int i = 0; i < tab.stages(); ++i) adj += re(nb[static_cast<std::size_t>(i)], D[static_cast<std::size_t>(i)]);
     expectClose(adj, fd([&](double t) {

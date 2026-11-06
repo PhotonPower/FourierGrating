@@ -319,7 +319,8 @@ void qFFFIsotropicRigorous(const SliceCoefficients& c, const IndexMap& map, cons
   toeplitz(map, Eb, g.eps);
 }
 
-void rkStep(const std::vector<MatC>& nodes, double h, const ButcherTableau& tab, const MatC& Pbar, std::vector<MatC>& nodesBar) {
+void rkStep(const std::vector<MatC>& nodes, double h, const ButcherTableau& tab, const MatC& Pbar, std::vector<MatC>& nodesBar,
+            double* hbar) {
   const int s = tab.stages();
   const Eigen::Index n = nodes[0].rows();
   MatC Abig = MatC::Identity(s * n, s * n), Mstack(s * n, n);
@@ -334,6 +335,13 @@ void rkStep(const std::vector<MatC>& nodes, double h, const ButcherTableau& tab,
   for (int i = 0; i < s; ++i) Xb.block(i * n, 0, n, n) = (h * tab.b(i)) * Pbar;
   const MatC R = MatC(Abig.adjoint()).partialPivLu().solve(Xb);  // Mstack bar
   const MatC Ab = -R * X.adjoint();
+  if (hbar) {  // P = 1 + h sum b_i X_i, Abig = 1 - h (a_ij M_i)
+    for (int i = 0; i < s; ++i) {
+      *hbar += tab.b(i) * std::real((Pbar.adjoint() * X.block(i * n, 0, n, n)).trace());
+      for (int j = 0; j < s; ++j)
+        *hbar -= tab.A(i, j) * std::real((Ab.block(i * n, j * n, n, n).adjoint() * nodes[static_cast<std::size_t>(i)]).trace());
+    }
+  }
   if (nodesBar.size() != static_cast<std::size_t>(s)) nodesBar.assign(static_cast<std::size_t>(s), MatC());
   for (int i = 0; i < s; ++i) {
     MatC Mb = R.block(i * n, 0, n, n);

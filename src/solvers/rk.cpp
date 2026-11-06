@@ -24,7 +24,7 @@ MatC matPow(MatC P, long k) {
 }  // namespace
 
 MatC rkTransferConstant(const MatC& M, double H, const ButcherTableau& tab, double tol,
-                        double rho, RKStats& stats) {
+                        double rho, RKStats& stats, RKSteps* record) {
   FG_PROF_SCOPE("rk.transfer");
   long k = std::max(1L, static_cast<long>(std::ceil(H * rho / stepFactor(tab))));
   const std::size_t s = static_cast<std::size_t>(tab.stages());
@@ -34,7 +34,14 @@ MatC rkTransferConstant(const MatC& M, double H, const ButcherTableau& tab, doub
         matPow(rkStepPropagator(std::vector<MatC>(s, M), H / static_cast<double>(2 * k), tab), 2 * k);
     stats.steps += 3 * k;
     const double err = (T1 - T2).norm() / T2.norm();
-    if (err <= tol) return T2;
+    if (err <= tol) {
+      if (record)
+        for (long i = 0; i < 2 * k; ++i) {
+          record->y.push_back(H * static_cast<double>(i) / static_cast<double>(2 * k));
+          record->h.push_back(H / static_cast<double>(2 * k));
+        }
+      return T2;
+    }
     ++stats.rejected;
     T1 = T2;
     k *= 2;
@@ -43,7 +50,7 @@ MatC rkTransferConstant(const MatC& M, double H, const ButcherTableau& tab, doub
 }
 
 MatC rkTransfer(const std::function<MatC(double)>& M, double y0, double y1,
-                const ButcherTableau& tab, double tol, double rho, RKStats& stats) {
+                const ButcherTableau& tab, double tol, double rho, RKStats& stats, RKSteps* record) {
   FG_PROF_SCOPE("rk.transfer");
   const Eigen::Index n = M(y0).rows();
   MatC T = MatC::Identity(n, n);
@@ -64,6 +71,10 @@ MatC rkTransfer(const std::function<MatC(double)>& M, double y0, double y1,
     const double err = (Pfull - Phalf).norm() / Phalf.norm();
     if (err <= tol || h <= hmin) {
       T = Phalf * T;
+      if (record) {
+        record->y.insert(record->y.end(), {y, y + 0.5 * h});
+        record->h.insert(record->h.end(), {0.5 * h, 0.5 * h});
+      }
       y += h;
       const double fac = err > 0 ? 0.9 * std::pow(tol / err, 1.0 / (tab.order + 1)) : 2.0;
       h *= std::clamp(fac, 0.2, 2.0);
