@@ -71,6 +71,41 @@ fg.cuda_available(); fg.core_variant(); fg.__version__
 Beispiel: [`examples/python/scan_lamellar.py`](../examples/python/scan_lamellar.py) (Wellenlängen-Scan und
 Tiefen-Sweep mit `Simulation`).
 
+### Gradienten (M19)
+
+```python
+sim = fg.Simulation(cfg)
+params = ["/layers/0/thickness_um", "/layers/0/breakpoints_um/1", "/materials/bar/n/1"]
+value, grad = sim.value_and_grad({("R", -1, 0): 1.0, ("T", 0, 0): -0.5}, params)   # L = Σ w·e
+v = sim.vjp([("R", -1, 0, 1.0)], params)          # Kotangenten der Effizienzen → Parameter
+```
+
+Diskrete Adjungierte (exakter Gradient der tatsächlich berechneten Abbildung): Aufwand etwa 1,3–2,5
+Vorwärtsrechnungen, unabhängig von der Zahl der Parameter. Parameter sind Zahlen der Konfiguration (JSON-Pointer
+wie bei `set_parameter`): Schichtdicken, `breakpoints_um/j` (Lamellen), `depth_um`/`x0_um` (Sinusprofil),
+alle Zahlen einer `polygon2d`- oder `contour2d`-Geometrie (Ecken, NURBS-Kontrollpunkte und -Gewichte, Kreis),
+`materials/<name>/n` bzw. `.../n/0|1` (Real-/Imaginärteil) und `.../eps`. RCWA und RK, periodische Gitter ohne
+Koordinatentransformation; Material von Superstrat/Substrat, anisotrope Materialien, `FFF_A`/`FFF_B`: noch nicht
+(Fehlermeldung). Festgelegt (Plan M19 „Methode“): Scheibenzerlegung und RK-Schrittfolge; das Normalenfeld der
+2D-Querschnitte (Algorithmus NF) ist eingefroren, das der Profile wird mitdifferenziert. CAD-Körper: C++-API
+`fg::gradient(opt, stack, wl, objective, {StackParameter{...}})` mit dem neu geschnittenen Körper bei θ ± δ
+(seitliche Bewegungen). `sim.last_result` enthält die Effizienzen der Rechnung.
+
+Adapter (optional importierbar):
+
+```python
+from fouriergrating.torch import efficiencies           # torch.autograd.Function
+x = torch.tensor([0.12, 0.22], dtype=torch.float64, requires_grad=True)
+e = efficiencies(sim, params[:2], x, [("R", -1, 0)]); (-e[0]).backward()
+
+from fouriergrating.jax import efficiency_function       # jax.custom_vjp + pure_callback
+f = efficiency_function(sim, params[:2], [("R", -1, 0)]); jax.grad(lambda x: f(x)[0])(x0)
+```
+
+Beispiele: [`optimize_littrow.py`](../examples/python/optimize_littrow.py) (L-BFGS-B, Littrow −1. Ordnung, Vergleich
+mit dem Rasterscan) und [`optimize_nurbs_pillar.py`](../examples/python/optimize_nurbs_pillar.py) (PyTorch-Adam auf
+NURBS-Kontrollpunkten).
+
 ## Tests
 
 ```bash

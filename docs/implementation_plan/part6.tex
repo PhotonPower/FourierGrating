@@ -539,8 +539,30 @@ Komplexe Parameter (Permittivität) folgen der Konvention oben und sind damit di
 Speicher: Zwischenergebnisse je Scheibe; Option \verb|"checkpoint_every": k| (nur jede $k$-te Scheibe speichern, Rest neu
 rechnen). GPU: Rückwärtsfunktionen über das Backend (M15/M16).
 
+\paragraph{Umsetzung (v2.11).} Rückwärtsregeln in \verb|src/adjoint/primitives.cpp| (Tabelle oben; zusätzlich
+$T\to S$, Scheiben-S-Matrix $S=HG^{-1}$ mit $\bar H=\bar SG^{-H}$, $\bar G=-S^H\bar H$, Propagationsmatrix mit Diagonal-
+und dichten $A,G$, Q-Varianten Laurent/Li/FFF\_iso/FFF\_sym/FFF\_rig einschließlich der Kotangenten von $\tp{N_iN_j}$ und
+$\tp{N_i}$, RK-Schritt mit Ableitung nach $h$). Der Treiber (\verb|src/solvers/gradient.cpp|) zeichnet die Kette auf
+(Scheibenmatrizen, Moden, S-Matrizen, Präfixprodukte; RK: die akzeptierten Schritte, \verb|RKSteps|) und läuft
+rückwärts bis zu den Koeffizientengittern. Die Schichtmodelle liefern dazu \verb|adjointSlice|: Faktorisierung,
+Gitter und die Zerlegung $\varepsilon=\sum_k\varepsilon_k\chi_k$ ($1/\varepsilon$ ebenso). Formableitungen:
+\eqref{eq:shape2d} mit $\mathbf V(t)=(\mathbf r_+(t)-\mathbf r_-(t))/2\delta$ aus den bei $\theta\pm\delta$ neu
+erzeugten Rändern gleicher Segmentstruktur (für Kontrollpunkte exakt, $\mathbf r$ ist linear in ihnen), bei
+Schnittschichten und CAD-Körpern je Scheibenhöhe aus den Schnitten (\eqref{eq:shape3d} in dieser Form);
+Lamellenkanten und Profilkreuzungen analytisch. Abweichung von Festlegung 2: Das Normalenfeld der Profile ist
+analytisch und glatt und wird mitdifferenziert (zentraler Differenzenquotient der Koeffizienten, ohne
+$O(n^3)$-Aufwand); eingefroren wäre der Gradient bei FFF\_rig um eine Größenordnung falsch. Das Rasterfeld von
+Algorithmus~NF (2D) bleibt eingefroren. Schnittstellen: \verb|fg::gradient| (JSON-Pointer), \verb|StackParameter|
+(C++, beliebige Geometrie über den Stapel bei $\theta+\delta$), \verb|Simulation::valueAndGrad|/\verb|vjp|, Python
+\verb|value_and_grad|/\verb|vjp|, \verb|fouriergrating.torch|, \verb|fouriergrating.jax|. Nicht umgesetzt (Phase~2):
+\verb|checkpoint_every|, Rückwärtsfunktionen auf dem GPU-Backend, Material von Superstrat/Substrat, anisotrope
+Materialien und FFF\_A/FFF\_B, Koordinatentransformationen und aperiodische Strukturen.
+
 \subsection{Tests und Abnahme (M19)}
 \begin{itemize}[nosep]
+  \item \textbf{Nach der Umsetzung (v2.11):} Rückwärtsfunktionen $10^{-6}$; Ende-zu-Ende V3, V9, V13, V15, V18
+        $\le7\cdot10^{-7}$ (Laurent/Li $\le10^{-7}$), Entartung $10^{-9}$, RK $=$ RCWA $2\cdot10^{-9}$, Aufwand
+        $1{,}3$--$2{,}3\times$; Messwerte in \verb|docs/validation.md|.
   \item Jede Rückwärtsfunktion: zentraler Differenzenquotient mit Zufallsmatrizen ($h=10^{-7}$, Real- und Imaginärteil),
         relative Übereinstimmung $10^{-6}$.
   \item Ende-zu-Ende je Parameterart auf V3, V9, V13, V15, V18: Adjungierte gegen Differenzenquotient mit eingefrorenem

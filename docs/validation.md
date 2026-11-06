@@ -180,3 +180,28 @@ Kontaktloch r = 0,25 µm in einem Film n = 2,1 (0,3 µm). N ≈ 12 L/λ.
 Offen: Literaturvergleich V20c (Silberstein et al. 2001, Wert nicht bibliographisch geprüft), Vergleich der PML mit
 Hugonin/Lalanne (2005, Formulierung nicht geprüft), Reziprozität der Streuamplituden (V20f, winkelaufgelöste
 Amplituden nicht implementiert), Konvergenzstudie V20g in Zellgröße und N auf dem Zielsystem.
+
+## Gradienten (M19)
+
+`tests/unit/test_adjoint.cpp` (jede Rückwärtsregel gegen zentrale Differenzenquotienten, Richtungsableitung mit
+Zufallsmatrizen, h = 1e-7, 1e-6), `tests/validation/test_gradient.cpp` (`test_validation_gradient`), CAD in
+`tests/cad/test_cad.cpp` (`CAD_M19`), Python `tests/python/test_gradient.py`. Angegeben ist die relative
+Abweichung Adjungierte gegen Differenzenquotient der Vorwärtsrechnung (h = 1e-6 relativ).
+
+| Fall | Parameter | Abweichung |
+|---|---|---|
+| V3-Lamellen, konisch, Li und Laurent | Dicken, Lamellenkanten, n (Re, Im), ε eines Films | ≤ 6,6e-8 (Kanten), sonst ≤ 1e-8 |
+| Symmetrisches Lamellengitter, Normaleinfall (exakte Entartung) | Dicke, n, Kante | ≤ 1e-9 |
+| V9/V15: Polygon- und Kreissäulen (2D, Laurent) | Ecken, Radius, Mittelpunkt, Dicke, n | ≤ 2,5e-9 |
+| NURBS-Säule (rationaler Kreis, Laurent) | Kontrollpunkte / Gewicht | ≤ 9e-9 / 4,5e-8 |
+| Kreissäulen, FFF_sym (Normalenfeld NF eingefroren) | Radius / n | 1,8e-7 / 2e-9 (N = 3) |
+| V13-Typ Gold-Sinus TM, Laurent | Tiefe, Verschiebung | 3e-10, Verschiebung ≈ 0 (Translation) |
+| V13-Typ, FFF_rig (Profil-Normalenfeld mitdifferenziert) | Tiefe | 7e-7 (eingefroren wäre der Gradient −7,0 statt −83,0) |
+| RK (Lamellen, Sinusprofil) | Dicke, Kante, n | ≤ 9e-7 (der Quotient sieht andere adaptive Schritte); RK = RCWA ≤ 2e-9 |
+| V18-Typ Kegelstumpf, Schnittschicht (analytisch) / CAD-Körper | oberer Radius | 1e-9 / 8e-9 |
+
+Aufwand (2D, N = 3, Laurent, 5 Parameter): Gradient = 1,3 × Vorwärtsrechnung (gemessen 1,3–2,3); die Kosten
+hängen nicht von der Zahl der Parameter ab (Formableitungen kosten nur die Konturquadratur). Beispiele:
+`optimize_littrow.py` (L-BFGS-B erreicht das Rasterscan-Optimum), `optimize_nurbs_pillar.py` (Demonstration).
+Offen: `checkpoint_every`, Rückwärtsfunktionen über das GPU-Backend, Superstrat/Substrat-Material, anisotrope
+Materialien, FFF_A/FFF_B, Einfallswinkel/Wellenlänge (Phase 2).

@@ -161,7 +161,10 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
     Plan v2.10, Messwerte in `docs/validation.md`
   - Offen: Literaturvergleiche (Silberstein 2001 für V20c, Hugonin/Lalanne 2005 für die PML), Reziprozität (V20f),
     Konvergenzstudie V20g auf dem Zielsystem; Absorption verlustfreier Strukturen 2e-4 statt 1e-6
-- [ ] **M19** Differenzierbarkeit: diskrete Adjungierte (Plan „Konvention“, Rückwärtsregeln), Formableitungen
+- [x] **M19** Differenzierbarkeit: diskrete Adjungierte (Plan „Konvention“, Rückwärtsregeln), Formableitungen
   (eq:shape2d, eq:shape3d), C++-API `gradient`/`vjp`, Python `value_and_grad`, PyTorch-/JAX-Adapter
-  - Abnahme: Rückwärtsfunktionen gegen Differenzenquotienten 1e-6; Ende-zu-Ende V3, V9, V13, V15, V18; Entartung;
-    Aufwand ≤ 5× Vorwärtsrechnung; Beispiele `optimize_littrow.py`, `optimize_nurbs_pillar.py`
+  - Abnahme: Rückwärtsfunktionen gegen Differenzenquotienten 1e-6; Ende-zu-Ende V3, V9, V13, V15, V18 ≤ 7e-7
+    (Laurent/Li ≤ 1e-7, Profil-Normalenfeld mitdifferenziert, Rasterfeld NF eingefroren); Entartung 1e-9; RK = RCWA
+    2e-9; Aufwand 1,3–2,3× Vorwärtsrechnung; Beispiele `optimize_littrow.py`, `optimize_nurbs_pillar.py`; Plan v2.11
+  - Offen (Phase 2): `checkpoint_every`, GPU-Rückwärtsfunktionen, Material von Superstrat/Substrat, anisotrope
+    Materialien, FFF_A/FFF_B, Koordinatentransformationen/aperiodisch, Einfallswinkel und Wellenlänge

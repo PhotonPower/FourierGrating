@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.18.0] – M19 (Differenzierbarkeit)
+
+### Hinzugefügt
+- Rückwärtsregeln (`include/fg/adjoint/primitives.hpp`): Lösen, Inverse, Eigenzerlegung mit Entartung, Toeplitz,
+  Sternprodukt, T → S, Scheiben-S-Matrix, Propagationsmatrix, Q-Faktorisierungen (Laurent, Li, FFF iso/sym/rig mit
+  Normalenfeld-Kotangenten), RK-Schritt; Formableitung `shapeDerivative` (Plan eq:shape2d).
+- `fg::gradient` (diskrete Adjungierte, RCWA und RK): Parameter per JSON-Pointer (Dicke, n/ε, Lamellenkanten,
+  Polygon-/Contour2D-Geometrie, Sinusprofil) und `StackParameter` (C++, Schnittschichten und CAD-Körper).
+- `Simulation::valueAndGrad` / `vjp`; Python `Simulation.value_and_grad` / `vjp`, `fouriergrating.torch`,
+  `fouriergrating.jax`; Beispiele `optimize_littrow.py`, `optimize_nurbs_pillar.py`.
+- RK-Transfers zeichnen auf Wunsch ihre Schritte auf (`RKSteps`); Schichtmodelle liefern `adjointSlice`.
+- Tests `test_adjoint`, `test_validation_gradient`, `CAD_M19`, `tests/python/test_gradient.py`.
+
+### Geändert
+- Plan v2.11 (Umsetzung und Abnahme M19), Version 0.18.0.
+
 ## [0.17.0] – M18 (PML, isolierte Strukturen, Streufeld)
 
 ### Hinzugefügt
