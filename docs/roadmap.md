@@ -157,9 +157,9 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
   Streufeldformulierung für schrägen Einfall (Plan eq:scat_source, eq:scat_ode)
   - Abnahme: V20a (Fresnel mit PML, 1e-10), V20b (Steg: Zellbreite, w, β < 1e-3), V20c (Wellenleiter: Durchgang 3e-6,
     abruptes Ende auf 1e-4 konvergiert), V20d (Streufeld = Totalfeld 1e-12, RK 1e-10), V20e (Normaleinfall 1e-10),
-    V20f (Steg/Graben schräg: Gesamtstreuung 1e-4), V20g (Kontaktloch 2D: Symmetrie, CAD = Contour2D, 2D = 1D 1e-10);
+    V20f (Steg/Graben schräg: Gesamtstreuung 1e-4, Reziprozität 5e-2 bei L = 8 µm), V20g (Kontaktloch 2D: Symmetrie, CAD = Contour2D, 2D = 1D 1e-10);
     Plan v2.10, Messwerte in `docs/validation.md`
-  - Offen: Literaturvergleiche (Silberstein 2001 für V20c, Hugonin/Lalanne 2005 für die PML), Reziprozität (V20f),
+  - Offen: Literaturvergleiche (Silberstein 2001 für V20c, Hugonin/Lalanne 2005 für die PML),
     Konvergenzstudie V20g auf dem Zielsystem; Absorption verlustfreier Strukturen 2e-4 statt 1e-6
 - [x] **M19** Differenzierbarkeit: diskrete Adjungierte (Plan „Konvention“, Rückwärtsregeln), Formableitungen
   (eq:shape2d, eq:shape3d), C++-API `gradient`/`vjp`, Python `value_and_grad`, PyTorch-/JAX-Adapter

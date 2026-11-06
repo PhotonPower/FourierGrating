@@ -341,6 +341,52 @@ TEST(M18_Scattered, V20fRidgeAndTrenchOblique) {
   EXPECT_NEAR(rc.scattering.down, rk.scattering.down, 1e-7);
 }
 
+// V20f reciprocity: far-field amplitude f(alpha_s; alpha_i) = f(-alpha_i; -alpha_s) for an asymmetric
+// structure (film and ridge side by side). f(alpha) = beta A(alpha), A from the scattered field on a line
+// above the structure (angular spectrum over the physical window with a cos^2 taper; incident phase at the
+// cell centre and the top of the stack). The truncated line limits the accuracy: measured complex deviation
+// 2.5-6.7 % at L = 8 um (TE/TM, two angle pairs), falling with L (4 um: 15-40 %).
+TEST(M18_Scattered, V20fReciprocity) {
+  const double L = 8.0, w = 0.5, y0 = 0.4, top = 0.3, k = 2 * fg::PI / 0.6328, c = 0.5 * L;
+  auto st = pml(base(L), w);
+  st.layers = {entry(fg::Lamellar1DLayer{top, {0.0, c - 0.3, c, c + 0.2, L}, {"superstrate", "film", "ridge", "superstrate"}})};
+  fg::SolverOptions o;
+  o.Nx = static_cast<int>(12 * L / 0.6328);
+  fg::NearFieldRequest req;
+  req.nx = static_cast<int>(80 * L);
+  req.ny = 3;
+  req.y_min_um = 0.0;
+  req.y_max_um = 0.5;
+  req.horizontal_y_um = y0;
+  req.reconstruction = fg::Reconstruction::Direct;
+  req.scattered = true;
+  const auto solver = fg::makeSolver(o);
+  // f(alpha) of the scattered field for incidence angle phi (deg)
+  auto farField = [&](double phi, double delta, double alpha) {
+    const auto nf = solver->nearField(st, fg::Wavelength{0.6328, phi * DEG, 0, delta * DEG}, req);
+    const auto& F = delta == 0 ? nf.horizontal.E[2] : nf.horizontal.H[2];
+    const auto& x = nf.horizontal.axis1_um;
+    const double a0 = k * std::sin(phi * DEG), b0 = k * std::cos(phi * DEG), dx = x[1] - x[0], hw = 0.5 * L - w;
+    const double b = std::sqrt(k * k - alpha * alpha);
+    cplx A = 0;
+    for (std::size_t i = 0; i < x.size(); ++i) {
+      const double xs = x[i] - c;
+      if (std::abs(xs) >= hw) continue;
+      const double taper = std::pow(std::cos(0.5 * fg::PI * xs / hw), 2);
+      A += F[i] * taper * std::exp(cplx(0, -alpha * xs));
+    }
+    // incident amplitude referred to (x = c, y = top)
+    return b * A * dx / (2 * fg::PI) * std::exp(cplx(0, -b * y0)) * std::exp(cplx(0, -a0 * c - b0 * top));
+  };
+  for (double delta : {0.0, 90.0}) {
+    const double ti = 20, ts = -35;
+    const cplx f1 = farField(ti, delta, k * std::sin(ts * DEG)), f2 = farField(-ts, delta, -k * std::sin(ti * DEG));
+    std::printf("V20f reciprocity %s: |f1| = %.5f, |f2| = %.5f, |f1 - f2| / |f1| = %.3e\n", delta == 0 ? "TE" : "TM",
+                std::abs(f1), std::abs(f2), std::abs(f1 - f2) / std::abs(f1));
+    EXPECT_LT(std::abs(f1 - f2), 0.1 * std::abs(f1)) << delta;
+  }
+}
+
 // Near field of the scattered field with PML under oblique incidence: finite, and decaying into the
 // zones (the scattered field is outgoing).
 TEST(M18_Scattered, NearFieldOblique) {

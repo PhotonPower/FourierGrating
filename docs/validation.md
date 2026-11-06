@@ -176,10 +176,10 @@ Kontaktloch r = 0,25 µm in einem Film n = 2,1 (0,3 µm). N ≈ 12 L/λ.
 | V20g z-invariantes 2D (PML in x) | = dz × 1D ≤ 1e-10 (normal und 30°) |
 | V20g Kontaktloch, x- und z-Polarisation | gleich (Symmetrie) ≤ 1e-10; CAD-Körper = Contour2D ≤ 1e-10 |
 | V20g Konvergenz in N (Zelle 2 µm) | Gesamtstreuung 0,501 / 0,568 / 0,570 bei N = 4/6/8, Absorption 3e-2 / 1e-2 / 1e-3 |
+| V20f Reziprozität f(α_s; α_i) = f(−α_i; −α_s), Film und Steg nebeneinander (asymmetrisch), 20° → −35° | komplexe Abweichung TE 5,1e-2, TM 2,5e-2 bei L = 8 µm (L = 4 / 6 µm: 0,15–0,41 / 0,03–0,14); Fernfeld aus dem Streufeld auf einer Linie über der Struktur (Winkelspektrum über das Fenster, cos²-Fenster), Genauigkeit durch die endliche Linie begrenzt; Test-Toleranz 0,1 |
 
 Offen: Literaturvergleich V20c (Silberstein et al. 2001, Wert nicht bibliographisch geprüft), Vergleich der PML mit
-Hugonin/Lalanne (2005, Formulierung nicht geprüft), Reziprozität der Streuamplituden (V20f, winkelaufgelöste
-Amplituden nicht implementiert), Konvergenzstudie V20g in Zellgröße und N auf dem Zielsystem.
+Hugonin/Lalanne (2005, Formulierung nicht geprüft), Konvergenzstudie V20g in Zellgröße und N auf dem Zielsystem.
 
 ## Gradienten (M19)
 
