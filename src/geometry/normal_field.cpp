@@ -719,6 +719,99 @@ NormalFieldRaster normalFieldRaster(const std::vector<BoundaryChain>& chains,
   return R;
 }
 
+NormalFieldCoefficients normalField(const Profile1DLayer& layer, double dx_um, const IndexMap& map,
+                                    const CoordinateMap* xmap) {
+  if (!xmap) return normalField(layer, dx_um, map);
+  // N(f(X)) and N_i N_j (f(X)) by quadrature in X; slope jumps of piecewise-linear profiles as breaks
+  const int Px = 2 * map.Nx(), Pz = 2 * map.Nz();
+  std::vector<double> extra;
+  if (layer.shape == Profile1DLayer::Shape::PiecewiseLinear)
+    for (double x : layer.xs_um) extra.push_back(xmap->inverse(x));
+  const CoordinateMap::Nodes q = xmap->nodes(Px, extra);
+  const double K = 2 * PI / dx_um;
+  NormalFieldCoefficients nf;
+  for (auto& row : nf.NN)
+    for (auto& g : row) g = fourier::CoefficientGrid(Px, Pz);
+  for (auto& g : nf.N) g = fourier::CoefficientGrid(Px, Pz);
+  nf.hasSigned = true;
+  for (std::size_t l = 0; l < q.X.size(); ++l) {
+    const double s = profileSlope(layer, xmap->f(q.X[l]), dx_um);
+    const double w = 1.0 / std::sqrt(1.0 + s * s);
+    const double N[2] = {-s * w, w};
+    for (int p = -Px; p <= Px; ++p) {
+      const cplx e = q.w[l] * std::exp(-I * (p * K * q.X[l]));
+      for (int i = 0; i < 2; ++i) {
+        nf.N[static_cast<std::size_t>(i)](p, 0) += e * N[i];
+        for (int j = 0; j < 2; ++j)
+          nf.NN[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)](p, 0) += e * (N[i] * N[j]);
+      }
+    }
+  }
+  return nf;
+}
+
+NormalFieldRaster resampleRaster(const NormalFieldRaster& R, double dx, double dz, const CoordinateMap* xmap,
+                                 const CoordinateMap* zmap) {
+  if (!xmap && !zmap) return R;
+  NormalFieldRaster out;
+  out.Gx = R.Gx;
+  out.Gz = R.Gz;
+  const std::size_t n = static_cast<std::size_t>(R.Gx) * static_cast<std::size_t>(R.Gz);
+  const bool d3 = R.has3D();
+  for (auto* v : {&out.nxx, &out.nxz, &out.nzz, &out.nx, &out.nz}) v->resize(n);
+  if (d3)
+    for (auto* v : {&out.nxy, &out.nyy, &out.nyz, &out.ny}) v->resize(n);
+  if (!R.region.empty()) out.region.resize(n);
+  for (int i = 0; i < R.Gx; ++i)
+    for (int k = 0; k < R.Gz; ++k) {
+      const double X = dx * i / R.Gx, Z = dz * k / R.Gz;
+      const double u = (xmap ? xmap->f(X) : X) / dx * R.Gx, w = (zmap ? zmap->f(Z) : Z) / dz * R.Gz;
+      const double fu = std::floor(u), fw = std::floor(w), tu = u - fu, tw = w - fw;
+      Eigen::Matrix3d T = Eigen::Matrix3d::Zero(), B = Eigen::Matrix3d::Zero();
+      for (int a = 0; a < 2; ++a)
+        for (int b = 0; b < 2; ++b) {
+          const long ii = ((static_cast<long>(fu) + a) % R.Gx + R.Gx) % R.Gx;
+          const long kk = ((static_cast<long>(fw) + b) % R.Gz + R.Gz) % R.Gz;
+          const std::size_t j = static_cast<std::size_t>(ii * R.Gz + kk);
+          const double wt = (a ? tu : 1 - tu) * (b ? tw : 1 - tw);
+          Eigen::Matrix3d P = Eigen::Matrix3d::Zero();
+          P(0, 0) = R.nxx[j];
+          P(0, 2) = P(2, 0) = R.nxz[j];
+          P(2, 2) = R.nzz[j];
+          Vec3D bn(R.nx[j], 0.0, R.nz[j]);
+          if (d3) {
+            P(0, 1) = P(1, 0) = R.nxy[j];
+            P(1, 1) = R.nyy[j];
+            P(1, 2) = P(2, 1) = R.nyz[j];
+            bn(1) = R.ny[j];
+          }
+          T += wt * P;
+          B += wt * bn * bn.transpose();
+        }
+      const std::size_t j = static_cast<std::size_t>(i) * static_cast<std::size_t>(R.Gz) + static_cast<std::size_t>(k);
+      out.nxx[j] = T(0, 0);
+      out.nxz[j] = T(0, 2);
+      out.nzz[j] = T(2, 2);
+      // rank-1 field: principal axis of the interpolated b b^T (sign-free)
+      Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(B);
+      const Vec3D v = es.eigenvectors().col(2);
+      out.nx[j] = v(0);
+      out.nz[j] = v(2);
+      if (d3) {
+        out.nxy[j] = T(0, 1);
+        out.nyy[j] = T(1, 1);
+        out.nyz[j] = T(1, 2);
+        out.ny[j] = v(1);
+      }
+      if (!R.region.empty()) {
+        const long ii = (static_cast<long>(std::lround(u)) % R.Gx + R.Gx) % R.Gx;
+        const long kk = (static_cast<long>(std::lround(w)) % R.Gz + R.Gz) % R.Gz;
+        out.region[j] = R.region[static_cast<std::size_t>(ii * R.Gz + kk)];
+      }
+    }
+  return out;
+}
+
 NormalFieldCoefficients rasterCoefficients(const NormalFieldRaster& R, const IndexMap& map) {
   FG_PROF_SCOPE("nf.coefficients");
   const int Px = 2 * map.Nx(), Pz = 2 * map.Nz();
@@ -764,13 +857,18 @@ Vec3D profile2DNormal(const Profile2DLayer& l, double dx, double dz, double x, d
 }
 
 NormalFieldCoefficients normalField(const Profile2DLayer& l, double dx, double dz, const IndexMap& map) {
+  return normalField(l, dx, dz, map, nullptr, nullptr);
+}
+
+NormalFieldCoefficients normalField(const Profile2DLayer& l, double dx, double dz, const IndexMap& map,
+                                    const CoordinateMap* xmap, const CoordinateMap* zmap) {
   if (l.shape == Profile2DLayer::Shape::SinusX) {
     // z-invariant: identical to the 1D sinus (V9)
     Profile1DLayer p;
     p.shape = Profile1DLayer::Shape::Sinus;
     p.depth_um = l.depth_um;
     p.x0_um = l.x0_um;
-    return normalField(p, dx, map);
+    return normalField(p, dx, map, xmap);
   }
   const int Px = 2 * map.Nx(), Pz = 2 * map.Nz();
   const int Mx = std::max(256, 16 * (Px + 1)), Mz = std::max(256, 16 * (Pz + 1));
@@ -780,7 +878,8 @@ NormalFieldCoefficients normalField(const Profile2DLayer& l, double dx, double d
   for (auto& v : N) v.resize(n);
   for (int i = 0; i < Mx; ++i)
     for (int k = 0; k < Mz; ++k) {
-      const auto gr = grad(dx * i / Mx, dz * k / Mz);
+      const double X = dx * i / Mx, Z = dz * k / Mz;  // transformed: physical normal at (f(X), g(Z))
+      const auto gr = grad(xmap ? xmap->f(X) : X, zmap ? zmap->f(Z) : Z);
       const double w = 1.0 / std::sqrt(1.0 + gr[0] * gr[0] + gr[1] * gr[1]);
       const std::size_t j = static_cast<std::size_t>(i) * static_cast<std::size_t>(Mz) + static_cast<std::size_t>(k);
       N[0][j] = -gr[0] * w;

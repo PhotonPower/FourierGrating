@@ -26,6 +26,11 @@ QBlocks homogeneousTensorQ(const Mat3C& eps, int nf);
 /// alpha, gamma: normalized wave numbers of the retained orders (single-index order).
 MatC buildPropagationMatrix(const QBlocks& Qe, const VecC& alpha, const VecC& gamma);
 
+/// Transformed coordinates (Plan eq:ct_deriv, "Ersetzungsregel"): every alpha replaced by the dense
+/// A = [[1/f']] alpha and every gamma by G = [[1/g']] gamma, keeping the order of the factors. With
+/// A = diag(alpha), G = diag(gamma) identical to the diagonal version up to rounding.
+MatC buildPropagationMatrix(const QBlocks& Qe, const MatC& A, const MatC& G);
+
 /// 2 n_f x 2 n_f matrix of one polarization of the 1D in-plane problem (gamma = 0, isotropic
 /// media, Q_xz = Q_zx = Q_yz = Q_zy = 0): TE (Plan eq:TE) on ([Ez],[Hx]), TM (Plan eq:TM) on
 /// ([Ex],[Hz]). Identical to the corresponding blocks of buildPropagationMatrix.
@@ -34,5 +39,8 @@ MatC buildPropagationMatrix(const QBlocks& Qe, const VecC& alpha, Polarization p
 /// [E_y] from F (Plan eq:Ey) and [H_y] from F (Plan eq:Hy, Q_mu = 1).
 VecC computeEy(const QBlocks& Qe, const VecC& alpha, const VecC& gamma, const VecC& F);
 VecC computeHy(const VecC& alpha, const VecC& gamma, const VecC& F);
+/// Transformed coordinates (alpha -> A, gamma -> G, Plan eq:ct_deriv).
+VecC computeEy(const QBlocks& Qe, const MatC& A, const MatC& G, const VecC& F);
+VecC computeHy(const MatC& A, const MatC& G, const VecC& F);
 
 }  // namespace fg

@@ -4,6 +4,7 @@
 
 #include "fg/fourier/coefficients.hpp"
 #include "fg/geometry/contour.hpp"
+#include "fg/geometry/coordinate_transform.hpp"
 
 namespace fg::fourier {
 
@@ -13,5 +14,11 @@ namespace fg::fourier {
 /// the initial node count n0 = max(16, ceil(Phi / 2) + 8), Phi = |k|_max * (piece length).
 CoefficientGrid regionCoefficients(const geometry::Region& region, double dx, double dz, int Px, int Pz,
                                    int n0 = 0);
+
+/// Coefficients in transformed coordinates (Plan section "M17: Permittivitaet und Normalenfeld"): the
+/// boundary is mapped, X(t) = f^{-1}(x(t)), Z(t) = g^{-1}(z(t)), X' = x'/f'(X), and integrated with
+/// eq:contour as above (adaptive bisection of the parameter interval). Null maps: identity on that axis.
+CoefficientGrid regionCoefficients(const geometry::Region& region, double dx, double dz, int Px, int Pz,
+                                   const CoordinateMap* xmap, const CoordinateMap* zmap);
 
 }  // namespace fg::fourier

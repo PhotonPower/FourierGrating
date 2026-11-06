@@ -8,6 +8,7 @@
 #include "fg/core/index_map.hpp"
 #include "fg/fourier/coefficients.hpp"
 #include "fg/geometry/boundary.hpp"
+#include "fg/geometry/coordinate_transform.hpp"
 #include "fg/geometry/layer.hpp"
 
 namespace fg {
@@ -21,6 +22,10 @@ struct NormalFieldCoefficients {
 
 /// 1D profile: N = (-g', 1, 0)/sqrt(1+g'^2) (Plan eq:N1d); exact for piecewise-linear profiles.
 NormalFieldCoefficients normalField(const Profile1DLayer& layer, double dx_um, const IndexMap& map);
+/// The same in transformed coordinates X (Plan section "M17": physical normals at x = f(X)); xmap null:
+/// the function above.
+NormalFieldCoefficients normalField(const Profile1DLayer& layer, double dx_um, const IndexMap& map,
+                                    const CoordinateMap* xmap);
 
 /// Raster of Algorithm NF on Gx x Gz points x_i = dx i/Gx, z_k = dz k/Gz (row-major, index
 /// i Gz + k). NN = (N_x^2, N_x N_z, N_z^2) according to the method.
@@ -47,6 +52,11 @@ NormalFieldRaster normalFieldRaster(const std::vector<BoundaryChain>& chains,
                                     double dx_um, double dz_um, int Gx, int Gz);
 /// One exact chord per polygon edge, normal (t_z, 0, -t_x)/|t| (counter-clockwise: outward).
 std::vector<BoundaryChain> polygonChains(const std::vector<std::array<double, 2>>& vertices);
+/// Raster on the transformed grid X_i = dx i/Gx, Z_k = dz k/Gz (Plan section "M17": physical normals at
+/// x = f(X_i), z = g(Z_k)): bilinear periodic interpolation of R (tensor entries; the rank-1 field as
+/// principal axis of the interpolated b b^T), region of the nearest raster point.
+NormalFieldRaster resampleRaster(const NormalFieldRaster& R, double dx_um, double dz_um, const CoordinateMap* xmap,
+                                 const CoordinateMap* zmap);
 /// Step 5 (DFT of the smooth raster): coefficients of the projector field, |p| <= 2Nx, |q| <= 2Nz.
 NormalFieldCoefficients rasterCoefficients(const NormalFieldRaster& R, const IndexMap& map);
 /// Raster size used for N Fourier orders: max(grid, 8 (2N + 1)), rounded up to a power of two.
@@ -66,6 +76,9 @@ int polygonRegion(const Polygon2DLayer& layer, double dx_um, double dz_um, doubl
 /// (smooth function); SinusX reproduces the 1D sinus coefficients exactly (V9).
 NormalFieldCoefficients normalField(const Profile2DLayer& layer, double dx_um, double dz_um,
                                     const IndexMap& map);
+/// The same in transformed coordinates (X, Z) (sampled at x = f(X), z = g(Z)); null maps: identity.
+NormalFieldCoefficients normalField(const Profile2DLayer& layer, double dx_um, double dz_um, const IndexMap& map,
+                                    const CoordinateMap* xmap, const CoordinateMap* zmap);
 
 /// Gradient (dg/dx, dg/dz) and unit normal (Plan eq:N2d) of a 2D profile.
 std::array<double, 2> profile2DGradient(const Profile2DLayer& l, double dx_um, double dz_um, double x, double z);

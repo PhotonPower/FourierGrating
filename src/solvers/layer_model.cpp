@@ -173,7 +173,8 @@ class HomogeneousModel final : public LayerModel {
 // ------------------------------------------------------------------ lamellar (1D)
 class LamellarModel final : public LayerModel {
  public:
-  LamellarModel(const Stack& st, const Lamellar1DLayer& l, Factorization fac, const IndexMap& map)
+  LamellarModel(const Stack& st, const Lamellar1DLayer& l, Factorization fac, const IndexMap& map,
+                const ResolvedTransform& tr)
       : l_(l), dx_(st.dx_um), nn_(constantNN(Vec3D(1, 0, 0), map)) {
     FG_REQUIRE(l.breakpoints_um.size() == l.materials.size() + 1, "lamellar: breakpoints/materials");
     bool iso = true;
@@ -183,13 +184,19 @@ class LamellarModel final : public LayerModel {
       tensors_.push_back(m.tensor());
       epsList.push_back(m.isotropic ? m.eps : m.epsTensor.diagonal().mean());
     }
+    // transformed coordinates: breakpoints X_j = f^{-1}(x_j) (Plan section "M17")
+    std::vector<double> br = l.breakpoints_um;
     if (!iso) {
       const Factorization f = fac == Factorization::Auto ? Factorization::FFF_A : fac;
-      Q_ = anisotropicQ(l.breakpoints_um, tensors_, [](double) { return Vec3D(1, 0, 0); }, f, dx_, map);
+      std::vector<Mat3C> tens = tensors_;
+      mapIntervals(tr.x.get(), br, tens);
+      Q_ = anisotropicQ(br, tens, [](double) { return Vec3D(1, 0, 0); }, f, dx_, map);
       return;
     }
+    std::vector<cplx> ev = epsList;
+    mapIntervals(tr.x.get(), br, ev);
     SliceCoefficients sc;
-    isoGrids(l.breakpoints_um, epsList, dx_, map, sc);
+    isoGrids(br, ev, dx_, map, sc);
     switch (fac) {
       case Factorization::Laurent: Q_ = qLaurent(sc, map); break;
       case Factorization::Auto:
@@ -222,8 +229,9 @@ class LamellarModel final : public LayerModel {
 // ------------------------------------------------------------------ profile y = g(x) (1D)
 class ProfileModel final : public LayerModel {
  public:
-  ProfileModel(const Stack& st, const Profile1DLayer& p, Factorization fac, const IndexMap& map, int defaultSlices)
-      : p_(p), dx_(st.dx_um), map_(map), nf_(normalField(p, st.dx_um, map)) {
+  ProfileModel(const Stack& st, const Profile1DLayer& p, Factorization fac, const IndexMap& map, int defaultSlices,
+               const ResolvedTransform& tr)
+      : p_(p), dx_(st.dx_um), map_(map), xm_(tr.x), nf_(normalField(p, st.dx_um, map, tr.x.get())) {
     const Material& mb = st.material(p.below);
     const Material& ma = st.material(p.above);
     aniso_ = !mb.isotropic || !ma.isotropic;
@@ -257,10 +265,12 @@ class ProfileModel final : public LayerModel {
     std::vector<double> br;
     std::vector<bool> below;
     profileIntervals(p_, std::clamp(y, 1e-14 * a, a * (1 - 1e-14)), dx_, br, below);
+    mapIntervals(xm_.get(), br, below);  // zeros of g(f(X)) - y (Plan section "M17")
     if (aniso_) {
       std::vector<Mat3C> tens;
       for (bool b : below) tens.push_back(b ? tb_ : ta_);
-      return anisotropicQ(br, tens, [this](double x) { return normalAt(x, 0.0, 0.0); }, fac_, dx_, map_);
+      return anisotropicQ(br, tens, [this](double X) { return normalAt(xm_ ? xm_->f(X) : X, 0.0, 0.0); }, fac_, dx_,
+                          map_);
     }
     std::vector<cplx> ve;
     for (bool b : below) ve.push_back(b ? epsB_ : epsA_);
@@ -282,6 +292,7 @@ class ProfileModel final : public LayerModel {
   Profile1DLayer p_;
   double dx_;
   IndexMap map_;
+  std::shared_ptr<const CoordinateMap> xm_;
   NormalFieldCoefficients nf_;
   bool aniso_ = false;
   cplx epsB_, epsA_;
@@ -321,6 +332,8 @@ class CrossSectionGeometry {
   virtual const std::string& material(std::size_t k) const = 0;
   /// Exact coefficients of the indicator of inclusion k, |p| <= Px, |q| <= Pz.
   virtual Grid indicator(std::size_t k, int Px, int Pz) const = 0;
+  /// Inclusion k as a normalized region (contour integrals in transformed coordinates, M17).
+  virtual geometry::Region region(std::size_t k) const = 0;
   /// Index of the inclusion containing (x, z) (periodic), -1 for the background.
   virtual int regionAt(double x, double z) const = 0;
   /// Algorithm NF steps 1-4 on a Gx x Gz raster.
@@ -354,6 +367,15 @@ class PolygonGeometry final : public CrossSectionGeometry {
       for (int q = -Pz; q <= Pz; ++q) chi(p, q) = fourier::polygonCoefficient(l_.inclusions[k].vertices, dx_, dz_, p, q);
     return chi;
   }
+  geometry::Region region(std::size_t k) const override {
+    geometry::Region r;
+    std::vector<geometry::Point2> v;
+    for (const auto& p : l_.inclusions[k].vertices) v.push_back({p[0], p[1]});
+    r.outer = geometry::Contour2D::polygon(v);
+    r.material = l_.inclusions[k].material;
+    r.normalize(1e-6 * std::min(dx_, dz_));
+    return r;
+  }
   int regionAt(double x, double z) const override { return polygonRegion(l_, dx_, dz_, x, z); }
   NormalFieldRaster raster(int Gx, int Gz) const override { return normalFieldRaster(l_, dx_, dz_, Gx, Gz); }
   const NormalFieldOptions& nfOptions() const override { return l_.normalField; }
@@ -382,6 +404,7 @@ class ContourGeometry final : public CrossSectionGeometry {
   Grid indicator(std::size_t k, int Px, int Pz) const override {
     return fourier::regionCoefficients(regions_[k], dx_, dz_, Px, Pz);  // Plan eq:contour
   }
+  geometry::Region region(std::size_t k) const override { return regions_[k]; }
   int regionAt(double x, double z) const override {
     for (std::size_t k = 0; k < regions_.size(); ++k) {
       const auto b = regions_[k].bounds();
@@ -489,8 +512,8 @@ class ContourGeometry final : public CrossSectionGeometry {
 class CrossSectionModel final : public LayerModel {
  public:
   CrossSectionModel(const Stack& st, std::shared_ptr<const CrossSectionGeometry> geo, Factorization fac,
-                    const IndexMap& map, const char* name)
-      : geo_(std::move(geo)), dx_(st.dx_um), dz_(st.dz_um), map_(map) {
+                    const IndexMap& map, const char* name, const ResolvedTransform& tr)
+      : geo_(std::move(geo)), dx_(st.dx_um), dz_(st.dz_um), map_(map), xm_(tr.x), zm_(tr.z) {
     FG_REQUIRE(st.is2D(), std::string(name) + " layers need a 2D stack (period_um.z > 0)");
     std::vector<const Material*> mats{&st.material(geo_->background())};
     for (std::size_t k = 0; k < geo_->count(); ++k) mats.push_back(&st.material(geo_->material(k)));
@@ -521,7 +544,7 @@ class CrossSectionModel final : public LayerModel {
       for (std::size_t k = 0; k < geo_->count(); ++k) {
         const Mat3C d = tensors_[k + 1] - tensors_[0];
         if (d.cwiseAbs().maxCoeff() == 0.0) continue;
-        const Grid chi = geo_->indicator(k, Px, Pz);
+        const Grid chi = indicator(k, Px, Pz);
         for (int e = 0; e < 9; ++e)
           for (int p = -Px; p <= Px; ++p)
             for (int q = -Pz; q <= Pz; ++q) g[static_cast<std::size_t>(e)](p, q) += d(e / 3, e % 3) * chi(p, q);
@@ -538,7 +561,7 @@ class CrossSectionModel final : public LayerModel {
       for (std::size_t k = 0; k < geo_->count(); ++k) {
         const cplx ek = mats[k + 1]->eps;
         if (ek == eb) continue;
-        const Grid chi = geo_->indicator(k, Px, Pz);
+        const Grid chi = indicator(k, Px, Pz);
         for (int p = -Px; p <= Px; ++p)
           for (int q = -Pz; q <= Pz; ++q) {
             sc.eps(p, q) += (ek - eb) * chi(p, q);
@@ -546,7 +569,7 @@ class CrossSectionModel final : public LayerModel {
           }
       }
       if (fac_ != Factorization::Laurent) {
-        nf_ = rasterCoefficients(raster(), map);  // = normalField(Polygon2DLayer) for polygons
+        nf_ = rasterCoefficients(rasterX(), map);  // = normalField(Polygon2DLayer) for polygons
         nfReady_ = true;
       }
       sc.normal = &nf_;
@@ -584,9 +607,9 @@ class CrossSectionModel final : public LayerModel {
   const NormalFieldCoefficients& NN(double) const override {
     if (nfReady_) return nf_;
     if (!rank1_) {
-      nf_ = rasterCoefficients(raster(), map_);
+      nf_ = rasterCoefficients(rasterX(), map_);
     } else {
-      const NormalFieldRaster& R = raster();
+      const NormalFieldRaster& R = rasterX();
       const std::size_t n = R.nx.size();
       std::vector<double> xx(n), xz(n), zz(n);
       for (std::size_t j = 0; j < n; ++j) {
@@ -628,7 +651,7 @@ class CrossSectionModel final : public LayerModel {
   /// smooth factor). Exact when N is constant (z-invariant strips: Li formula).
   QBlocks projectorQ(const IndexMap& map) const {
     const int Px = 2 * map.Nx(), Pz = 2 * map.Nz(), Pfx = 2 * Px, Pfz = 2 * Pz;
-    const NormalFieldRaster& R = raster();
+    const NormalFieldRaster& R = rasterX();
     const int Gx = R.Gx, Gz = R.Gz;
     FG_REQUIRE(Gx > 2 * Pfx && Gz > 2 * Pfz, "polygon2d FFF_B: normal field raster too coarse");
     const std::size_t n = R.nx.size();
@@ -637,7 +660,7 @@ class CrossSectionModel final : public LayerModel {
     std::vector<bool> differs;
     for (std::size_t k = 0; k < K; ++k) {
       differs.push_back((tensors_[k + 1] - tensors_[0]).cwiseAbs().maxCoeff() != 0.0);
-      chi.push_back(differs.back() ? geo_->indicator(k, Px + Pfx, Pz + Pfz) : Grid());
+      chi.push_back(differs.back() ? indicator(k, Px + Pfx, Pz + Pfz) : Grid());
     }
     std::vector<Grid> g(37);
     // blocks of functions (G1, G2, H1, P_T, 1/xi) to bound the raster memory
@@ -676,6 +699,17 @@ class CrossSectionModel final : public LayerModel {
     return anisoQFromGrids(Factorization::FFF_B, g, map);
   }
 
+  /// Indicator coefficients of inclusion k, in transformed coordinates from the mapped contour (M17).
+  Grid indicator(std::size_t k, int Px, int Pz) const {
+    if (!xm_ && !zm_) return geo_->indicator(k, Px, Pz);
+    return fourier::regionCoefficients(geo_->region(k), dx_, dz_, Px, Pz, xm_.get(), zm_.get());
+  }
+  /// Raster for the coefficients: on the transformed grid (physical normals at f(X), g(Z), M17).
+  const NormalFieldRaster& rasterX() const {
+    if (!xm_ && !zm_) return raster();
+    if (RX_.nx.empty()) RX_ = resampleRaster(raster(), dx_, dz_, xm_.get(), zm_.get());
+    return RX_;
+  }
   /// Algorithm NF raster (computed once, also for the real-space reconstruction).
   const NormalFieldRaster& raster() const {
     if (R_.nx.empty())
@@ -735,12 +769,13 @@ class CrossSectionModel final : public LayerModel {
   std::shared_ptr<const CrossSectionGeometry> geo_;
   double dx_, dz_;
   IndexMap map_;
+  std::shared_ptr<const CoordinateMap> xm_, zm_;
   std::vector<Mat3C> tensors_;  ///< background, inclusions
   Factorization fac_ = Factorization::Auto;
   bool rank1_ = false;
   mutable bool nfReady_ = false;
   mutable NormalFieldCoefficients nf_;
-  mutable NormalFieldRaster R_;
+  mutable NormalFieldRaster R_, RX_;
   QBlocks Q_;
 };
 
@@ -750,8 +785,9 @@ class CrossSectionModel final : public LayerModel {
 /// stage nodes and RCWA slice centres are reused by the near-field reconstruction).
 class SectionedModel final : public LayerModel {
  public:
-  SectionedModel(const Stack& st, const SectionedLayer& l, Factorization fac, const IndexMap& map, int defaultSlices)
-      : l_(l), fac_(fac), map_(map) {
+  SectionedModel(const Stack& st, const SectionedLayer& l, Factorization fac, const IndexMap& map, int defaultSlices,
+                 const ResolvedTransform& tr)
+      : l_(l), fac_(fac), map_(map), tr_(tr) {
     FG_REQUIRE(st.is2D(), "sectioned layers need a 2D stack (period_um.z > 0)");
     FG_REQUIRE(static_cast<bool>(l.provider), "sectioned layer: no section provider");
     h_ = l.provider->thickness_um();
@@ -798,7 +834,7 @@ class SectionedModel final : public LayerModel {
     auto geo = std::make_shared<ContourGeometry>(h_, l_.background, std::move(cs.regions), std::move(cs.chains),
                                                  l_.normalField, stack_.dx_um, stack_.dz_um, "sectioned layer");
     std::shared_ptr<const LayerModel> m =
-        std::make_shared<CrossSectionModel>(stack_, std::move(geo), fac_, map_, "sectioned layer");
+        std::make_shared<CrossSectionModel>(stack_, std::move(geo), fac_, map_, "sectioned layer", tr_);
     const std::lock_guard<std::mutex> lock(mu_);
     if (cache_.size() >= 4096) cache_.clear();  // bounds the memory; holders keep their shared_ptr
     return cache_.emplace(yc, std::move(m)).first->second;
@@ -881,6 +917,7 @@ class SectionedModel final : public LayerModel {
   SectionedLayer l_;
   Factorization fac_;
   IndexMap map_;
+  ResolvedTransform tr_;
   Stack stack_;  ///< periods and materials
   double h_ = 0;
   mutable std::mutex mu_;
@@ -892,8 +929,9 @@ class SectionedModel final : public LayerModel {
 // ------------------------------------------------------------------ profile y = g(x, z) (2D)
 class Profile2DModel final : public LayerModel {
  public:
-  Profile2DModel(const Stack& st, const Profile2DLayer& p, Factorization fac, const IndexMap& map, int defaultSlices)
-      : p_(p), dx_(st.dx_um), dz_(st.dz_um), map_(map) {
+  Profile2DModel(const Stack& st, const Profile2DLayer& p, Factorization fac, const IndexMap& map, int defaultSlices,
+                 const ResolvedTransform& tr)
+      : p_(p), dx_(st.dx_um), dz_(st.dz_um), map_(map), xm_(tr.x), zm_(tr.z) {
     FG_REQUIRE(st.is2D(), "profile2d layers need a 2D stack (period_um.z > 0)");
     FG_REQUIRE(p.depth_um > 0, "profile2d: depth must be positive");
     FG_REQUIRE(p.shape != Profile2DLayer::Shape::Function || static_cast<bool>(p.g), "profile2d: function missing");
@@ -919,7 +957,7 @@ class Profile2DModel final : public LayerModel {
                "profile2d: factorization not applicable");
     tensorPath_ = aniso_ || fac_ == Factorization::FFF_A || fac_ == Factorization::FFF_B;
     warnFFFiso(fac_, {&mb, &ma}, warnings);
-    nf_ = normalField(p_, dx_, dz_, map);  // isotropic FFF and the FFF-consistent reconstruction
+    nf_ = normalField(p_, dx_, dz_, map, xm_.get(), zm_.get());  // isotropic FFF and the reconstruction
     const int Pz = 2 * map.Nz();
     Mz_ = p.zSamples > 0 ? p.zSamples : std::max(128, 16 * (Pz + 1));
     FG_REQUIRE(Mz_ > 2 * Pz, "profile2d: z_samples must exceed 4 Nz");
@@ -937,21 +975,24 @@ class Profile2DModel final : public LayerModel {
         std::vector<double> br;
         std::vector<bool> below;
         profileIntervals(line(0.0), yc, dx_, br, below);
+        mapIntervals(xm_.get(), br, below);
         std::vector<Mat3C> tens;
         for (bool b : below) tens.push_back(b ? tb_ : ta_);
-        return anisotropicQ(br, tens, [this](double x) { return profile2DNormal(p_, dx_, dz_, x, 0.0); }, fac_, dx_,
-                            map_);
+        return anisotropicQ(br, tens, [this](double X) { return profile2DNormal(p_, dx_, dz_, fx(X), 0.0); }, fac_,
+                            dx_, map_);
       }
       std::vector<Grid> g(static_cast<std::size_t>(anisoCount(fac_)), Grid(Px, Pz));
       std::vector<double> br;
       std::vector<bool> below;
-      zIntegrate(yc, [&](double z, double w) {
+      zIntegrate(yc, [&](double Z, double w) {
+        const double z = fz(Z);
         lineIntervals(z, yc, br, below);
+        mapIntervals(xm_.get(), br, below);
         std::vector<Mat3C> tens;
         for (bool b : below) tens.push_back(b ? tb_ : ta_);
-        const auto c = anisoLineCoefficients(br, tens, [&](double x) { return profile2DNormal(p_, dx_, dz_, x, z); },
-                                             fac_, dx_, Px);
-        accumulate(g, c, z, w);
+        const auto c = anisoLineCoefficients(
+            br, tens, [&](double X) { return profile2DNormal(p_, dx_, dz_, fx(X), z); }, fac_, dx_, Px);
+        accumulate(g, c, Z, w);
       });
       return anisoQFromGrids(fac_, g, map_);
     }
@@ -961,6 +1002,7 @@ class Profile2DModel final : public LayerModel {
       std::vector<double> br;
       std::vector<bool> below;
       profileIntervals(line(0.0), yc, dx_, br, below);
+      mapIntervals(xm_.get(), br, below);
       std::vector<cplx> ve;
       for (bool b : below) ve.push_back(b ? epsB_ : epsA_);
       isoGrids(br, ve, dx_, map_, sc);
@@ -968,15 +1010,16 @@ class Profile2DModel final : public LayerModel {
       std::vector<Grid> g(2, Grid(Px, Pz));
       std::vector<double> br;
       std::vector<bool> below;
-      zIntegrate(yc, [&](double z, double w) {
-        lineIntervals(z, yc, br, below);
+      zIntegrate(yc, [&](double Z, double w) {
+        lineIntervals(fz(Z), yc, br, below);
+        mapIntervals(xm_.get(), br, below);
         std::vector<cplx> ve, vi;
         for (bool b : below) {
           ve.push_back(b ? epsB_ : epsA_);
           vi.push_back(b ? 1.0 / epsB_ : 1.0 / epsA_);
         }
         accumulate(g, {fourier::piecewiseConstant1D(br, ve, dx_, Px), fourier::piecewiseConstant1D(br, vi, dx_, Px)},
-                   z, w);
+                   Z, w);
       });
       sc.eps = std::move(g[0]);
       sc.invEps = std::move(g[1]);
@@ -991,6 +1034,9 @@ class Profile2DModel final : public LayerModel {
   const NormalFieldCoefficients& NN(double) const override { return nf_; }
 
  private:
+  /// Physical coordinates of the transformed ones (Plan section "M17").
+  double fx(double X) const { return xm_ ? xm_->f(X) : X; }
+  double fz(double Z) const { return zm_ ? zm_->f(Z) : Z; }
   /// The 1D profile x -> g(x, z) of the line z = const.
   Profile1DLayer line(double z) const {
     Profile1DLayer l;
@@ -1048,8 +1094,9 @@ class Profile2DModel final : public LayerModel {
     std::vector<double> br;
     std::vector<bool> below;
     const int Ms = 2 * Mz_;
-    auto count = [&](double z) {
-      lineIntervals(z, y, br, below);
+    // in transformed coordinates the nodes are Z with lines at z = g(Z) (Plan section "M17")
+    auto count = [&](double Z) {
+      lineIntervals(fz(Z), y, br, below);
       return br.size();
     };
     std::vector<double> zc;
@@ -1068,6 +1115,9 @@ class Profile2DModel final : public LayerModel {
       }
       cprev = cb;
     }
+    // kinks of g at its breakpoints: Gauss panels between them instead of the trapezoid rule
+    if (zm_)
+      for (double b : zm_->breakpoints()) zc.push_back(b);
     if (zc.empty()) {
       for (int k = 0; k < Mz_; ++k) add(dz_ * k / Mz_, 1.0 / Mz_);
       return;
@@ -1115,6 +1165,7 @@ class Profile2DModel final : public LayerModel {
   Profile2DLayer p_;
   double dx_, dz_;
   IndexMap map_;
+  std::shared_ptr<const CoordinateMap> xm_, zm_;
   NormalFieldCoefficients nf_;
   bool aniso_ = false, tensorPath_ = false;
   cplx epsB_, epsA_;
@@ -1128,25 +1179,26 @@ class Profile2DModel final : public LayerModel {
 std::unique_ptr<LayerModel> buildLayerModel(const Stack& stack, std::size_t k, const IndexMap& map, int defaultSlices) {
   FG_REQUIRE(k < stack.layers.size(), "layer index out of range");
   const LayerEntry& le = stack.layers[k];
+  const ResolvedTransform tr = resolveTransform(stack);  // coefficients in X, Z (Plan section "M17")
   if (const auto* hl = std::get_if<HomogeneousLayer>(&le.spec))
     return std::make_unique<HomogeneousModel>(*hl, stack.material(hl->material), map);
   if (const auto* ll = std::get_if<Lamellar1DLayer>(&le.spec))
-    return std::make_unique<LamellarModel>(stack, *ll, le.factorization, map);
+    return std::make_unique<LamellarModel>(stack, *ll, le.factorization, map, tr);
   if (const auto* pl = std::get_if<Profile1DLayer>(&le.spec))
-    return std::make_unique<ProfileModel>(stack, *pl, le.factorization, map, defaultSlices);
+    return std::make_unique<ProfileModel>(stack, *pl, le.factorization, map, defaultSlices, tr);
   if (const auto* gl = std::get_if<Polygon2DLayer>(&le.spec))
     return std::make_unique<CrossSectionModel>(stack, std::make_shared<PolygonGeometry>(*gl, stack.dx_um, stack.dz_um),
-                                               le.factorization, map, "polygon2d");
+                                               le.factorization, map, "polygon2d", tr);
   if (const auto* sl = std::get_if<SectionedLayer>(&le.spec))
-    return std::make_unique<SectionedModel>(stack, *sl, le.factorization, map, defaultSlices);
+    return std::make_unique<SectionedModel>(stack, *sl, le.factorization, map, defaultSlices, tr);
   if (const auto* cl = std::get_if<Contour2DLayer>(&le.spec))
     return std::make_unique<CrossSectionModel>(
         stack,
         std::make_shared<ContourGeometry>(cl->thickness_um, cl->background, cl->regions, std::vector<BoundaryChain>{},
                                           cl->normalField, stack.dx_um, stack.dz_um, "contour2d"),
-        le.factorization, map, "contour2d");
+        le.factorization, map, "contour2d", tr);
   if (const auto* ql = std::get_if<Profile2DLayer>(&le.spec))
-    return std::make_unique<Profile2DModel>(stack, *ql, le.factorization, map, defaultSlices);
+    return std::make_unique<Profile2DModel>(stack, *ql, le.factorization, map, defaultSlices, tr);
   throw NotImplemented("layer type");
 }
 

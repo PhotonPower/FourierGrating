@@ -23,6 +23,7 @@ set(FG_UNIT_TESTS
   test_parallel
   test_resident
   test_precision
+  test_coordinate_transform
 )
 foreach(t ${FG_UNIT_TESTS})
   add_executable(${t} unit/${t}.cpp)
@@ -74,6 +75,9 @@ gtest_discover_tests(test_validation_v15 PROPERTIES LABELS "validation" TIMEOUT 
 add_executable(test_validation_v16a validation/test_v16a_sectioned.cpp)
 target_link_libraries(test_validation_v16a PRIVATE fg_core GTest::gtest_main)
 gtest_discover_tests(test_validation_v16a PROPERTIES LABELS "validation" TIMEOUT 1800 DISCOVERY_TIMEOUT 60)
+add_executable(test_validation_v19 validation/test_v19_asr.cpp)
+target_link_libraries(test_validation_v19 PRIVATE fg_core GTest::gtest_main)
+gtest_discover_tests(test_validation_v19 PROPERTIES LABELS "validation" TIMEOUT 1800 DISCOVERY_TIMEOUT 60)
 add_executable(test_validation_v12_2d validation/test_v12_2d.cpp)
 target_link_libraries(test_validation_v12_2d PRIVATE fg_core GTest::gtest_main nlohmann_json::nlohmann_json)
 gtest_discover_tests(test_validation_v12_2d PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)

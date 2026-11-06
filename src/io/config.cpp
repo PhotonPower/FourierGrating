@@ -333,6 +333,28 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
     }
     cfg.stack.layers.push_back(parseLayer(lj));
   }
+  // coordinate transformation (Plan section "M17"): {"x": {"type": "asr", "eta": 0.8, "breakpoints_um": "auto"}}
+  if (j.contains("coordinate_transform")) {
+    const json& ct = j["coordinate_transform"];
+    FG_REQUIRE(ct.is_object(), "coordinate_transform must be an object {\"x\", \"z\"}");
+    for (const auto& [key, aj] : ct.items()) {
+      FG_REQUIRE(key == "x" || key == "z", "coordinate_transform: unknown axis '" + key + "' (x or z)");
+      AxisTransformSpec& a = key == "x" ? cfg.stack.transform.x : cfg.stack.transform.z;
+      const std::string type = aj.value("type", std::string("asr"));
+      FG_REQUIRE(type == "asr" || type == "none", "coordinate_transform." + key + ".type must be \"asr\" or \"none\"");
+      a.type = type == "asr" ? AxisTransformSpec::Type::ASR : AxisTransformSpec::Type::None;
+      a.eta = aj.value("eta", 0.0);
+      FG_REQUIRE(a.eta >= 0 && a.eta < 1, "coordinate_transform." + key + ".eta must satisfy 0 <= eta < 1");
+      if (aj.contains("breakpoints_um") && !aj["breakpoints_um"].is_string())
+        a.breakpoints_um = aj["breakpoints_um"].get<std::vector<double>>();
+      else
+        FG_REQUIRE(aj.value("breakpoints_um", std::string("auto")) == "auto",
+                   "coordinate_transform." + key + ".breakpoints_um must be \"auto\" or an array");
+    }
+    FG_REQUIRE(dim == "2D" || cfg.stack.transform.z.type == AxisTransformSpec::Type::None,
+               "coordinate_transform.z needs a 2D grating");
+    (void)resolveTransform(cfg.stack);  // reports missing breakpoints early
+  }
 
   if (j.contains("nearfield") && j["nearfield"].value("enabled", false)) {
     cfg.nearField = true;

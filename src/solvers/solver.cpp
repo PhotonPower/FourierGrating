@@ -41,7 +41,104 @@ struct Setup {
   ModeBasis ref;  // reference medium = superstrate
   const Material* sub = nullptr;
   ModeBasis subModes;
+  // coordinate transformation (Plan section "M17"): A = [[1/f']] alpha, G = [[1/g']] gamma; ref and
+  // subModes are then numerical bases in X, refPhys/subPhys the analytic bases of the physical orders
+  ResolvedTransform tr;
+  bool transformed = false;
+  MatC A, G;
+  MatC toPhys, fromPhys;  ///< n_f x n_f per field component: eq:ct_rayleigh, eq:ct_inc (separable)
+  ModeBasis refPhys, subPhys;
+  const ModeBasis& physRef() const { return transformed ? refPhys : ref; }
+  const ModeBasis& physSub() const { return transformed ? subPhys : subModes; }
 };
+
+/// Applies an n_f x n_f matrix to each of the four field components of F.
+VecC componentwise(const MatC& T, const VecC& F) {
+  const Eigen::Index n = T.rows();
+  VecC out(F.size());
+  for (Eigen::Index k = 0; k < F.size() / n; ++k) out.segment(k * n, n) = T * F.segment(k * n, n);
+  return out;
+}
+
+/// Modes of a homogeneous isotropic medium in transformed coordinates. There P R = (A^2 + G^2 - eps) (x) 1_2
+/// (one n_f block per tangential E component): the TE/TM pairs are exactly degenerate, and the
+/// eigenvectors of the full reduced matrix (Schur back substitution of a non-normal matrix) become
+/// ill-conditioned for small eta. The n_f block is diagonalized once and both components take its
+/// eigenvectors. Any other structure: layerModesAuto.
+LayerModes homogeneousModes(const MatC& M) {
+  if (!isBlockAntiDiagonal(M)) return layerModesAuto(M);
+  const Eigen::Index n = M.rows() / 2, nf = n / 2;
+  const MatC P = M.topRightCorner(n, n), R = M.bottomLeftCorner(n, n);
+  const MatC PR = P * R;
+  const MatC B = PR.topLeftCorner(nf, nf);
+  const double tol = 1e-12 * std::max(1.0, PR.cwiseAbs().maxCoeff());
+  if ((PR.bottomRightCorner(nf, nf) - B).cwiseAbs().maxCoeff() > tol ||
+      PR.topRightCorner(nf, nf).cwiseAbs().maxCoeff() > tol || PR.bottomLeftCorner(nf, nf).cwiseAbs().maxCoeff() > tol)
+    return layerModesAuto(M);
+  Eigen::ComplexEigenSolver<MatC> es(B, true);
+  FG_REQUIRE(es.info() == Eigen::Success, "eigen decomposition failed (transformed homogeneous medium)");
+  LayerModes m;
+  m.Wu.resize(2 * n, n);
+  m.Wd.resize(2 * n, n);
+  m.lu.resize(n);
+  m.ld.resize(n);
+  for (Eigen::Index c = 0; c < 2; ++c)
+    for (Eigen::Index k = 0; k < nf; ++k) {
+      cplx kap = std::sqrt(-es.eigenvalues()(k));  // branch as in layerModesReduced
+      if (kap.imag() < 0 || (kap.imag() == 0 && kap.real() < 0)) kap = -kap;
+      if (std::abs(kap) < 1e-10) kap += cplx(0, 1e-10);
+      VecC u = VecC::Zero(n);
+      u.segment(c * nf, nf) = es.eigenvectors().col(k);
+      const VecC Ru = R * u;
+      const Eigen::Index j = c * nf + k;
+      m.lu(j) = I * kap;
+      m.ld(j) = -I * kap;
+      m.Wu.col(j) << u, Ru / m.lu(j);
+      m.Wd.col(j) << u, Ru / m.ld(j);
+    }
+  return m;
+}
+
+/// Mode basis of a homogeneous half space from the eigen-decomposition of M (Plan section "M17": in
+/// transformed coordinates the orders are no eigenvectors): columns (down | up), classified by Re lambda
+/// and, for |Re lambda| <= tau, by the flux (Plan eq:classify). The reduced path takes the sign of the
+/// rounding noise Im kappa for propagating modes, which is harmless inside a layer but not here.
+ModeBasis numericBasis(const MatC& M) {
+  const LayerModes m = homogeneousModes(M);
+  const Eigen::Index n = m.Wu.cols();
+  MatC W(M.rows(), 2 * n);
+  W << m.Wu, m.Wd;
+  VecC lam(2 * n);
+  lam << m.lu, m.ld;
+  const std::vector<Eigen::Index> idx = modeOrder(lam, [&](Eigen::Index k) { return modeFlux(W.col(k)); });
+  ModeBasis b;
+  b.Psi.resize(M.rows(), 2 * n);
+  b.lambda.resize(2 * n);
+  for (Eigen::Index k = 0; k < n; ++k) {
+    const Eigen::Index up = idx[static_cast<std::size_t>(k)], dn = idx[static_cast<std::size_t>(n + k)];
+    b.Psi.col(k) = W.col(dn);
+    b.lambda(k) = lam(dn);
+    b.Psi.col(n + k) = W.col(up);
+    b.lambda(n + k) = lam(up);
+  }
+  b.PsiInv = b.Psi.partialPivLu().inverse();
+  return b;
+}
+
+/// Separable n_f x n_f matrix T(r, r') = Tx(n, n') Tz(m, m') (identity blocks for null factors).
+MatC separable(const IndexMap& map, const MatC* Tx, const MatC* Tz) {
+  const int nf = map.size();
+  MatC T(nf, nf);
+  for (int r = 0; r < nf; ++r)
+    for (int c = 0; c < nf; ++c) {
+      const auto [n, m] = map.orders(r);
+      const auto [n2, m2] = map.orders(c);
+      const cplx tx = Tx ? (*Tx)(n + map.Nx(), n2 + map.Nx()) : cplx(n == n2 ? 1.0 : 0.0);
+      const cplx tz = Tz ? (*Tz)(m + map.Nz(), m2 + map.Nz()) : cplx(m == m2 ? 1.0 : 0.0);
+      T(r, c) = tx * tz;
+    }
+  return T;
+}
 
 /// Field system of an assembly: the full 4 n_f problem, or one polarization of the decoupled 1D
 /// in-plane problem (2 n_f, Plan eq:TE / eq:TM).
@@ -50,7 +147,8 @@ struct System {
   ModeBasis ref, sub;
 
   MatC M(const QBlocks& Q, const Setup& s) const {
-    return pol ? buildPropagationMatrix(Q, s.alpha, *pol) : buildPropagationMatrix(Q, s.alpha, s.gamma);
+    if (pol) return buildPropagationMatrix(Q, s.alpha, *pol);
+    return s.transformed ? buildPropagationMatrix(Q, s.A, s.G) : buildPropagationMatrix(Q, s.alpha, s.gamma);
   }
   LayerModes modes(const MatC& M) const { return pol ? layerModesPolarization(M, *pol) : layerModesAuto(M); }
   ModeBasis basis(const ModeBasis& full) const { return pol ? polarizationBasis(full, *pol) : full; }
@@ -86,10 +184,14 @@ void setEigenThreads(const ThreadPlan& p) {
 }
 
 double rhoEstimate(const Setup& s, const std::vector<cplx>& eps) {
+  // transformed coordinates: |A| up to |alpha| / min f' = |alpha| / (1 - eta)
+  const double sx = s.tr.x ? 1.0 / (1.0 - s.tr.x->eta()) : 1.0, sz = s.tr.z ? 1.0 / (1.0 - s.tr.z->eta()) : 1.0;
   double rho = 0;
   for (Eigen::Index r = 0; r < s.alpha.size(); ++r)
-    for (const cplx e : eps)
-      rho = std::max(rho, std::abs(std::sqrt(s.alpha(r) * s.alpha(r) + s.gamma(r) * s.gamma(r) - e)));
+    for (const cplx e : eps) {
+      const cplx a = sx * s.alpha(r), g = sz * s.gamma(r);
+      rho = std::max(rho, std::abs(std::sqrt(a * a + g * g - e)));
+    }
   return rho;
 }
 
@@ -306,13 +408,53 @@ class StackSolver final : public Solver {
     s.sub = &stack.material(stack.substrate);
     s.subModes = s.sub->isotropic ? isotropicModes(s.sub->eps, s.alpha, s.gamma)
                                   : anisotropicModes(s.sub->epsTensor, s.alpha, s.gamma);
+    s.tr = resolveTransform(stack);
+    if (s.tr.active()) transform(s);
     return s;
+  }
+
+  /// Transformed coordinates (Plan section "M17", eq:ct_deriv): A, G, the conversion matrices of
+  /// eq:ct_rayleigh / eq:ct_inc and numerical bases of the half spaces (in X).
+  static void transform(Setup& s) {
+    FG_PROF_SCOPE("solve.transform");
+    s.transformed = true;
+    const int nf = s.map.size(), Nx = s.map.Nx(), Nz = s.map.Nz();
+    std::vector<cplx> cx, cz;
+    if (s.tr.x) cx = s.tr.x->inverseDerivativeCoefficients(2 * Nx);
+    if (s.tr.z) cz = s.tr.z->inverseDerivativeCoefficients(2 * Nz);
+    s.A = MatC::Zero(nf, nf);
+    s.G = MatC::Zero(nf, nf);
+    for (int r = 0; r < nf; ++r)
+      for (int c = 0; c < nf; ++c) {
+        const auto [n, m] = s.map.orders(r);
+        const auto [n2, m2] = s.map.orders(c);
+        // [[1/f']] is Toeplitz in n and the identity in m (and vice versa)
+        if (m == m2) s.A(r, c) = (s.tr.x ? cx[static_cast<std::size_t>(n - n2 + 2 * Nx)] : cplx(n == n2 ? 1.0 : 0.0)) * s.alpha(c);
+        if (n == n2) s.G(r, c) = (s.tr.z ? cz[static_cast<std::size_t>(m - m2 + 2 * Nz)] : cplx(m == m2 ? 1.0 : 0.0)) * s.gamma(c);
+      }
+    MatC Cx, Cz, Dx, Dz;
+    if (s.tr.x) {
+      Cx = s.tr.x->toPhysical(s.inc.alpha0 * s.k0, Nx);
+      Dx = s.tr.x->fromPhysical(s.inc.alpha0 * s.k0, Nx);
+    }
+    if (s.tr.z) {
+      Cz = s.tr.z->toPhysical(s.inc.gamma0 * s.k0, Nz);
+      Dz = s.tr.z->fromPhysical(s.inc.gamma0 * s.k0, Nz);
+    }
+    s.toPhys = separable(s.map, s.tr.x ? &Cx : nullptr, s.tr.z ? &Cz : nullptr);
+    s.fromPhys = separable(s.map, s.tr.x ? &Dx : nullptr, s.tr.z ? &Dz : nullptr);
+    s.refPhys = std::move(s.ref);
+    s.subPhys = std::move(s.subModes);
+    s.ref = numericBasis(buildPropagationMatrix(homogeneousIsotropicQ(s.epsSup, nf), s.A, s.G));
+    s.subModes = numericBasis(buildPropagationMatrix(
+        s.sub->isotropic ? homogeneousIsotropicQ(s.sub->eps, nf) : homogeneousTensorQ(s.sub->epsTensor, nf), s.A, s.G));
   }
 
   /// True if the problem decouples exactly into TE and TM (Plan section "Spezialfaelle"): 1D,
   /// gamma = 0 for all orders, isotropic substrate and layers (the superstrate is always isotropic).
   bool decoupled(const Stack& stack, const Setup& s) const {
-    if (!opt_.splitPolarizations || stack.is2D() || !s.gamma.isZero(0.0) || !s.sub->isotropic) return false;
+    if (!opt_.splitPolarizations || stack.is2D() || !s.gamma.isZero(0.0) || !s.sub->isotropic || s.transformed)
+      return false;
     for (const auto& le : stack.layers) {
       const auto names = layerMaterials(le.spec);
       if (!names) return false;
@@ -371,8 +513,13 @@ class StackSolver final : public Solver {
       if (m.homogeneous()) {
         tasks.push_back([&s, &sys, &m, y0, H, record, res, psiInvD](std::vector<Element>& out, Diagnostics&) {
           const Material& mat = m.material();
-          const ModeBasis mb = sys.basis(mat.isotropic ? isotropicModes(mat.eps, s.alpha, s.gamma)
-                                                       : anisotropicModes(mat.epsTensor, s.alpha, s.gamma));
+          // analytic modes; in transformed coordinates numerical modes of M (Plan section "M17")
+          auto modes = [&] {
+            return s.transformed ? homogeneousModes(sys.M(m.Q(0.0), s))
+                                 : layerModesHomogeneous(sys.basis(mat.isotropic
+                                                                       ? isotropicModes(mat.eps, s.alpha, s.gamma)
+                                                                       : anisotropicModes(mat.epsTensor, s.alpha, s.gamma)));
+          };
           Element e;
           e.kind = Element::Kind::Modes;
           e.y0 = y0;
@@ -381,13 +528,13 @@ class StackSolver final : public Solver {
           e.layerY0 = y0;
           if (res) {
             linalg::Backend& d = linalg::gpu();
-            e.dS = resident::layerSMatrix(d, resident::upload(d, layerModesHomogeneous(mb)), H, *psiInvD);
+            e.dS = resident::layerSMatrix(d, resident::upload(d, modes()), H, *psiInvD);
             d.synchronize();
             out.push_back(std::move(e));
             return;
           }
           RCWASliceRecord rec;
-          e.S = stableLayerSMatrix(layerModesHomogeneous(mb), H, sys.ref, record ? &rec : nullptr);
+          e.S = stableLayerSMatrix(modes(), H, sys.ref, record ? &rec : nullptr);
           e.modes = std::move(rec.modes);
           e.G = std::move(rec.G);
           out.push_back(std::move(e));
@@ -572,14 +719,22 @@ class StackSolver final : public Solver {
     const int nf = s.map.size(), nh = 2 * nf;
     const VecC a_in = incidentAmplitudes(s);
     const int c = s.map.center();
-    const VecC b_top = S.S12 * a_in;
-    const VecC a_sub = S.S22 * a_in;
-    const auto incOrder = planeWaveOrder(s.epsSup, s.alpha(c), s.gamma(c), s.ref.beta(c), -1, a_in(c), a_in(nf + c));
+    VecC b_top = S.S12 * a_in;
+    VecC a_sub = S.S22 * a_in;
+    const ModeBasis& rp = s.physRef();
+    const ModeBasis& sp = s.physSub();
+    if (s.transformed) {
+      // physical Rayleigh amplitudes from the tangential fields in X (Plan eq:ct_rayleigh)
+      b_top = (rp.PsiInv * componentwise(s.toPhys, s.ref.Psi.rightCols(nh) * b_top)).tail(nh);
+      a_sub = (sp.PsiInv * componentwise(s.toPhys, s.subModes.Psi.leftCols(nh) * a_sub)).head(nh);
+    }
+    const VecC a_ph = physicalIncidence(s);
+    const auto incOrder = planeWaveOrder(s.epsSup, s.alpha(c), s.gamma(c), rp.beta(c), -1, a_ph(c), a_ph(nf + c));
     const double Sinc = std::abs(incOrder.Sy);
     const Material& sub = *s.sub;
     const bool subLossless = sub.isotropic ? (std::abs(sub.eps.imag()) < 1e-14 && sub.eps.real() > 0)
                                            : (sub.epsTensor - sub.epsTensor.adjoint()).cwiseAbs().maxCoeff() < 1e-14;
-    const VecC Fsub = s.subModes.Psi.leftCols(nh) * a_sub;
+    const VecC Fsub = sp.Psi.leftCols(nh) * a_sub;
     auto split = [](OrderEfficiency& o, double e) {
       o.efficiency = e;
       const double ws = std::norm(o.amp_s), wp = std::norm(o.amp_p);
@@ -591,7 +746,7 @@ class StackSolver final : public Solver {
     double sumR = 0, sumT = 0;
     for (int r = 0; r < nf; ++r) {
       const auto [n, m] = s.map.orders(r);
-      const auto ro = planeWaveOrder(s.epsSup, s.alpha(r), s.gamma(r), s.ref.beta(r), +1, b_top(r), b_top(nf + r));
+      const auto ro = planeWaveOrder(s.epsSup, s.alpha(r), s.gamma(r), rp.beta(r), +1, b_top(r), b_top(nf + r));
       if (ro.propagating) {
         OrderEfficiency o{n, m, 0, ro.amp_s, ro.amp_p};
         split(o, ro.Sy / Sinc);
@@ -600,7 +755,7 @@ class StackSolver final : public Solver {
       }
       if (!subLossless) continue;
       if (sub.isotropic) {
-        const auto to = planeWaveOrder(sub.eps, s.alpha(r), s.gamma(r), s.subModes.beta(r), -1, a_sub(r), a_sub(nf + r));
+        const auto to = planeWaveOrder(sub.eps, s.alpha(r), s.gamma(r), sp.beta(r), -1, a_sub(r), a_sub(nf + r));
         if (to.propagating) {
           OrderEfficiency o{n, m, 0, to.amp_s, to.amp_p};
           split(o, -to.Sy / Sinc);
@@ -619,12 +774,26 @@ class StackSolver final : public Solver {
     res.diag.energyBalance = sumR + sumT;
   }
 
-  static VecC incidentAmplitudes(const Setup& s) {
+  /// Amplitudes (a_x, a_z) of the incident wave in the analytic basis of the physical orders.
+  static VecC physicalIncidence(const Setup& s) {
     const int nf = s.map.size();
     VecC a_in = VecC::Zero(2 * nf);
     a_in(s.map.center()) = s.inc.A(0);
     a_in(nf + s.map.center()) = s.inc.A(2);
     return a_in;
+  }
+  /// Incident amplitudes in the reference basis; transformed coordinates: the incident field expanded
+  /// in X (Plan eq:ct_inc) and projected onto the down-going numerical modes.
+  static VecC incidentAmplitudes(const Setup& s) {
+    const VecC a = physicalIncidence(s);
+    if (!s.transformed) return a;
+    const Eigen::Index nh = a.size();
+    VecC b = (s.ref.PsiInv * componentwise(s.fromPhys, s.refPhys.Psi.leftCols(nh) * a)).head(nh);
+    // a field incident from y -> infinity contains no modes growing upwards: the projection onto the
+    // evanescent down modes is truncation noise, which exp(lambda y) amplifies above the stack
+    for (Eigen::Index c = 0; c < nh; ++c)
+      if (s.ref.lambda(c).real() > 1e-8) b(c) = 0;
+    return b;
   }
 
   // ------------------------------------------------------------------ field coefficients
@@ -706,8 +875,8 @@ class StackSolver final : public Solver {
           Q = e.model->Q((y - e.layerY0) / s.k0);
         }
       }
-      fsm.Ey = computeEy(Q, s.alpha, s.gamma, fsm.F);
-      fsm.Hy = computeHy(s.alpha, s.gamma, fsm.F);
+      fsm.Ey = s.transformed ? computeEy(Q, s.A, s.G, fsm.F) : computeEy(Q, s.alpha, s.gamma, fsm.F);
+      fsm.Hy = s.transformed ? computeHy(s.A, s.G, fsm.F) : computeHy(s.alpha, s.gamma, fsm.F);
       out.samples.push_back(std::move(fsm));
     }
     return out;
@@ -726,16 +895,18 @@ class StackSolver final : public Solver {
     cut.axis1_um = xs;
     const int nf = s.map.size();
     for (int i = i0; i < i1; ++i) cut.axis2_um.push_back(fs.samples[static_cast<std::size_t>(i)].y_um);
-    // phase factors exp(i alpha_r x), exp(i gamma_r z)
+    // phase factors exp(i alpha_r X), exp(i gamma_r Z) at X = f^{-1}(x), Z = g^{-1}(z) (Plan section "M17")
     std::vector<VecC> px, pz;
     for (double x_um : xs) {
+      const double X = s.tr.x ? s.tr.x->inverse(x_um) : x_um;
       VecC v(nf);
-      for (int r = 0; r < nf; ++r) v(r) = std::exp(I * (s.alpha(r) * x_um * s.k0));
+      for (int r = 0; r < nf; ++r) v(r) = std::exp(I * (s.alpha(r) * X * s.k0));
       px.push_back(v);
     }
     for (double z_um : zs) {
+      const double Z = s.tr.z ? s.tr.z->inverse(z_um) : z_um;
       VecC v(nf);
-      for (int r = 0; r < nf; ++r) v(r) = std::exp(I * (s.gamma(r) * z_um * s.k0));
+      for (int r = 0; r < nf; ++r) v(r) = std::exp(I * (s.gamma(r) * Z * s.k0));
       pz.push_back(v);
     }
     for (int i = i0; i < i1; ++i) {

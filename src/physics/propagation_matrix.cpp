@@ -60,6 +60,40 @@ MatC buildPropagationMatrix(const QBlocks& Q, const VecC& alpha, const VecC& gam
   return M;
 }
 
+MatC buildPropagationMatrix(const QBlocks& Q, const MatC& A, const MatC& G) {
+  FG_PROF_SCOPE("physics.M");
+  const int n = Q.nf();
+  FG_REQUIRE(A.rows() == n && A.cols() == n && G.rows() == n && G.cols() == n, "A/G size mismatch");
+  constexpr int X = 0, Y = 1, Z = 2;
+  const MatC Id = MatC::Identity(n, n);
+  Eigen::PartialPivLU<MatC> Eyy(Q(Y, Y));
+  const MatC E_yx = Eyy.solve(Q(Y, X));
+  const MatC E_yz = Eyy.solve(Q(Y, Z));
+  const MatC E_g = Eyy.solve(G);
+  const MatC E_a = Eyy.solve(A);
+
+  MatC M = MatC::Zero(4 * n, 4 * n);
+  auto B = [&](int i, int j) { return M.block(i * n, j * n, n, n); };
+  // Plan eq:Mmu1a, eq:Mmu1b with alpha -> A, gamma -> G (eq:ct_deriv)
+  B(0, 0) = -I * (A * E_yx);
+  B(0, 1) = -I * (A * E_yz);
+  B(0, 2) = -I * (A * E_g);
+  B(0, 3) = I * (A * E_a) - I * Id;
+  B(1, 0) = -I * (G * E_yx);
+  B(1, 1) = -I * (G * E_yz);
+  B(1, 2) = -I * (G * E_g) + I * Id;
+  B(1, 3) = I * (G * E_a);
+  B(2, 0) = I * (Q(Z, X) - Q(Z, Y) * E_yx + A * G);
+  B(2, 1) = I * (Q(Z, Z) - Q(Z, Y) * E_yz - A * A);
+  B(2, 2) = -I * (Q(Z, Y) * E_g);
+  B(2, 3) = I * (Q(Z, Y) * E_a);
+  B(3, 0) = I * (Q(X, Y) * E_yx - Q(X, X) + G * G);
+  B(3, 1) = I * (Q(X, Y) * E_yz - Q(X, Z) - G * A);
+  B(3, 2) = I * (Q(X, Y) * E_g);
+  B(3, 3) = -I * (Q(X, Y) * E_a);
+  return M;
+}
+
 MatC buildPropagationMatrix(const QBlocks& Q, const VecC& alpha, Polarization p) {
   FG_PROF_SCOPE("physics.M");
   const int n = Q.nf();
@@ -97,6 +131,19 @@ VecC computeEy(const QBlocks& Q, const VecC& alpha, const VecC& gamma, const Vec
 VecC computeHy(const VecC& alpha, const VecC& gamma, const VecC& F) {
   const Eigen::Index n = alpha.size();
   return gamma.cwiseProduct(F.segment(0, n)) - alpha.cwiseProduct(F.segment(n, n));
+}
+
+VecC computeEy(const QBlocks& Q, const MatC& A, const MatC& G, const VecC& F) {
+  const int n = Q.nf();
+  FG_REQUIRE(F.size() == 4 * n, "state vector size mismatch");
+  const VecC rhs = A * F.segment(3 * n, n) - G * F.segment(2 * n, n) - Q(1, 0) * F.segment(0, n) -
+                   Q(1, 2) * F.segment(n, n);
+  return Q(1, 1).partialPivLu().solve(rhs);
+}
+
+VecC computeHy(const MatC& A, const MatC& G, const VecC& F) {
+  const Eigen::Index n = A.rows();
+  return G * F.segment(0, n) - A * F.segment(n, n);
 }
 
 }  // namespace fg
