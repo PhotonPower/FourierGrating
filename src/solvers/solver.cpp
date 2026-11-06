@@ -12,8 +12,10 @@
 #include "fg/core/error.hpp"
 #include "fg/core/parallel.hpp"
 #include "fg/core/prof.hpp"
+#include "fg/core/quadrature.hpp"
 #include "fg/fourier/sampling.hpp"
 #include "fg/fourier/toeplitz.hpp"
+#include "fg/geometry/profile.hpp"
 #include "fg/linalg/backend.hpp"
 #include "fg/physics/anisotropic.hpp"
 #include "fg/physics/efficiency.hpp"
@@ -48,6 +50,10 @@ struct Setup {
   MatC A, G;
   MatC toPhys, fromPhys;  ///< n_f x n_f per field component: eq:ct_rayleigh, eq:ct_inc (separable)
   ModeBasis refPhys, subPhys;
+  // aperiodic structure (Plan section "M18"): PML zones enter only through [[1/f']] (f(X) = X wherever
+  // the structure is); the transformed path above with these coefficients
+  bool aperiodic = false;
+  std::shared_ptr<const PmlMap> pmlX, pmlZ;
   const ModeBasis& physRef() const { return transformed ? refPhys : ref; }
   const ModeBasis& physSub() const { return transformed ? subPhys : subModes; }
 };
@@ -300,6 +306,12 @@ class StackSolver final : public Solver {
     if (linalg::precision() == linalg::Precision::FP32 && opt_.rkTol < 1e-5 && opt_.kind == SolverKind::RK)
       res.diag.warnings.push_back("precision fp32: rk.tol raised to 1e-5");
     for (const auto& m : models) res.diag.warnings.insert(res.diag.warnings.end(), m->warnings.begin(), m->warnings.end());
+    if (s.aperiodic) {
+      scattering(stack, s, models, res);
+      res.diag.refinementSteps = counter.steps;
+      res.diag.refinementFallbacks = counter.fallbacks;
+      return res;
+    }
     if (decoupled(stack, s)) {
       // 1D in-plane isotropic: TE and TM separately with 2 n_f (Plan section "Spezialfaelle"),
       // embedded block-diagonally into the S-matrix of the (a_x, a_z) amplitudes
@@ -409,7 +421,19 @@ class StackSolver final : public Solver {
     s.subModes = s.sub->isotropic ? isotropicModes(s.sub->eps, s.alpha, s.gamma)
                                   : anisotropicModes(s.sub->epsTensor, s.alpha, s.gamma);
     s.tr = resolveTransform(stack);
-    if (s.tr.active()) transform(s);
+    if (stack.aperiodic.enabled) {
+      const AperiodicSpec& ap = stack.aperiodic;
+      FG_REQUIRE(!s.tr.x && !s.tr.z, "aperiodic: PML and coordinate_transform (ASR) cannot be combined");
+      FG_REQUIRE(!ap.z.active() || stack.is2D(), "aperiodic: pml.z needs a 2D grating");
+      checkPmlZones(stack);
+      // total-field formulation (Plan "Einfall (a)"): the incident wave would be damped in the zones
+      FG_REQUIRE(std::abs(s.inc.alpha0) < 1e-12 && std::abs(s.inc.gamma0) < 1e-12,
+                 "aperiodic: plane-wave excitation with PML needs normal incidence (phi = 0)");
+      s.aperiodic = true;
+      if (ap.x.active()) s.pmlX = std::make_shared<const PmlMap>(stack.dx_um, ap.x.width_um, ap.x.beta);
+      if (ap.z.active()) s.pmlZ = std::make_shared<const PmlMap>(stack.dz_um, ap.z.width_um, ap.z.beta);
+    }
+    if (s.tr.active() || s.aperiodic) transform(s);
     return s;
   }
 
@@ -422,6 +446,8 @@ class StackSolver final : public Solver {
     std::vector<cplx> cx, cz;
     if (s.tr.x) cx = s.tr.x->inverseDerivativeCoefficients(2 * Nx);
     if (s.tr.z) cz = s.tr.z->inverseDerivativeCoefficients(2 * Nz);
+    if (s.pmlX) cx = s.pmlX->inverseDerivativeCoefficients(2 * Nx);  // Plan eq:pml
+    if (s.pmlZ) cz = s.pmlZ->inverseDerivativeCoefficients(2 * Nz);
     s.A = MatC::Zero(nf, nf);
     s.G = MatC::Zero(nf, nf);
     for (int r = 0; r < nf; ++r)
@@ -429,8 +455,8 @@ class StackSolver final : public Solver {
         const auto [n, m] = s.map.orders(r);
         const auto [n2, m2] = s.map.orders(c);
         // [[1/f']] is Toeplitz in n and the identity in m (and vice versa)
-        if (m == m2) s.A(r, c) = (s.tr.x ? cx[static_cast<std::size_t>(n - n2 + 2 * Nx)] : cplx(n == n2 ? 1.0 : 0.0)) * s.alpha(c);
-        if (n == n2) s.G(r, c) = (s.tr.z ? cz[static_cast<std::size_t>(m - m2 + 2 * Nz)] : cplx(m == m2 ? 1.0 : 0.0)) * s.gamma(c);
+        if (m == m2) s.A(r, c) = (!cx.empty() ? cx[static_cast<std::size_t>(n - n2 + 2 * Nx)] : cplx(n == n2 ? 1.0 : 0.0)) * s.alpha(c);
+        if (n == n2) s.G(r, c) = (!cz.empty() ? cz[static_cast<std::size_t>(m - m2 + 2 * Nz)] : cplx(m == m2 ? 1.0 : 0.0)) * s.gamma(c);
       }
     MatC Cx, Cz, Dx, Dz;
     if (s.tr.x) {
@@ -772,6 +798,142 @@ class StackSolver final : public Solver {
     }
     res.absorption = 1.0 - sumR - sumT;
     res.diag.energyBalance = sumR + sumT;
+  }
+
+  // ------------------------------------------------------------------ aperiodic structures
+  /// W(r', r) = int over the physical region of exp(i k0 ((alpha_r - alpha_r') x + (gamma_r - gamma_r') z))
+  /// (x, z in um): the flux of a field through y = const is 1/2 Re(Hx^H W Ez - Hz^H W Ex).
+  static MatC physicalWeights(const Stack& stack, const Setup& s) {
+    auto axis = [](double kappa, double a, double b) -> cplx {
+      if (std::abs(kappa) * (b - a) < 1e-12) return b - a;
+      return (std::exp(I * (kappa * b)) - std::exp(I * (kappa * a))) / (I * kappa);
+    };
+    const double x0 = s.pmlX ? s.pmlX->physicalBegin() : 0.0, x1 = s.pmlX ? s.pmlX->physicalEnd() : stack.dx_um;
+    const double z0 = s.pmlZ ? s.pmlZ->physicalBegin() : 0.0, z1 = s.pmlZ ? s.pmlZ->physicalEnd() : stack.dz_um;
+    const int nf = s.map.size();
+    MatC W(nf, nf);
+    for (int r = 0; r < nf; ++r)
+      for (int c = 0; c < nf; ++c) {
+        cplx w = axis(s.k0 * (s.alpha(c) - s.alpha(r)).real(), x0, x1);
+        if (stack.is2D()) w *= axis(s.k0 * (s.gamma(c) - s.gamma(r)).real(), z0, z1);
+        W(r, c) = w;
+      }
+    return W;
+  }
+
+  /// Outward power of the total field through the lateral sides of the box physical region x [0, top]
+  /// (Poynting vector S_x, S_z from the field coefficients at Gauss nodes in y; per layer, and in a 1D
+  /// profile layer also split at its height in the zones, where E_y, E_z jump on the sides).
+  double lateralFlux(const Stack& stack, const Setup& s, const detail::LayerModels& models) {
+    std::vector<double> br{0.0};
+    for (std::size_t k = 0; k < stack.layers.size(); ++k) {
+      if (const auto* p = std::get_if<Profile1DLayer>(&stack.layers[k].spec)) {
+        const double g0 = profileValue(*p, 0.0, stack.dx_um);
+        if (g0 > 0 && g0 < p->depth_um) br.push_back(br.back() + g0);
+      }
+      br.push_back(br.back() + models[k]->thickness_um());
+    }
+    const auto& g = quadrature::gaussLegendre(8);
+    const double hmax = 0.1 * 2 * PI / s.k0;  // panels <= lambda / 10
+    std::vector<double> ys, wy;
+    for (std::size_t k = 0; k + 1 < br.size(); ++k) {
+      const double a = br[k], b = br[k + 1];
+      const int m = std::max(1, static_cast<int>(std::ceil((b - a) / hmax)));
+      for (int p = 0; p < m; ++p)
+        for (std::size_t q = 0; q < g.x.size(); ++q) {
+          ys.push_back(a + (b - a) * (p + 0.5 * (1 + g.x[q])) / m);
+          wy.push_back(0.5 * (b - a) / m * g.w[q]);
+        }
+    }
+    if (ys.empty()) return 0.0;
+    const FieldSampleSet fs = samples(s, models, ys, nullptr);
+    const int nf = s.map.size();
+    // side weights: phase of the orders at the side times the integral along the other lateral axis
+    auto axisInt = [](double kappa, double a, double b) -> cplx {
+      if (std::abs(kappa) * (b - a) < 1e-12) return b - a;
+      return (std::exp(I * (kappa * b)) - std::exp(I * (kappa * a))) / (I * kappa);
+    };
+    const double x0 = s.pmlX ? s.pmlX->physicalBegin() : 0.0, x1 = s.pmlX ? s.pmlX->physicalEnd() : stack.dx_um;
+    const double z0 = s.pmlZ ? s.pmlZ->physicalBegin() : 0.0, z1 = s.pmlZ ? s.pmlZ->physicalEnd() : stack.dz_um;
+    auto sideX = [&](double xs) {  // W(r', r) for the plane x = xs
+      MatC W(nf, nf);
+      for (int r = 0; r < nf; ++r)
+        for (int c = 0; c < nf; ++c) {
+          cplx w = std::exp(I * (s.k0 * (s.alpha(c) - s.alpha(r)).real() * xs));
+          if (stack.is2D()) w *= axisInt(s.k0 * (s.gamma(c) - s.gamma(r)).real(), z0, z1);
+          W(r, c) = w;
+        }
+      return W;
+    };
+    auto sideZ = [&](double zs) {
+      MatC W(nf, nf);
+      for (int r = 0; r < nf; ++r)
+        for (int c = 0; c < nf; ++c)
+          W(r, c) = std::exp(I * (s.k0 * (s.gamma(c) - s.gamma(r)).real() * zs)) *
+                    axisInt(s.k0 * (s.alpha(c) - s.alpha(r)).real(), x0, x1);
+      return W;
+    };
+    struct Side {
+      MatC W;
+      int axis;     // 0: S_x, 1: S_z
+      double sign;  // outward normal
+    };
+    std::vector<Side> sides;
+    if (s.pmlX) {
+      sides.push_back({sideX(x0), 0, -1.0});
+      sides.push_back({sideX(x1), 0, +1.0});
+    }
+    if (s.pmlZ) {
+      sides.push_back({sideZ(z0), 1, -1.0});
+      sides.push_back({sideZ(z1), 1, +1.0});
+    }
+    double P = 0;
+    for (std::size_t i = 0; i < ys.size(); ++i) {
+      const FieldSample& f = fs.samples[i];
+      const VecC Ex = f.F.segment(0, nf), Ez = f.F.segment(nf, nf), Hx = f.F.segment(2 * nf, nf),
+                 Hz = f.F.segment(3 * nf, nf);
+      for (const Side& sd : sides) {
+        // S_x = 1/2 Re(Ey Hz* - Ez Hy*), S_z = 1/2 Re(Ex Hy* - Ey Hx*)
+        const double sx = sd.axis == 0 ? 0.5 * std::real(Hz.dot(sd.W * f.Ey) - f.Hy.dot(sd.W * Ez))
+                                       : 0.5 * std::real(f.Hy.dot(sd.W * Ex) - Hx.dot(sd.W * f.Ey));
+        P += sd.sign * wy[i] * sx;
+      }
+    }
+    return P;
+  }
+
+  /// Scattering outputs (Plan section "M18: Ausgaben"): the background stack (same transformation,
+  /// same N, so the discretization errors cancel) gives E_bg; fluxes over the physical region. The
+  /// absorption is the inward total-field flux through the closed box physical region x [0, top] (top,
+  /// bottom and the lateral sides), minus that of the background.
+  void scattering(const Stack& stack, const Setup& s, const detail::LayerModels& models, Result& res) {
+    FG_PROF_SCOPE("solve.scattering");
+    const Stack bgStack = backgroundStack(stack);
+    const auto bgModels = buildModels(bgStack, s);
+    const SMatrix S = assemble(s, fullSystem(s), models, false, {}, res.diag).total;
+    const SMatrix Sb = assemble(s, fullSystem(s), bgModels, false, {}, res.diag).total;
+    const int nf = s.map.size(), nh = 2 * nf;
+    const VecC a_in = incidentAmplitudes(s);
+    const VecC b = S.S12 * a_in, bb = Sb.S12 * a_in, t = S.S22 * a_in, tb = Sb.S22 * a_in;
+    const MatC W = physicalWeights(stack, s);
+    auto flux = [&](const VecC& F) {  // upward power through y = const over the physical region
+      const VecC Ex = F.segment(0, nf), Ez = F.segment(nf, nf), Hx = F.segment(2 * nf, nf), Hz = F.segment(3 * nf, nf);
+      return 0.5 * std::real(Hx.dot(W * Ez) - Hz.dot(W * Ex));  // dot: conjugates the first argument
+    };
+    const MatC& up = s.ref.Psi;
+    const auto down = s.subModes.Psi.leftCols(nh);
+    const cplx area = W(s.map.center(), s.map.center());
+    const double Sinc = std::abs(flux(up.leftCols(nh) * a_in)) / area.real();  // incident intensity
+    VecC top(2 * nh), topb(2 * nh);
+    top << a_in, b;
+    topb << a_in, bb;
+    ScatteringResult& sc = res.scattering;
+    sc.present = true;
+    sc.up = flux(up.rightCols(nh) * (b - bb)) / Sinc;
+    sc.down = -flux(down * (t - tb)) / Sinc;
+    const double side = lateralFlux(stack, s, models);  // the background has none (laterally uniform)
+    sc.absorbed = ((flux(down * t) - flux(up * top) - side) - (flux(down * tb) - flux(up * topb))) / Sinc;
+    res.diag.energyBalance = 1.0;  // no diffraction orders; the M16 safeguard does not apply
   }
 
   /// Amplitudes (a_x, a_z) of the incident wave in the analytic basis of the physical orders.

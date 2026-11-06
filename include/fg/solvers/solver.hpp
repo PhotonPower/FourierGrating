@@ -77,9 +77,19 @@ struct Diagnostics {
   std::vector<std::string> warnings;
 };
 
+/// Aperiodic structures (Plan section "M18: Ausgaben"): power of the scattered field E_s = E - E_bg
+/// through the planes y = top and y = 0 over the physical region, normalized to the incident intensity
+/// (scattering width in um for 1D, cross section in um^2 for 2D); absorbed: net total-field flux into
+/// the stack minus that of the background stack.
+struct ScatteringResult {
+  bool present = false;
+  double up = 0, down = 0, absorbed = 0;
+};
+
 struct Result {
   std::vector<OrderEfficiency> reflected, transmitted;
   double absorption = 0;
+  ScatteringResult scattering;  ///< aperiodic structures only (reflected/transmitted then empty)
   Diagnostics diag;
 };
 

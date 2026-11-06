@@ -71,6 +71,13 @@ py::dict toDict(const fg::Result& r, double seconds, const std::vector<fg::prof:
   d["reflected"] = orders(r.reflected);
   d["transmitted"] = orders(r.transmitted);
   d["absorption"] = r.absorption;
+  if (r.scattering.present) {  // aperiodic structures (M18)
+    py::dict sc;
+    sc["up"] = r.scattering.up;
+    sc["down"] = r.scattering.down;
+    sc["absorbed"] = r.scattering.absorbed;
+    d["scattering"] = sc;
+  }
   py::dict diag;
   diag["energy_balance"] = r.diag.energyBalance;
   diag["max_condition_t11"] = r.diag.maxConditionT11;

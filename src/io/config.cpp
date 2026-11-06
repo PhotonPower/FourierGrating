@@ -356,6 +356,26 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
     (void)resolveTransform(cfg.stack);  // reports missing breakpoints early
   }
 
+  if (j.contains("aperiodic")) {
+    const json& ap = j["aperiodic"];
+    FG_REQUIRE(ap.is_object(), "aperiodic must be an object {\"pml\", \"excitation\"}");
+    AperiodicSpec& a = cfg.stack.aperiodic;
+    a.enabled = true;
+    if (ap.contains("pml"))
+      for (const auto& [key, pj] : ap["pml"].items()) {
+        FG_REQUIRE(key == "x" || key == "z", "aperiodic.pml: unknown axis '" + key + "' (x or z)");
+        PmlAxisSpec& p = key == "x" ? a.x : a.z;
+        p.width_um = pj.at("width_um").get<double>();
+        p.beta = pj.value("beta", 1.0);
+        FG_REQUIRE(p.width_um > 0 && p.beta >= 0, "aperiodic.pml." + key + ": width_um > 0 and beta >= 0 required");
+      }
+    FG_REQUIRE(a.x.active() || a.z.active(), "aperiodic: at least one PML axis (pml.x or pml.z)");
+    FG_REQUIRE(dim == "2D" || !a.z.active(), "aperiodic.pml.z needs a 2D grating");
+    const std::string exc = ap.value("excitation", std::string("plane_wave"));
+    FG_REQUIRE(exc == "plane_wave", "aperiodic.excitation: only \"plane_wave\" is available");
+    checkPmlZones(cfg.stack);  // reports structures in the zones early
+  }
+
   if (j.contains("nearfield") && j["nearfield"].value("enabled", false)) {
     cfg.nearField = true;
     const json& nf = j["nearfield"];
@@ -406,6 +426,10 @@ void writeRows(std::ofstream& out, const std::string& prefix, const std::vector<
     };
     for (const auto& o : results[k].reflected) row("R", o);
     for (const auto& o : results[k].transmitted) row("T", o);
+    const ScatteringResult& sc = results[k].scattering;  // aperiodic (M18): widths in the efficiency column
+    if (sc.present)
+      for (const auto& [side, v] : {std::pair<const char*, double>{"S_up", sc.up}, {"S_down", sc.down}, {"S_abs", sc.absorbed}})
+        row(side, OrderEfficiency{0, 0, v, 0, 0});
   }
 }
 std::ofstream openCsv(const std::string& file) {

@@ -11,6 +11,7 @@ add_library(fg_core
   fourier/sampling.cpp
   fourier/contour.cpp
   geometry/stack.cpp
+  geometry/aperiodic.cpp
   geometry/coordinate_transform.cpp
   geometry/contour.cpp
   geometry/normal_field.cpp
