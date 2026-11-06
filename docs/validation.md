@@ -153,3 +153,30 @@ Planwert 1e-8 gilt nur für die ebenen Fälle (V1, V2). Für V3/V9 prüft der Te
 Benötigtes N für 1e-3: ohne ASR ≈ 60, η = 0,8 ≈ 15, η = 0,95 ≤ 10. Der Rest von ≈ 5e-5 zwischen ASR (η = 0,95) und
 der Richardson-Extrapolation liegt in der Unsicherheit der Extrapolation (ohne ASR konvergiert e₀ nur wie 1/N).
 Literaturvergleich (Granet 1999) nicht durchgeführt: die Daten sind bibliographisch nicht geprüft.
+
+## PML, isolierte Strukturen und Streufeld (M18)
+
+`tests/validation/test_v20_pml.cpp` (`test_validation_v20`), CAD-Vergleich in `tests/cad/test_cad.cpp` (`CAD_V20g`).
+λ = 0,6328 µm, Luft über Glas (n = 1,5); Steg n = 1,5 (0,5 × 0,3 µm), Graben 0,5 µm in einem Film n = 2,1 (0,2 µm),
+Kontaktloch r = 0,25 µm in einem Film n = 2,1 (0,3 µm). N ≈ 12 L/λ.
+
+| Test | Ergebnis |
+|---|---|
+| V20a Film mit PML, Normaleinfall | Feldkoeffizienten = Airy (N = 0) ≤ 1e-10, Streubreiten 0 |
+| V20b Steg, Zellbreite 4/6/8 × Stegbreite (w = 0,15 L) | TE oben 0,00909 / 0,01030 / 0,01067, unten 0,9072 / 0,9101 / 0,9104; TM oben 0,00515 / 0,00516 / 0,00517, unten 0,7788 / 0,7790 / 0,7791 |
+| V20b w, β bei festem Bereich (2,4 µm) | Streubreiten ändern sich < 2e-5 |
+| V20b Absorption (verlustfrei) | ≤ 2e-4 (N = 50…150; N = 200: 3e-4, Kondition der Eigenzerlegung mit komplexem A) |
+| V20c Wellenleiter → gleicher Wellenleiter | R = 0, T = 1 ± 3e-6 (TE0, TM0) |
+| V20c abruptes Ende (Kern n = 2,0, 0,4 µm, TE0, n_eff = 1,9047) | R(TE0) = 0,15999, R(TE2, n_eff 1,067) = 0,0191, abgestrahlt 0,8210; N = 30/50/80, Zellbreite, w, β: ± 1e-4 |
+| V20d Streufeld = Totalfeld (periodisch, ohne PML) | Lamellen TE/TM/konisch: RCWA 1e-15, RK 3e-12; Metallprofil, Contour2D-Säulen ≤ 1e-10; Nahfeld ≤ 1e-10 |
+| V20e Normaleinfall mit PML | Streufeldformulierung = Totalfeld − Hintergrund: alle Ausgaben gleich (1e-10) |
+| V20f Gesamtstreuung, Fenster 2,4 / 3,2 / 4,0 / 4,8 µm | Steg TE 60°: 1,55441 / 1,55433 / 1,55433 / 1,55435; Steg TM 60°: 0,97681 / 0,97722 / 0,97700 / 0,97702; Graben TM 30°: 1,31077 / 1,31098 / 1,31103 / 1,31107; Graben TE 0°: 1,44502 / 1,44512 / 1,44508 / 1,44514 |
+| V20f oben/unten | konvergieren nur ~1/L (Steg TE 60° unten 1,1801 / 1,1910 / 1,1979 / 1,2006): streifende Streuung kreuzt die Ebenen außerhalb des Fensters |
+| V20f w, β | alle Ausgaben < 5e-4; Absorption ≤ 7,6e-4 (Graben TM) |
+| V20g z-invariantes 2D (PML in x) | = dz × 1D ≤ 1e-10 (normal und 30°) |
+| V20g Kontaktloch, x- und z-Polarisation | gleich (Symmetrie) ≤ 1e-10; CAD-Körper = Contour2D ≤ 1e-10 |
+| V20g Konvergenz in N (Zelle 2 µm) | Gesamtstreuung 0,501 / 0,568 / 0,570 bei N = 4/6/8, Absorption 3e-2 / 1e-2 / 1e-3 |
+
+Offen: Literaturvergleich V20c (Silberstein et al. 2001, Wert nicht bibliographisch geprüft), Vergleich der PML mit
+Hugonin/Lalanne (2005, Formulierung nicht geprüft), Reziprozität der Streuamplituden (V20f, winkelaufgelöste
+Amplituden nicht implementiert), Konvergenzstudie V20g in Zellgröße und N auf dem Zielsystem.

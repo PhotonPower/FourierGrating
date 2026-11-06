@@ -136,6 +136,33 @@ ungleich langen Intervallen springt f‴ (algebraische Konvergenz ~N⁻⁵). Gil
 wird dabei nicht genutzt. Empfehlung für Metall-Lamellen in TM: η = 0,8 … 0,95 (V19 in `docs/validation.md`).
 Nahfeld: die Ausgabe bleibt auf dem physikalischen Raster in x, z; die Feldkoeffizienten (`fieldCoefficients`)
 beziehen sich dann auf die transformierten Koordinaten X, Z.
+**Isolierte Strukturen, PML (M18).** Ein einzelnes Objekt (Steg, Graben, Kontaktloch, Wellenleiterende) wird in
+einer Rechenzelle mit absorbierenden Randzonen (PML, komplexe Koordinatenstreckung) gerechnet:
+
+```jsonc
+"aperiodic": {
+  "pml": {"x": {"width_um": 0.3, "beta": 1.0}, "z": {"width_um": 0.3}},  // z nur 2D
+  "formulation": "auto",          // oder "scattered" (Streufeldformulierung auch bei Normaleinfall)
+  "excitation": "plane_wave"      // oder {"mode": 0} bzw. {"n_eff": 1.9}: geführte Mode des Superstrats
+},
+"superstrate_structure": {"type": "lamellar1d", "breakpoints_um": [0, 1.3, 1.7, 3.0], "materials": ["air", "core", "air"]},
+"substrate_structure": {...},     // y-invariante Querschnitte (lamellar1d, polygon2d, contour2d), Dicke entfällt
+"scattered_field": false          // Streufeldformulierung für periodische Gitter (Test, V20d)
+```
+
+Physikalischer Bereich: [w, d − w] (bzw. das Rechteck in 2D); Strukturen dürfen nicht in die Zonen reichen
+(geprüft, auch für CAD-Schnitte; Filme dürfen durchlaufen). Normaleinfall: Totalfeld minus Hintergrundstapel (jede
+strukturierte Schicht durch ihr Material am Zellrand ersetzt). Schräger Einfall: automatisch Streufeldformulierung
+(Quelle σ = (M − M_bg) F_bg in den strukturierten Schichten, Streufeld ohne Blochphase). Ausgabe statt der
+Effizienzen (`efficiencies.csv`, Seite `S_up`, `S_down`, `S_abs`; Python `result.scattering`): Leistung des
+Streufeldes durch die Ebenen y = Oberkante und y = 0 über den physikalischen Bereich, bezogen auf die Intensität der
+einfallenden Welle (1D: Streubreite in µm, 2D: Streuquerschnitt in µm²), `lateral`: durch die Seiten der Box
+(physikalischer Bereich × Schichten), `absorbed`: Fluss des Totalfeldes in die Box minus Hintergrund. Nur die Summe
+up + down + lateral ist von der Zellbreite unabhängig; die Aufteilung auf oben/unten konvergiert bei schrägem Einfall
+langsam (~1/L, streifende Anteile). Modenanregung: `efficiencies.csv` mit `MR`/`MT` (n = Modennummer,
+efficiency = Leistung) und `Mrad`; Python `result.modal`. Nahfeld: `"nearfield": {"field": "scattered"}` gibt das
+Streufeld statt des Totalfeldes aus. PML und `coordinate_transform` (ASR) schließen sich aus.
+
 Bei einem Sweep beginnen die CSV-Zeilen mit `sweep_parameter, sweep_value`; das Nahfeld wird für den ersten
 Scanpunkt des ersten Sweep-Werts berechnet. Darstellung: `scripts/plot_efficiencies.py`.
 

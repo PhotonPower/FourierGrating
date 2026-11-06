@@ -380,8 +380,42 @@ Konfiguration:
 "aperiodic": {"pml": {"x": {"width_um": 0.3, "beta": 1.0}}, "excitation": "plane_wave"}   // oder {"mode": 0}
 \end{verbatim}}
 
+\paragraph{Umsetzung (v2.10).} \verb|PmlMap| (\verb|src/geometry/aperiodic.cpp|) liefert $\tp{1/f'}$ nach
+\eqref{eq:pml} (Gauß-Legendre zwischen $0,w,d-w,d$); die Geometrie bleibt unverändert, weil $f(X)=X$ überall dort gilt,
+wo Strukturen liegen (\verb|checkPmlZones|, auch für CAD-Schnitte und strukturierte Halbräume). Normaleinfall:
+Totalfeld und Hintergrundstapel (\verb|backgroundStack|: Material am Zellrand bzw. Hintergrund, ein 1D-Profil wird
+in zwei Schichten bei seiner Höhe in den Zonen geteilt) mit demselben $N$. Streufeld: statt \eqref{eq:scat_source} mit
+exakten Laurent-Koeffizienten wird die Quelle als $\sigma=(M-M_{\text{bg}})F_{\text{bg}}$ gebildet ($M_{\text{bg}}$:
+Hintergrundmaterial mit denselben $A,G$). Das ist zeilenweise identisch mit \eqref{eq:scat_ode}, benutzt aber für
+$P=(Q_\varepsilon-\varepsilon_{\text{bg}})[\mathbf E_{\text{bg}}]$ dieselbe Faktorisierung wie das Totalfeld: Bei Li- bzw.
+FFF-Regeln ist $\varepsilon\mathbf E_s$ nicht stetig, die exakten Koeffizienten von $\Delta\varepsilon\mathbf E_{\text{bg}}$
+wären mit der Faktorisierung von $\mathbf E_s$ inkonsistent. Damit gilt V20d bis auf Rundung. Hintergrundfeld:
+Hintergrundstapel bei $N=0$ (Airy), je Schicht vier Exponentialmoden. Schräger Einfall mit PML: das Streufeld wird
+ohne Blochphase entwickelt, $\sigma$ in der Blochbasis ($\alpha_0+nK$, ohne PML-Faktor, weil $\sigma$ im physikalischen
+Bereich liegt) gebildet und mit $T_{mn}=\frac1d\int_w^{d-w}e^{i(\alpha_0+(n-m)K)x}dx$ entwickelt (stetig bei
+$\alpha_0\to0$). RCWA: partikuläre Lösung je Exponentialterm, aus den Werten an den Scheibengrenzen
+$u=g^1_b-S_{11}g^0_b-S_{12}g^1_a$, $v=g^0_a-S_{21}g^0_b-S_{22}g^1_a$ ($g=\Psi^{-1}F_p$); Resonanz ($<10^{-8}\max|\lambda|$):
+RK mit Warnung. RK: erweitertes System $(F;1)$. Verkettung: $u=u_U+U_{11}(1-L_{12}U_{21})^{-1}(u_L+L_{12}v_U)$,
+$v=v_L+L_{22}(1-U_{21}L_{12})^{-1}(v_U+U_{21}u_L)$ (sequentiell und Baum), innere Amplituden analog. Ausgaben: Flüsse über das
+Fenster mit dem Hintergrund als zusätzlicher \enquote{Ordnung} $(\alpha_0,\gamma_0)$; Absorption aus dem Fluss des
+Totalfeldes durch die geschlossene Box (Fenster $\times$ Schichten, Seiten mit Gauß-Knoten in $y$) minus Hintergrund;
+zusätzlich der seitliche Streufluss, denn nur oben $+$ unten $+$ seitlich ist von der Fenstergröße unabhängig.
+Intensität: $|\mathbf S|$ der einfallenden Welle. Strukturierte Halbräume: Modenbasis aus der Eigenzerlegung von $M$;
+geführte Moden: $n_{\text{eff}}=|\operatorname{Im}\lambda|$ über dem Mantelindex, $|\operatorname{Re}\lambda|<10^{-3}n_{\text{eff}}$
+und $\ge90\,\%$ von $\int|E|^2$ im Fenster; Leistung über den konjugierten Fluss im Fenster (statt der unkonjugierten
+Normierung, deren Integral über die gestreckte Zelle nicht konvergiert). Klassifikation der Halbraummoden: propagierende
+Moden ($|\operatorname{Re}\lambda|\le10^{-6}|\lambda|$) nach dem Fluss (mit PML ist das Rauschen in
+$\operatorname{Re}\lambda$ bis $10^{-7}|\lambda|$).
+
 \subsection{Tests und Abnahme (M18)}
 \begin{itemize}[nosep]
+  \item \textbf{Nach der Umsetzung (v2.10):} V20a, V20d, V20e wie gefordert. V20b: Konvergenz und Unabhängigkeit von
+        $w,\beta$ deutlich unter $10^{-3}$; die Absorption verlustfreier Stege ist $\le2\cdot10^{-4}$ statt $10^{-6}$ (das
+        abgeschnittene PML-System erhält die Energie nur bis auf den Diskretisierungsfehler). V20c: abruptes Ende
+        konvergiert auf $10^{-4}$, der Literaturvergleich ist offen (Wert nicht geprüft). V20f: Gesamtstreuung konvergiert
+        auf $10^{-4}$, oben/unten nur $\sim1/L$; Reziprozität nicht umgesetzt. V20g: Symmetrie, CAD $=$ Contour2D und
+        z-invariantes 2D $=$ 1D auf $10^{-10}$; die Konvergenzstudie gehört auf das Zielsystem. Vergleich mit
+        Hugonin/Lalanne nicht durchgeführt. Messwerte in \verb|docs/validation.md|.
   \item \textbf{V20a}: homogener Schichtstapel mit PML bei Normaleinfall $=$ Fresnel/Airy auf $10^{-10}$.
   \item \textbf{V20b}: isolierter dielektrischer Steg auf Substrat (1D, TE und TM): Streubreite konvergiert bei
         Zellbreite $4,6,8\times$ Stegbreite auf $10^{-3}$ und hängt nicht von $w$, $\beta$ ab ($10^{-3}$);

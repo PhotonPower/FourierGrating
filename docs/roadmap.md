@@ -134,7 +134,7 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
   - Abnahme in `tests/cad/test_cad.cpp`: V16b (Koeffizienten 1e-13, RK/RCWA 1e-12, Spiegelung abgelehnt), V17 (Bessel
     1e-12), V18 (gegen Profile2D 1e-6, gegen M13-Provider 1e-9, Treppe konvergiert, Energie 1e-10, Tschebyschow 1e-9),
     zwei Materialien + Hohlraum (Bandfolge, Energie, RK ≈ RCWA), fehlerhafte Dateien → Codes; Golden File des Beispiels
-  - Nicht umgesetzt: Reziprozitätstest (zwei Materialien), PML-Zone in `OUT_OF_RANGE` (kommt mit M18)
+  - Nicht umgesetzt: Reziprozitätstest (zwei Materialien), PML-Zone: mit M18 über `checkPmlZones` (CAD-Schnitte in den Zonen ⇒ Fehler)
 - [x] **M15** Profiling und Parallelisierung
   - `fg::prof` und Profil vor M15 (Ryzen 9 5900X statt Zielsystem); Threadmodell (scan/slices/blas); parallele Scheiben-S;
     Sternprodukt als Baum fester Form; parallele Koeffizienten/NF/CAD-Schnitte; GPU-residente Ketten (`DeviceMatrix`)
@@ -153,10 +153,14 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
   - Abnahme: η = 0 bitgleich; Matrixpfad mit f' = 1 = Diagonalpfad (1e-12); V1, V2 mit η = 0,5 auf 1e-8, V3, V9
     gemeinsamer Grenzwert und z-invariantes 2D = 1D (1e-10, Plan v2.9); V19 (Gold-Lamellen TM, Konvergenztabelle in
     `docs/validation.md`: 1e-3 ohne ASR ab N ≈ 60, mit η = 0,95 ab N ≤ 10)
-- [ ] **M18** PML (komplexe Streckung), isolierte Strukturen (Steg, Graben, Kontaktloch), strukturierte Ein-/Ausgangsmedien,
+- [x] **M18** PML (komplexe Streckung), isolierte Strukturen (Steg, Graben, Kontaktloch), strukturierte Ein-/Ausgangsmedien,
   Streufeldformulierung für schrägen Einfall (Plan eq:scat_source, eq:scat_ode)
-  - Abnahme: V20a (Fresnel mit PML), V20b (isolierter Steg), V20c (Wellenleiterende, Literatur), V20d (Streufeld =
-    Totalfeld im periodischen Fall, ohne PML), V20e (Normaleinfall), V20f (Graben/Steg schräg), V20g (Kontaktloch 2D)
+  - Abnahme: V20a (Fresnel mit PML, 1e-10), V20b (Steg: Zellbreite, w, β < 1e-3), V20c (Wellenleiter: Durchgang 3e-6,
+    abruptes Ende auf 1e-4 konvergiert), V20d (Streufeld = Totalfeld 1e-12, RK 1e-10), V20e (Normaleinfall 1e-10),
+    V20f (Steg/Graben schräg: Gesamtstreuung 1e-4), V20g (Kontaktloch 2D: Symmetrie, CAD = Contour2D, 2D = 1D 1e-10);
+    Plan v2.10, Messwerte in `docs/validation.md`
+  - Offen: Literaturvergleiche (Silberstein 2001 für V20c, Hugonin/Lalanne 2005 für die PML), Reziprozität (V20f),
+    Konvergenzstudie V20g auf dem Zielsystem; Absorption verlustfreier Strukturen 2e-4 statt 1e-6
 - [ ] **M19** Differenzierbarkeit: diskrete Adjungierte (Plan „Konvention“, Rückwärtsregeln), Formableitungen
   (eq:shape2d, eq:shape3d), C++-API `gradient`/`vjp`, Python `value_and_grad`, PyTorch-/JAX-Adapter
   - Abnahme: Rückwärtsfunktionen gegen Differenzenquotienten 1e-6; Ende-zu-Ende V3, V9, V13, V15, V18; Entartung;

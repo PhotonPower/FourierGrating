@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.17.0] – M18 (PML, isolierte Strukturen, Streufeld)
+
+### Hinzugefügt
+- `"aperiodic": {"pml": {"x"|"z": {"width_um", "beta"}}, "formulation", "excitation"}`: PML als komplexe Streckung
+  (Plan eq:pml, `PmlMap`), Zonenprüfung (`checkPmlZones`, auch CAD und strukturierte Halbräume), Hintergrundstapel
+  (`backgroundStack`).
+- Streubreiten bzw. -querschnitte (oben, unten, seitlich) und Absorption aus der Flussbilanz der geschlossenen Box
+  (`Result::scattering`, CSV `S_up`/`S_down`/`S_abs`, CLI, Python `result.scattering`).
+- Streufeldformulierung (Plan eq:scat_source, eq:scat_ode) mit σ = (M − M_bg) F_bg: Hintergrundfeld (Airy),
+  partikuläre Lösungen je RCWA-Scheibe, RK über das erweiterte System, erweitertes Sternprodukt (`SourcedSMatrix`),
+  innere Felder und Nahfeld (gesamt oder `"field": "scattered"`); automatisch bei schrägem Einfall mit PML,
+  `scattered_field` / `SolverOptions::scatteredField` für periodische Gitter.
+- Strukturierte Superstrate/Substrate (`superstrate_structure`, `substrate_structure`) und Anregung durch eine geführte
+  Mode (`"excitation": {"mode": k}` / `{"n_eff": n}`): Modenleistungen, Abstrahlung (`Result::modal`, CSV `MR`/`MT`/`Mrad`).
+- Tests `test_validation_v20` (V20a–V20g) und `CAD_V20g` (Kontaktloch als CAD-Körper).
+
+### Geändert
+- Numerische Halbraumbasen (M17/M18): propagierende Moden werden bei |Re λ| ≤ 1e-6 |λ| nach dem Fluss klassifiziert.
+- Plan v2.10 (Umsetzung und Abnahme M18), Version 0.17.0.
+
 ## [0.16.0] – M17 (Koordinatentransformationen, ASR)
 
 ### Hinzugefügt
