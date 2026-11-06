@@ -95,10 +95,27 @@ struct ScatteringResult {
   double total() const { return up + down + lateral; }
 };
 
+/// Modal excitation (Plan "Einfall (b)", M18): coefficients of the guided modes of the structured
+/// half spaces; power relative to the incident mode (flux over the physical region).
+struct ModeCoefficient {
+  int index = 0;            ///< guided-mode number (descending n_eff)
+  cplx nEff = 0;            ///< normalized propagation constant along y
+  cplx amplitude = 0;       ///< power-normalized amplitude (phase of the numerical eigenvector)
+  double power = 0;         ///< |r|^2 resp. |t|^2
+  double teFraction = 0;    ///< share of E_z in |E|^2 (1: TE, 0: TM in 1D)
+};
+struct ModalResult {
+  bool present = false;
+  ModeCoefficient incident;
+  std::vector<ModeCoefficient> reflected, transmitted;
+  double radiated = 0;      ///< 1 - sum of the guided powers (radiation into the half spaces and the zones)
+};
+
 struct Result {
   std::vector<OrderEfficiency> reflected, transmitted;
   double absorption = 0;
   ScatteringResult scattering;  ///< aperiodic structures only (reflected/transmitted then empty)
+  ModalResult modal;            ///< modal excitation only
   Diagnostics diag;
 };
 

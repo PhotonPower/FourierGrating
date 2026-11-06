@@ -76,7 +76,29 @@ py::dict toDict(const fg::Result& r, double seconds, const std::vector<fg::prof:
     sc["up"] = r.scattering.up;
     sc["down"] = r.scattering.down;
     sc["absorbed"] = r.scattering.absorbed;
+    sc["lateral"] = r.scattering.lateral;
     d["scattering"] = sc;
+  }
+  if (r.modal.present) {  // modal excitation (M18)
+    auto modes = [](const std::vector<fg::ModeCoefficient>& v) {
+      py::list l;
+      for (const auto& m : v) {
+        py::dict e;
+        e["index"] = m.index;
+        e["n_eff"] = m.nEff;
+        e["amplitude"] = m.amplitude;
+        e["power"] = m.power;
+        e["te_fraction"] = m.teFraction;
+        l.append(e);
+      }
+      return l;
+    };
+    py::dict md;
+    md["incident"] = modes({r.modal.incident})[0];
+    md["reflected"] = modes(r.modal.reflected);
+    md["transmitted"] = modes(r.modal.transmitted);
+    md["radiated"] = r.modal.radiated;
+    d["modal"] = md;
   }
   py::dict diag;
   diag["energy_balance"] = r.diag.energyBalance;

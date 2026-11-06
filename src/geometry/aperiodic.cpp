@@ -75,9 +75,12 @@ void checkPmlZones(const Stack& st) {
   const auto& ap = st.aperiodic;
   if (!ap.enabled) return;
   const double wx = ap.x.width_um, d = st.dx_um;
-  for (std::size_t k = 0; k < st.layers.size(); ++k) {
-    const std::string what = "layer " + std::to_string(k);
-    const auto& spec = st.layers[k].spec;
+  std::vector<std::pair<std::string, const LayerSpec*>> all;
+  for (std::size_t k = 0; k < st.layers.size(); ++k) all.push_back({"layer " + std::to_string(k), &st.layers[k].spec});
+  if (st.superstrateStructure) all.push_back({"structured superstrate", &st.superstrateStructure->spec});
+  if (st.substrateStructure) all.push_back({"structured substrate", &st.substrateStructure->spec});
+  for (const auto& [what, sp] : all) {
+    const auto& spec = *sp;
     if (const auto* l = std::get_if<Lamellar1DLayer>(&spec)) {
       if (!ap.x.active()) continue;
       const std::size_t K = l->materials.size();

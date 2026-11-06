@@ -29,7 +29,14 @@ void printResult(const fg::Wavelength& w, const fg::Result& r) {
   std::printf("  side   n    m   efficiency\n");
   for (const auto& o : r.reflected) std::printf("  R   %4d %4d   %.10f\n", o.n, o.m, o.efficiency);
   for (const auto& o : r.transmitted) std::printf("  T   %4d %4d   %.10f\n", o.n, o.m, o.efficiency);
-  if (r.scattering.present)  // aperiodic structure (M18)
+  if (r.modal.present) {  // modal excitation (M18)
+    std::printf("  incident mode %d: n_eff = %.8f\n", r.modal.incident.index, r.modal.incident.nEff.real());
+    for (const auto& m : r.modal.reflected)
+      std::printf("  MR  %4d   n_eff = %.8f   power = %.10f\n", m.index, m.nEff.real(), m.power);
+    for (const auto& m : r.modal.transmitted)
+      std::printf("  MT  %4d   n_eff = %.8f   power = %.10f\n", m.index, m.nEff.real(), m.power);
+    std::printf("  radiated = %.10f\n", r.modal.radiated);
+  } else if (r.scattering.present)  // aperiodic structure (M18)
     std::printf("  scattered up = %.10g   down = %.10g   absorbed = %.10g   (um, 2D: um^2)\n", r.scattering.up,
                 r.scattering.down, r.scattering.absorbed);
   else

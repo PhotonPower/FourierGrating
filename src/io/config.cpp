@@ -377,8 +377,24 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
     FG_REQUIRE(form == "auto" || form == "scattered",
                "aperiodic.formulation must be \"auto\" (total field at normal incidence) or \"scattered\"");
     if (form == "scattered") cfg.solver.scatteredField = true;
-    const std::string exc = ap.value("excitation", std::string("plane_wave"));
-    FG_REQUIRE(exc == "plane_wave", "aperiodic.excitation: only \"plane_wave\" is available");
+    if (ap.contains("excitation") && ap["excitation"].is_object()) {  // {"mode": 0} or {"n_eff": 1.8}
+      const json& ex = ap["excitation"];
+      a.modeExcitation = true;
+      a.mode = ex.value("mode", 0);
+      a.nEff = ex.value("n_eff", 0.0);
+      FG_REQUIRE(a.mode >= 0 && a.nEff >= 0, "aperiodic.excitation: mode >= 0, n_eff > 0");
+    } else {
+      FG_REQUIRE(ap.value("excitation", std::string("plane_wave")) == "plane_wave",
+                 "aperiodic.excitation must be \"plane_wave\", {\"mode\": k} or {\"n_eff\": n}");
+    }
+    // structured half spaces (Plan "Einfall (b)"): y-invariant layer descriptions without thickness
+    for (const char* key : {"superstrate_structure", "substrate_structure"})
+      if (j.contains(key)) {
+        json lj = j[key];
+        if (!lj.contains("thickness_um")) lj["thickness_um"] = 1.0;
+        (std::string(key) == "superstrate_structure" ? cfg.stack.superstrateStructure : cfg.stack.substrateStructure) =
+            parseLayer(lj);
+      }
     checkPmlZones(cfg.stack);  // reports structures in the zones early
   }
 
@@ -439,6 +455,12 @@ void writeRows(std::ofstream& out, const std::string& prefix, const std::vector<
     if (sc.present)
       for (const auto& [side, v] : {std::pair<const char*, double>{"S_up", sc.up}, {"S_down", sc.down}, {"S_abs", sc.absorbed}})
         row(side, OrderEfficiency{0, 0, v, 0, 0});
+    const ModalResult& mr = results[k].modal;  // modal excitation (M18): guided-mode powers, n = mode number
+    if (mr.present) {
+      for (const auto& m : mr.reflected) row("MR", OrderEfficiency{m.index, 0, m.power, m.amplitude, 0, 0, 0});
+      for (const auto& m : mr.transmitted) row("MT", OrderEfficiency{m.index, 0, m.power, m.amplitude, 0, 0, 0});
+      row("Mrad", OrderEfficiency{0, 0, mr.radiated, 0, 0});
+    }
   }
 }
 std::ofstream openCsv(const std::string& file) {

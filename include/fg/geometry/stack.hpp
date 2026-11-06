@@ -2,6 +2,7 @@
 #pragma once
 
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,9 @@ struct Stack {
   std::vector<LayerEntry> layers;           ///< ordered from bottom (substrate side) to top
   CoordinateTransformSpec transform;        ///< coordinate transformation x = f(X), z = g(Z) (M17)
   AperiodicSpec aperiodic;                  ///< isolated structure with PML zones (M18)
+  /// Structured half spaces (M18, Plan "Einfall (b)"): y-invariant cross-sections (thickness ignored),
+  /// e.g. a waveguide propagating along y; superstrate/substrate then name the cladding (background).
+  std::optional<LayerEntry> superstrateStructure, substrateStructure;
 
   bool is2D() const { return dz_um > 0.0; }
   const Material& material(const std::string& name) const;

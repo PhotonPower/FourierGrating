@@ -20,6 +20,11 @@ struct PmlAxisSpec {
 struct AperiodicSpec {
   bool enabled = false;
   PmlAxisSpec x, z;
+  /// Excitation by a guided mode of the structured superstrate (Plan "Einfall (b)"), down-going: the
+  /// mode-th guided mode by descending effective index, or the one nearest to nEff (> 0).
+  bool modeExcitation = false;
+  int mode = 0;
+  double nEff = 0;
 };
 
 /// 1/f' of the PML on one axis (Plan eq:pml): the physical region [w, d - w] has f(X) = X; in the

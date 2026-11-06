@@ -365,3 +365,81 @@ TEST(M18_Scattered, NearFieldOblique) {
   EXPECT_GT(inner, 1e-3);
   EXPECT_LT(edge, 0.2 * inner);
 }
+
+/// Slab waveguide along y: core n = 2.0 of width a centred in a cell of width L (air cladding).
+fg::LayerEntry slab(double L, double a) {
+  return entry(fg::Lamellar1DLayer{1.0, {0.0, 0.5 * (L - a), 0.5 * (L + a), L}, {"superstrate", "core", "superstrate"}});
+}
+fg::Stack waveguideEnd(double L, double a, double w, double beta = 1.0) {
+  auto st = pml(base(L), w, beta);
+  st.materials["core"] = fg::Material::fromIndex("core", cplx(2.0, 0.0));
+  st.substrate = "superstrate";  // air below the facet
+  st.superstrateStructure = slab(L, a);
+  st.aperiodic.modeExcitation = true;
+  return st;
+}
+
+// ---------------------------------------------------------------- V20c (modal excitation)
+// A waveguide continued by the same waveguide: no reflection, full transmission of the incident guided
+// mode (TE0 and TM0; measured 3e-6, the PML perturbs the guided modes slightly).
+TEST(M18_Modal, ThroughWaveguide) {
+  for (int mode : {0, 1}) {
+    auto st = waveguideEnd(3.0, 0.4, 0.4);
+    st.aperiodic.mode = mode;
+    st.substrateStructure = slab(3.0, 0.4);
+    st.layers = {slab(3.0, 0.4)};
+    std::get<fg::Lamellar1DLayer>(st.layers[0].spec).thickness_um = 0.5;
+    const auto r = run(st, TE, 40);
+    ASSERT_TRUE(r.modal.present);
+    EXPECT_NEAR(r.modal.incident.teFraction, mode == 0 ? 1.0 : 0.0, 1e-6);
+    for (const auto& m : r.modal.reflected) EXPECT_LT(m.power, 1e-10);
+    ASSERT_GT(r.modal.transmitted.size(), static_cast<std::size_t>(mode));
+    EXPECT_NEAR(r.modal.transmitted[static_cast<std::size_t>(mode)].power, 1.0, 1e-5);
+    EXPECT_NEAR(std::abs(r.modal.transmitted[static_cast<std::size_t>(mode)].nEff - r.modal.incident.nEff), 0.0, 1e-10);
+    EXPECT_LT(std::abs(r.modal.radiated), 1e-5);
+  }
+}
+
+// Abrupt end of a slab waveguide (core n = 2.0, 0.4 um, air), TE0 incident (Plan V20c). Measured: R(TE0)
+// = 0.15999, R(TE2, n_eff = 1.067) = 0.0191, radiated 0.8210; converged in N (30 / 50 / 80), cell width
+// and w, beta to 1e-4. The comparison with Silberstein et al. (JOSA A 18, 2865, 2001) is open: the value
+// could not be checked bibliographically (docs/validation.md).
+TEST(M18_Modal, V20cAbruptEnd) {
+  const auto a = run(waveguideEnd(3.0, 0.4, 0.4), TE, 50);
+  ASSERT_TRUE(a.modal.present);
+  ASSERT_GE(a.modal.reflected.size(), 5u);
+  const double R0 = a.modal.reflected[0].power;
+  EXPECT_NEAR(R0, 0.15999, 1e-4);
+  EXPECT_NEAR(a.modal.incident.nEff.real(), 1.9047, 1e-3);
+  for (const auto& [L, w, beta, N] : {std::tuple{3.0, 0.4, 1.0, 80}, {4.0, 0.5, 1.0, 70}, {3.0, 0.6, 3.0, 50}}) {
+    const auto b = run(waveguideEnd(L, 0.4, w, beta), TE, N);
+    EXPECT_NEAR(b.modal.reflected[0].power, R0, 1e-4) << L << " " << w << " " << beta << " " << N;
+    EXPECT_NEAR(b.modal.radiated, a.modal.radiated, 1e-3) << L << " " << w << " " << beta << " " << N;
+  }
+  // symmetry: no TM and no odd TE mode
+  for (const auto& m : a.modal.reflected)
+    if (m.teFraction < 0.5 || m.index == 2) EXPECT_LT(m.power, 1e-8) << m.index;
+  EXPECT_TRUE(a.modal.transmitted.empty());  // homogeneous substrate: no guided modes
+  EXPECT_GT(a.modal.radiated, 0.7);
+}
+
+TEST(M18_Modal, Configuration) {
+  const std::string j = R"({"dimension": "1D", "period_um": {"x": 3.0}, "truncation": {"Nx": 40},
+    "materials": {"air": {"n": 1.0}, "core": {"n": 2.0}},
+    "superstrate": "air", "substrate": "air",
+    "incidence": {"lambda_um": 0.6328},
+    "superstrate_structure": {"type": "lamellar1d", "breakpoints_um": [0.0, 1.3, 1.7, 3.0], "materials": ["air", "core", "air"]},
+    "aperiodic": {"pml": {"x": {"width_um": 0.4}}, "excitation": {"mode": 0}}})";
+  const auto cfg = fg::io::parseConfig(j);
+  EXPECT_TRUE(cfg.stack.aperiodic.modeExcitation);
+  ASSERT_TRUE(cfg.stack.superstrateStructure.has_value());
+  EXPECT_FALSE(cfg.stack.substrateStructure.has_value());
+  fg::SolverOptions o;
+  o.Nx = 40;
+  const auto r = fg::makeSolver(o)->solve(cfg.stack, cfg.scan.front());
+  EXPECT_NEAR(r.modal.reflected[0].power, 0.15999, 2e-4);
+  // the core reaches into the zone
+  auto bad = j;
+  bad.replace(bad.find("1.3, 1.7"), 8, "0.3, 1.7");
+  EXPECT_THROW(fg::io::parseConfig(bad), fg::Error);
+}

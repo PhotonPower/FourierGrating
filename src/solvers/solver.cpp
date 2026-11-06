@@ -54,6 +54,8 @@ struct Setup {
   // the structure is); the transformed path above with these coefficients
   bool aperiodic = false;
   std::shared_ptr<const PmlMap> pmlX, pmlZ;
+  // structured half spaces (Plan "Einfall (b)"): numerical bases from their cross-sections
+  std::optional<QBlocks> supQ, subQ;
   // scattered-field formulation (Plan section "Streufeldformulierung"): the background stack at the
   // incidence order only (Airy), per background layer as four exponential modes (normalized y)
   bool scattered = false;
@@ -134,7 +136,12 @@ ModeBasis numericBasis(const MatC& M) {
   W << m.Wu, m.Wd;
   VecC lam(2 * n);
   lam << m.lu, m.ld;
-  const std::vector<Eigen::Index> idx = modeOrder(lam, [&](Eigen::Index k) { return modeFlux(W.col(k)); });
+  // propagating modes (|Re lambda| <= 1e-6 |lambda|, rounding noise of the non-Hermitian M with A, G; with
+  // PML up to 1e-7 |lambda|): by the flux, also when the noise exceeds the global tolerance of modeOrder
+  VecC key = lam;
+  for (Eigen::Index k = 0; k < key.size(); ++k)
+    if (std::abs(key(k).real()) <= 1e-6 * std::abs(key(k))) key(k) = cplx(0.0, key(k).imag());
+  const std::vector<Eigen::Index> idx = modeOrder(key, [&](Eigen::Index k) { return modeFlux(W.col(k)); });
   ModeBasis b;
   b.Psi.resize(M.rows(), 2 * n);
   b.lambda.resize(2 * n);
@@ -336,6 +343,12 @@ class StackSolver final : public Solver {
     if (linalg::precision() == linalg::Precision::FP32 && opt_.rkTol < 1e-5 && opt_.kind == SolverKind::RK)
       res.diag.warnings.push_back("precision fp32: rk.tol raised to 1e-5");
     for (const auto& m : models) res.diag.warnings.insert(res.diag.warnings.end(), m->warnings.begin(), m->warnings.end());
+    if (stack.aperiodic.modeExcitation) {
+      modalOutputs(stack, s, models, res);
+      res.diag.refinementSteps = counter.steps;
+      res.diag.refinementFallbacks = counter.fallbacks;
+      return res;
+    }
     if (s.scattered && s.aperiodic) {
       scatteredOutputs(stack, s, models, res);
       res.diag.refinementSteps = counter.steps;
@@ -520,6 +533,23 @@ class StackSolver final : public Solver {
       FG_REQUIRE(!s.tr.x && !s.tr.z, "scattered-field formulation: coordinate_transform (ASR) is not supported");
       background(stack, wl, s);
     }
+    if (stack.superstrateStructure || stack.substrateStructure) {
+      FG_REQUIRE(s.aperiodic, "structured superstrate/substrate need an aperiodic cell (PML)");
+      FG_REQUIRE(!s.scattered, "structured superstrate/substrate: the scattered-field formulation is not available");
+      auto halfSpace = [&](const LayerEntry& le, std::optional<QBlocks>& Qout) {
+        Stack t = stack;
+        t.layers = {le};
+        const auto m = detail::buildLayerModel(t, 0, s.map, opt_.rcwaSlices);
+        FG_REQUIRE(m->yInvariant(), "a structured superstrate/substrate must be y-invariant");
+        Qout = m->Q(0.0);
+        return numericBasis(fullSystem(s).M(*Qout, s));
+      };
+      if (stack.superstrateStructure) s.ref = halfSpace(*stack.superstrateStructure, s.supQ);
+      if (stack.substrateStructure) s.subModes = halfSpace(*stack.substrateStructure, s.subQ);
+    }
+    FG_REQUIRE(!ap.modeExcitation || stack.superstrateStructure,
+               "aperiodic.excitation \"mode\" needs a structured superstrate (the incident waveguide)");
+    FG_REQUIRE(!ap.modeExcitation || !s.scattered, "modal excitation: phi must be 0 (the angles are ignored)");
     return s;
   }
 
@@ -1338,6 +1368,112 @@ class StackSolver final : public Solver {
     res.diag.energyBalance = 1.0;
   }
 
+  /// Guided modes of a half-space basis among the columns [first, first + n_h): n_eff = |Im lambda| above the
+  /// cladding index, |Re lambda| < 1e-3 n_eff (the PML perturbs guided modes by up to 1e-6, radiation modes
+  /// are strongly damped) and >= 90 % of int |E|^2 dX inside the physical region (PML modes with nearly real
+  /// lambda live in the zones); sorted by descending n_eff.
+  static std::vector<int> guidedModes(const Stack& stack, const Setup& s, const ModeBasis& b, int first, int nh,
+                                      double nclad) {
+    const Window w = window(stack, s);
+    const VecC none;
+    const double cell = stack.dx_um * (stack.is2D() ? stack.dz_um : 1.0);
+    auto inside = [&](const VecC& F) {  // int_window |E_t|^2 / int_cell |E_t|^2 (Parseval in X)
+      PlaneField P = planeField(s, F, none, none, none);
+      const auto n = static_cast<Eigen::Index>(P.kx.size());
+      MatC W(n, n);
+      for (Eigen::Index r = 0; r < n; ++r)
+        for (Eigen::Index c = 0; c < n; ++c) {
+          cplx v = axisInt(P.kx[static_cast<std::size_t>(c)] - P.kx[static_cast<std::size_t>(r)], w.x0, w.x1);
+          if (w.twoD) v *= axisInt(P.kz[static_cast<std::size_t>(c)] - P.kz[static_cast<std::size_t>(r)], w.z0, w.z1);
+          W(r, c) = v;
+        }
+      const double in = std::real(P.c[0].dot(W * P.c[0]) + P.c[2].dot(W * P.c[2]));
+      return in / (cell * (P.c[0].squaredNorm() + P.c[2].squaredNorm()));
+    };
+    std::vector<std::pair<double, int>> g;
+    for (int k = first; k < first + nh; ++k) {
+      const cplx l = b.lambda(k);
+      if (std::abs(l.real()) <= 1e-3 * std::abs(l.imag()) && std::abs(l.imag()) > nclad * (1 + 1e-9) &&
+          inside(b.Psi.col(k)) >= 0.9)
+        g.push_back({std::abs(l.imag()), k});
+    }
+    std::sort(g.begin(), g.end(), [](const auto& a, const auto& c) { return a.first > c.first; });
+    std::vector<int> out;
+    for (const auto& [n, k] : g) out.push_back(k);
+    return out;
+  }
+
+  /// Modal excitation (Plan "Einfall (b)", "Ausgaben"): a guided mode of the structured superstrate comes
+  /// in; reflected guided modes (superstrate) and transmitted ones (structured substrate), powers from the
+  /// flux over the physical region, the rest is radiated.
+  void modalOutputs(const Stack& stack, const Setup& s, const detail::LayerModels& models, Result& res) {
+    FG_PROF_SCOPE("solve.modes");
+    const AperiodicSpec& ap = stack.aperiodic;
+    const SMatrix S = assemble(s, fullSystem(s), models, false, {}, res.diag).total;
+    const int nf = s.map.size(), nh = 2 * nf;
+    const Window w = window(stack, s);
+    const VecC none;
+    auto up = [&](const VecC& F) { return planeFlux(w, planeField(s, F, none, none, none)); };
+    auto nclad = [&](const std::string& name) { return std::sqrt(std::max(stack.material(name).tensor()(0, 0).real(), 0.0)); };
+    auto describe = [&](const ModeBasis& b, int col, int index) {
+      ModeCoefficient m;
+      m.index = index;
+      m.nEff = cplx(std::abs(b.lambda(col).imag()), std::abs(b.lambda(col).real()));  // n_eff + i damping
+      const VecC E = b.Psi.col(col);
+      const double ex = E.segment(0, nf).squaredNorm(), ez = E.segment(nf, nf).squaredNorm();
+      m.teFraction = ex + ez > 0 ? ez / (ex + ez) : 0.0;
+      return m;
+    };
+    const std::vector<int> down = guidedModes(stack, s, s.ref, 0, nh, nclad(stack.superstrate));
+    FG_REQUIRE(!down.empty(), "modal excitation: the structured superstrate has no guided mode");
+    int j = 0;
+    if (ap.nEff > 0) {
+      for (int k = 1; k < static_cast<int>(down.size()); ++k)
+        if (std::abs(std::abs(s.ref.lambda(down[static_cast<std::size_t>(k)]).imag()) - ap.nEff) <
+            std::abs(std::abs(s.ref.lambda(down[static_cast<std::size_t>(j)]).imag()) - ap.nEff))
+          j = k;
+    } else {
+      FG_REQUIRE(ap.mode >= 0 && ap.mode < static_cast<int>(down.size()),
+                 "modal excitation: mode " + std::to_string(ap.mode) + " not guided (" + std::to_string(down.size()) +
+                     " guided modes)");
+      j = ap.mode;
+    }
+    const int cin = down[static_cast<std::size_t>(j)];
+    VecC a_in = VecC::Zero(nh);
+    a_in(cin) = 1.0;
+    const double Pin = -up(s.ref.Psi.col(cin));  // down-going power
+    FG_REQUIRE(Pin > 0, "modal excitation: the incident mode carries no power through the physical region");
+    ModalResult& mr = res.modal;
+    mr.present = true;
+    mr.incident = describe(s.ref, cin, j);
+    mr.incident.amplitude = 1.0;
+    mr.incident.power = 1.0;
+    const VecC b = S.S12 * a_in, t = S.S22 * a_in;
+    double sum = 0;
+    const std::vector<int> rUp = guidedModes(stack, s, s.ref, nh, nh, nclad(stack.superstrate));
+    for (std::size_t k = 0; k < rUp.size(); ++k) {
+      ModeCoefficient m = describe(s.ref, rUp[k], static_cast<int>(k));
+      const double Pk = up(s.ref.Psi.col(rUp[k]));
+      m.amplitude = b(rUp[k] - nh) * std::sqrt(std::abs(Pk) / Pin);
+      m.power = std::norm(b(rUp[k] - nh)) * Pk / Pin;
+      sum += m.power;
+      mr.reflected.push_back(m);
+    }
+    if (stack.substrateStructure) {
+      const std::vector<int> tDown = guidedModes(stack, s, s.subModes, 0, nh, nclad(stack.substrate));
+      for (std::size_t k = 0; k < tDown.size(); ++k) {
+        ModeCoefficient m = describe(s.subModes, tDown[k], static_cast<int>(k));
+        const double Pk = -up(s.subModes.Psi.col(tDown[k]));
+        m.amplitude = t(tDown[k]) * std::sqrt(std::abs(Pk) / Pin);
+        m.power = std::norm(t(tDown[k])) * Pk / Pin;
+        sum += m.power;
+        mr.transmitted.push_back(m);
+      }
+    }
+    mr.radiated = 1.0 - sum;
+    res.diag.energyBalance = 1.0;
+  }
+
   /// Amplitudes (a_x, a_z) of the incident wave in the analytic basis of the physical orders.
   static VecC physicalIncidence(const Setup& s) {
     const int nf = s.map.size();
@@ -1420,7 +1556,9 @@ class StackSolver final : public Solver {
         VecC ph(nh);
         for (int c = 0; c < nh; ++c) ph(c) = std::exp(s.subModes.lambda(c) * y);
         fsm.F = s.subModes.Psi.leftCols(nh) * ph.cwiseProduct(a_sub);
-        Q = s.sub->isotropic ? homogeneousIsotropicQ(s.sub->eps, nf) : homogeneousTensorQ(s.sub->epsTensor, nf);
+        Q = s.subQ                ? *s.subQ
+            : s.sub->isotropic ? homogeneousIsotropicQ(s.sub->eps, nf)
+                               : homogeneousTensorQ(s.sub->epsTensor, nf);
       } else if (y > assembly_.yTop) {
         fsm.region = 1;
         const double d = y - assembly_.yTop;
@@ -1430,7 +1568,7 @@ class StackSolver final : public Solver {
           v(nh + c) = amp[K](nh + c) * std::exp(s.ref.lambda(nh + c) * d);
         }
         fsm.F = s.ref.Psi * v;
-        Q = homogeneousIsotropicQ(s.epsSup, nf);
+        Q = s.supQ ? *s.supQ : homogeneousIsotropicQ(s.epsSup, nf);
       } else {
         std::size_t k = 1;
         while (k < K && y > el[k].y1) ++k;
