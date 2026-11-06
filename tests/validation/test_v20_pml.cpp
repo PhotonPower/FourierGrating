@@ -4,6 +4,8 @@
 
 #include <cmath>
 #include <cstdio>
+#include <tuple>
+#include <utility>
 
 #include "fg/io/config.hpp"
 #include "fg/solvers/solver.hpp"
@@ -442,4 +444,65 @@ TEST(M18_Modal, Configuration) {
   auto bad = j;
   bad.replace(bad.find("1.3, 1.7"), 8, "0.3, 1.7");
   EXPECT_THROW(fg::io::parseConfig(bad), fg::Error);
+}
+
+// ---------------------------------------------------------------- 2D (V20g)
+/// Contact hole: round hole (radius r) in a film (n = 2.1, thickness h) on glass, cell L x L, PML in x and z.
+fg::Stack contactHole(double L, double r, double h, double w, double beta = 1.0) {
+  auto st = pml(base(L), w, beta);
+  st.dz_um = L;
+  st.aperiodic.z.width_um = w;
+  st.aperiodic.z.beta = beta;
+  fg::Contour2DLayer c;
+  c.thickness_um = h;
+  c.background = "film";
+  fg::geometry::Region reg;
+  reg.outer = fg::geometry::Contour2D::circle({0.5 * L, 0.5 * L}, r);
+  reg.material = "superstrate";
+  reg.normalize(1e-9);
+  c.regions = {reg};
+  st.layers = {entry(c)};
+  return st;
+}
+
+// A z-invariant trench in a 2D cell (PML in x, periodic in z) reproduces the 1D trench: 2D outputs are
+// cross sections over the z period, i.e. dz times the 1D widths (normal incidence: total field; 30 deg:
+// scattered-field formulation in 2D).
+TEST(M18_Pml2D, ZInvariantTrenchEquals1D) {
+  for (double phi : {0.0, 30.0}) {
+    const fg::Wavelength wl{0.6328, phi * DEG, 0, 0};
+    auto st1 = trench(3.0, 0.5, 0.2, 0.3);
+    st1.layers[0].factorization = fg::Factorization::Laurent;
+    const auto r1 = run(st1, wl, 40);
+    auto st = pml(base(3.0), 0.3);
+    st.dz_um = 0.6;
+    fg::Polygon2DLayer p;
+    p.thickness_um = 0.2;
+    p.background = "film";
+    p.inclusions.push_back({{{1.25, 0.0}, {1.75, 0.0}, {1.75, 0.6}, {1.25, 0.6}}, "superstrate"});
+    st.layers = {entry(p, fg::Factorization::Laurent)};
+    const auto r2 = run(st, wl, 40, 1);
+    EXPECT_NEAR(r2.scattering.up, 0.6 * r1.scattering.up, 1e-10) << phi;
+    EXPECT_NEAR(r2.scattering.down, 0.6 * r1.scattering.down, 1e-10) << phi;
+    EXPECT_NEAR(r2.scattering.lateral, 0.6 * r1.scattering.lateral, 1e-10) << phi;
+    EXPECT_NEAR(r2.scattering.absorbed, 0.6 * r1.scattering.absorbed, 1e-10) << phi;
+  }
+}
+
+// V20g: contact hole (round hole r = 0.25 um in a 0.3 um film, n = 2.1, on glass), PML in x and z. By the
+// symmetry of hole and cell, x- and z-polarized normal incidence scatter identically (checks the z-PML
+// against the x-PML). Convergence in N (measured, cell 2 um): total 0.501 / 0.568 / 0.570 at N = 4 / 6 / 8,
+// |absorbed| 3e-2 / 1e-2 / 1e-3; the study at larger N belongs on the target system (docs/validation.md).
+// Contour2D = CAD body: tests/cad/test_cad.cpp (CAD_V20g).
+TEST(M18_Pml2D, V20gContactHoleSymmetry) {
+  const auto st = contactHole(2.0, 0.25, 0.3, 0.3);
+  const auto a = run(st, TE, 5, 5), b = run(st, TM, 5, 5);
+  EXPECT_NEAR(a.scattering.up, b.scattering.up, 1e-10);
+  EXPECT_NEAR(a.scattering.down, b.scattering.down, 1e-10);
+  EXPECT_NEAR(a.scattering.lateral, b.scattering.lateral, 1e-10);
+  EXPECT_GT(a.scattering.total(), 0.3);
+  // oblique incidence (scattered field, Bloch-free in x) runs and scatters a similar amount
+  const auto c = run(st, fg::Wavelength{0.6328, 30 * DEG, 0, 0}, 5, 5);
+  EXPECT_GT(c.scattering.total(), 0.3);
+  EXPECT_LT(std::abs(c.scattering.absorbed), 0.05);
 }

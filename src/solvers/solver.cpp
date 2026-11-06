@@ -1,6 +1,7 @@
 // FourierGrating - stack assembly shared by the RK and RCWA solvers, efficiencies and near fields
 // (Plan sections "S-Matrix-Formalismus", "Loeser A/B", "Nahfeld").
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <exception>
 #include <cmath>

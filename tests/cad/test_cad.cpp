@@ -442,3 +442,46 @@ TEST(CAD, FilesFromDisk) {
   EXPECT_TRUE(r["ok"].get<bool>()) << r.dump(2);
   EXPECT_EQ(r["bands"][0]["kind"], "extrusion");
 }
+
+// ------------------------------------------------------------------ V20g (M18)
+// Contact hole as a CAD body (cylinder of air in the film, PML in x and z) = the same hole as Contour2D
+// (Plan V20g, 1e-10), normal incidence (total field) and oblique incidence (scattered field).
+TEST(CAD_V20g, ContactHoleEqualsContour2D) {
+  const std::string s = step({cylinder(1.0, 1.0, 0.25, 0.0, 0.3)}, {"Hole"});
+  for (double phi : {0.0, 20.0}) {
+    json cfg{{"dimension", "2D"},
+             {"truncation", {{"Nx", 4}, {"Nz", 4}}},
+             {"period_um", {{"x", 2.0}, {"z", 2.0}}},
+             {"incidence", {{"lambda_um", 0.6328}, {"phi_deg", phi}, {"delta_deg", 30}}},
+             {"materials", {{"air", {{"n", 1.0}}}, {"glass", {{"n", 1.5}}}, {"film", {{"n", 2.1}}}}},
+             {"superstrate", "air"},
+             {"substrate", "glass"},
+             {"layers", json::array({json{{"type", "cad"},
+                                          {"step", s},
+                                          {"cell_origin_um", {0.0, -2.0}},
+                                          {"background", "film"},
+                                          {"bodies", json::array({{{"name", "Hole"}, {"material", "air"}}})},
+                                          {"factorization", "laurent"}}})},
+             {"aperiodic", {{"pml", {{"x", {{"width_um", 0.3}}}, {"z", {{"width_um", 0.3}}}}}}}};
+    const auto c = fg::io::parseConfig(cfg.dump());
+    ASSERT_EQ(c.stack.layers.size(), 1u);
+    const fg::Result a = fg::makeSolver(c.solver)->solve(c.stack, c.scan.front());
+    fg::Stack ref = c.stack;
+    fg::Contour2DLayer l;
+    l.thickness_um = 0.3;
+    l.background = "film";
+    fg::geometry::Region r;
+    r.outer = fg::geometry::Contour2D::circle({1.0, 1.0}, 0.25);
+    r.material = "air";
+    r.normalize(1e-9);
+    l.regions = {r};
+    ref.layers = {fg::LayerEntry{l, fg::Factorization::Laurent}};
+    const fg::Result b = fg::makeSolver(c.solver)->solve(ref, c.scan.front());
+    ASSERT_TRUE(a.scattering.present && b.scattering.present);
+    EXPECT_NEAR(a.scattering.up, b.scattering.up, 1e-10) << phi;
+    EXPECT_NEAR(a.scattering.down, b.scattering.down, 1e-10) << phi;
+    EXPECT_NEAR(a.scattering.lateral, b.scattering.lateral, 1e-10) << phi;
+    EXPECT_NEAR(a.scattering.absorbed, b.scattering.absorbed, 1e-10) << phi;
+    EXPECT_GT(a.scattering.total(), 0.1) << phi;
+  }
+}
