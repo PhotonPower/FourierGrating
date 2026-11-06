@@ -24,6 +24,7 @@ set(FG_UNIT_TESTS
   test_resident
   test_precision
   test_coordinate_transform
+  test_adjoint
 )
 foreach(t ${FG_UNIT_TESTS})
   add_executable(${t} unit/${t}.cpp)
