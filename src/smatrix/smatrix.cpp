@@ -88,4 +88,35 @@ VecC interfaceAmplitudes(const SMatrix& L, const SMatrix& U, const VecC& b_in, c
   return out;
 }
 
+SourcedSMatrix SourcedSMatrix::identity(int nh) {
+  return {SMatrix::identity(nh), VecC::Zero(nh), VecC::Zero(nh)};
+}
+
+SourcedSMatrix star(const SourcedSMatrix& A, const SourcedSMatrix& B) {
+  FG_PROF_SCOPE("smatrix.star_sourced");
+  const int n = A.S.nh();
+  const MatC Id = MatC::Identity(n, n);
+  Eigen::PartialPivLU<MatC> D1(Id - A.S.S12 * B.S.S21);
+  Eigen::PartialPivLU<MatC> D2(Id - B.S.S21 * A.S.S12);
+  SourcedSMatrix C;
+  C.S.S11 = B.S.S11 * D1.solve(A.S.S11);
+  C.S.S12 = B.S.S12 + B.S.S11 * D1.solve(A.S.S12 * B.S.S22);
+  C.S.S21 = A.S.S21 + A.S.S22 * D2.solve(B.S.S21 * A.S.S11);
+  C.S.S22 = A.S.S22 * D2.solve(B.S.S22);
+  C.u = B.u + B.S.S11 * D1.solve(A.u + A.S.S12 * B.v);
+  C.v = A.v + A.S.S22 * D2.solve(B.v + B.S.S21 * A.u);
+  return C;
+}
+
+VecC interfaceAmplitudes(const SourcedSMatrix& L, const SourcedSMatrix& U, const VecC& b_in, const VecC& a_in) {
+  const int n = L.S.nh();
+  const MatC Id = MatC::Identity(n, n);
+  const VecC rhs = L.S.S11 * b_in + L.S.S12 * (U.S.S22 * a_in + U.v) + L.u;
+  const VecC bq = (Id - L.S.S12 * U.S.S21).partialPivLu().solve(rhs);
+  const VecC aq = U.S.S21 * bq + U.S.S22 * a_in + U.v;
+  VecC out(2 * n);
+  out << aq, bq;
+  return out;
+}
+
 }  // namespace fg

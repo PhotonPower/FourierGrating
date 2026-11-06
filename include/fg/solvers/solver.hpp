@@ -43,6 +43,11 @@ struct SolverOptions {
   /// Star-product chain: false = sequential (v0.10 order, bit-identical), true = balanced tree of
   /// fixed shape (parallel; bit-identical for any thread count, <= 1e-12 from sequential).
   bool treeReduction = false;
+  /// Scattered-field formulation (Plan section "Streufeldformulierung"): E = E_bg + E_s with the
+  /// background stack (structured layers replaced by their background material) solved analytically and
+  /// the source sigma = (M - M_bg) F_bg in every structured slice. Automatic for aperiodic structures
+  /// under oblique incidence; this switch forces it (periodic: efficiencies of E_bg + E_s).
+  bool scatteredField = false;
   /// Working precision of the O(n^3) operations (Plan section "M16"): "auto" | "fp64" | "mixed" |
   /// "fp32". auto: FP64 on the CPU; on the GPU by device policy (FP32 on a GeForce RTX 3090).
   /// FG_PRECISION overrides it.
@@ -84,6 +89,10 @@ struct Diagnostics {
 struct ScatteringResult {
   bool present = false;
   double up = 0, down = 0, absorbed = 0;
+  /// Scattered power through the lateral sides of the box (window x [0, top]); up + down + lateral is the
+  /// total scattered power, independent of the window (the split into up and down is not).
+  double lateral = 0;
+  double total() const { return up + down + lateral; }
 };
 
 struct Result {
@@ -101,10 +110,17 @@ struct FieldSample {
   double y_um = 0;
   int region = 0;
   VecC F, Ey, Hy;
+  /// Scattered-field formulation (M18): the background field (Ex, Ey, Ez, Hx, Hy, Hz) of the incidence
+  /// order, ~ exp(i k0 (alpha0 x + gamma0 z)); empty otherwise.
+  VecC bg;
 };
 struct FieldSampleSet {
   double k0 = 0;
   VecC alpha, gamma;   ///< normalized wave numbers of the orders
+  double alpha0 = 0, gamma0 = 0;  ///< normalized wave numbers of the incident wave
+  /// Scattered-field formulation: F contains the background (periodic, normal incidence); false for the
+  /// Bloch-free scattered field of oblique incidence with PML (F = E_s, the background is in bg).
+  bool backgroundIncluded = false;
   std::vector<FieldSample> samples;
 };
 

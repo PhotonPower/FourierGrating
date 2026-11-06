@@ -130,4 +130,21 @@ class StarChain : public BasicStarChain<SMatrix> {
 VecC interfaceAmplitudes(const SMatrix& lower, const SMatrix& upper, const VecC& b_in_bottom,
                          const VecC& a_in_top);
 
+/// Element with internal sources (Plan section "Streufeldformulierung", Verkettung):
+/// (b_top_out ; a_bottom_out) = S (b_bottom_in ; a_top_in) + (u ; v), u, v: the amplitudes the sources
+/// send out at the top and the bottom when nothing comes in.
+struct SourcedSMatrix {
+  SMatrix S;
+  VecC u, v;
+  static SourcedSMatrix identity(int nh);
+};
+
+/// Extended star product: the sources of both parts act like additional incoming amplitudes at the
+/// common interface, u = u_U + U11 (1 - L12 U21)^-1 (u_L + L12 v_U), v = v_L + L22 (1 - U21 L12)^-1 (v_U + U21 u_L).
+SourcedSMatrix star(const SourcedSMatrix& lower, const SourcedSMatrix& upper);
+
+/// Interior amplitudes (a_q ; b_q) between two parts with sources.
+VecC interfaceAmplitudes(const SourcedSMatrix& lower, const SourcedSMatrix& upper, const VecC& b_in_bottom,
+                         const VecC& a_in_top);
+
 }  // namespace fg

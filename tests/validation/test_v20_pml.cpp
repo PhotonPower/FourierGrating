@@ -150,7 +150,7 @@ TEST(M18_Pml, Configuration) {
   EXPECT_THROW(fg::io::parseConfig(bad), fg::Error);
   // oblique incidence in the total-field formulation, PML combined with ASR
   auto st = ridge(3.0, 0.5, 0.3, 0.45);
-  EXPECT_THROW(run(st, fg::Wavelength{0.6328, 10 * DEG, 0, 0}, 20), fg::Error);
+  EXPECT_NO_THROW(run(st, fg::Wavelength{0.6328, 10 * DEG, 0, 0}, 20));  // scattered-field formulation
   st.transform.x.type = fg::AxisTransformSpec::Type::ASR;
   st.transform.x.eta = 0.5;
   EXPECT_THROW(run(st, TE, 20), fg::Error);
@@ -182,4 +182,186 @@ TEST(M18_Pml, BackgroundStack) {
   // not flat in the zone
   std::get<fg::Profile1DLayer>(st.layers[1].spec).ys_um[0] = 0.06;
   EXPECT_THROW(fg::checkPmlZones(st), fg::Error);
+}
+
+double maxDiff(const fg::Result& a, const fg::Result& b) {
+  double d = std::abs(a.absorption - b.absorption);
+  EXPECT_EQ(a.reflected.size(), b.reflected.size());
+  EXPECT_EQ(a.transmitted.size(), b.transmitted.size());
+  for (std::size_t k = 0; k < a.reflected.size() && k < b.reflected.size(); ++k)
+    d = std::max(d, std::abs(a.reflected[k].efficiency - b.reflected[k].efficiency));
+  for (std::size_t k = 0; k < a.transmitted.size() && k < b.transmitted.size(); ++k)
+    d = std::max(d, std::abs(a.transmitted[k].efficiency - b.transmitted[k].efficiency));
+  return d;
+}
+
+// ---------------------------------------------------------------- V20d
+// Scattered-field formulation without PML: background + scattered field (alpha_n = alpha0 + n K) equals
+// the total-field computation (Plan eq:scat_source, eq:scat_ode; sigma = (M - M_bg) F_bg is exactly the
+// difference of the two discrete systems). Measured: RCWA 1e-15, RK 3e-12.
+TEST(M18_Scattered, V20dPeriodicEqualsTotalField) {
+  auto lam = base(1.0);
+  lam.layers = {entry(fg::Lamellar1DLayer{0.4, {0.0, 0.45, 1.0}, {"film", "superstrate"}})};
+  const fg::Wavelength te{0.6328, 20 * DEG, 0, 0}, tm{0.6328, 20 * DEG, 0, 90 * DEG},
+      con{0.6328, 20 * DEG, 15 * DEG, 30 * DEG};
+  for (const auto& wl : {te, tm, con})
+    for (auto kind : {fg::SolverKind::RCWA, fg::SolverKind::RK}) {
+      fg::SolverOptions o;
+      o.kind = kind;
+      o.Nx = 10;
+      o.rkTol = 1e-10;
+      const auto a = fg::makeSolver(o)->solve(lam, wl);
+      o.scatteredField = true;
+      const auto b = fg::makeSolver(o)->solve(lam, wl);
+      EXPECT_LT(maxDiff(a, b), kind == fg::SolverKind::RCWA ? 1e-12 : 1e-10) << static_cast<int>(kind);
+    }
+  // metallic profile (RCWA staircase, background split at the profile height)
+  auto prof = base(0.8);
+  fg::Profile1DLayer p;
+  p.depth_um = 0.2;
+  p.x0_um = 0.1;
+  p.below = "metal";
+  p.above = "superstrate";
+  prof.materials["metal"] = fg::Material::fromIndex("metal", cplx(0.6, 2.5));
+  prof.layers = {entry(p)};
+  fg::SolverOptions o;
+  o.Nx = 8;
+  const auto a = fg::makeSolver(o)->solve(prof, con);
+  o.scatteredField = true;
+  EXPECT_LT(maxDiff(a, fg::makeSolver(o)->solve(prof, con)), 1e-10);
+  // Contour2D pillars (2D), conical
+  fg::Stack pil = base(0.8);
+  pil.dz_um = 0.7;
+  fg::Contour2DLayer c;
+  c.thickness_um = 0.3;
+  c.background = "superstrate";
+  fg::geometry::Region r;
+  r.outer = fg::geometry::Contour2D::circle({0.4, 0.35}, 0.2);
+  r.material = "film";
+  r.normalize(1e-9);
+  c.regions = {r};
+  pil.layers = {entry(c)};
+  o = {};
+  o.Nx = 3;
+  o.Nz = 3;
+  const auto pa = fg::makeSolver(o)->solve(pil, con);
+  o.scatteredField = true;
+  EXPECT_LT(maxDiff(pa, fg::makeSolver(o)->solve(pil, con)), 1e-10);
+}
+
+// Near field of the scattered-field formulation (background added back) = total-field near field.
+TEST(M18_Scattered, NearFieldEqualsTotalField) {
+  auto lam = base(1.0);
+  lam.layers = {entry(fg::Lamellar1DLayer{0.4, {0.0, 0.45, 1.0}, {"film", "superstrate"}})};
+  const fg::Wavelength con{0.6328, 20 * DEG, 15 * DEG, 30 * DEG};
+  fg::NearFieldRequest req;
+  req.nx = 9;
+  req.ny = 7;
+  req.y_min_um = -0.2;
+  req.y_max_um = 0.6;
+  req.horizontal_y_um = 0.2;
+  fg::SolverOptions o;
+  o.Nx = 10;
+  const auto a = fg::makeSolver(o)->nearField(lam, con, req);
+  o.scatteredField = true;
+  const auto b = fg::makeSolver(o)->nearField(lam, con, req);
+  double d = 0;
+  for (int c = 0; c < 3; ++c)
+    for (std::size_t k = 0; k < a.vertical.E[c].size(); ++k)
+      d = std::max({d, std::abs(a.vertical.E[c][k] - b.vertical.E[c][k]), std::abs(a.vertical.H[c][k] - b.vertical.H[c][k])});
+  EXPECT_LT(d, 1e-10);
+  // scattered part: total minus the background of the incidence order
+  req.scattered = true;
+  const auto sc = fg::makeSolver(o)->nearField(lam, con, req);
+  ASSERT_EQ(sc.vertical.E[0].size(), a.vertical.E[0].size());
+  double ds = 0;
+  for (std::size_t k = 0; k < a.vertical.E[0].size(); ++k) ds = std::max(ds, std::abs(a.vertical.E[0][k] - sc.vertical.E[0][k]));
+  EXPECT_GT(ds, 1e-3);  // the background is not zero
+}
+
+// ---------------------------------------------------------------- V20e
+// Normal incidence with PML: the scattered-field formulation equals total field minus background
+// (measured: identical to 1e-10 in all outputs).
+TEST(M18_Scattered, V20eNormalIncidence) {
+  for (const auto& wl : {TE, TM}) {
+    auto st = ridge(3.0, 0.5, 0.3, 0.3);
+    fg::SolverOptions o;
+    o.Nx = 40;
+    const auto a = fg::makeSolver(o)->solve(st, wl);
+    o.scatteredField = true;
+    const auto b = fg::makeSolver(o)->solve(st, wl);
+    EXPECT_NEAR(a.scattering.up, b.scattering.up, 1e-8);
+    EXPECT_NEAR(a.scattering.down, b.scattering.down, 1e-8);
+    EXPECT_NEAR(a.scattering.lateral, b.scattering.lateral, 1e-8);
+    EXPECT_NEAR(a.scattering.absorbed, b.scattering.absorbed, 1e-8);
+  }
+}
+
+// ---------------------------------------------------------------- V20f
+/// Trench of width a in a film (n = 2.1, thickness h) on glass, centred in a cell of width L.
+fg::Stack trench(double L, double a, double h, double w, double beta = 1.0) {
+  auto st = pml(base(L), w, beta);
+  st.layers = {entry(fg::Lamellar1DLayer{h, {0.0, 0.5 * (L - a), 0.5 * (L + a), L}, {"film", "superstrate", "film"}})};
+  return st;
+}
+
+// Ridge and trench under oblique incidence (scattered-field formulation), TE/TM, phi = 30, 60 deg.
+// The total scattered power (up + down + lateral) converges in the cell width (measured 1e-4 over
+// 2.4 / 3.2 / 4.0 / 4.8 um windows); the split into up and down converges only like 1/L (grazing power
+// crosses the planes outside the window). w, beta change all outputs at a fixed window by < 5e-4;
+// |absorbed| < 1e-3 (lossless; trench TM 7.6e-4).
+TEST(M18_Scattered, V20fRidgeAndTrenchOblique) {
+  auto N = [](double L) { return static_cast<int>(12 * L / 0.6328); };
+  for (int kind = 0; kind < 2; ++kind)
+    for (double delta : {0.0, 90.0})
+      for (double phi : {30.0, 60.0}) {  // phi = 0: V20b, V20e
+        const fg::Wavelength wl{0.6328, phi * DEG, 0, delta * DEG};
+        auto make = [&](double win, double w, double beta) {
+          const double L = win + 2 * w;
+          return run(kind ? trench(L, 0.5, 0.2, w, beta) : ridge(L, 0.5, 0.3, w, beta), wl, N(L));
+        };
+        const std::string what =
+            std::string(kind ? "trench " : "ridge ") + (delta == 0 ? "TE " : "TM ") + std::to_string(phi);
+        const auto a = make(3.2, 0.4, 1.0), b = make(4.0, 0.5, 1.0);
+        EXPECT_LT(std::abs(a.scattering.total() - b.scattering.total()), 1e-3) << what;
+        const auto c = make(2.4, 0.3, 1.0), d = make(2.4, 0.6, 4.0);
+        EXPECT_LT(std::abs(c.scattering.up - d.scattering.up), 1e-3) << what;
+        EXPECT_LT(std::abs(c.scattering.down - d.scattering.down), 1e-3) << what;
+        EXPECT_LT(std::abs(c.scattering.total() - d.scattering.total()), 1e-3) << what;
+        for (const auto* r : {&a, &b, &c, &d}) EXPECT_LT(std::abs(r->scattering.absorbed), 1e-3) << what;
+        EXPECT_GT(a.scattering.total(), 0.1) << what;
+      }
+  // RK with sources = RCWA (y-invariant lamellae)
+  const fg::Wavelength wl{0.6328, 30 * DEG, 0, 90 * DEG};
+  const auto st = ridge(3.0, 0.5, 0.3, 0.3);
+  const auto rc = run(st, wl, 40), rk = run(st, wl, 40, 0, fg::SolverKind::RK);
+  EXPECT_NEAR(rc.scattering.up, rk.scattering.up, 1e-7);
+  EXPECT_NEAR(rc.scattering.down, rk.scattering.down, 1e-7);
+}
+
+// Near field of the scattered field with PML under oblique incidence: finite, and decaying into the
+// zones (the scattered field is outgoing).
+TEST(M18_Scattered, NearFieldOblique) {
+  const auto st = ridge(3.0, 0.5, 0.3, 0.3);
+  fg::NearFieldRequest req;
+  req.nx = 60;
+  req.ny = 5;
+  req.y_min_um = 0.35;
+  req.y_max_um = 0.6;
+  req.horizontal_y_um = 0.4;
+  req.scattered = true;
+  fg::SolverOptions o;
+  o.Nx = 40;
+  const auto nf = fg::makeSolver(o)->nearField(st, fg::Wavelength{0.6328, 30 * DEG, 0, 0}, req);
+  const auto& Ez = nf.horizontal.E[2];
+  ASSERT_EQ(Ez.size(), 60u);
+  double inner = 0, edge = 0;
+  for (std::size_t k = 0; k < Ez.size(); ++k) {
+    ASSERT_TRUE(std::isfinite(std::abs(Ez[k])));
+    const double x = 3.0 * static_cast<double>(k) / 60;
+    if (x > 1.0 && x < 2.0) inner = std::max(inner, std::abs(Ez[k]));
+    if (x < 0.05 || x > 2.95) edge = std::max(edge, std::abs(Ez[k]));
+  }
+  EXPECT_GT(inner, 1e-3);
+  EXPECT_LT(edge, 0.2 * inner);
 }

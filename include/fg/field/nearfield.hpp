@@ -18,6 +18,8 @@ struct NearFieldRequest {
   int periods = 1;
   Reconstruction reconstruction = Reconstruction::FFF;
   std::vector<std::string> quantities{"E", "H", "absE2"};
+  /// Scattered-field formulation (M18): the scattered field E - E_bg instead of the total field.
+  bool scattered = false;
 };
 
 /// Real-space field on a cut. Arrays are row-major with axis2 outer (size n2 * n1);

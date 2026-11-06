@@ -54,6 +54,24 @@ struct Setup {
   // the structure is); the transformed path above with these coefficients
   bool aperiodic = false;
   std::shared_ptr<const PmlMap> pmlX, pmlZ;
+  // scattered-field formulation (Plan section "Streufeldformulierung"): the background stack at the
+  // incidence order only (Airy), per background layer as four exponential modes (normalized y)
+  bool scattered = false;
+  struct BgLayer {
+    double y0 = 0, y1 = 0;
+    MatC Psi;          ///< 4 x 4 single-order modes (down x, down z | up x, up z)
+    VecC lambda, amp;  ///< amplitudes: down referenced at y1, up at y0
+    MatC M, MB;        ///< propagation matrix of the background material (computation / Bloch basis)
+    QBlocks Q, Q1;     ///< background permittivity (n_f orders / the incidence order)
+  };
+  std::vector<BgLayer> bg;
+  VecC bgTop, bgSub;        ///< single order: up amplitudes at the top (superstrate), down at y = 0 (substrate)
+  double incIntensity = 0;  ///< |S_y| of the incident plane wave
+  /// Oblique incidence on a PML axis: the scattered field has no Bloch phase there; the sources are
+  /// formed in the Bloch basis (alphaB, gammaB) and re-expanded over the physical region (Tsrc).
+  bool blochSource = false;
+  VecC alphaB, gammaB;
+  MatC Tsrc;
   const ModeBasis& physRef() const { return transformed ? refPhys : ref; }
   const ModeBasis& physSub() const { return transformed ? subPhys : subModes; }
 };
@@ -240,10 +258,22 @@ struct Element {
   const LayerModel* model = nullptr;
   double layerY0 = 0;       ///< normalized y of the layer bottom
   double qHeight_um = -1;   ///< RCWA staircase: height at which Q/eps were taken (layer-relative)
+  VecC su, sv;              ///< scattered-field formulation: source amplitudes (u at the top, v at the bottom)
+  // scattered-field formulation, near fields: particular solution F_p(y) = sum p e^{kappa (y - yref)}
+  // (modal slices) and the affine parts F(ys) = T F(y0) + f (RK slices)
+  std::vector<VecC> pVec, f;
+  std::vector<cplx> pKap;
+  std::vector<double> pRef;
+  VecC particular(double y) const {
+    VecC F = VecC::Zero(pVec.empty() ? 0 : pVec.front().size());
+    for (std::size_t j = 0; j < pVec.size(); ++j) F += pVec[j] * std::exp(pKap[j] * (y - pRef[j]));
+    return F;
+  }
 };
 
 struct Assembly {
   SMatrix total;
+  SourcedSMatrix totalSrc;     // scattered-field formulation
   std::vector<Element> elems;  // only filled when recording
   double yTop = 0;             // normalized
 };
@@ -306,6 +336,28 @@ class StackSolver final : public Solver {
     if (linalg::precision() == linalg::Precision::FP32 && opt_.rkTol < 1e-5 && opt_.kind == SolverKind::RK)
       res.diag.warnings.push_back("precision fp32: rk.tol raised to 1e-5");
     for (const auto& m : models) res.diag.warnings.insert(res.diag.warnings.end(), m->warnings.begin(), m->warnings.end());
+    if (s.scattered && s.aperiodic) {
+      scatteredOutputs(stack, s, models, res);
+      res.diag.refinementSteps = counter.steps;
+      res.diag.refinementFallbacks = counter.fallbacks;
+      return res;
+    }
+    if (s.scattered) {
+      const Assembly as = assemble(s, fullSystem(s), models, false, {}, res.diag);
+      {
+        // total field = background + scattered (no incoming scattered amplitudes)
+        const int nf = s.map.size(), c = s.map.center();
+        VecC b = as.totalSrc.u, a = as.totalSrc.v;
+        b(c) += s.bgTop(0);
+        b(nf + c) += s.bgTop(1);
+        a(c) += s.bgSub(0);
+        a(nf + c) += s.bgSub(1);
+        efficienciesFrom(s, b, a, res);
+      }
+      res.diag.refinementSteps = counter.steps;
+      res.diag.refinementFallbacks = counter.fallbacks;
+      return res;
+    }
     if (s.aperiodic) {
       scattering(stack, s, models, res);
       res.diag.refinementSteps = counter.steps;
@@ -409,32 +461,212 @@ class StackSolver final : public Solver {
     const double Kx = 2.0 * PI / (s.k0 * stack.dx_um);
     const double Kz = stack.is2D() ? 2.0 * PI / (s.k0 * stack.dz_um) : 0.0;
     const int nf = s.map.size();
+    // oblique incidence on a PML axis: scattered-field formulation without Bloch phase on that axis
+    const AperiodicSpec& ap = stack.aperiodic;
+    const bool oblX = ap.enabled && ap.x.active() && std::abs(s.inc.alpha0) >= 1e-12;
+    const bool oblZ = ap.enabled && ap.z.active() && std::abs(s.inc.gamma0) >= 1e-12;
+    s.scattered = opt_.scatteredField || oblX || oblZ;
+    s.blochSource = oblX || oblZ;
     s.alpha.resize(nf);
     s.gamma.resize(nf);
     for (int r = 0; r < nf; ++r) {
       const auto [n, m] = s.map.orders(r);
-      s.alpha(r) = s.inc.alpha0 + n * Kx;
-      s.gamma(r) = s.inc.gamma0 + m * Kz;
+      s.alpha(r) = (oblX ? 0.0 : s.inc.alpha0) + n * Kx;
+      s.gamma(r) = (oblZ ? 0.0 : s.inc.gamma0) + m * Kz;
+    }
+    if (s.blochSource) {
+      s.alphaB.resize(nf);
+      s.gammaB.resize(nf);
+      for (int r = 0; r < nf; ++r) {
+        const auto [n, m] = s.map.orders(r);
+        s.alphaB(r) = s.inc.alpha0 + n * Kx;
+        s.gammaB(r) = s.inc.gamma0 + m * Kz;
+      }
+      // T(m, n) = 1/d int_phys exp(i k0 (alpha0 + (n - m) K) x) dx on the oblique PML axes
+      auto restrict = [&](int N, double d, double w, double a0, double K) {
+        MatC T(2 * N + 1, 2 * N + 1);
+        const double xa = w, xb = d - w;
+        for (int m = -N; m <= N; ++m)
+          for (int n = -N; n <= N; ++n) {
+            const double kap = s.k0 * (a0 + (n - m) * K);
+            T(m + N, n + N) = std::abs(kap) * (xb - xa) < 1e-12
+                                  ? cplx((xb - xa) / d)
+                                  : (std::exp(I * (kap * xb)) - std::exp(I * (kap * xa))) / (I * kap * d);
+          }
+        return T;
+      };
+      MatC Tx, Tz;
+      if (oblX) Tx = restrict(s.map.Nx(), stack.dx_um, ap.x.width_um, s.inc.alpha0, Kx);
+      if (oblZ) Tz = restrict(s.map.Nz(), stack.dz_um, ap.z.width_um, s.inc.gamma0, Kz);
+      s.Tsrc = separable(s.map, oblX ? &Tx : nullptr, oblZ ? &Tz : nullptr);
     }
     s.ref = isotropicModes(s.epsSup, s.alpha, s.gamma);
     s.sub = &stack.material(stack.substrate);
     s.subModes = s.sub->isotropic ? isotropicModes(s.sub->eps, s.alpha, s.gamma)
                                   : anisotropicModes(s.sub->epsTensor, s.alpha, s.gamma);
     s.tr = resolveTransform(stack);
-    if (stack.aperiodic.enabled) {
-      const AperiodicSpec& ap = stack.aperiodic;
+    if (ap.enabled) {
       FG_REQUIRE(!s.tr.x && !s.tr.z, "aperiodic: PML and coordinate_transform (ASR) cannot be combined");
       FG_REQUIRE(!ap.z.active() || stack.is2D(), "aperiodic: pml.z needs a 2D grating");
       checkPmlZones(stack);
-      // total-field formulation (Plan "Einfall (a)"): the incident wave would be damped in the zones
-      FG_REQUIRE(std::abs(s.inc.alpha0) < 1e-12 && std::abs(s.inc.gamma0) < 1e-12,
-                 "aperiodic: plane-wave excitation with PML needs normal incidence (phi = 0)");
+      // oblique incidence: scattered-field formulation (set above); the total-field formulation (Plan
+      // "Einfall (a)") would damp the incident wave in the zones
       s.aperiodic = true;
       if (ap.x.active()) s.pmlX = std::make_shared<const PmlMap>(stack.dx_um, ap.x.width_um, ap.x.beta);
       if (ap.z.active()) s.pmlZ = std::make_shared<const PmlMap>(stack.dz_um, ap.z.width_um, ap.z.beta);
     }
     if (s.tr.active() || s.aperiodic) transform(s);
+    if (s.scattered) {
+      FG_REQUIRE(!s.tr.x && !s.tr.z, "scattered-field formulation: coordinate_transform (ASR) is not supported");
+      background(stack, wl, s);
+    }
     return s;
+  }
+
+  /// Background field (Plan section "Streufeldformulierung"): the background stack (no PML, no
+  /// transformation) at the incidence order only, as exponential modes per layer, and the propagation
+  /// matrices of the background materials for sigma = (M - M_bg) F_bg.
+  void background(const Stack& stack, const Wavelength& wl, Setup& s) const {
+    FG_PROF_SCOPE("solve.background");
+    Stack bg = backgroundStack(stack);
+    bg.aperiodic = {};
+    bg.transform = {};
+    SolverOptions o = opt_;
+    o.Nx = 0;
+    o.Nz = 0;
+    o.kind = SolverKind::RCWA;
+    o.scatteredField = false;
+    o.splitPolarizations = false;
+    StackSolver sub(o);
+    std::vector<double> ys{0.0};
+    for (const auto& le : bg.layers) ys.push_back(ys.back() + std::get<HomogeneousLayer>(le.spec).thickness_um);
+    const FieldSampleSet fs = sub.fieldCoefficients(bg, wl, ys);
+    detail::applyThreadSettings(opt_);
+    const VecC a0 = VecC::Constant(1, s.inc.alpha0), g0 = VecC::Constant(1, s.inc.gamma0);
+    auto modes1 = [&](const Material& m) {
+      return m.isotropic ? isotropicModes(m.eps, a0, g0) : anisotropicModes(m.epsTensor, a0, g0);
+    };
+    const System sys = fullSystem(s);
+    const int nf = s.map.size();
+    s.bg.clear();
+    for (std::size_t k = 0; k < bg.layers.size(); ++k) {
+      const Material& mat = bg.material(std::get<HomogeneousLayer>(bg.layers[k].spec).material);
+      Setup::BgLayer L;
+      L.y0 = ys[k] * s.k0;
+      L.y1 = ys[k + 1] * s.k0;
+      const ModeBasis mb = modes1(mat);
+      L.Psi = mb.Psi;
+      L.lambda = mb.lambda;
+      const VecC c0 = mb.PsiInv * fs.samples[k].F, c1 = mb.PsiInv * fs.samples[k + 1].F;
+      L.amp.resize(4);
+      L.amp << c1.head(2), c0.tail(2);
+      const QBlocks Q = mat.isotropic ? homogeneousIsotropicQ(mat.eps, nf) : homogeneousTensorQ(mat.epsTensor, nf);
+      L.M = sys.M(Q, s);
+      if (s.blochSource) L.MB = buildPropagationMatrix(Q, s.alphaB, s.gammaB);
+      L.Q = Q;
+      L.Q1 = mat.isotropic ? homogeneousIsotropicQ(mat.eps, 1) : homogeneousTensorQ(mat.epsTensor, 1);
+      s.bg.push_back(std::move(L));
+    }
+    const ModeBasis sup = isotropicModes(s.epsSup, a0, g0), sb = modes1(*s.sub);
+    s.bgTop = (sup.PsiInv * fs.samples.back().F).tail(2);
+    s.bgSub = (sb.PsiInv * fs.samples.front().F).head(2);
+    VecC ainc(2);
+    ainc << s.inc.A(0), s.inc.A(2);
+    const VecC Fi = sup.Psi.leftCols(2) * ainc;
+    const double beta0 = std::sqrt(std::max(s.epsSup.real() - s.inc.alpha0 * s.inc.alpha0 - s.inc.gamma0 * s.inc.gamma0, 1e-300));
+    s.incIntensity = std::abs(0.5 * std::real(Fi(1) * std::conj(Fi(2)) - Fi(0) * std::conj(Fi(3)))) *
+                     std::sqrt(s.epsSup.real()) / beta0;
+  }
+
+  // ------------------------------------------------------------------ scattered-field sources
+  /// Background layer containing the normalized height y.
+  static const Setup::BgLayer& bgLayer(const Setup& s, double y) {
+    for (const auto& L : s.bg)
+      if (y <= L.y1) return L;
+    return s.bg.back();
+  }
+  /// Background field (4 components, incidence order) at normalized y.
+  static VecC bgField(const Setup::BgLayer& L, double y) {
+    VecC f = VecC::Zero(4);
+    for (int k = 0; k < 4; ++k) f += L.Psi.col(k) * (L.amp(k) * std::exp(L.lambda(k) * (y - (k < 2 ? L.y1 : L.y0))));
+    return f;
+  }
+  /// sigma = (M - M_bg) F_bg for a single-order background field w (Plan eq:scat_ode in the form
+  /// F_s' = M F_s + (M - M_bg) F_bg); oblique PML: in the Bloch basis (MB), then re-expanded.
+  static VecC sourceOf(const Setup& s, const MatC& M, const MatC* MB, const Setup::BgLayer& L, const VecC& w) {
+    const int nf = s.map.size(), c = s.map.center();
+    VecC sig = VecC::Zero(4 * nf);
+    for (int k = 0; k < 4; ++k)
+      if (w(k) != 0.0)
+        sig += w(k) * (s.blochSource ? VecC(MB->col(k * nf + c) - L.MB.col(k * nf + c)) : VecC(M.col(k * nf + c) - L.M.col(k * nf + c)));
+    return s.blochSource ? componentwise(s.Tsrc, sig) : sig;
+  }
+  /// Background layers boundaries strictly inside (ya, yb) (normalized): elements must not cross them.
+  static std::vector<double> bgCuts(const Setup& s, double ya, double yb) {
+    std::vector<double> c{ya};
+    if (s.scattered)
+      for (const auto& L : s.bg)
+        if (L.y1 > ya + 1e-12 * std::max(1.0, yb) && L.y1 < yb - 1e-12 * std::max(1.0, yb)) c.push_back(L.y1);
+    c.push_back(yb);
+    return c;
+  }
+  /// Source amplitudes of a modal slice [y0, y1] (Plan "RCWA: partikulaere Loesung je Exponentialterm"):
+  /// F_p = sum (kappa - M)^-1 sigma_kappa e^{kappa y}; with g = Psi_ref^-1 F_p at both ends,
+  /// u = g1_b - S11 g0_b - S12 g1_a, v = g0_a - S21 g0_b - S22 g1_a. False if kappa is within 1e-8 max|lambda|
+  /// of an eigenvalue of M (then the slice is integrated with RK).
+  static bool modalSources(const Setup& s, const MatC& M, const MatC* MB, const LayerModes& modes, const SMatrix& S,
+                           double y0, double y1, const ModeBasis& ref, VecC& u, VecC& v, Element* rec = nullptr) {
+    const Setup::BgLayer& L = bgLayer(s, 0.5 * (y0 + y1));
+    const double lmax = std::max(modes.lu.cwiseAbs().maxCoeff(), modes.ld.cwiseAbs().maxCoeff());
+    const Eigen::Index N = M.rows();
+    VecC F0 = VecC::Zero(N), F1 = VecC::Zero(N);
+    for (int k = 0; k < 4; ++k) {
+      if (L.amp(k) == 0.0) continue;
+      const cplx kap = L.lambda(k);
+      double dist = 1e300;
+      for (Eigen::Index j = 0; j < modes.lu.size(); ++j)
+        dist = std::min({dist, std::abs(kap - modes.lu(j)), std::abs(kap - modes.ld(j))});
+      if (dist < 1e-8 * lmax) return false;
+      const VecC p = (kap * MatC::Identity(N, N) - M).partialPivLu().solve(sourceOf(s, M, MB, L, L.Psi.col(k))) * L.amp(k);
+      const double yr = k < 2 ? L.y1 : L.y0;
+      F0 += p * std::exp(kap * (y0 - yr));
+      F1 += p * std::exp(kap * (y1 - yr));
+      if (rec) {
+        rec->pVec.push_back(p);
+        rec->pKap.push_back(kap);
+        rec->pRef.push_back(yr);
+      }
+    }
+    const Eigen::Index n = S.nh();
+    const VecC g0 = ref.PsiInv * F0, g1 = ref.PsiInv * F1;
+    u = g1.tail(n) - S.S11 * g0.tail(n) - S.S12 * g1.head(n);
+    v = g0.head(n) - S.S21 * g0.tail(n) - S.S22 * g1.head(n);
+    return true;
+  }
+  /// Source amplitudes from an affine transfer F(y1) = T F(y0) + f (RK): u = g_b - S12 g_a, v = -S22 g_a.
+  static void affineSources(const SMatrix& S, const VecC& f, const ModeBasis& ref, VecC& u, VecC& v) {
+    const Eigen::Index n = S.nh();
+    const VecC g = ref.PsiInv * f;
+    u = g.tail(n) - S.S12 * g.head(n);
+    v = -S.S22 * g.head(n);
+  }
+  /// RK transfer of dF/dy = M F + sigma(y) over [ya, yb] as the augmented linear system (F; 1).
+  void affineTransfer(const std::function<MatC(double)>& Mfun, const std::function<VecC(double, const MatC&)>& sigma,
+                      double ya, double yb, const ButcherTableau& tab, double rho, MatC& T, VecC& f, Diagnostics& diag) const {
+    auto aug = [&](double y) {
+      const MatC Mm = Mfun(y);
+      const Eigen::Index n = Mm.rows();
+      MatC A = MatC::Zero(n + 1, n + 1);
+      A.topLeftCorner(n, n) = Mm;
+      A.topRightCorner(n, 1) = sigma(y, Mm);
+      return A;
+    };
+    RKStats st;
+    const MatC Ta = rkTransfer(aug, ya, yb, tab, rkTol(), rho, st);
+    diag.rkSteps += st.steps;
+    const Eigen::Index n = Ta.rows() - 1;
+    T = Ta.topLeftCorner(n, n);
+    f = Ta.topRightCorner(n, 1);
   }
 
   /// Transformed coordinates (Plan section "M17", eq:ct_deriv): A, G, the conversion matrices of
@@ -479,7 +711,8 @@ class StackSolver final : public Solver {
   /// True if the problem decouples exactly into TE and TM (Plan section "Spezialfaelle"): 1D,
   /// gamma = 0 for all orders, isotropic substrate and layers (the superstrate is always isotropic).
   bool decoupled(const Stack& stack, const Setup& s) const {
-    if (!opt_.splitPolarizations || stack.is2D() || !s.gamma.isZero(0.0) || !s.sub->isotropic || s.transformed)
+    if (!opt_.splitPolarizations || stack.is2D() || !s.gamma.isZero(0.0) || !s.sub->isotropic || s.transformed ||
+        s.scattered)
       return false;
     for (const auto& le : stack.layers) {
       const auto names = layerMaterials(le.spec);
@@ -523,7 +756,7 @@ class StackSolver final : public Solver {
     FG_REQUIRE(!record || !sys.pol, "field records need the full 4 n_f system");
     // resident chain (Plan section "M15", step 5): slice modes, slice S-matrices and star products
     // stay on the device; only the total S-matrix is downloaded (not for near-field records)
-    const bool res = !record && linalg::gpuSelected(sys.ref.Psi.rows()) && linalg::gpu().resident();
+    const bool res = !record && !s.scattered && linalg::gpuSelected(sys.ref.Psi.rows()) && linalg::gpu().resident();
     std::shared_ptr<const linalg::DeviceMatrix> psiInvD;
     if (res) {
       linalg::Backend& d = linalg::gpu();
@@ -568,9 +801,14 @@ class StackSolver final : public Solver {
       } else if (opt_.kind == SolverKind::RCWA) {
         const int K = m.yInvariant() ? 1 : m.rcwaSlices;
         for (int k = 0; k < K; ++k)
-          tasks.push_back([&s, &sys, &m, y0, H, K, k, record, res, psiInvD](std::vector<Element>& out, Diagnostics&) {
+          tasks.push_back([this, &s, &sys, &m, y0, H, K, k, record, res, psiInvD](std::vector<Element>& out, Diagnostics& dg) {
             const double yq = (k + 0.5) * m.thickness_um() / K;  // staircase: Q at slice centre
-            const MatC M = sys.M(m.Q(yq), s);
+            const QBlocks Q = m.Q(yq);
+            const MatC M = sys.M(Q, s);
+            if (s.scattered) {
+              scatteredSlices(s, sys, m, Q, M, y0, y0 + H * k / K, y0 + H * (k + 1) / K, yq, record, out, dg);
+              return;
+            }
             Element e;
             e.kind = Element::Kind::Modes;
             e.y0 = y0 + H * k / K;
@@ -614,7 +852,17 @@ class StackSolver final : public Solver {
                                                 d.synchronize();
                                                 return c;
                                               });
+    BasicStarChain<SourcedSMatrix> schain(opt_.treeReduction, threads,
+                                          [settings](const SourcedSMatrix& a, const SourcedSMatrix& b) {
+                                            settings.apply();
+                                            return star(a, b);
+                                          });
     auto push = [&](Element& e) {
+      if (s.scattered) {
+        const int nh = e.S.nh();
+        schain.push({e.S, e.su.size() ? e.su : VecC(VecC::Zero(nh)), e.sv.size() ? e.sv : VecC(VecC::Zero(nh))});
+        return;
+      }
       if (!res) {
         chain.push(record ? e.S : std::move(e.S));
         return;
@@ -650,7 +898,10 @@ class StackSolver final : public Solver {
         }
       }
     }
-    if (res) {
+    if (s.scattered) {
+      as.totalSrc = schain.result();
+      as.total = as.totalSrc.S;
+    } else if (res) {
       linalg::Backend& d = linalg::gpu();
       as.total = resident::download(d, dchain.result());
     } else {
@@ -687,12 +938,17 @@ class StackSolver final : public Solver {
     }
     const int K = std::max(1, static_cast<int>(std::ceil(rho * H / std::log(growthLimit()))));
     const auto tab = std::make_shared<const ButcherTableau>(ButcherTableau::byName(opt_.rkTableau));
-    for (int k = 0; k < K; ++k)
-      tasks.push_back([this, &s, &sys, &m, &sampleY, Mfun, tab, y0, H, K, k, rho, record](std::vector<Element>& out,
+    for (int k = 0; k < K; ++k) {
+      // scattered-field formulation: also cut at the background layer boundaries (profile heights)
+      const std::vector<double> cut = bgCuts(s, y0 + H * k / K, y0 + H * (k + 1) / K);
+      for (std::size_t c = 0; c + 1 < cut.size(); ++c) {
+        const double ya = cut[c] - y0, yb = cut[c + 1] - y0;
+        tasks.push_back([this, &s, &sys, &m, &sampleY, Mfun, tab, y0, ya, yb, rho, record](std::vector<Element>& out,
                                                                                          Diagnostics& diag) {
-        rkSlice(s, sys, m, Mfun, m.yInvariant(), y0, H * k / K, H * (k + 1) / K, rho, *tab, record, sampleY, out, diag,
-                0);
-      });
+          rkSlice(s, sys, m, Mfun, m.yInvariant(), y0, ya, yb, rho, *tab, record, sampleY, out, diag, 0);
+        });
+      }
+    }
   }
 
   /// Field transfer over [ya, yb] (layer-local normalized y), recording the transfer matrices at
@@ -700,6 +956,54 @@ class StackSolver final : public Solver {
   void rkSlice(const Setup& s, const System& sys, const LayerModel& m, const std::function<MatC(double)>& Mfun, bool constant,
                double y0, double ya, double yb, double rho, const ButcherTableau& tab, bool record,
                const std::vector<double>& sampleY, std::vector<Element>& out, Diagnostics& diag, int depth) const {
+    if (s.scattered) {
+      const bool bloch = s.blochSource;
+      auto sigma = [&](double yl, const MatC& Mm) {
+        const Setup::BgLayer& L = bgLayer(s, 0.5 * (ya + yb) + y0);
+        const MatC MB = bloch ? buildPropagationMatrix(m.Q(yl / s.k0), s.alphaB, s.gammaB) : MatC();
+        return sourceOf(s, Mm, bloch ? &MB : nullptr, L, bgField(L, y0 + yl));
+      };
+      Element e;
+      const Eigen::Index n = sys.ref.Psi.rows();
+      MatC T = MatC::Identity(n, n);
+      VecC f = VecC::Zero(n);
+      double prev = ya;
+      auto advance = [&](double to) {  // (T, f) <- (T2 T, T2 f + f2)
+        MatC T2;
+        VecC f2;
+        affineTransfer(Mfun, sigma, prev, to, tab, rho, T2, f2, diag);
+        T = T2 * T;
+        f = T2 * f + f2;
+        prev = to;
+      };
+      if (record)
+        for (double ys : sampleY) {
+          const double yl = ys - y0;
+          if (yl > ya && yl < yb) {
+            advance(yl);
+            e.ys.push_back(ys);
+            e.T.push_back(T);
+            e.f.push_back(f);
+          }
+        }
+      advance(yb);
+      if ((!T.allFinite() || T.cwiseAbs().maxCoeff() > growthLimit()) && depth < 12) {
+        const double ym = 0.5 * (ya + yb);
+        rkSlice(s, sys, m, Mfun, constant, y0, ya, ym, rho, tab, record, sampleY, out, diag, depth + 1);
+        rkSlice(s, sys, m, Mfun, constant, y0, ym, yb, rho, tab, record, sampleY, out, diag, depth + 1);
+        return;
+      }
+      FG_REQUIRE(T.allFinite() && f.allFinite(), "RK transfer matrix not finite");
+      e.kind = Element::Kind::RK;
+      e.y0 = y0 + ya;
+      e.y1 = y0 + yb;
+      e.model = &m;
+      e.layerY0 = y0;
+      e.S = rkSliceSMatrix(T, sys.ref);
+      affineSources(e.S, f, sys.ref, e.su, e.sv);
+      out.push_back(std::move(e));
+      return;
+    }
     auto transfer = [&](double from, double to) {
       RKStats st;
       MatC T = constant  ? rkTransferConstant(Mfun(0), to - from, tab, rkTol(), rho, st)
@@ -739,14 +1043,56 @@ class StackSolver final : public Solver {
     out.push_back(std::move(e));
   }
 
+  /// Modal slice [ya, yb] of a structured layer in the scattered-field formulation: cut at the
+  /// background layer boundaries, S and the source amplitudes per piece; a piece whose background
+  /// exponent resonates with a mode of M is integrated with RK (warning).
+  void scatteredSlices(const Setup& s, const System& sys, const LayerModel& m, const QBlocks& Q, const MatC& M, double y0,
+                       double ya, double yb, double yq, bool record, std::vector<Element>& out, Diagnostics& diag) const {
+    const LayerModes modes = sys.modes(M);
+    const MatC MB = s.blochSource ? buildPropagationMatrix(Q, s.alphaB, s.gammaB) : MatC();
+    const std::vector<double> cut = bgCuts(s, ya, yb);
+    for (std::size_t c = 0; c + 1 < cut.size(); ++c) {
+      Element e;
+      e.kind = Element::Kind::Modes;
+      e.y0 = cut[c];
+      e.y1 = cut[c + 1];
+      e.model = &m;
+      e.layerY0 = y0;
+      e.qHeight_um = yq;
+      RCWASliceRecord rec;
+      e.S = stableLayerSMatrix(modes, e.y1 - e.y0, sys.ref, record ? &rec : nullptr);
+      e.modes = std::move(rec.modes);
+      e.G = std::move(rec.G);
+      if (!modalSources(s, M, s.blochSource ? &MB : nullptr, modes, e.S, e.y0, e.y1, sys.ref, e.su, e.sv,
+                        record ? &e : nullptr)) {
+        FG_REQUIRE(!record, "scattered field: resonant slice (RK fallback) in a near-field computation");
+        diag.warnings.push_back("scattered field: background exponent resonates with a slice mode, slice integrated with RK");
+        const ButcherTableau tab = ButcherTableau::byName(opt_.rkTableau);
+        const Setup::BgLayer& L = bgLayer(s, 0.5 * (e.y0 + e.y1));
+        MatC T;
+        VecC f;
+        const double rho = std::max(modes.lu.cwiseAbs().maxCoeff(), modes.ld.cwiseAbs().maxCoeff());
+        affineTransfer([&M](double) { return M; },
+                       [&](double y, const MatC& Mm) { return sourceOf(s, Mm, s.blochSource ? &MB : nullptr, L, bgField(L, y)); },
+                       e.y0, e.y1, tab, rho, T, f, diag);
+        e.kind = Element::Kind::RK;
+        e.S = rkSliceSMatrix(T, sys.ref);
+        affineSources(e.S, f, sys.ref, e.su, e.sv);
+      }
+      out.push_back(std::move(e));
+    }
+  }
+
   // ------------------------------------------------------------------ efficiencies
   void efficiencies(const Setup& s, const SMatrix& S, Result& res) const {
+    const VecC a_in = incidentAmplitudes(s);
+    efficienciesFrom(s, S.S12 * a_in, S.S22 * a_in, res);
+  }
+  /// Efficiencies from the up-going amplitudes at the top and the down-going ones in the substrate.
+  void efficienciesFrom(const Setup& s, VecC b_top, VecC a_sub, Result& res) const {
     FG_PROF_SCOPE("solve.efficiencies");
     const int nf = s.map.size(), nh = 2 * nf;
-    const VecC a_in = incidentAmplitudes(s);
     const int c = s.map.center();
-    VecC b_top = S.S12 * a_in;
-    VecC a_sub = S.S22 * a_in;
     const ModeBasis& rp = s.physRef();
     const ModeBasis& sp = s.physSub();
     if (s.transformed) {
@@ -801,30 +1147,92 @@ class StackSolver final : public Solver {
   }
 
   // ------------------------------------------------------------------ aperiodic structures
-  /// W(r', r) = int over the physical region of exp(i k0 ((alpha_r - alpha_r') x + (gamma_r - gamma_r') z))
-  /// (x, z in um): the flux of a field through y = const is 1/2 Re(Hx^H W Ez - Hz^H W Ex).
-  static MatC physicalWeights(const Stack& stack, const Setup& s) {
-    auto axis = [](double kappa, double a, double b) -> cplx {
-      if (std::abs(kappa) * (b - a) < 1e-12) return b - a;
-      return (std::exp(I * (kappa * b)) - std::exp(I * (kappa * a))) / (I * kappa);
-    };
-    const double x0 = s.pmlX ? s.pmlX->physicalBegin() : 0.0, x1 = s.pmlX ? s.pmlX->physicalEnd() : stack.dx_um;
-    const double z0 = s.pmlZ ? s.pmlZ->physicalBegin() : 0.0, z1 = s.pmlZ ? s.pmlZ->physicalEnd() : stack.dz_um;
-    const int nf = s.map.size();
-    MatC W(nf, nf);
-    for (int r = 0; r < nf; ++r)
-      for (int c = 0; c < nf; ++c) {
-        cplx w = axis(s.k0 * (s.alpha(c) - s.alpha(r)).real(), x0, x1);
-        if (stack.is2D()) w *= axis(s.k0 * (s.gamma(c) - s.gamma(r)).real(), z0, z1);
-        W(r, c) = w;
+  /// Physical region [x0, x1] x [z0, z1] (um); 1D: the z integrals are per unit length.
+  struct Window {
+    double x0, x1, z0, z1;
+    bool twoD;
+  };
+  static Window window(const Stack& stack, const Setup& s) {
+    return {s.pmlX ? s.pmlX->physicalBegin() : 0.0, s.pmlX ? s.pmlX->physicalEnd() : stack.dx_um,
+            s.pmlZ ? s.pmlZ->physicalBegin() : 0.0, s.pmlZ ? s.pmlZ->physicalEnd() : stack.dz_um, stack.is2D()};
+  }
+  static cplx axisInt(double kappa, double a, double b) {
+    if (std::abs(kappa) * (b - a) < 1e-12) return b - a;
+    return (std::exp(I * (kappa * b)) - std::exp(I * (kappa * a))) / (I * kappa);
+  }
+  /// Field on a plane as coefficient vectors (Ex, Ey, Ez, Hx, Hy, Hz) over lateral wave numbers kx, kz
+  /// (1/um). The Bloch-free scattered field of oblique incidence takes the background as one more
+  /// "order" (alpha0, gamma0); otherwise the background belongs to the centre order.
+  struct PlaneField {
+    std::array<VecC, 6> c;
+    std::vector<double> kx, kz;
+  };
+  /// F (4 n_f), E_y, H_y (may be empty: zero) plus sign * background (6 components, may be empty).
+  static PlaneField planeField(const Setup& s, const VecC& F, const VecC& Ey, const VecC& Hy, const VecC& bg,
+                               double sign = 1.0) {
+    const int nf = s.map.size(), c = s.map.center();
+    const bool ext = s.blochSource;
+    const int n = nf + (ext ? 1 : 0);
+    PlaneField P;
+    const VecC zero = VecC::Zero(nf);
+    const VecC* src[6] = {nullptr, Ey.size() ? &Ey : &zero, nullptr, nullptr, Hy.size() ? &Hy : &zero, nullptr};
+    for (int k = 0; k < 6; ++k) {
+      P.c[static_cast<std::size_t>(k)] = VecC::Zero(n);
+      VecC& v = P.c[static_cast<std::size_t>(k)];
+      if (src[k]) v.head(nf) = *src[k];
+      else if (F.size()) v.head(nf) = F.segment((k == 0 ? 0 : k == 2 ? 1 : k == 3 ? 2 : 3) * nf, nf);
+      if (bg.size()) v(ext ? nf : c) += sign * bg(k);
+    }
+    for (int r = 0; r < nf; ++r) {
+      P.kx.push_back(s.k0 * s.alpha(r).real());
+      P.kz.push_back(s.k0 * s.gamma(r).real());
+    }
+    if (ext) {
+      P.kx.push_back(s.k0 * s.inc.alpha0);
+      P.kz.push_back(s.k0 * s.inc.gamma0);
+    }
+    return P;
+  }
+  /// Upward power through y = const over the window: 1/2 Re(Hx^H W Ez - Hz^H W Ex),
+  /// W(r', r) = int exp(i ((kx_r - kx_r') x + (kz_r - kz_r') z)).
+  static double planeFlux(const Window& w, const PlaneField& P) {
+    const auto n = static_cast<Eigen::Index>(P.kx.size());
+    MatC W(n, n);
+    for (Eigen::Index r = 0; r < n; ++r)
+      for (Eigen::Index c = 0; c < n; ++c) {
+        cplx v = axisInt(P.kx[static_cast<std::size_t>(c)] - P.kx[static_cast<std::size_t>(r)], w.x0, w.x1);
+        if (w.twoD) v *= axisInt(P.kz[static_cast<std::size_t>(c)] - P.kz[static_cast<std::size_t>(r)], w.z0, w.z1);
+        W(r, c) = v;
       }
-    return W;
+    return 0.5 * std::real(P.c[3].dot(W * P.c[2]) - P.c[5].dot(W * P.c[0]));  // dot conjugates its first argument
+  }
+  /// Power in +x through x = xs (axis 0) or in +z through z = zs (axis 1), integrated over the other
+  /// lateral axis of the window: S_x = 1/2 Re(Ey Hz* - Ez Hy*), S_z = 1/2 Re(Ex Hy* - Ey Hx*).
+  static double sideFlux(const Window& w, const PlaneField& P, int axis, double pos) {
+    const auto n = static_cast<Eigen::Index>(P.kx.size());
+    MatC W(n, n);
+    for (Eigen::Index r = 0; r < n; ++r)
+      for (Eigen::Index c = 0; c < n; ++c) {
+        const auto ur = static_cast<std::size_t>(r), uc = static_cast<std::size_t>(c);
+        W(r, c) = axis == 0 ? std::exp(I * ((P.kx[uc] - P.kx[ur]) * pos)) *
+                                  (w.twoD ? axisInt(P.kz[uc] - P.kz[ur], w.z0, w.z1) : cplx(1.0))
+                            : std::exp(I * ((P.kz[uc] - P.kz[ur]) * pos)) * axisInt(P.kx[uc] - P.kx[ur], w.x0, w.x1);
+      }
+    return axis == 0 ? 0.5 * std::real(P.c[5].dot(W * P.c[1]) - P.c[4].dot(W * P.c[2]))
+                     : 0.5 * std::real(P.c[4].dot(W * P.c[0]) - P.c[3].dot(W * P.c[1]));
+  }
+  /// Outward power through the lateral sides of the window (PML axes).
+  static double sidesFlux(const Setup& s, const Window& w, const PlaneField& P) {
+    double out = 0;
+    if (s.pmlX) out += sideFlux(w, P, 0, w.x1) - sideFlux(w, P, 0, w.x0);
+    if (s.pmlZ) out += sideFlux(w, P, 1, w.z1) - sideFlux(w, P, 1, w.z0);
+    return out;
   }
 
-  /// Outward power of the total field through the lateral sides of the box physical region x [0, top]
-  /// (Poynting vector S_x, S_z from the field coefficients at Gauss nodes in y; per layer, and in a 1D
-  /// profile layer also split at its height in the zones, where E_y, E_z jump on the sides).
-  double lateralFlux(const Stack& stack, const Setup& s, const detail::LayerModels& models) {
+  /// Heights (um) and weights of the lateral-side quadrature: Gauss nodes per layer, and in a 1D profile
+  /// layer also split at its height in the zones (E_y, E_z jump on the sides there).
+  static void sideNodes(const Stack& stack, const Setup& s, const detail::LayerModels& models, std::vector<double>& ys,
+                        std::vector<double>& wy) {
     std::vector<double> br{0.0};
     for (std::size_t k = 0; k < stack.layers.size(); ++k) {
       if (const auto* p = std::get_if<Profile1DLayer>(&stack.layers[k].spec)) {
@@ -835,7 +1243,6 @@ class StackSolver final : public Solver {
     }
     const auto& g = quadrature::gaussLegendre(8);
     const double hmax = 0.1 * 2 * PI / s.k0;  // panels <= lambda / 10
-    std::vector<double> ys, wy;
     for (std::size_t k = 0; k + 1 < br.size(); ++k) {
       const double a = br[k], b = br[k + 1];
       const int m = std::max(1, static_cast<int>(std::ceil((b - a) / hmax)));
@@ -845,67 +1252,12 @@ class StackSolver final : public Solver {
           wy.push_back(0.5 * (b - a) / m * g.w[q]);
         }
     }
-    if (ys.empty()) return 0.0;
-    const FieldSampleSet fs = samples(s, models, ys, nullptr);
-    const int nf = s.map.size();
-    // side weights: phase of the orders at the side times the integral along the other lateral axis
-    auto axisInt = [](double kappa, double a, double b) -> cplx {
-      if (std::abs(kappa) * (b - a) < 1e-12) return b - a;
-      return (std::exp(I * (kappa * b)) - std::exp(I * (kappa * a))) / (I * kappa);
-    };
-    const double x0 = s.pmlX ? s.pmlX->physicalBegin() : 0.0, x1 = s.pmlX ? s.pmlX->physicalEnd() : stack.dx_um;
-    const double z0 = s.pmlZ ? s.pmlZ->physicalBegin() : 0.0, z1 = s.pmlZ ? s.pmlZ->physicalEnd() : stack.dz_um;
-    auto sideX = [&](double xs) {  // W(r', r) for the plane x = xs
-      MatC W(nf, nf);
-      for (int r = 0; r < nf; ++r)
-        for (int c = 0; c < nf; ++c) {
-          cplx w = std::exp(I * (s.k0 * (s.alpha(c) - s.alpha(r)).real() * xs));
-          if (stack.is2D()) w *= axisInt(s.k0 * (s.gamma(c) - s.gamma(r)).real(), z0, z1);
-          W(r, c) = w;
-        }
-      return W;
-    };
-    auto sideZ = [&](double zs) {
-      MatC W(nf, nf);
-      for (int r = 0; r < nf; ++r)
-        for (int c = 0; c < nf; ++c)
-          W(r, c) = std::exp(I * (s.k0 * (s.gamma(c) - s.gamma(r)).real() * zs)) *
-                    axisInt(s.k0 * (s.alpha(c) - s.alpha(r)).real(), x0, x1);
-      return W;
-    };
-    struct Side {
-      MatC W;
-      int axis;     // 0: S_x, 1: S_z
-      double sign;  // outward normal
-    };
-    std::vector<Side> sides;
-    if (s.pmlX) {
-      sides.push_back({sideX(x0), 0, -1.0});
-      sides.push_back({sideX(x1), 0, +1.0});
-    }
-    if (s.pmlZ) {
-      sides.push_back({sideZ(z0), 1, -1.0});
-      sides.push_back({sideZ(z1), 1, +1.0});
-    }
-    double P = 0;
-    for (std::size_t i = 0; i < ys.size(); ++i) {
-      const FieldSample& f = fs.samples[i];
-      const VecC Ex = f.F.segment(0, nf), Ez = f.F.segment(nf, nf), Hx = f.F.segment(2 * nf, nf),
-                 Hz = f.F.segment(3 * nf, nf);
-      for (const Side& sd : sides) {
-        // S_x = 1/2 Re(Ey Hz* - Ez Hy*), S_z = 1/2 Re(Ex Hy* - Ey Hx*)
-        const double sx = sd.axis == 0 ? 0.5 * std::real(Hz.dot(sd.W * f.Ey) - f.Hy.dot(sd.W * Ez))
-                                       : 0.5 * std::real(f.Hy.dot(sd.W * Ex) - Hx.dot(sd.W * f.Ey));
-        P += sd.sign * wy[i] * sx;
-      }
-    }
-    return P;
   }
 
-  /// Scattering outputs (Plan section "M18: Ausgaben"): the background stack (same transformation,
-  /// same N, so the discretization errors cancel) gives E_bg; fluxes over the physical region. The
-  /// absorption is the inward total-field flux through the closed box physical region x [0, top] (top,
-  /// bottom and the lateral sides), minus that of the background.
+  /// Scattering outputs (Plan section "M18: Ausgaben"), total-field formulation (normal incidence): the
+  /// background stack (same transformation, same N, so the discretization errors cancel) gives E_bg;
+  /// fluxes over the physical region. The absorption is the inward total-field flux through the closed
+  /// box physical region x [0, top] (top, bottom and the lateral sides), minus that of the background.
   void scattering(const Stack& stack, const Setup& s, const detail::LayerModels& models, Result& res) {
     FG_PROF_SCOPE("solve.scattering");
     const Stack bgStack = backgroundStack(stack);
@@ -915,15 +1267,13 @@ class StackSolver final : public Solver {
     const int nf = s.map.size(), nh = 2 * nf;
     const VecC a_in = incidentAmplitudes(s);
     const VecC b = S.S12 * a_in, bb = Sb.S12 * a_in, t = S.S22 * a_in, tb = Sb.S22 * a_in;
-    const MatC W = physicalWeights(stack, s);
-    auto flux = [&](const VecC& F) {  // upward power through y = const over the physical region
-      const VecC Ex = F.segment(0, nf), Ez = F.segment(nf, nf), Hx = F.segment(2 * nf, nf), Hz = F.segment(3 * nf, nf);
-      return 0.5 * std::real(Hx.dot(W * Ez) - Hz.dot(W * Ex));  // dot: conjugates the first argument
-    };
+    const Window w = window(stack, s);
+    const VecC none;
+    auto flux = [&](const VecC& F) { return planeFlux(w, planeField(s, F, none, none, none)); };
     const MatC& up = s.ref.Psi;
     const auto down = s.subModes.Psi.leftCols(nh);
-    const cplx area = W(s.map.center(), s.map.center());
-    const double Sinc = std::abs(flux(up.leftCols(nh) * a_in)) / area.real();  // incident intensity
+    const double area = (w.x1 - w.x0) * (w.twoD ? w.z1 - w.z0 : 1.0);
+    const double Sinc = std::abs(flux(up.leftCols(nh) * a_in)) / area;  // incident intensity (normal incidence)
     VecC top(2 * nh), topb(2 * nh);
     top << a_in, b;
     topb << a_in, bb;
@@ -931,9 +1281,61 @@ class StackSolver final : public Solver {
     sc.present = true;
     sc.up = flux(up.rightCols(nh) * (b - bb)) / Sinc;
     sc.down = -flux(down * (t - tb)) / Sinc;
-    const double side = lateralFlux(stack, s, models);  // the background has none (laterally uniform)
+    // lateral sides: the background has no lateral flux (laterally uniform)
+    std::vector<double> ys, wy;
+    sideNodes(stack, s, models, ys, wy);
+    double side = 0, sideSca = 0;
+    if (!ys.empty()) {
+      const FieldSampleSet fb = samples(s, bgModels, ys, nullptr);
+      const FieldSampleSet fs = samples(s, models, ys, nullptr);
+      for (std::size_t i = 0; i < ys.size(); ++i) {
+        const FieldSample &f = fs.samples[i], &g = fb.samples[i];
+        side += wy[i] * sidesFlux(s, w, planeField(s, f.F, f.Ey, f.Hy, none));
+        sideSca += wy[i] * sidesFlux(s, w, planeField(s, f.F - g.F, f.Ey - g.Ey, f.Hy - g.Hy, none));
+      }
+    }
+    sc.lateral = sideSca / Sinc;
     sc.absorbed = ((flux(down * t) - flux(up * top) - side) - (flux(down * tb) - flux(up * topb))) / Sinc;
     res.diag.energyBalance = 1.0;  // no diffraction orders; the M16 safeguard does not apply
+  }
+
+  /// Scattering outputs of the scattered-field formulation: field samples just above the stack, just
+  /// below it and on the lateral sides; total = scattered + background, the absorption is the inward
+  /// total-field flux through the closed box minus that of the background alone.
+  void scatteredOutputs(const Stack& stack, const Setup& s, const detail::LayerModels& models, Result& res) {
+    FG_PROF_SCOPE("solve.scattering");
+    double top_um = 0;
+    for (const auto& m : models) top_um += m->thickness_um();
+    std::vector<double> ys{top_um + 1e-9, -1e-9}, wy{0.0, 0.0};
+    sideNodes(stack, s, models, ys, wy);
+    const FieldSampleSet fs = samples(s, models, ys, nullptr);
+    const Window w = window(stack, s);
+    const VecC none;
+    // total, background and scattered field of sample i
+    auto tot = [&](const FieldSample& f) {
+      return planeField(s, f.F, f.Ey, f.Hy, fs.backgroundIncluded ? none : f.bg);
+    };
+    auto bgo = [&](const FieldSample& f) { return planeField(s, none, none, none, f.bg); };
+    auto sca = [&](const FieldSample& f) {
+      return planeField(s, f.F, f.Ey, f.Hy, fs.backgroundIncluded ? f.bg : none, -1.0);
+    };
+    const FieldSample &ft = fs.samples[0], &fb = fs.samples[1];
+    double sideTot = 0, sideBg = 0, sideSca = 0;
+    for (std::size_t i = 2; i < ys.size(); ++i) {
+      sideTot += wy[i] * sidesFlux(s, w, tot(fs.samples[i]));
+      sideBg += wy[i] * sidesFlux(s, w, bgo(fs.samples[i]));
+      sideSca += wy[i] * sidesFlux(s, w, sca(fs.samples[i]));
+    }
+    const double I0 = s.incIntensity;
+    ScatteringResult& sc = res.scattering;
+    sc.present = true;
+    sc.up = planeFlux(w, sca(ft)) / I0;
+    sc.down = -planeFlux(w, sca(fb)) / I0;
+    sc.lateral = sideSca / I0;
+    const double netTot = planeFlux(w, tot(fb)) - planeFlux(w, tot(ft)) - sideTot;
+    const double netBg = planeFlux(w, bgo(fb)) - planeFlux(w, bgo(ft)) - sideBg;
+    sc.absorbed = (netTot - netBg) / I0;
+    res.diag.energyBalance = 1.0;
   }
 
   /// Amplitudes (a_x, a_z) of the incident wave in the analytic basis of the physical orders.
@@ -971,22 +1373,42 @@ class StackSolver final : public Solver {
     const auto& el = assembly_.elems;
     const std::size_t K = el.size() - 1;
     const int nf = s.map.size(), nh = 2 * nf;
-    // cumulative S-matrices below (S_L) and above (S_U) every interface q (top of element q)
-    std::vector<SMatrix> SL(K + 1), SU(K + 1);
-    SL[0] = el[0].S;
-    for (std::size_t q = 1; q <= K; ++q) SL[q] = star(SL[q - 1], el[q].S);
-    SU[K] = SMatrix::identity(nh);
-    for (std::size_t q = K; q-- > 0;) SU[q] = star(el[q + 1].S, SU[q + 1]);
-    const VecC a_in = incidentAmplitudes(s);
     const VecC b_in = VecC::Zero(nh);
     std::vector<VecC> amp(K + 1);  // (a_q; b_q) in the reference basis (Plan eq:internal)
-    for (std::size_t q = 0; q <= K; ++q) amp[q] = interfaceAmplitudes(SL[q], SU[q], b_in, a_in);
-    const VecC a_sub = SL[K].S22 * a_in;  // substrate amplitudes at y = 0 (total = SL[K])
+    VecC a_in, a_sub;
+    if (s.scattered) {
+      // scattered field: nothing comes in, the sources of the elements drive it
+      auto src = [&](std::size_t q) {
+        const Element& e = el[q];
+        return SourcedSMatrix{e.S, e.su.size() ? e.su : VecC(VecC::Zero(nh)), e.sv.size() ? e.sv : VecC(VecC::Zero(nh))};
+      };
+      std::vector<SourcedSMatrix> SL(K + 1), SU(K + 1);
+      SL[0] = src(0);
+      for (std::size_t q = 1; q <= K; ++q) SL[q] = star(SL[q - 1], src(q));
+      SU[K] = SourcedSMatrix::identity(nh);
+      for (std::size_t q = K; q-- > 0;) SU[q] = star(src(q + 1), SU[q + 1]);
+      a_in = VecC::Zero(nh);
+      for (std::size_t q = 0; q <= K; ++q) amp[q] = interfaceAmplitudes(SL[q], SU[q], b_in, a_in);
+      a_sub = SL[K].v;
+    } else {
+      // cumulative S-matrices below (S_L) and above (S_U) every interface q (top of element q)
+      std::vector<SMatrix> SL(K + 1), SU(K + 1);
+      SL[0] = el[0].S;
+      for (std::size_t q = 1; q <= K; ++q) SL[q] = star(SL[q - 1], el[q].S);
+      SU[K] = SMatrix::identity(nh);
+      for (std::size_t q = K; q-- > 0;) SU[q] = star(el[q + 1].S, SU[q + 1]);
+      a_in = incidentAmplitudes(s);
+      for (std::size_t q = 0; q <= K; ++q) amp[q] = interfaceAmplitudes(SL[q], SU[q], b_in, a_in);
+      a_sub = SL[K].S22 * a_in;  // substrate amplitudes at y = 0 (total = SL[K])
+    }
 
     FieldSampleSet out;
     out.k0 = s.k0;
     out.alpha = s.alpha;
     out.gamma = s.gamma;
+    out.alpha0 = s.inc.alpha0;
+    out.gamma0 = s.inc.gamma0;
+    out.backgroundIncluded = s.scattered && !s.blochSource;
     if (where) where->assign(y_um.size(), nullptr);
     for (std::size_t i = 0; i < yn.size(); ++i) {
       const double y = yn[i];
@@ -1020,6 +1442,11 @@ class StackSolver final : public Solver {
           const Eigen::Index n = e.modes.lu.size();
           VecC rhs(2 * n);
           rhs << lo.tail(n), hi.head(n);  // (b_bottom; a_top)
+          if (!e.pVec.empty()) {  // homogeneous part = total - particular solution
+            const VecC g0 = s.ref.PsiInv * e.particular(e.y0), g1 = s.ref.PsiInv * e.particular(e.y1);
+            rhs.head(n) -= g0.tail(n);
+            rhs.tail(n) -= g1.head(n);
+          }
           const VecC cc = e.G.partialPivLu().solve(rhs);
           VecC cu = cc.head(n), cd = cc.tail(n);
           for (Eigen::Index j = 0; j < n; ++j) {
@@ -1027,17 +1454,60 @@ class StackSolver final : public Solver {
             cd(j) *= std::exp(e.modes.ld(j) * (y - e.y1));
           }
           fsm.F = e.modes.Wu * cu + e.modes.Wd * cd;
+          if (!e.pVec.empty()) fsm.F += e.particular(y);
           Q = e.model->Q(e.qHeight_um >= 0 ? e.qHeight_um : 0.0);
         } else {
           const VecC F0 = s.ref.Psi * lo;
           fsm.F = F0;
           for (std::size_t j = 0; j < e.ys.size(); ++j)
-            if (std::abs(e.ys[j] - y) <= 1e-14 * std::max(1.0, std::abs(y))) fsm.F = e.T[j] * F0;
+            if (std::abs(e.ys[j] - y) <= 1e-14 * std::max(1.0, std::abs(y)))
+              fsm.F = e.f.empty() ? VecC(e.T[j] * F0) : VecC(e.T[j] * F0 + e.f[j]);
           if (y >= e.y1 - 1e-14 * std::max(1.0, std::abs(y))) fsm.F = s.ref.Psi * hi;
           Q = e.model->Q((y - e.layerY0) / s.k0);
         }
       }
+      VecC eyCorr;
+      if (s.scattered) {
+        // background field (incidence order): superstrate incident + reflected, substrate transmitted
+        const VecC a0 = VecC::Constant(1, s.inc.alpha0), g0 = VecC::Constant(1, s.inc.gamma0);
+        VecC Fb(4);
+        const QBlocks* Qb1 = nullptr;
+        QBlocks Qh;
+        if (fsm.region > 0) {
+          const ModeBasis sup = isotropicModes(s.epsSup, a0, g0);
+          const double d = y - assembly_.yTop;
+          VecC v(4);
+          v << s.inc.A(0) * std::exp(sup.lambda(0) * d), s.inc.A(2) * std::exp(sup.lambda(1) * d),
+              s.bgTop(0) * std::exp(sup.lambda(2) * d), s.bgTop(1) * std::exp(sup.lambda(3) * d);
+          Fb = sup.Psi * v;
+          Qh = homogeneousIsotropicQ(s.epsSup, 1);
+          Qb1 = &Qh;
+        } else if (fsm.region < 0) {
+          const ModeBasis sb = s.sub->isotropic ? isotropicModes(s.sub->eps, a0, g0) : anisotropicModes(s.sub->epsTensor, a0, g0);
+          VecC v = VecC::Zero(4);
+          v(0) = s.bgSub(0) * std::exp(sb.lambda(0) * y);
+          v(1) = s.bgSub(1) * std::exp(sb.lambda(1) * y);
+          Fb = sb.Psi * v;
+          Qh = s.sub->isotropic ? homogeneousIsotropicQ(s.sub->eps, 1) : homogeneousTensorQ(s.sub->epsTensor, 1);
+          Qb1 = &Qh;
+        } else {
+          const Setup::BgLayer& L = bgLayer(s, y);
+          Fb = bgField(L, y);
+          Qb1 = &L.Q1;
+          if (s.blochSource) {
+            // E_y of the scattered field: Q_yy^-1 (... - P_y) = E_y(Q, F_s) + [E_y(Q, F_bg) - E_y(Q_bg, F_bg)]
+            VecC FB = VecC::Zero(4 * nf);
+            for (int c = 0; c < 4; ++c) FB(c * nf + s.map.center()) = Fb(c);
+            eyCorr = s.Tsrc * (computeEy(Q, s.alphaB, s.gammaB, FB) - computeEy(L.Q, s.alphaB, s.gammaB, FB));
+          }
+        }
+        fsm.bg.resize(6);
+        fsm.bg << Fb(0), computeEy(*Qb1, a0, g0, Fb)(0), Fb(1), Fb(2), computeHy(a0, g0, Fb)(0), Fb(3);
+        if (!s.blochSource)
+          for (int c = 0; c < 4; ++c) fsm.F(c * nf + s.map.center()) += Fb(c);  // total field
+      }
       fsm.Ey = s.transformed ? computeEy(Q, s.A, s.G, fsm.F) : computeEy(Q, s.alpha, s.gamma, fsm.F);
+      if (eyCorr.size()) fsm.Ey += eyCorr;
       fsm.Hy = s.transformed ? computeHy(s.A, s.G, fsm.F) : computeHy(s.alpha, s.gamma, fsm.F);
       out.samples.push_back(std::move(fsm));
     }
@@ -1074,7 +1544,13 @@ class StackSolver final : public Solver {
     for (int i = i0; i < i1; ++i) {
       const FieldSample& f = fs.samples[static_cast<std::size_t>(i)];
       const Element* e = where[static_cast<std::size_t>(i)];
-      const bool fff = req.reconstruction == Reconstruction::FFF && e && e->model && !e->model->homogeneous();
+      // the Bloch-free scattered field is not D = Q E (sources): direct reconstruction
+      const bool fff = req.reconstruction == Reconstruction::FFF && e && e->model && !e->model->homogeneous() &&
+                       !(f.bg.size() && !fs.backgroundIncluded);
+      // scattered-field formulation: add (total) or remove (scattered) the background of the incidence order
+      const double bgSign = f.bg.size() == 0 ? 0.0
+                            : fs.backgroundIncluded ? (req.scattered ? -1.0 : 0.0)
+                                                    : (req.scattered ? 0.0 : 1.0);
       // Fourier vectors of E and H
       VecC E[3] = {f.F.segment(0, nf), f.Ey, f.F.segment(nf, nf)};
       VecC Hc[3] = {f.F.segment(2 * nf, nf), f.Hy, f.F.segment(3 * nf, nf)};
@@ -1103,6 +1579,9 @@ class StackSolver final : public Solver {
           const VecC ph = px[ix].cwiseProduct(pz[iz]);
           const double x_um = xs[ix], z_um = zs[iz];
           for (int c = 0; c < 3; ++c) cut.H[c].push_back(ph.transpose() * Hc[c]);
+          const cplx bph = bgSign == 0.0 ? cplx(0.0) : bgSign * std::exp(I * (s.k0 * (fs.alpha0 * x_um + fs.gamma0 * z_um)));
+          if (bgSign != 0.0)
+            for (int c = 0; c < 3; ++c) cut.H[c].back() += bph * f.bg(3 + c);
           if (fff) {
             Vec3C etx, dnx;
             for (int a = 0; a < 3; ++a) {
@@ -1122,6 +1601,8 @@ class StackSolver final : public Solver {
           } else {
             for (int c = 0; c < 3; ++c) cut.E[c].push_back(ph.transpose() * E[c]);
           }
+          if (bgSign != 0.0)
+            for (int c = 0; c < 3; ++c) cut.E[c].back() += bph * f.bg(c);
           cut.material.push_back(materialAt(stack, f, e, x_um, yq, z_um).real());
         }
     }

@@ -283,6 +283,8 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
   cfg.solver.backendThreshold = j.value("backend_threshold", cfg.solver.backendThreshold);
   cfg.solver.splitPolarizations = j.value("split_polarizations", cfg.solver.splitPolarizations);
   cfg.solver.fftSampling = j.value("fft_sampling", cfg.solver.fftSampling);
+  // scattered-field formulation (M18; automatic for aperiodic structures under oblique incidence)
+  cfg.solver.scatteredField = j.value("scattered_field", cfg.solver.scatteredField);
   // thread model (Plan section "M15", step 2): {"scan": n | "auto", "slices": n | "auto", "blas": n}
   if (j.contains("threads")) {
     const json& t = j["threads"];
@@ -371,6 +373,10 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
       }
     FG_REQUIRE(a.x.active() || a.z.active(), "aperiodic: at least one PML axis (pml.x or pml.z)");
     FG_REQUIRE(dim == "2D" || !a.z.active(), "aperiodic.pml.z needs a 2D grating");
+    const std::string form = ap.value("formulation", std::string("auto"));
+    FG_REQUIRE(form == "auto" || form == "scattered",
+               "aperiodic.formulation must be \"auto\" (total field at normal incidence) or \"scattered\"");
+    if (form == "scattered") cfg.solver.scatteredField = true;
     const std::string exc = ap.value("excitation", std::string("plane_wave"));
     FG_REQUIRE(exc == "plane_wave", "aperiodic.excitation: only \"plane_wave\" is available");
     checkPmlZones(cfg.stack);  // reports structures in the zones early
@@ -392,6 +398,9 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
     cfg.field.reconstruction =
         nf.value("reconstruction", std::string("fff")) == "direct" ? Reconstruction::Direct : Reconstruction::FFF;
     if (nf.contains("quantities")) cfg.field.quantities = nf["quantities"].get<std::vector<std::string>>();
+    const std::string field = nf.value("field", std::string("total"));
+    FG_REQUIRE(field == "total" || field == "scattered", "nearfield.field must be \"total\" or \"scattered\"");
+    cfg.field.scattered = field == "scattered";
   }
   if (j.contains("output")) {
     cfg.outputDir = j["output"].value("dir", cfg.outputDir);
