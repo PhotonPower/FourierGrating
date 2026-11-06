@@ -135,14 +135,28 @@ in einer Tabelle \verb|src/cuda/device_policy.cpp|, damit weitere Karten ergänz
 \verb|CMAKE_CUDA_ARCHITECTURES| \verb|"86;89"| in den CUDA-Presets (RTX 3090 und RTX 6000 Ada); Preset
 \verb|win-cuda| ebenfalls \verb|86|. Speichertabelle (Abschnitt Architektur) um FP32 und 24\,GB (3090) ergänzen.
 
+\paragraph{Umsetzung (v2.8).} \verb|linalg::Precision| wird je Thread gesetzt; in FP32/Mixed läuft jede
+$O(n^3)$-Operation über ein Backend (GPU über der Schwelle, sonst ein CPU-Backend in einfacher Genauigkeit: Eigen
+\verb|MatrixXcf|, eigene Nachiteration). Damit ist die Studie auch ohne GPU möglich. Auf der GPU tragen die
+Gerätematrizen den Elementtyp (Z oder C); die Host-API (\verb|gemm|/\verb|solve|/\verb|eig| auf \verb|MatC|) ist auf
+den residenten Operationen aufgebaut. FP32 läuft resident (Umwandlung beim Hoch-/Herunterladen); Mixed nutzt die
+Host-API, weil die Typumwandlung auf dem Gerät Kernel bräuchte, und löst mit \verb|cusolverDnZCgesv|. Die
+Klassifikationstoleranz ist $10^{-9}$ (FP64) bzw. $10^{-4}$ (C-Eigenwerte) relativ zu $\max|\lambda|$; die
+Konsistenzprüfung lässt $2\tau$ Überlappung zu (nach dem Fluss getrennte Moden mit $|\operatorname{Re}\lambda|\le\tau$).
+Der Rückfall prüft die Energiebilanz; $\operatorname{cond}(T_{11})$ wird nicht berechnet. Die Produkte
+$\Psi_{\text{ref}}^{-1}\Psi$ (Substrat, RK-Scheiben, Host-Pfad der Scheiben-$S$) laufen jetzt ebenfalls über das Backend
+(vorher dichte FP64-GEMM auf der CPU, bei $N=20$ die Hälfte der Laufzeit).
+
 \subsection{Tests und Abnahme (M16)}
 \begin{itemize}[nosep]
   \item Unit: Backend-Operationen in \verb|fp32| gegen \verb|fp64| (gut konditionierte Zufallsmatrizen, $n=50\dots400$):
         relativer Fehler $\le10^{-5}$; IRS-Lösen erreicht FP64-Genauigkeit ($10^{-12}$) für $\operatorname{cond}\le10^6$.
   \item Genauigkeitsstudie: alle Validierungsfälle (V1--V18) in allen drei Modi, Tabelle in \verb|docs/validation.md|
         (maximaler relativer Fehler der Effizienzen gegen \verb|fp64|, Energiebilanz, Fallback ausgelöst ja/nein).
-        Zielwerte vor der Studie: \verb|mixed| $\le10^{-6}$, \verb|fp32| $\le10^{-4}$ für V1--V9; nach der Studie im Plan
-        festschreiben.
+        Zielwerte vor der Studie: \verb|mixed| $\le10^{-6}$, \verb|fp32| $\le10^{-4}$ für V1--V9. \textbf{Nach der Studie
+        (v2.8):} \verb|mixed| und \verb|fp32| $\le10^{-4}$ für V1--V9 (gemessen $\le2\cdot10^{-5}$ auf CPU und RTX~3090);
+        resonante 2D-Fälle (V10, V15) bis $\approx10^{-4}$. \verb|mixed| ist kaum genauer als \verb|fp32|, weil die
+        Eigenprobleme (in beiden Modi C) den Fehler bestimmen; $10^{-6}$ ist mit C-Eigenwerten nicht erreichbar.
   \item Laufzeittabelle RTX~3090 und RTX 6000 Ada: 2D, $N=10,15,20$, alle Modi.
   \item \verb|AGENTS.md| Abschnitt 4: \enquote{Kern ausschließlich \texttt{complex<double>}; einfache Genauigkeit nur im
         Backend (M16).}

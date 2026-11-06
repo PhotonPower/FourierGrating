@@ -84,3 +84,33 @@ Energiefehler der FFF-Varianten 1e-3 (N = 2) bis 3e-5 (N = 6). Laufzeit (1 Kern)
 1D-Linie · e^{iγ0(z−z0)}), Stetigkeit von F an allen Element- und Scheibengrenzen (RK, RCWA) 1e-6, Flusskonstanz
 (verlustfrei) 1e-12, RK = RCWA im Säulenfeld 1e-7. D_x-Sprung an der Wand einer Säule (ε = 4, N = 6, Raster 1 nm):
 direkt 293 %, FFF-konsistent 5,3 % (isotrop, Tensorfeld) bzw. 3,0 % (anisotrop, `FFF_B`).
+
+## Genauigkeitsstudie M16 (fp64 / mixed / fp32)
+
+`tests/validation/test_precision_study.cpp`: alle Beispiele mit Golden File (V1, V3, V4, V5, V7, V10, V15, Nahfeld,
+Echelette, Sweep) und die Profilfälle V9, V13 (`bench/`), je Modus gegen `fp64`. Angegeben ist die größte
+Abweichung einer Effizienz (Anteil der einfallenden Leistung) über alle Ordnungen und Scanpunkte, die
+Energiebilanz |Σe − 1| der verlustfreien Punkte in `fp32` und ob der Rückfall auf fp64 ausgelöst wurde.
+CPU: Eigen in einfacher Genauigkeit (`FG_BACKEND=cpu`); GPU: RTX 3090, alles auf dem Gerät
+(`FG_BACKEND=cuda FG_BACKEND_THRESHOLD=0`). V16–V18 (CAD) sind im MSVC-Build ohne Slicer nicht enthalten.
+
+| Fall | mixed CPU | fp32 CPU | mixed GPU | fp32 GPU | |Σe−1| fp32 GPU | Rückfall |
+|---|---|---|---|---|---|---|
+| V1 Fresnel | 7,9e-10 | 4,5e-8 | 7,9e-10 | 5,0e-9 | < 1e-6 | nein |
+| V3 Lamellen RCWA | 4,4e-6 | 4,5e-6 | 1,4e-6 | 3,4e-6 | 3e-6 | nein |
+| V3 Lamellen RK (Scan) | 1,6e-6 | 3,3e-6 | 1,6e-6 | 2,5e-6 | 2e-6 | nein |
+| V4 Al-Sinus TE | 4,2e-7 | 3,5e-7 | 5,6e-7 | 2,7e-7 | – | nein |
+| V4 Al-Sinus TM | 1,4e-7 | 3,3e-7 | 1,6e-6 | 1,2e-6 | – | nein |
+| V5 Glas tief TE | 1,2e-6 | 4,1e-6 | 1,9e-6 | 1,8e-5 | 1,8e-5 | nein |
+| V7 Kobalt anisotrop | 1,3e-6 | 1,3e-6 | 3,3e-7 | 6,1e-8 | – | nein |
+| V9 `sinus_x` 2D RK | 6,0e-7 | 1,7e-6 | 1,3e-6 | 9,4e-7 | – | nein |
+| V10 Ag-Lochgitter N = 10 | 1,1e-4 | 1,1e-4 | 4,6e-5 | 1,1e-5 | – | nein |
+| V13 Gold-Sinus RK | 1,2e-7 | 3,6e-7 | 1,2e-7 | 2,7e-7 | – | nein |
+| V15 Kreissäulen | 3,8e-5 | 3,8e-5 | 2,6e-5 | 2,6e-5 | – | nein |
+| Echelette Au (Scan) | 2,7e-6 | 7,1e-6 | 3,1e-6 | 3,8e-6 | – | nein |
+| Nahfeld 1D / 2D (Effizienzen) | 6,2e-6 / 1,7e-5 | 6,2e-6 / 1,7e-5 | 6,2e-6 / 1,4e-5 | 1,9e-5 / 1,0e-5 | – | nein |
+| Sweep Lamellentiefe | 5,8e-6 | 5,9e-6 | 1,1e-5 | 1,1e-5 | 1e-5 | nein |
+
+Befund: `mixed` ist kaum genauer als `fp32`, weil die Eigenprobleme (in beiden Modi einfach genau) den Fehler
+bestimmen, nicht die LU-Zerlegungen. Festgeschriebene Zielwerte (Plan v2.8): `mixed` und `fp32` ≤ 1e-4 für V1–V9
+(gemessen ≤ 2e-5); resonante 2D-Fälle (V10, V15) bis ≈ 1e-4. Für Ergebnisse auf 1e-6 und besser: `fp64`.

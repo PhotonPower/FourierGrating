@@ -158,3 +158,23 @@ Auswertung der RK-Stufen innerhalb einer Scheibe (Plan Schritt 3) ist nicht umge
 Transferanteil (Nsight Systems 2026.3, V10): Host→Device 0,7 %, Device→Host ≈ 0,5 %, Device→Device 0,1 % der
 GPU-Zeit (Ziel < 10 %). Die GPU-Zeit dominieren `Xgeev` (Bulge-Chasing) und ZGEMM. Auf der RTX 3090 hat FP64 nur 1/64
 der FP32-Rate; der Gewinn durch FP32 folgt mit M16. GPU-Ergebnisse = CPU auf 1e-10 (`Resident.*`, `Backend.*`).
+
+## M16: Laufzeiten nach Genauigkeit (RTX 3090, v0.15.0)
+
+Ag-Lochgitter (V10-Geometrie) mit N = Nx = Nz, eine Wellenlänge, `backend = cuda`, Schwelle 0, ein Stream;
+`win-msvc-cuda`. In Klammern: `solve.assemble` (GPU-Teil inkl. Aufbau von M) und `solve.layer_models` (FFF-Koeffizienten,
+FP64 auf der CPU, ein Thread). T(0,0) = Transmission nullter Ordnung.
+
+| N | 4 n_f | fp64 | mixed | fp32 | T(0,0) fp64 | Abw. fp32 |
+|---|---|---|---|---|---|---|
+| 10 | 1764 | 6,9 s (5,4 / 1,3) | 8,0 s | 3,5 s (2,1 / 1,2) | 0,0535779 | 2,0e-6 |
+| 15 | 3844 | 48,6 s (34,0 / 13,6) | 52,7 s | 46,8 s (12,7 / 33,5¹) | 0,0237220 | 2,6e-5 |
+| 20 | 6724 | 231 s (157 / 72) | 340 s | 157 s (57 / 98¹) | 0,0111617 | 3,4e-5 |
+
+¹ Der Aufbau der Schichtmodelle schwankt von Lauf zu Lauf (13–33 s bei N = 15); er läuft auf der CPU in FP64.
+
+FP32 beschleunigt den GPU-Teil um 2,6–2,7×; die Gesamtzeit begrenzt jetzt der Aufbau der Schichtmodelle
+(Toeplitz-Inverse der FFF-Faktorisierung, n_f × n_f, FP64, ein Thread) – nächster Ansatzpunkt (BLAS-Threads oder GPU in
+FP64). `mixed` ist auf der GPU langsamer als `fp64` (Host-API mit Transfers je Operation) und nicht genauer als
+`fp32` (Studie in `docs/validation.md`). Vor M16 liefen die Produkte Ψ⁻¹Ψ als dichte FP64-GEMM auf der CPU: fp64 N = 20
+518 s, fp32 379 s. RTX 6000 Ada: auf dem Zielsystem zu messen.

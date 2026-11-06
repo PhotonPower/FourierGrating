@@ -19,8 +19,8 @@ dokumentierten Korrekturen.
 | **Nahfeld** (horizontaler + vertikaler Schnitt) | M6 (1D), M9 (2D) | M6, M9 |
 | **CUDA** (RTX 6000 Ada, sm_89) | M10 | M10 |
 
-> **Status (v0.14):** M0–M15 umgesetzt: 1D und 2D, isotrop und anisotrop, RK und RCWA, Nahfeld, CUDA-Backend,
-> Scans/Sweeps, Anwenderhandbuch (`docs/user_guide.md`), Python-Paket `fouriergrating` (`docs/python.md`), gekrümmte Querschnitte (`contour2d`), CAD-Slicer für STEP-Dateien (`docs/cad.md`), Parallelisierung einzelner Rechnungen und GPU-residente Ketten (`docs/benchmarks.md`). Offen auf dem Zielsystem: GPU-Abnahme (M10) und die
+> **Status (v0.15):** M0–M16 umgesetzt: 1D und 2D, isotrop und anisotrop, RK und RCWA, Nahfeld, CUDA-Backend,
+> Scans/Sweeps, Anwenderhandbuch (`docs/user_guide.md`), Python-Paket `fouriergrating` (`docs/python.md`), gekrümmte Querschnitte (`contour2d`), CAD-Slicer für STEP-Dateien (`docs/cad.md`), Parallelisierung einzelner Rechnungen und GPU-residente Ketten (`docs/benchmarks.md`), wählbare Genauigkeit fp64/mixed/fp32 (`docs/config_format.md`). Offen auf dem Zielsystem: GPU-Abnahme (M10) und die
 > quantitative V10-Konvergenzstudie (siehe `docs/roadmap.md`).
 
 ## Dokumentation

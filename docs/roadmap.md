@@ -142,11 +142,13 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
     GPU-residente Kette = CPU 1e-10 (RTX 3090); TSAN-Job; Leistungsbericht (`docs/benchmarks.md`): Transferanteil 1,3 %
   - Offen: parallele Effizienz 36 % auf 12 Kernen (Ziel 60 % auf 16 Kernen; Eigenwertlöser bandbreitenbegrenzt) – auf dem
     Zielsystem nachmessen; RK-Stufen innerhalb einer Scheibe nicht parallel
-- [ ] **M16** Genauigkeit `fp64` | `mixed` | `fp32` am Backend (kein TF32), angepasstes Scheibenkriterium,
+- [x] **M16** Genauigkeit `fp64` | `mixed` | `fp32` am Backend (kein TF32), angepasstes Scheibenkriterium,
   Schutzmechanismus mit FP64-Rückfall, `CMAKE_CUDA_ARCHITECTURES` 86;89; Standard `auto`: FP32 auf der RTX 3090,
   FP64 auf dem Server und der CPU (`src/cuda/device_policy.cpp`, `FG_PRECISION`)
-  - Abnahme: Backend-Unit-Tests, Genauigkeitsstudie V1–V18 (Tabelle in `docs/validation.md`), Laufzeiten RTX 3090 /
-    RTX 6000 Ada; Regel in `AGENTS.md` angepasst
+  - Abnahme: Backend-Unit-Tests (`test_precision`, CPU und RTX 3090), Genauigkeitsstudie (alle Beispiele + V9, V13;
+    mixed/fp32 ≤ 2e-5 für V1–V9, Ziel festgeschrieben ≤ 1e-4), Laufzeiten RTX 3090 (N = 10/15/20), `AGENTS.md` angepasst
+  - Offen: Laufzeiten RTX 6000 Ada (Zielsystem); V16–V18 in der Studie (CUDA-Build mit Slicer); Schichtmodell-Aufbau
+    begrenzt die GPU-Laufzeit
 - [ ] **M17** Koordinatentransformationen (A = [[1/f']] α, G = [[1/g']] γ), ASR nach Granet für Metalle
   - Abnahme: η = 0 bitgleich; V1–V3, V9 mit η = 0,5 auf 1e-8; V19 (Metall-Lamellen TM, Konvergenztabelle)
 - [ ] **M18** PML (komplexe Streckung), isolierte Strukturen (Steg, Graben, Kontaktloch), strukturierte Ein-/Ausgangsmedien,

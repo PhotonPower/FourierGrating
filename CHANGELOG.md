@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.15.0] – M16 (Wählbare Genauigkeit)
+
+### Hinzugefügt
+- `"precision": "auto" | "fp64" | "mixed" | "fp32"` (`FG_PRECISION`), `"precision_fallback"`, `"growth_limit"`;
+  `linalg::Precision`, `setPrecision`, `gpuSelected`, `gpu()`, `product()`; `diagnostics.precision`,
+  `precision_fallback`, `refinement_steps`, `refinement_fallbacks` (C++, Python, `fgsolve`).
+- CPU-Backend in einfacher Genauigkeit (Eigen `MatrixXcf`) mit FP64-Nachiteration (Mixed); CUDA: Gerätematrizen in Z
+  oder C, `Cgemm`/`Cgeam`/`Cdgmm`, `Xgetrf`/`Xgeev` mit `CUDA_C_32F`, `cusolverDnZCgesv` (Mixed), `CUBLAS_DEFAULT_MATH`
+  (kein TF32); Host-API auf den residenten Operationen aufgebaut.
+- `src/cuda/device_policy.cpp`: `auto` = FP32 auf einer GeForce RTX 3090, sonst FP64; CPU immer FP64.
+- Angepasste Parameter: Wachstumsgrenze auto (FP64 1e8, sonst 4e3), `rk.tol` ≥ 1e-5 in FP32, Klassifikationstoleranz
+  1e-4 bei C-Eigenwerten; Rückfall auf FP64 bei verlustfreien Strukturen mit |Σe − 1| > 1e-3.
+- Tests `test_precision` (Backend-Operationen, Nachiteration bis cond 1e6, Solver-Modi, GPU), Studie
+  `test_precision_study` (Tabelle in `docs/validation.md`), Laufzeiten in `docs/benchmarks.md`.
+
+### Geändert
+- Produkte Ψ⁻¹·(…) (Substrat, RK-Scheiben, Host-Pfad der Scheiben-S) über das Backend: GPU-Laufzeit halbiert.
+- `CMAKE_CUDA_ARCHITECTURES` 86;89 (`cuda-release`), 86 (`win-cuda`); Konsistenzprüfung der Klassifikation 2τ.
+- `fgsolve` gibt Warnungen und die Genauigkeit aus; GPU-Vergleichstests auf 1e-10 setzen `precision = fp64`.
+- Ergebnisse mit Standardoptionen auf der CPU bitgleich (Golden Files unverändert). Plan v2.8.
+
 ## [0.14.0] – M15 (Profiling und Parallelisierung)
 
 ### Hinzugefügt
