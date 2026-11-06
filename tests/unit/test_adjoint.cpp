@@ -307,3 +307,80 @@ TEST(Adjoint, RKStep) {
                 }));
   }
 }
+
+// M19 Phase 2: alpha and gamma in M (angle, wavelength, superstrate index enter through them).
+TEST(Adjoint, PropagationMatrixAlphaGamma) {
+  const int n = 4;
+  fg::QBlocks Q;
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j)
+      Q(i, j) = random(n, n, 0.3) + (i == j ? MatC(2.5 * MatC::Identity(n, n)) : MatC(MatC::Zero(n, n)));
+  VecC al(n), ga(n), da(n), dg(n);
+  for (int r = 0; r < n; ++r) {
+    al(r) = 0.3 + 0.4 * r;
+    ga(r) = 0.1 - 0.2 * r;
+    da(r) = cplx(0.7 - 0.3 * r, 0.1 * r);
+    dg(r) = cplx(-0.2 + 0.5 * r, -0.05);
+  }
+  const MatC K = random(4 * n, 4 * n);
+  fg::QBlocks Qb;
+  VecC ab, gb;
+  fg::adjoint::propagationMatrix(Q, al, ga, K, Qb, ab, gb);
+  const double adj = std::real(ab.dot(da) + gb.dot(dg));
+  expectClose(adj, fd([&](double t) { return re(K, fg::buildPropagationMatrix(Q, VecC(al + t * da), VecC(ga + t * dg))); }));
+}
+
+// M19 Phase 2: analytic basis of an isotropic medium (superstrate, substrate) w.r.t. eps, alpha, gamma.
+TEST(Adjoint, IsotropicModes) {
+  const int n = 5;
+  VecC al(n), ga(n), da(n), dg(n);
+  for (int r = 0; r < n; ++r) {
+    al(r) = 0.35 + 0.8 * (r - 2);  // propagating and evanescent orders
+    ga(r) = 0.2 - 0.1 * r;
+    da(r) = cplx(0.3 + 0.1 * r, 0.0);
+    dg(r) = cplx(-0.4 + 0.2 * r, 0.0);
+  }
+  for (const cplx eps : {cplx(2.25, 0.0), cplx(-8.0, 1.5)}) {
+    // lossless eps: real direction (any complex direction enters the gain side, where the beta branch of the
+    // propagating orders flips)
+    const cplx de = eps.imag() == 0 ? cplx(0.3, 0.0) : cplx(0.3, 0.2);
+    const MatC Kp = random(4 * n, 4 * n), Ki = random(4 * n, 4 * n);
+    const VecC Kb = random(n, 1);
+    auto L = [&](double t) {
+      const auto mb = fg::isotropicModes(eps + t * de, VecC(al + t * da), VecC(ga + t * dg));
+      return re(Kp, mb.Psi) + re(Ki, mb.PsiInv) + std::real(Kb.dot(mb.beta));
+    };
+    const auto mb = fg::isotropicModes(eps, al, ga);
+    cplx eb = 0;
+    VecC ab, gb;
+    fg::adjoint::isotropicModes(eps, al, ga, mb, Kp, Ki, Kb, eb, ab, gb);
+    expectClose(std::real(std::conj(eb) * de) + std::real(ab.dot(da) + gb.dot(dg)), fd(L));
+  }
+}
+
+// M19 Phase 2: the slice S-matrix w.r.t. the reference basis (PsiInv).
+TEST(Adjoint, SliceSMatrixReferenceBasis) {
+  const int nf = 3;
+  fg::QBlocks Q;
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j)
+      Q(i, j) = random(nf, nf, 0.4) + (i == j ? MatC(cplx(3.0, 0.2) * MatC::Identity(nf, nf)) : MatC(MatC::Zero(nf, nf)));
+  VecC al(nf), ga(nf);
+  for (int r = 0; r < nf; ++r) {
+    al(r) = 0.2 + 0.9 * (r - 1);
+    ga(r) = 0.15;
+  }
+  const fg::LayerModes m = fg::layerModesAuto(fg::buildPropagationMatrix(Q, al, ga));
+  fg::ModeBasis ref = fg::isotropicModes(1.0, al, ga);
+  const MatC D = random(4 * nf, 4 * nf, 0.1);
+  const auto K = randomS(2 * nf, 1.0);
+  MatC Wub, Wdb, Pb;
+  VecC lub, ldb;
+  double hb = 0;
+  fg::adjoint::layerSMatrix(m, 0.6, ref, K, Wub, Wdb, lub, ldb, hb, &Pb);
+  expectClose(re(Pb, D), fd([&](double t) {
+                fg::ModeBasis r = ref;
+                r.PsiInv += t * D;
+                return reS(K, fg::stableLayerSMatrix(m, 0.6, r));
+              }));
+}

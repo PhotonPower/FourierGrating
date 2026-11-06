@@ -44,10 +44,17 @@ void fromTransfer(const MatC& T, const SMatrix& Sbar, MatC& Tbar);
 /// Slice S-matrix S = H G^-1 of stableLayerSMatrix: cotangents of the mode matrices, eigenvalues and the
 /// (normalized) slice thickness h.
 void layerSMatrix(const LayerModes& m, double h, const ModeBasis& ref, const SMatrix& Sbar, MatC& Wubar, MatC& Wdbar,
-                  VecC& lubar, VecC& ldbar, double& hbar);
+                  VecC& lubar, VecC& ldbar, double& hbar, MatC* PsiInvbar = nullptr);
+/// mb = isotropicModes(eps, alpha, gamma): cotangents of eps, alpha, gamma from those of Psi, PsiInv and beta
+/// (empty: none).
+void isotropicModes(cplx eps, const VecC& alpha, const VecC& gamma, const ModeBasis& mb, const MatC& Psibar,
+                    const MatC& PsiInvbar, const VecC& betabar, cplx& epsbar, VecC& alphabar, VecC& gammabar);
 
 /// M = buildPropagationMatrix(Q, alpha, gamma) (Plan eq:Mgeneral): Qbar from Mbar (alpha, gamma fixed).
 void propagationMatrix(const QBlocks& Q, const VecC& alpha, const VecC& gamma, const MatC& Mbar, QBlocks& Qbar);
+/// The same with the cotangents of alpha and gamma (M19 Phase 2: angle, wavelength, superstrate).
+void propagationMatrix(const QBlocks& Q, const VecC& alpha, const VecC& gamma, const MatC& Mbar, QBlocks& Qbar,
+                       VecC& alphabar, VecC& gammabar);
 /// The same with dense A, G (M17).
 void propagationMatrix(const QBlocks& Q, const MatC& A, const MatC& G, const MatC& Mbar, QBlocks& Qbar);
 

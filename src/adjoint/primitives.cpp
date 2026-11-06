@@ -151,7 +151,7 @@ void fromTransfer(const MatC& T, const SMatrix& Sbar, MatC& Tbar) {
 }
 
 void layerSMatrix(const LayerModes& m, double h, const ModeBasis& ref, const SMatrix& Sbar, MatC& Wubar, MatC& Wdbar,
-                  VecC& lubar, VecC& ldbar, double& hbar) {
+                  VecC& lubar, VecC& ldbar, double& hbar, MatC* PsiInvbar) {
   const Eigen::Index n = m.lu.size();
   const MatC Cu = ref.PsiInv * m.Wu, Cd = ref.PsiInv * m.Wd;
   const MatC Au = Cu.topRows(n), Bu = Cu.bottomRows(n), Ad = Cd.topRows(n), Bd = Cd.bottomRows(n);
@@ -185,6 +185,7 @@ void layerSMatrix(const LayerModes& m, double h, const ModeBasis& ref, const SMa
   Cdb << Adb, Bdb;
   accumulate(Wubar, MatC(ref.PsiInv.adjoint() * Cub));
   accumulate(Wdbar, MatC(ref.PsiInv.adjoint() * Cdb));
+  if (PsiInvbar) accumulate(*PsiInvbar, MatC(Cub * m.Wu.adjoint() + Cdb * m.Wd.adjoint()));
   VecC lub(n), ldb(n);
   for (Eigen::Index j = 0; j < n; ++j) {
     lub(j) = std::conj(h * Xu(j)) * Xub(j);
@@ -196,8 +197,11 @@ void layerSMatrix(const LayerModes& m, double h, const ModeBasis& ref, const SMa
 }
 
 namespace {
-/// Shared part of both propagation-matrix rules: Pa = alpha (or A), Pg = gamma (or G).
-void propagationBackward(const QBlocks& Q, const MatC& Pa, const MatC& Pg, const MatC& Mbar, QBlocks& Qbar) {
+/// Shared part of both propagation-matrix rules: Pa = alpha (or A), Pg = gamma (or G); Pab, Pgb: their
+/// cotangents through the products and solves (the diagonal alpha gamma, alpha^2, gamma^2 terms are added by
+/// the caller).
+void propagationBackward(const QBlocks& Q, const MatC& Pa, const MatC& Pg, const MatC& Mbar, QBlocks& Qbar,
+                         MatC* Pab = nullptr, MatC* Pgb = nullptr) {
   const int n = Q.nf();
   constexpr int X = 0, Y = 1, Z = 2;
   for (int i = 0; i < 3; ++i)
@@ -209,14 +213,14 @@ void propagationBackward(const QBlocks& Q, const MatC& Pa, const MatC& Pg, const
   MatC Eyxb = MatC::Zero(n, n), Eyzb = MatC::Zero(n, n), Egb = MatC::Zero(n, n), Eab = MatC::Zero(n, n);
   const cplx i1 = I;
   // rows 1, 2 (Plan eq:Mmu1a)
-  product(-i1, Pa, E_yx, Mb(0, 0), nullptr, &Eyxb);
-  product(-i1, Pa, E_yz, Mb(0, 1), nullptr, &Eyzb);
-  product(-i1, Pa, E_g, Mb(0, 2), nullptr, &Egb);
-  product(i1, Pa, E_a, Mb(0, 3), nullptr, &Eab);
-  product(-i1, Pg, E_yx, Mb(1, 0), nullptr, &Eyxb);
-  product(-i1, Pg, E_yz, Mb(1, 1), nullptr, &Eyzb);
-  product(-i1, Pg, E_g, Mb(1, 2), nullptr, &Egb);
-  product(i1, Pg, E_a, Mb(1, 3), nullptr, &Eab);
+  product(-i1, Pa, E_yx, Mb(0, 0), Pab, &Eyxb);
+  product(-i1, Pa, E_yz, Mb(0, 1), Pab, &Eyzb);
+  product(-i1, Pa, E_g, Mb(0, 2), Pab, &Egb);
+  product(i1, Pa, E_a, Mb(0, 3), Pab, &Eab);
+  product(-i1, Pg, E_yx, Mb(1, 0), Pgb, &Eyxb);
+  product(-i1, Pg, E_yz, Mb(1, 1), Pgb, &Eyzb);
+  product(-i1, Pg, E_g, Mb(1, 2), Pgb, &Egb);
+  product(i1, Pg, E_a, Mb(1, 3), Pgb, &Eab);
   // rows 3, 4 (Plan eq:Mmu1b)
   Qbar(Z, X) += std::conj(i1) * Mb(2, 0);
   product(-i1, Q(Z, Y), E_yx, Mb(2, 0), &Qbar(Z, Y), &Eyxb);
@@ -233,8 +237,8 @@ void propagationBackward(const QBlocks& Q, const MatC& Pa, const MatC& Pg, const
   // E_* = Q_yy^-1 rhs
   solve(Q(Y, Y), E_yx, Eyxb, &Qbar(Y, Y), &Qbar(Y, X));
   solve(Q(Y, Y), E_yz, Eyzb, &Qbar(Y, Y), &Qbar(Y, Z));
-  solve(Q(Y, Y), E_g, Egb, &Qbar(Y, Y), nullptr);
-  solve(Q(Y, Y), E_a, Eab, &Qbar(Y, Y), nullptr);
+  solve(Q(Y, Y), E_g, Egb, &Qbar(Y, Y), Pgb);
+  solve(Q(Y, Y), E_a, Eab, &Qbar(Y, Y), Pab);
 }
 }  // namespace
 
@@ -243,6 +247,58 @@ void propagationMatrix(const QBlocks& Q, const VecC& alpha, const VecC& gamma, c
 }
 void propagationMatrix(const QBlocks& Q, const MatC& A, const MatC& G, const MatC& Mbar, QBlocks& Qbar) {
   propagationBackward(Q, A, G, Mbar, Qbar);
+}
+void propagationMatrix(const QBlocks& Q, const VecC& alpha, const VecC& gamma, const MatC& Mbar, QBlocks& Qbar,
+                       VecC& alphabar, VecC& gammabar) {
+  const int n = Q.nf();
+  MatC Pab = MatC::Zero(n, n), Pgb = MatC::Zero(n, n);
+  propagationBackward(Q, MatC(alpha.asDiagonal()), MatC(gamma.asDiagonal()), Mbar, Qbar, &Pab, &Pgb);
+  if (alphabar.size() == 0) alphabar = VecC::Zero(n);
+  if (gammabar.size() == 0) gammabar = VecC::Zero(n);
+  const cplx i1 = I;
+  for (int r = 0; r < n; ++r) {
+    const cplx a = alpha(r), g = gamma(r);
+    // diagonal terms of rows 3, 4: i alpha gamma, -i alpha^2, i gamma^2, -i alpha gamma
+    const cplx m20 = Mbar(2 * n + r, r), m21 = Mbar(2 * n + r, n + r), m30 = Mbar(3 * n + r, r),
+               m31 = Mbar(3 * n + r, n + r);
+    alphabar(r) += Pab(r, r) + std::conj(i1 * g) * m20 + std::conj(-2.0 * i1 * a) * m21 + std::conj(-i1 * g) * m31;
+    gammabar(r) += Pgb(r, r) + std::conj(i1 * a) * m20 + std::conj(2.0 * i1 * g) * m30 + std::conj(-i1 * a) * m31;
+  }
+}
+
+void isotropicModes(cplx eps, const VecC& alpha, const VecC& gamma, const ModeBasis& mb, const MatC& Psibar,
+                    const MatC& PsiInvbar, const VecC& betabar, cplx& epsbar, VecC& alphabar, VecC& gammabar) {
+  // Psi = [1 1; -V V], PsiInv = 1/2 [1 -Vi; 1 Vi]; per order V = (p, q; -s, -p), Vi = (-p, -q; s, p) / eps with
+  // p = alpha gamma / beta, q = (eps - alpha^2) / beta, s = (eps - gamma^2) / beta
+  const Eigen::Index n = alpha.size();
+  if (alphabar.size() == 0) alphabar = VecC::Zero(n);
+  if (gammabar.size() == 0) gammabar = VecC::Zero(n);
+  auto vb = [&](Eigen::Index i, Eigen::Index j) {  // Vbar
+    if (Psibar.size() == 0) return cplx(0);
+    return -Psibar(2 * n + i, j) + Psibar(2 * n + i, 2 * n + j);
+  };
+  auto vib = [&](Eigen::Index i, Eigen::Index j) {  // Vibar
+    if (PsiInvbar.size() == 0) return cplx(0);
+    return -0.5 * PsiInvbar(i, 2 * n + j) + 0.5 * PsiInvbar(2 * n + i, 2 * n + j);
+  };
+  const cplx ie = 1.0 / eps;
+  for (Eigen::Index r = 0; r < n; ++r) {
+    const cplx a = alpha(r), g = gamma(r), b = mb.beta(r);
+    const cplx p = a * g / b, q = (eps - a * a) / b, s = (eps - g * g) / b;
+    const cplx v00 = vb(r, r), v01 = vb(r, n + r), v10 = vb(n + r, r), v11 = vb(n + r, n + r);
+    const cplx w00 = vib(r, r), w01 = vib(r, n + r), w10 = vib(n + r, r), w11 = vib(n + r, n + r);
+    const cplx pb = v00 - v11 + std::conj(ie) * (w11 - w00), qb = v01 - std::conj(ie) * w01,
+               sb = -v10 + std::conj(ie) * w10;
+    // the factor 1 / eps of Vi
+    const cplx de = -ie * ie;
+    epsbar += std::conj(-de * p) * w00 + std::conj(-de * q) * w01 + std::conj(de * s) * w10 + std::conj(de * p) * w11;
+    cplx bb = betabar.size() ? betabar(r) : cplx(0);
+    bb += std::conj(-p / b) * pb + std::conj(-q / b) * qb + std::conj(-s / b) * sb;
+    // beta^2 = eps - alpha^2 - gamma^2
+    alphabar(r) += std::conj(g / b) * pb + std::conj(-2.0 * a / b) * qb + std::conj(-a / b) * bb;
+    gammabar(r) += std::conj(a / b) * pb + std::conj(-2.0 * g / b) * sb + std::conj(-g / b) * bb;
+    epsbar += std::conj(1.0 / b) * (qb + sb) + std::conj(0.5 / b) * bb;
+  }
 }
 
 namespace {
