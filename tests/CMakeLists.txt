@@ -80,6 +80,10 @@ add_executable(test_validation_v19 validation/test_v19_asr.cpp)
 target_link_libraries(test_validation_v19 PRIVATE fg_core GTest::gtest_main)
 gtest_discover_tests(test_validation_v19 PROPERTIES LABELS "validation" TIMEOUT 1800 DISCOVERY_TIMEOUT 60)
 
+add_executable(test_validation_gradient validation/test_gradient.cpp)
+target_link_libraries(test_validation_gradient PRIVATE fg_core GTest::gtest_main nlohmann_json::nlohmann_json)
+gtest_discover_tests(test_validation_gradient PROPERTIES LABELS "validation" TIMEOUT 1800 DISCOVERY_TIMEOUT 60)
+
 add_executable(test_validation_v20 validation/test_v20_pml.cpp)
 target_link_libraries(test_validation_v20 PRIVATE fg_core GTest::gtest_main)
 gtest_discover_tests(test_validation_v20 PROPERTIES LABELS "validation" TIMEOUT 1800 DISCOVERY_TIMEOUT 60)

@@ -274,6 +274,7 @@ void qLiLamellar(const SliceCoefficients& c, const IndexMap& map, const QBlocks&
 void qFFFIsotropic(const SliceCoefficients& c, const IndexMap& map, bool symmetric, const QBlocks& Qbar, IsoGridBar& g) {
   const int n = map.size();
   const MatC L = fourier::toeplitz(map, c.invEps).partialPivLu().inverse();
+  const MatC Delta = fourier::toeplitz(map, c.eps) - L;
   MatC Eb = MatC::Zero(n, n), Db = MatC::Zero(n, n);
   for (int i = 0; i < 3; ++i)
     for (int j = 0; j < 3; ++j) {
@@ -282,6 +283,8 @@ void qFFFIsotropic(const SliceCoefficients& c, const IndexMap& map, bool symmetr
       // Q_ij = delta_ij E - Delta NN (or -(Delta NN + NN Delta) / 2)
       if (symmetric) Db -= 0.5 * (Qb * NN.adjoint() + NN.adjoint() * Qb);
       else Db -= Qb * NN.adjoint();
+      const MatC NNb = symmetric ? MatC(-0.5 * (Delta.adjoint() * Qb + Qb * Delta.adjoint())) : MatC(-Delta.adjoint() * Qb);
+      toeplitz(map, NNb, g.NN[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)]);
       if (i == j) Eb += Qb;
     }
   Eb += Db;  // Delta = E - L
@@ -296,7 +299,9 @@ void qFFFIsotropicRigorous(const SliceCoefficients& c, const IndexMap& map, cons
   const MatC L = fourier::toeplitz(map, c.invEps).partialPivLu().inverse();
   std::array<MatC, 3> Nt;
   for (std::size_t i = 0; i < 3; ++i) Nt[i] = fourier::toeplitz(map, c.normal->N[i]);
+  const MatC E = fourier::toeplitz(map, c.eps);
   MatC Eb = MatC::Zero(n, n), Lb = MatC::Zero(n, n);
+  std::array<MatC, 3> Nb{MatC::Zero(n, n), MatC::Zero(n, n), MatC::Zero(n, n)};
   for (std::size_t i = 0; i < 3; ++i)
     for (std::size_t j = 0; j < 3; ++j) {
       const MatC Qb = block(Qbar, int(i), int(j), n);
@@ -304,7 +309,10 @@ void qFFFIsotropicRigorous(const SliceCoefficients& c, const IndexMap& map, cons
       Eb -= Qb * (Nt[i] * Nt[j]).adjoint();
       Lb += Nt[i].adjoint() * Qb * Nt[j].adjoint();
       if (i == j) Eb += Qb;
+      Nb[i] += -E.adjoint() * Qb * Nt[j].adjoint() + Qb * (L * Nt[j]).adjoint();
+      Nb[j] += -(E * Nt[i]).adjoint() * Qb + (Nt[i] * L).adjoint() * Qb;
     }
+  for (std::size_t i = 0; i < 3; ++i) toeplitz(map, Nb[i], g.N[i]);
   MatC Tb;
   inverse(L, Lb, Tb);
   toeplitz(map, Tb, g.invEps);

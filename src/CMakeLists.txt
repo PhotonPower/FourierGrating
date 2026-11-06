@@ -12,6 +12,7 @@ add_library(fg_core
   fourier/contour.cpp
   geometry/stack.cpp
   adjoint/primitives.cpp
+  adjoint/shape.cpp
   geometry/aperiodic.cpp
   geometry/coordinate_transform.cpp
   geometry/contour.cpp
@@ -24,6 +25,7 @@ add_library(fg_core
   physics/efficiency.cpp
   physics/anisotropic.cpp
   smatrix/smatrix.cpp
+  solvers/gradient.cpp
   solvers/butcher.cpp
   solvers/solver.cpp
   solvers/layer_model.cpp

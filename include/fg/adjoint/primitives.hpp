@@ -55,6 +55,8 @@ void propagationMatrix(const QBlocks& Q, const MatC& A, const MatC& G, const Mat
 /// is frozen (Plan "Methode", 2.).
 struct IsoGridBar {
   fourier::CoefficientGrid eps, invEps;
+  std::array<std::array<fourier::CoefficientGrid, 3>, 3> NN;  ///< FFF: cotangents of [[N_i N_j]]
+  std::array<fourier::CoefficientGrid, 3> N;                  ///< FFF_rig: cotangents of [[N_i]]
 };
 void qLaurent(const SliceCoefficients& c, const IndexMap& map, const QBlocks& Qbar, IsoGridBar& g);
 void qLiLamellar(const SliceCoefficients& c, const IndexMap& map, const QBlocks& Qbar, IsoGridBar& g);

@@ -218,6 +218,10 @@ TEST(Adjoint, QFactorizations) {
   c.invEps = grid(0.03, 0.35);
   c.normal = &nn;
   const auto dEps = grid(1.0, 0.0), dInv = grid(0.1, 0.0);
+  fg::NormalFieldCoefficients dnn;
+  for (auto& row : dnn.NN)
+    for (auto& g : row) g = grid(0.5, 0.0);
+  for (auto& g : dnn.N) g = grid(0.5, 0.0);
   fg::QBlocks K;
   for (int i = 0; i < 3; ++i)
     for (int j = 0; j < 3; ++j) K(i, j) = random(map.size(), map.size());
@@ -227,12 +231,20 @@ TEST(Adjoint, QFactorizations) {
       for (int j = 0; j < 3; ++j) s += re(K(i, j), Q(i, j));
     return s;
   };
+  fg::NormalFieldCoefficients nnT;  // normal field at t (kept alive for the returned coefficients)
   auto shifted = [&](double t) {
     fg::SliceCoefficients d = c;
     for (int p = -2 * N; p <= 2 * N; ++p) {
       d.eps(p, 0) += t * dEps(p, 0);
       d.invEps(p, 0) += t * dInv(p, 0);
     }
+    nnT = nn;
+    for (int i = 0; i < 3; ++i) {
+      for (int j = 0; j < 3; ++j)
+        for (int p = -2 * N; p <= 2 * N; ++p) nnT.NN[i][j](p, 0) += t * dnn.NN[i][j](p, 0);
+      for (int p = -2 * N; p <= 2 * N; ++p) nnT.N[i](p, 0) += t * dnn.N[i](p, 0);
+    }
+    d.normal = &nnT;
     return d;
   };
   auto dot = [&](const fg::adjoint::IsoGridBar& g) {
@@ -240,6 +252,11 @@ TEST(Adjoint, QFactorizations) {
     for (int p = -2 * N; p <= 2 * N; ++p) {
       if (g.eps.Px() >= 2 * N) s += std::real(std::conj(g.eps(p, 0)) * dEps(p, 0));
       if (g.invEps.Px() >= 2 * N) s += std::real(std::conj(g.invEps(p, 0)) * dInv(p, 0));
+      for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j)
+          if (g.NN[i][j].Px() >= 2 * N) s += std::real(std::conj(g.NN[i][j](p, 0)) * dnn.NN[i][j](p, 0));
+        if (g.N[i].Px() >= 2 * N) s += std::real(std::conj(g.N[i](p, 0)) * dnn.N[i](p, 0));
+      }
     }
     return s;
   };
