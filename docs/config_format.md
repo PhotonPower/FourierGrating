@@ -64,6 +64,9 @@ Eine Einführung mit Beispielen steht im Anwenderhandbuch `docs/user_guide.md`.
   "fft_sampling": false,                 // abgetastete Koeffizienten per FFT jeder Länge; false = v0.10 (DFT)
   "threads": { "scan": "auto", "slices": "auto", "blas": 1 },  // Threadmodell (M15), siehe unten
   "reduction": "sequential",             // Sternprodukt-Kette: "sequential" (v0.10) | "tree" (parallel, M15)
+  "precision": "auto",                   // auto | fp64 | mixed | fp32 (M16), siehe unten
+  "precision_fallback": true,            // fp32: verlustfrei und |Σe − 1| > 1e-3 -> in fp64 wiederholen
+  "growth_limit": 0,                     // Scheibenkriterium; 0 = auto (fp64 1e8, fp32/mixed 4e3)
   "nearfield": {
     "enabled": true,
     "horizontal_y_um": 0.1,              // horizontaler Schnitt (1D: Linie in x; 2D: Karte x-z, nz Punkte je Periode)
@@ -105,6 +108,16 @@ sequentielle Kette (bitgleich zu v0.10). Mit der GPU (`backend` cuda/auto über 
 Scheiben-S-Matrizen und Kette auf dem Gerät; höchstens `FG_GPU_STREAMS` (Standard 4) Scheiben gleichzeitig.
 Benutzerfunktionen (`profile2d` mit Funktion in C++, eigene `SectionProvider`) werden parallel aufgerufen und
 müssen threadsicher sein. Sweep-Werte laufen nacheinander.
+
+**Genauigkeit (M16).** `precision` wählt die Genauigkeit der O(n³)-Operationen (GEMM, LU, Eigenwerte); alles andere
+(Koeffizienten, Q, M, Exponentiale, stabile S-Formeln, Effizienzen) bleibt FP64. `fp64`: wie bisher (bitgleich).
+`mixed`: GEMM und Eigenwerte in einfacher Genauigkeit, LU in einfacher Genauigkeit mit FP64-Nachiteration.
+`fp32`: alles in einfacher Genauigkeit; `rk.tol` mindestens 1e-5. `auto` (Standard): auf der CPU immer `fp64`; auf
+der GPU `fp32` auf einer GeForce RTX 3090, sonst `fp64` (Tabelle `src/cuda/device_policy.cpp`). `FG_PRECISION`
+überschreibt die Konfiguration. Bei `fp32` (Standard) bzw. `precision_fallback: true` wird eine verlustfreie
+Struktur mit |Σe − 1| > 1e-3 in fp64 wiederholt (Warnung). Das Ergebnis meldet `diagnostics.precision`,
+`precision_fallback`, `refinement_steps`. TF32 wird nie benutzt; zusätzlich kann `NVIDIA_TF32_OVERRIDE=0` gesetzt
+werden. Genauigkeit und Laufzeiten: `docs/validation.md`, `docs/benchmarks.md`.
 Bei einem Sweep beginnen die CSV-Zeilen mit `sweep_parameter, sweep_value`; das Nahfeld wird für den ersten
 Scanpunkt des ersten Sweep-Werts berechnet. Darstellung: `scripts/plot_efficiencies.py`.
 

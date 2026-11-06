@@ -1,6 +1,7 @@
 // FourierGrating - stack assembly shared by the RK and RCWA solvers, efficiencies and near fields
 // (Plan sections "S-Matrix-Formalismus", "Loeser A/B", "Nahfeld").
 #include <algorithm>
+#include <cstdlib>
 #include <exception>
 #include <cmath>
 #include <functional>
@@ -156,7 +157,46 @@ class StackSolver final : public Solver {
 
   Result solveModels(const Stack& stack, const Setup& s, const detail::LayerModels& models) {
     FG_PROF_SCOPE("solve");  // without building the layer models ("solve.layer_models")
+    linalg::RefinementCounter counter;
+    linalg::setRefinementCounter(&counter);
+    Result res = solveCounted(stack, s, models, counter);
+    linalg::setRefinementCounter(nullptr);
+    // safeguard (Plan section "M16: Schutzmechanismen"): lossless structure, energy off by > 1e-3
+    const bool fallback = opt_.precisionFallback < 0 ? linalg::precision() == linalg::Precision::FP32
+                                                     : opt_.precisionFallback > 0;
+    if (linalg::precision() != linalg::Precision::FP64 && fallback && lossless(stack) &&
+        std::abs(res.diag.energyBalance - 1.0) > 1e-3) {
+      SolverOptions o = opt_;
+      o.precision = "fp64";
+      StackSolver fp64(o);
+      detail::applyThreadSettings(o);
+      const std::string used = res.diag.precision;
+      const double balance = res.diag.energyBalance;
+      res = fp64.solveModels(stack, s, models);
+      res.diag.precisionFallback = true;
+      res.diag.warnings.push_back("precision " + used + ": energy balance " + std::to_string(balance) +
+                                  " (lossless structure), repeated in fp64");
+      detail::applyThreadSettings(opt_);
+    }
+    return res;
+  }
+
+  /// All materials lossless (isotropic: Im eps = 0; tensors: Hermitian).
+  static bool lossless(const Stack& stack) {
+    for (const auto& [name, m] : stack.materials) {
+      const bool ok = m.isotropic ? std::abs(m.eps.imag()) < 1e-14
+                                  : (m.epsTensor - m.epsTensor.adjoint()).cwiseAbs().maxCoeff() < 1e-14;
+      if (!ok) return false;
+    }
+    return true;
+  }
+
+  Result solveCounted(const Stack& stack, const Setup& s, const detail::LayerModels& models,
+                      const linalg::RefinementCounter& counter) {
     Result res;
+    res.diag.precision = linalg::precisionName(linalg::precision());
+    if (linalg::precision() == linalg::Precision::FP32 && opt_.rkTol < 1e-5 && opt_.kind == SolverKind::RK)
+      res.diag.warnings.push_back("precision fp32: rk.tol raised to 1e-5");
     for (const auto& m : models) res.diag.warnings.insert(res.diag.warnings.end(), m->warnings.begin(), m->warnings.end());
     if (decoupled(stack, s)) {
       // 1D in-plane isotropic: TE and TM separately with 2 n_f (Plan section "Spezialfaelle"),
@@ -176,11 +216,25 @@ class StackSolver final : public Solver {
         S.S22.block(k * nf, k * nf, nf, nf) = Sp.S22;
       }
       efficiencies(s, S, res);
+      res.diag.refinementSteps = counter.steps;
+      res.diag.refinementFallbacks = counter.fallbacks;
       return res;
     }
     const Assembly as = assemble(s, fullSystem(s), models, false, {}, res.diag);
     efficiencies(s, as.total, res);
+    res.diag.refinementSteps = counter.steps;
+    res.diag.refinementFallbacks = counter.fallbacks;
     return res;
+  }
+
+  /// Growth limit of the slice criterion: explicit value, else eps^-1/2 of the working precision.
+  double growthLimit() const {
+    if (opt_.growthLimit > 0) return opt_.growthLimit;
+    return linalg::precision() == linalg::Precision::FP64 ? 1e8 : 4e3;
+  }
+  /// rk.tol, raised to >= 1e-5 in FP32 (Plan section "M16: Angepasste Parameter").
+  double rkTol() const {
+    return linalg::precision() == linalg::Precision::FP32 ? std::max(opt_.rkTol, 1e-5) : opt_.rkTol;
   }
 
   // ------------------------------------------------------------------ field coefficients
@@ -269,6 +323,18 @@ class StackSolver final : public Solver {
   }
 
   // ------------------------------------------------------------------ assembly
+  /// Thread-local settings of this solve, re-applied on worker threads (backend, FFT sampling,
+  /// precision, refinement counter).
+  struct Settings {
+    const SolverOptions* opt;
+    linalg::RefinementCounter* counter;
+    void apply() const {
+      detail::applyThreadSettings(*opt);
+      linalg::setRefinementCounter(counter);
+    }
+  };
+  Settings currentSettings() const { return {&opt_, linalg::refinementCounter()}; }
+
   /// One unit of work of the assembly: the element(s) of a homogeneous layer, an RCWA slice or an
   /// RK stability slice (bisection may give several), in stack order.
   using Task = std::function<void(std::vector<Element>&, Diagnostics&)>;
@@ -289,10 +355,10 @@ class StackSolver final : public Solver {
     FG_REQUIRE(!record || !sys.pol, "field records need the full 4 n_f system");
     // resident chain (Plan section "M15", step 5): slice modes, slice S-matrices and star products
     // stay on the device; only the total S-matrix is downloaded (not for near-field records)
-    const bool res = !record && linalg::offload(sys.ref.Psi.rows()) && linalg::device().resident();
+    const bool res = !record && linalg::gpuSelected(sys.ref.Psi.rows()) && linalg::gpu().resident();
     std::shared_ptr<const linalg::DeviceMatrix> psiInvD;
     if (res) {
-      linalg::Backend& d = linalg::device();
+      linalg::Backend& d = linalg::gpu();
       psiInvD = std::make_shared<const linalg::DeviceMatrix>(d.upload(sys.ref.PsiInv));
       d.synchronize();  // read by the task threads (their own streams)
     }
@@ -314,7 +380,7 @@ class StackSolver final : public Solver {
           e.model = &m;
           e.layerY0 = y0;
           if (res) {
-            linalg::Backend& d = linalg::device();
+            linalg::Backend& d = linalg::gpu();
             e.dS = resident::layerSMatrix(d, resident::upload(d, layerModesHomogeneous(mb)), H, *psiInvD);
             d.synchronize();
             out.push_back(std::move(e));
@@ -340,7 +406,7 @@ class StackSolver final : public Solver {
             e.layerY0 = y0;
             e.qHeight_um = yq;
             if (res) {
-              linalg::Backend& d = linalg::device();
+              linalg::Backend& d = linalg::gpu();
               e.dS = resident::layerSMatrix(d, resident::layerModes(d, M, sys.pol), H / K, *psiInvD);
               d.synchronize();
               out.push_back(std::move(e));
@@ -362,10 +428,15 @@ class StackSolver final : public Solver {
     as.yTop = y;
     // with the GPU: at most deviceStreams() threads (one stream and its workspace each)
     const int threads = res ? std::min(sliceThreads(), linalg::deviceStreams()) : sliceThreads();
-    StarChain chain(opt_.treeReduction, threads);
+    const Settings settings = currentSettings();
+    BasicStarChain<SMatrix> chain(opt_.treeReduction, threads, [settings](const SMatrix& a, const SMatrix& b) {
+      settings.apply();  // products of the tree run on worker threads
+      return star(a, b);
+    });
     BasicStarChain<resident::SMatrixD> dchain(opt_.treeReduction, threads,
-                                              [](const resident::SMatrixD& a, const resident::SMatrixD& b) {
-                                                linalg::Backend& d = linalg::device();
+                                              [settings](const resident::SMatrixD& a, const resident::SMatrixD& b) {
+                                                settings.apply();
+                                                linalg::Backend& d = linalg::gpu();
                                                 resident::SMatrixD c = resident::star(d, a, b);
                                                 d.synchronize();
                                                 return c;
@@ -376,7 +447,7 @@ class StackSolver final : public Solver {
         return;
       }
       if (e.dS.S11.empty()) {  // host element (substrate, RK slice)
-        linalg::Backend& d = linalg::device();
+        linalg::Backend& d = linalg::gpu();
         e.dS = resident::upload(d, e.S);
         d.synchronize();
       }
@@ -384,7 +455,7 @@ class StackSolver final : public Solver {
     };
     {
       Element e0;
-      e0.S = fromTransfer(sys.ref.PsiInv * sys.sub.Psi);  // substrate -> reference (Plan eq:Stot)
+      e0.S = fromTransfer(linalg::product(sys.ref.PsiInv, sys.sub.Psi));  // substrate -> reference (Plan eq:Stot)
       push(e0);
       if (record) as.elems.push_back(std::move(e0));
     }
@@ -395,7 +466,7 @@ class StackSolver final : public Solver {
       std::vector<std::vector<Element>> out(static_cast<std::size_t>(nb));
       std::vector<Diagnostics> dg(static_cast<std::size_t>(nb));
       parallelFor(nb, threads, [&](int i) {
-        detail::applyThreadSettings(opt_);  // thread-local backend / FFT settings
+        settings.apply();  // thread-local backend / FFT / precision settings
         tasks[static_cast<std::size_t>(b0 + i)](out[static_cast<std::size_t>(i)], dg[static_cast<std::size_t>(i)]);
       });
       for (int i = 0; i < nb; ++i) {
@@ -407,7 +478,7 @@ class StackSolver final : public Solver {
       }
     }
     if (res) {
-      linalg::Backend& d = linalg::device();
+      linalg::Backend& d = linalg::gpu();
       as.total = resident::download(d, dchain.result());
     } else {
       as.total = chain.result();
@@ -434,13 +505,14 @@ class StackSolver final : public Solver {
     } else {
       const double ts[5] = {0.02, 0.25, 0.5, 0.75, 0.98};
       double r[5];
+      const Settings settings = currentSettings();
       parallelFor(5, sliceThreads(), [&](int i) {
-        detail::applyThreadSettings(opt_);
+        settings.apply();
         r[i] = spectralRadius(Mfun(ts[i] * a * s.k0));
       });
       for (double v : r) rho = std::max(rho, v);
     }
-    const int K = std::max(1, static_cast<int>(std::ceil(rho * H / std::log(opt_.growthLimit))));
+    const int K = std::max(1, static_cast<int>(std::ceil(rho * H / std::log(growthLimit()))));
     const auto tab = std::make_shared<const ButcherTableau>(ButcherTableau::byName(opt_.rkTableau));
     for (int k = 0; k < K; ++k)
       tasks.push_back([this, &s, &sys, &m, &sampleY, Mfun, tab, y0, H, K, k, rho, record](std::vector<Element>& out,
@@ -457,9 +529,9 @@ class StackSolver final : public Solver {
                const std::vector<double>& sampleY, std::vector<Element>& out, Diagnostics& diag, int depth) const {
     auto transfer = [&](double from, double to) {
       RKStats st;
-      MatC T = constant  ? rkTransferConstant(Mfun(0), to - from, tab, opt_.rkTol, rho, st)
-               : sys.pol ? rkTransfer(Mfun, from, to, tab, opt_.rkTol, rho, st)
-                         : rkTransferAuto(Mfun, from, to, tab, opt_.rkTol, rho, st);
+      MatC T = constant  ? rkTransferConstant(Mfun(0), to - from, tab, rkTol(), rho, st)
+               : sys.pol ? rkTransfer(Mfun, from, to, tab, rkTol(), rho, st)
+                         : rkTransferAuto(Mfun, from, to, tab, rkTol(), rho, st);
       diag.rkSteps += st.steps;
       return T;
     };
@@ -483,7 +555,7 @@ class StackSolver final : public Solver {
         }
       }
     T = transfer(prev, yb) * T;
-    if ((!T.allFinite() || T.cwiseAbs().maxCoeff() > opt_.growthLimit) && depth < 12) {
+    if ((!T.allFinite() || T.cwiseAbs().maxCoeff() > growthLimit()) && depth < 12) {
       const double ym = 0.5 * (ya + yb);
       rkSlice(s, sys, m, Mfun, constant, y0, ya, ym, rho, tab, record, sampleY, out, diag, depth + 1);
       rkSlice(s, sys, m, Mfun, constant, y0, ym, yb, rho, tab, record, sampleY, out, diag, depth + 1);
@@ -740,9 +812,19 @@ std::unique_ptr<Solver> makeSolver(const SolverOptions& opt) { return std::make_
 
 namespace detail {
 
+linalg::Precision resolvePrecision(const SolverOptions& opt) {
+  std::string p = opt.precision;
+  if (const char* env = std::getenv("FG_PRECISION"); env && *env) p = env;
+  if (p != "auto") return linalg::parsePrecision(p);
+  // auto (Plan section "M16: Standardwahl"): CPU always FP64; GPU by device policy
+  const Eigen::Index n = 4 * static_cast<Eigen::Index>(2 * opt.Nx + 1) * (2 * opt.Nz + 1);
+  return linalg::gpuSelected(n) ? linalg::gpuAutoPrecision() : linalg::Precision::FP64;
+}
+
 void applyThreadSettings(const SolverOptions& opt) {
   linalg::setPreference(opt.backend, opt.backendThreshold);  // thread-local (M10)
   fourier::setFFTSampling(opt.fftSampling);                   // thread-local
+  linalg::setPrecision(resolvePrecision(opt));                // thread-local (M16)
 }
 
 Result solveWithModels(const SolverOptions& opt, const Stack& stack, const Wavelength& wl, const LayerModels& models) {

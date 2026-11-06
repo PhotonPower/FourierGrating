@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "fg/core/error.hpp"
+#include "fg/linalg/backend.hpp"
 #include "fg/core/prof.hpp"
 
 namespace fg {
@@ -104,7 +105,7 @@ MatC rkTransferAuto(const std::function<MatC(double)>& M, double y0, double y1,
 
 SMatrix rkSliceSMatrix(const MatC& TF, const ModeBasis& ref) {
   FG_PROF_SCOPE("rk.slice_smatrix");
-  return fromTransfer(ref.PsiInv * TF * ref.Psi);
+  return fromTransfer(linalg::product(linalg::product(ref.PsiInv, TF), ref.Psi));
 }
 
 }  // namespace fg

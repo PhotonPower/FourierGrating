@@ -65,7 +65,7 @@ if(FG_ENABLE_HDF5)
 endif()
 
 if(FG_ENABLE_CUDA)
-  target_sources(fg_core PRIVATE cuda/cuda_backend.cpp)
+  target_sources(fg_core PRIVATE cuda/cuda_backend.cpp cuda/device_policy.cpp)
   target_link_libraries(fg_core PUBLIC CUDA::cudart CUDA::cublas CUDA::cusolver)
   target_compile_definitions(fg_core PUBLIC FG_HAVE_CUDA)
   if(MINGW)

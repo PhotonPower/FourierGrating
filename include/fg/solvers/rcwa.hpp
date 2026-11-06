@@ -16,6 +16,9 @@ struct LayerModes {
   VecC lu, ld;
 };
 
+/// Relative tolerance tau / max|lambda| of the classification: 1e-9 in FP64, 1e-4 when the
+/// eigenproblems run in single precision (Plan section "M16: Angepasste Parameter").
+double classificationTolerance();
 /// Order of the modes for the up/down classification (Plan eq:classify): sorted by Re lambda, modes
 /// with |Re lambda| <= tau by the flux sign (flux(k) of eigenvector k); first half up-going.
 std::vector<Eigen::Index> modeOrder(const VecC& lam, const std::function<double(Eigen::Index)>& flux);

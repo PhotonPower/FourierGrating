@@ -51,12 +51,17 @@ LayerModes layerModesReduced(const MatC& M, double eta) {
   return m;
 }
 
+double classificationTolerance() {
+  // relative to max |lambda|; eigenvalues in single precision (M16) are accurate to ~eps32 max |lambda|
+  return linalg::precision() == linalg::Precision::FP64 ? 1e-9 : 1e-4;
+}
+
 std::vector<Eigen::Index> modeOrder(const VecC& lam, const std::function<double(Eigen::Index)>& flux) {
   // Classification (Plan eq:classify): field ~ exp(lambda y); up-going modes decay towards +y.
   // Robust variant: sort by a score (Re lambda, or -sign(S_y) * tau for |Re lambda| <= tau)
   // and take the lower half as up-going. This always yields n_h modes per direction.
   const Eigen::Index N = lam.size();
-  const double tau = 1e-9 * lam.cwiseAbs().maxCoeff();
+  const double tau = classificationTolerance() * lam.cwiseAbs().maxCoeff();
   std::vector<double> score(static_cast<std::size_t>(N));
   for (Eigen::Index k = 0; k < N; ++k) {
     const double re = lam(k).real();
@@ -93,7 +98,7 @@ LayerModes layerModesGeneral(const MatC& M) {
   const linalg::EigResult es = eigen(M, "eigen decomposition failed (RCWA general)");
   const Eigen::Index N = M.rows(), n = N / 2;
   const VecC& lam = es.values;
-  const double tau = 1e-9 * lam.cwiseAbs().maxCoeff();
+  const double tau = classificationTolerance() * lam.cwiseAbs().maxCoeff();
   const std::vector<Eigen::Index> idx = modeOrder(lam, [&](Eigen::Index k) { return modeFlux(es.vectors.col(k)); });
   LayerModes m;
   m.Wu.resize(N, n);
@@ -107,7 +112,7 @@ LayerModes layerModesGeneral(const MatC& M) {
     m.Wd.col(k) = es.vectors.col(id);
     m.ld(k) = lam(id);
   }
-  FG_REQUIRE(m.lu.real().maxCoeff() <= m.ld.real().minCoeff() + tau,
+  FG_REQUIRE(m.lu.real().maxCoeff() <= m.ld.real().minCoeff() + 2 * tau,  // flux-sorted modes: |Re| <= tau
              "mode classification inconsistent (up/down eigenvalues overlap)");
   return m;
 }
@@ -188,7 +193,7 @@ SMatrix stableLayerSMatrix(const LayerModes& m, double h, const ModeBasis& ref,
                            RCWASliceRecord* record) {
   FG_PROF_SCOPE("rcwa.layer_smatrix");
   const Eigen::Index n = m.lu.size();
-  const MatC Cu = ref.PsiInv * m.Wu, Cd = ref.PsiInv * m.Wd;
+  const MatC Cu = linalg::product(ref.PsiInv, m.Wu), Cd = linalg::product(ref.PsiInv, m.Wd);
   const MatC Au = Cu.topRows(n), Bu = Cu.bottomRows(n);
   const MatC Ad = Cd.topRows(n), Bd = Cd.bottomRows(n);
   const VecC Xu = (m.lu * h).array().exp().matrix();     // |.| <= 1

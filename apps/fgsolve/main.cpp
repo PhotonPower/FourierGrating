@@ -29,7 +29,11 @@ void printResult(const fg::Wavelength& w, const fg::Result& r) {
   std::printf("  side   n    m   efficiency\n");
   for (const auto& o : r.reflected) std::printf("  R   %4d %4d   %.10f\n", o.n, o.m, o.efficiency);
   for (const auto& o : r.transmitted) std::printf("  T   %4d %4d   %.10f\n", o.n, o.m, o.efficiency);
-  std::printf("  sum R+T = %.12f   absorption = %.3e\n\n", r.diag.energyBalance, r.absorption);
+  std::printf("  sum R+T = %.12f   absorption = %.3e\n", r.diag.energyBalance, r.absorption);
+  if (r.diag.precision != "fp64" || r.diag.precisionFallback)  // M16
+    std::printf("  precision %s%s\n", r.diag.precision.c_str(), r.diag.precisionFallback ? " (repeated in fp64)" : "");
+  for (const auto& msg : r.diag.warnings) std::printf("  warning: %s\n", msg.c_str());
+  std::printf("\n");
 }
 
 }  // namespace

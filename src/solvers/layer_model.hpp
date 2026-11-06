@@ -9,6 +9,7 @@
 #include "fg/core/index_map.hpp"
 #include "fg/geometry/normal_field.hpp"
 #include "fg/geometry/stack.hpp"
+#include "fg/linalg/backend.hpp"
 #include "fg/physics/qmatrix.hpp"
 #include "fg/solvers/solver.hpp"
 
@@ -56,6 +57,9 @@ std::unique_ptr<LayerModel> buildLayerModel(const Stack& stack, std::size_t k, c
 /// Thread-local settings of a solver run (backend dispatch, FFT sampling); also needed before
 /// building layer models outside a solver.
 void applyThreadSettings(const SolverOptions& opt);
+/// Working precision of a solve: "precision" (FG_PRECISION overrides); auto = FP64 on the CPU, the
+/// device policy on the GPU (Plan section "M16: Standardwahl").
+linalg::Precision resolvePrecision(const SolverOptions& opt);
 /// Identical to makeSolver(opt)->solve(stack, wl) with the models of buildLayerModels.
 Result solveWithModels(const SolverOptions& opt, const Stack& stack, const Wavelength& wl, const LayerModels& models);
 

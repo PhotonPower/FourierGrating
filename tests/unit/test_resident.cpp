@@ -138,6 +138,7 @@ TEST(Resident, CudaSolverEqualsCpu) {
   const auto a = fg::makeSolver(o)->solve(st, wl);
   o.backend = "cuda";
   o.backendThreshold = 0;
+  o.precision = "fp64";  // auto would pick FP32 on a GeForce RTX 3090 (M16)
   for (bool tree : {false, true}) {
     o.treeReduction = tree;
     o.threadsSlices = 3;

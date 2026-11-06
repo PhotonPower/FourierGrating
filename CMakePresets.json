@@ -35,7 +35,7 @@
       "binaryDir": "${sourceDir}/build/cuda-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release", "FG_ENABLE_CUDA": "ON",
-        "CMAKE_CUDA_ARCHITECTURES": "89"
+        "CMAKE_CUDA_ARCHITECTURES": "86;89"
       }
     },
     {
@@ -58,7 +58,7 @@
       "binaryDir": "${sourceDir}/build/win-cuda",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release", "FG_ENABLE_CUDA": "ON",
+        "CMAKE_BUILD_TYPE": "Release", "FG_ENABLE_CUDA": "ON", "CMAKE_CUDA_ARCHITECTURES": "86",
         "CMAKE_C_COMPILER": "C:/msys64/ucrt64/bin/gcc.exe",
         "CMAKE_CXX_COMPILER": "C:/msys64/ucrt64/bin/g++.exe"
       },

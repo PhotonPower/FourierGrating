@@ -9,6 +9,7 @@
 
 #include "fg/cad/cad.hpp"
 #include "fg/core/error.hpp"
+#include "fg/linalg/backend.hpp"
 #include "fg/physics/anisotropic.hpp"
 
 namespace fg::io {
@@ -298,6 +299,11 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
     cfg.solver.threadsSlices = count("slices", cfg.solver.threadsSlices, true);
     cfg.solver.threadsBlas = count("blas", cfg.solver.threadsBlas, false);
   }
+  // working precision (Plan section "M16")
+  cfg.solver.precision = j.value("precision", cfg.solver.precision);
+  if (cfg.solver.precision != "auto") (void)linalg::parsePrecision(cfg.solver.precision);
+  if (j.contains("precision_fallback")) cfg.solver.precisionFallback = j["precision_fallback"].get<bool>() ? 1 : 0;
+  if (j.contains("growth_limit")) cfg.solver.growthLimit = j["growth_limit"].get<double>();
   const std::string reduction = j.value("reduction", std::string("sequential"));
   FG_REQUIRE(reduction == "sequential" || reduction == "tree", "reduction must be \"sequential\" or \"tree\"");
   cfg.solver.treeReduction = reduction == "tree";

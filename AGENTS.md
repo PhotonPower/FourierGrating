@@ -34,7 +34,8 @@ Diese Datei gilt für jeden, der an FourierGrating arbeitet. Lies sie vollständ
 ## 4. Numerik-Regeln
 
 * Kern ausschließlich in `std::complex<double>`; normierte Einheiten (`k0 = 1`, `H̃ = Z0 H`).
-  Einfache bzw. gemischte Genauigkeit nur innerhalb des Linear-Algebra-Backends (ab M16, Plan „Wählbare Genauigkeit“).
+  Einfache Genauigkeit nur im Backend (M16, Plan „Wählbare Genauigkeit“): `linalg::Precision`, Umwandlung an der
+  Backend-Grenze; der Physikcode wird nicht templatisiert. Kein TF32.
   Einheiten (µm, Grad) nur an der IO-Grenze umrechnen.
 * Keine expliziten Inversen, wenn ein LU-Solve genügt.
 * Wurzelzweig für β, Moden-Klassifikation und Rayleigh-Anomalie exakt wie im Plan.

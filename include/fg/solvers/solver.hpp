@@ -23,7 +23,9 @@ struct SolverOptions {
   std::string rkTableau = "gauss2";   ///< gauss2 | gauss3 | radau3
   double rkTol = 1e-8;                ///< step-doubling tolerance (Plan eq:stepcrit)
   int rcwaSlices = 40;                ///< staircase slices per profile layer
-  double growthLimit = 1e8;           ///< slice criterion (Plan eq:slicecrit)
+  /// slice criterion (Plan eq:slicecrit); 0 = auto: eps^-1/2 of the working precision (FP64: 1e8 as
+  /// before, FP32/mixed: 4e3, Plan section "M16: Angepasste Parameter")
+  double growthLimit = 0;
   bool storeInternal = false;         ///< keep S_L / S_U and slice records for near fields
   std::string backend = "auto";       ///< "auto" | "cpu" | "cuda" (Plan section "CUDA-Backend", M10)
   int backendThreshold = 1000;        ///< auto: matrix size from which the CUDA backend is used
@@ -41,6 +43,13 @@ struct SolverOptions {
   /// Star-product chain: false = sequential (v0.10 order, bit-identical), true = balanced tree of
   /// fixed shape (parallel; bit-identical for any thread count, <= 1e-12 from sequential).
   bool treeReduction = false;
+  /// Working precision of the O(n^3) operations (Plan section "M16"): "auto" | "fp64" | "mixed" |
+  /// "fp32". auto: FP64 on the CPU; on the GPU by device policy (FP32 on a GeForce RTX 3090).
+  /// FG_PRECISION overrides it.
+  std::string precision = "auto";
+  /// Repeat in FP64 if a lossless structure misses energy conservation by > 1e-3:
+  /// -1 = auto (on for fp32), 0 = off, 1 = on (also for mixed).
+  int precisionFallback = -1;
 };
 
 /// Resolved thread counts of a run with `scanPoints` points (Plan section "M15", step 2): auto
@@ -61,6 +70,10 @@ struct Diagnostics {
   double energyBalance = 0;           ///< sum R + sum T (lossless media: 1)
   double maxConditionT11 = 0;
   long rkSteps = 0;
+  std::string precision = "fp64";     ///< working precision actually used (M16)
+  bool precisionFallback = false;     ///< repeated in FP64 (M16 safeguard)
+  long refinementSteps = 0;           ///< iterative-refinement steps (mixed)
+  long refinementFallbacks = 0;       ///< mixed solves that fell back to an FP64 LU
   std::vector<std::string> warnings;
 };
 

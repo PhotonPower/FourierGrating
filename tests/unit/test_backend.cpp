@@ -111,6 +111,7 @@ TEST(Backend, CudaSolverEqualsCpu) {
   const fg::Wavelength wl{1.388, 0.2, 0.3, 0.4};
   const auto a = fg::makeSolver(o)->solve(holes(), wl);
   o.backend = "cuda";  // every offloadable operation on the device
+  o.precision = "fp64";  // auto would pick FP32 on a GeForce RTX 3090 (M16)
   const auto b = fg::makeSolver(o)->solve(holes(), wl);
   ASSERT_EQ(a.transmitted.size(), b.transmitted.size());
   for (std::size_t k = 0; k < a.transmitted.size(); ++k)

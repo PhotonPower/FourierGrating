@@ -76,6 +76,10 @@ py::dict toDict(const fg::Result& r, double seconds, const std::vector<fg::prof:
   diag["max_condition_t11"] = r.diag.maxConditionT11;
   diag["rk_steps"] = r.diag.rkSteps;
   diag["warnings"] = r.diag.warnings;
+  diag["precision"] = r.diag.precision;  // M16: working precision actually used
+  diag["precision_fallback"] = r.diag.precisionFallback;
+  diag["refinement_steps"] = r.diag.refinementSteps;
+  diag["refinement_fallbacks"] = r.diag.refinementFallbacks;
   py::dict timings;
   timings["solve_s"] = seconds;
   if (!prof.empty()) timings["scopes"] = scopes(prof);

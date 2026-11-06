@@ -43,16 +43,19 @@ JSON-Konfiguration (µm, Grad)
 
 ## Größenordnungen
 
-| Fall | n_f | Zustandsvektor 4n_f | S-Block n_h | Speicher je S-Matrix |
-|---|---|---|---|---|
-| 1D in-plane, N = 30 | 61 | (2·61) | 61 | 0,2 MB |
-| 1D konisch, N = 30 | 61 | 244 | 122 | 1 MB |
-| 2D, N = 10 | 441 | 1764 | 882 | 50 MB |
-| 2D, N = 15 | 961 | 3844 | 1922 | 236 MB |
-| 2D, N = 20 | 1681 | 6724 | 3362 | 723 MB |
+| Fall | n_f | Zustandsvektor 4n_f | S-Block n_h | S-Matrix FP64 | S-Matrix FP32 (GPU, M16) |
+|---|---|---|---|---|---|
+| 1D in-plane, N = 30 | 61 | (2·61) | 61 | 0,2 MB | 0,1 MB |
+| 1D konisch, N = 30 | 61 | 244 | 122 | 1 MB | 0,5 MB |
+| 2D, N = 10 | 441 | 1764 | 882 | 50 MB | 25 MB |
+| 2D, N = 15 | 961 | 3844 | 1922 | 236 MB | 118 MB |
+| 2D, N = 20 | 1681 | 6724 | 3362 | 723 MB | 362 MB |
 
 Nahfeld benötigt je innere Grenzfläche zwei S-Matrizen (S_L, S_U), bei 2D und vielen Scheiben
 also mehrere GB – auf der RTX 6000 Ada (48 GB) machbar, sonst Zwei-Durchlauf-Variante (Plan).
+Residente Kette (M15) je Stream: Moden (4n_f × 2n_f, zweimal), G/H (4n_f)², Eigenproblem-Arbeitsspeicher –
+bei N = 20 in FP64 ≈ 5 GB, in FP32 ≈ 2,5 GB je Stream; die RTX 3090 (24 GB) trägt damit 4 Streams nur in FP32
+(sonst `FG_GPU_STREAMS` verringern).
 
 ## Parallelität und Profil (M15)
 
@@ -71,4 +74,11 @@ also mehrere GB – auf der RTX 6000 Ada (48 GB) machbar, sonst Zwei-Durchlauf-V
 ## Backend-Auswahl
 
 `fg::linalg::makeBackend("auto", n)` wählt CUDA ab einer Matrixgröße (Standard 1000), sonst CPU.
-Der CPU-Pfad ist Referenz; GPU-Ergebnisse müssen auf 1e-10 relativ übereinstimmen.
+Der CPU-Pfad ist Referenz; GPU-Ergebnisse in FP64 müssen auf 1e-10 relativ übereinstimmen.
+
+**Genauigkeit (M16).** `linalg::Precision` (FP64 | Mixed | FP32) wird je Thread gesetzt
+(`detail::resolvePrecision`: Konfiguration `precision`, `FG_PRECISION`, `auto` = FP64 auf der CPU, auf der GPU
+nach `src/cuda/device_policy.cpp`). In FP32/Mixed läuft jede O(n³)-Operation über ein Backend: die GPU über der
+Schwelle, sonst ein CPU-Backend in einfacher Genauigkeit (Eigen `MatrixXcf`, eigene Nachiteration). Die
+Physik bleibt FP64 (`MatC`); umgewandelt wird an der Backend-Grenze. GPU: Gerätematrizen in Z oder C, cuBLAS im
+`CUBLAS_DEFAULT_MATH` (kein TF32), Mixed löst mit `cusolverDnZCgesv` und nutzt den Host-API-Pfad.

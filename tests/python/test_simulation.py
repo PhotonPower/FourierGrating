@@ -137,3 +137,20 @@ def test_profile_and_threads():
         assert np.allclose(t.reflected["eff"], ref.reflected["eff"], rtol=0, atol=1e-12)
     scan = fg.solve_scan(CFG, profile=True)
     assert "scan" in scan.points[0].diagnostics["timings"]["scopes"]
+
+
+def test_precision_modes():
+    """M16: working precision at the backend; diagnostics report it."""
+    ref = fg.solve(CFG)
+    assert ref.diagnostics["precision"] == "fp64" and not ref.diagnostics["precision_fallback"]
+    for mode, tol in (("mixed", 1e-5), ("fp32", 1e-4)):
+        c = copy.deepcopy(CFG)
+        c["precision"] = mode
+        c["backend"] = "cpu"
+        r = fg.solve(c)
+        assert r.diagnostics["precision"] == mode
+        assert np.allclose(r.reflected["eff"], ref.reflected["eff"], rtol=0, atol=tol)
+    c = copy.deepcopy(CFG)
+    c["precision"] = "half"
+    with pytest.raises(fg.FourierGratingError):
+        fg.solve(c)

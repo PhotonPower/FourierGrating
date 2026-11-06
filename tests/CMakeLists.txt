@@ -22,6 +22,7 @@ set(FG_UNIT_TESTS
   test_prof
   test_parallel
   test_resident
+  test_precision
 )
 foreach(t ${FG_UNIT_TESTS})
   add_executable(${t} unit/${t}.cpp)
@@ -97,3 +98,9 @@ if(FG_ENABLE_NURBFORGE)
   set_tests_properties(example_cad_pillar_array PROPERTIES LABELS "validation")
   gtest_discover_tests(test_cad PROPERTIES LABELS "validation" TIMEOUT 1800 DISCOVERY_TIMEOUT 60)
 endif()
+
+# ---- M16: precision study (all examples + V9, V13 in fp64 / mixed / fp32; prints the table of docs/validation.md) ----
+add_executable(test_precision_study validation/test_precision_study.cpp)
+target_link_libraries(test_precision_study PRIVATE fg_core GTest::gtest_main)
+target_compile_definitions(test_precision_study PRIVATE FG_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+gtest_discover_tests(test_precision_study PROPERTIES LABELS "validation" TIMEOUT 3600 DISCOVERY_TIMEOUT 60)

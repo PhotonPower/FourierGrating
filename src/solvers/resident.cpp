@@ -78,8 +78,8 @@ LayerModesD classified(Backend& d, const MatC& M, bool block, double fluxSign) {
     m.ld(k) = es.values(idx[static_cast<std::size_t>(n + k)]);
   }
   if (!block) {
-    const double tau = 1e-9 * es.values.cwiseAbs().maxCoeff();
-    FG_REQUIRE(m.lu.real().maxCoeff() <= m.ld.real().minCoeff() + tau,
+    const double tau = classificationTolerance() * es.values.cwiseAbs().maxCoeff();
+    FG_REQUIRE(m.lu.real().maxCoeff() <= m.ld.real().minCoeff() + 2 * tau,  // flux-sorted modes: |Re| <= tau
                "mode classification inconsistent (up/down eigenvalues overlap)");
   }
   return m;
