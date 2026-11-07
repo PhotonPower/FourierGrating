@@ -75,6 +75,36 @@ void zeroIfEmpty(SMatrix& S, int n) {
 }
 }  // namespace
 
+void starSources(const SMatrix& A, const SMatrix& B, const VecC& Au, const VecC& Bv, const VecC& ubar, const VecC& vbar,
+                 SMatrix& Abar, SMatrix& Bbar, VecC& Aub, VecC& Avb, VecC& Bub, VecC& Bvb) {
+  const int n = A.nh();
+  zeroIfEmpty(Abar, n);
+  zeroIfEmpty(Bbar, n);
+  const MatC Id = MatC::Identity(n, n);
+  Eigen::PartialPivLU<MatC> L1(MatC(Id - A.S12 * B.S21)), L2(MatC(Id - B.S21 * A.S12));
+  Eigen::PartialPivLU<MatC> L1h(MatC((Id - A.S12 * B.S21).adjoint())), L2h(MatC((Id - B.S21 * A.S12).adjoint()));
+  // u = Bu + B11 y1, y1 = D1^-1 x1, x1 = Au + A12 Bv
+  const VecC y1 = L1.solve(VecC(Au + A.S12 * Bv));
+  Bub = ubar;
+  Bbar.S11 += ubar * y1.adjoint();
+  const VecC x1b = L1h.solve(VecC(B.S11.adjoint() * ubar));
+  const MatC D1b = -x1b * y1.adjoint();
+  Aub = x1b;
+  Abar.S12 += x1b * Bv.adjoint() - D1b * B.S21.adjoint();
+  Bvb = A.S12.adjoint() * x1b;
+  Bbar.S21 -= A.S12.adjoint() * D1b;
+  // v = Av + A22 y2, y2 = D2^-1 x2, x2 = Bv + B21 Au
+  const VecC y2 = L2.solve(VecC(Bv + B.S21 * Au));
+  Avb = vbar;
+  Abar.S22 += vbar * y2.adjoint();
+  const VecC x2b = L2h.solve(VecC(A.S22.adjoint() * vbar));
+  const MatC D2b = -x2b * y2.adjoint();
+  Bvb += x2b;
+  Bbar.S21 += x2b * Au.adjoint() - D2b * A.S12.adjoint();
+  Aub += B.S21.adjoint() * x2b;
+  Abar.S12 -= B.S21.adjoint() * D2b;
+}
+
 void star(const SMatrix& A, const SMatrix& B, const SMatrix& Cbar, SMatrix& Abar, SMatrix& Bbar) {
   const int n = A.nh();
   zeroIfEmpty(Abar, n);

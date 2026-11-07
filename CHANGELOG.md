@@ -21,6 +21,8 @@
 - Gradienten aperiodischer Strukturen bei Normaleinfall (Stufe A): `Objective::scattering` (`ScatterRef` Up/Down),
   Python `{("scattering", "up"): w}`; bei modalem Einfall Leistungen der geführten Moden (`Objective::modes`,
   `ModeRef`; Python `{("mode", "R", j): w}`).
+- Gradienten mit der Streufeldformulierung (schräger Einfall mit PML, Stufe B, RCWA); Rückwärtsregel
+  `adjoint::starSources` des Sternprodukts mit Quellvektoren.
 - V20f: Reziprozität der Streuamplituden (Winkelspektrum des Streufeldes, 5e-2 bei L = 8 µm).
 - Python-CI mit PyTorch, JAX und scipy; NURBS-Beispiel als Test.
 

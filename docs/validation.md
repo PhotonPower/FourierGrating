@@ -216,6 +216,8 @@ Abweichung Adjungierte gegen Differenzenquotient der Vorwärtsrechnung (h = 1e-6
 | Phase 2: `profile2d` Verschiebungen (zwei Eierkartons übereinander; Laurent, FFF_rig, anisotrop FFF_A, FFF_B) | x0, z0 der oberen, x0 der unteren Schicht | ≤ 1,1e-8 (Gradienten beider Schichten entgegengesetzt gleich) |
 | v2.13 Stufe A: Steg mit PML (1D, Laurent, Li, RK), Normaleinfall, P_oben, P_unten | Dicken (Steg, Film), Kanten, n (Re, Im), eps Film, λ, ψ, δ, n Superstrat, n Substrat | ≤ 3,3e-8 (RK 2,8e-8); Wert = Löser auf 1e-12 |
 | v2.13 Stufe A: Kontaktloch (2D, PML in x und z, Laurent) | Radius, Mittelpunkt, n Film (Re, Im), Dicke | ≤ 2,8e-7 (Mittelpunkt, Gradient 4e-3), sonst ≤ 1,2e-8 |
+| v2.13 Stufe B: Steg mit PML, schräg (φ = 25°, Laurent, Li) | Kanten, n Steg (Re, Im), eps Film, Dicken, λ, φ, ψ, δ, n Superstrat, n Substrat | ≤ 2,1e-8; Wert = Löser auf 1e-12 |
+| v2.13 Stufe B: Kontaktloch 2D schräg in x und z; Steg mit `scattered_field` bei Normaleinfall | Radius, n Film (Re, Im), Dicke, λ, φ; Kante, n, eps, Dicke, λ | ≤ 1,4e-7 (φ, Gradient 1e-4), sonst ≤ 1e-7 |
 | v2.13 Stufe A: modaler Einfall (Wellenleiter, Block, Wellenleiter als Substrat), \|r_0\|², \|t_0\|², \|r_1\|² | Dicke, Kante, n Block (Re, Im), n Kern (beide Halbräume), λ | ≤ 1e-8; Wert = Löser auf 1e-12 |
 
 Aufwand (2D, N = 3, Laurent, 5 Parameter): Gradient = 1,3 × Vorwärtsrechnung (gemessen 1,3–2,3); die Kosten
@@ -245,7 +247,12 @@ Stufe A): drei Durchläufe desselben Treibers (Hintergrundstapel vorwärts, Stap
 Hintergrundstapel mit den negierten); Geometrieparameter wirken nur auf den Stapel, Dicken, Materialien und globale
 Parameter auch auf den Hintergrund; S_inc und die numerischen Halbraumbasen mit PML über die
 Eigenvektor-Rückwärtsregel. Modaler Einfall: Leistungen |b_k|² P_k / P_in, unabhängig von Phase und Skalierung der
-Eigenvektoren; die Basen der strukturierten Halbräume über die Eigenvektor-Rückwärtsregel bis zu ihren Materialien. Rasterfeld von Algorithmus NF (v2.12): unterhalb
+Eigenvektoren; die Basen der strukturierten Halbräume über die Eigenvektor-Rückwärtsregel bis zu ihren Materialien.
+Streufeldformulierung (Stufe B): Sternprodukt mit Quellvektoren rückwärts (`adjoint::starSources`), partikuläre Lösung
+je Scheibe und Hintergrundexponent ((κ − M)⁻¹ σ), Quelle σ = (M − M_bg) F_bg nach M, M in der Blochbasis und M_bg;
+Kotangenten der Hintergrunddaten (Amplituden, Exponenten, Modenvektoren, Schichtgrenzen) analytisch, ihre Ableitung
+nach Dicken, Hintergrundmaterialien, λ und Winkeln per zentralem Differenzenquotienten der N = 0-Hintergrundrechnung
+(ebenso Tsrc und I_0); Scheibengrenzen analytisch. Rasterfeld von Algorithmus NF (v2.12): unterhalb
 einer Rasterzelle springt die Vorwärtsrechnung um ~1e-7 (Kreismittelpunkt in 2-nm-Schritten), der volle
 Differenzenquotient hängt dort von h ab (−0,82 / −0,086 / −0,0077 / −0,0012 für h = 1e-6 … 1e-3); eingefroren erzeugt
 das stehenbleibende Feld eine Scheinableitung. Formparameter mit FFF bewegen das Feld deshalb mit

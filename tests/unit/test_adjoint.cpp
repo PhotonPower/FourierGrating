@@ -72,6 +72,23 @@ TEST(Adjoint, StarProduct) {
               fd([&](double t) { return reS(K, fg::star(axpy(A, t, DA), axpy(B, t, DB))); }));
 }
 
+TEST(Adjoint, StarProductSources) {
+  const int n = 5;
+  const auto A = randomS(n, 0.4), B = randomS(n, 0.4), DA = randomS(n, 1.0), DB = randomS(n, 1.0);
+  const MatC Au = random(n, 1), Av = random(n, 1), Bu = random(n, 1), Bv = random(n, 1);
+  const MatC dAu = random(n, 1), dAv = random(n, 1), dBu = random(n, 1), dBv = random(n, 1), Ku = random(n, 1), Kv = random(n, 1);
+  fg::SMatrix Ab, Bb;
+  VecC Aub, Avb, Bub, Bvb;
+  fg::adjoint::starSources(A, B, Au, Bv, Ku, Kv, Ab, Bb, Aub, Avb, Bub, Bvb);
+  const double adj = reS(Ab, DA) + reS(Bb, DB) + re(Aub, dAu) + re(Avb, dAv) + re(Bub, dBu) + re(Bvb, dBv);
+  expectClose(adj, fd([&](double t) {
+                const fg::SourcedSMatrix a{axpy(A, t, DA), VecC(Au + t * dAu), VecC(Av + t * dAv)};
+                const fg::SourcedSMatrix b{axpy(B, t, DB), VecC(Bu + t * dBu), VecC(Bv + t * dBv)};
+                const fg::SourcedSMatrix c = fg::star(a, b);
+                return re(Ku, c.u) + re(Kv, c.v);
+              }));
+}
+
 TEST(Adjoint, FromTransfer) {
   const int n = 4;
   const MatC T = random(2 * n, 2 * n) + 3.0 * MatC::Identity(2 * n, 2 * n), D = random(2 * n, 2 * n);

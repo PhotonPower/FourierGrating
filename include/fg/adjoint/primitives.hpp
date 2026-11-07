@@ -39,6 +39,12 @@ void toeplitz(const IndexMap& map, const MatC& Tbar, fourier::CoefficientGrid& f
 
 /// Redheffer star product C = A * B (Plan eq:star).
 void star(const SMatrix& A, const SMatrix& B, const SMatrix& Cbar, SMatrix& Abar, SMatrix& Bbar);
+/// Source vectors of the star product with sources (scattered-field formulation, Plan section "M18: Umsetzung"):
+/// u = Bu + B11 D1^-1 (Au + A12 Bv), v = Av + A22 D2^-1 (Bv + B21 Au), D1 = 1 - A12 B21, D2 = 1 - B21 A12.
+/// Adds the S-matrix cotangents of these source terms to Abar, Bbar (the S part: star above) and sets the source
+/// cotangents Aub, Avb, Bub, Bvb.
+void starSources(const SMatrix& A, const SMatrix& B, const VecC& Au, const VecC& Bv, const VecC& ubar, const VecC& vbar,
+                 SMatrix& Abar, SMatrix& Bbar, VecC& Aub, VecC& Avb, VecC& Bub, VecC& Bvb);
 /// S = fromTransfer(T) (Plan eq:T2S).
 void fromTransfer(const MatC& T, const SMatrix& Sbar, MatC& Tbar);
 /// Slice S-matrix S = H G^-1 of stableLayerSMatrix: cotangents of the mode matrices, eigenvalues and the

@@ -776,3 +776,57 @@ TEST(M19_Gradient, AperiodicModal) {
                    "/materials/core/n", "/incidence/lambda_um"},
         1e-6, "modal");
 }
+
+// Plan v2.13, Stufe B: oblique incidence on the PML axis (scattered-field formulation, Bloch-free expansion with the
+// sources in the Bloch basis); stack parameters (edges, ridge material); the value is the solver's.
+TEST(M19_Gradient, AperiodicScatteredField) {
+  json cfg = pmlRidge();
+  cfg["incidence"]["phi_deg"] = 25;
+  const auto obj = scatterObjective(1.0, 0.6);
+  {
+    const auto c = fg::io::parseConfig(cfg.dump());
+    const auto r = fg::makeSolver(c.solver)->solve(c.stack, c.scan.front());
+    const auto g = fg::gradient(cfg.dump(), obj, {});
+    EXPECT_NEAR(g.result.scattering.up, r.scattering.up, 1e-12 * std::abs(r.scattering.up));
+    EXPECT_NEAR(g.result.scattering.down, r.scattering.down, 1e-12 * std::abs(r.scattering.down));
+  }
+  const std::vector<std::string> ps{"/layers/1/breakpoints_um/1", "/layers/1/breakpoints_um/2", "/materials/bar/n/0",
+                                    "/materials/bar/n/1"};
+  check(cfg, obj, ps, 1e-6, "scattered ridge laurent");
+  cfg["layers"][1]["factorization"] = "li_lamellar";
+  check(cfg, scatterObjective(-0.3, 1.0), ps, 1e-6, "scattered ridge li");
+  // Stufe B2: parameters acting on the background field (film, thicknesses, wavelength, angles, half spaces)
+  check(cfg, obj, {"/materials/film/eps", "/layers/0/thickness_um", "/layers/1/thickness_um", "/incidence/lambda_um",
+                   "/incidence/phi_deg", "/incidence/psi_deg", "/incidence/delta_deg", "/materials/glass/n",
+                   "/materials/air/n"},
+        1e-6, "scattered ridge background");
+}
+
+// Stufe B: 2D contact hole, oblique in x and z (Bloch-free on both PML axes); the scattered-field formulation at
+// normal incidence ("scattered_field": sources without re-expansion) on the ridge.
+TEST(M19_Gradient, AperiodicScatteredField2D) {
+  const json hole{{"dimension", "2D"},
+                  {"truncation", {{"Nx", 3}, {"Nz", 3}}},
+                  {"period_um", {{"x", 2.0}, {"z", 2.0}}},
+                  {"incidence", {{"lambda_um", 0.6328}, {"phi_deg", 20}, {"psi_deg", 30}, {"delta_deg", 30}}},
+                  {"materials", {{"air", {{"n", 1.0}}}, {"glass", {{"n", 1.5}}}, {"film", {{"n", {2.1, 0.01}}}}}},
+                  {"superstrate", "air"},
+                  {"substrate", "glass"},
+                  {"layers", json::array({json{{"type", "contour2d"},
+                                               {"thickness_um", 0.3},
+                                               {"background", "film"},
+                                               {"regions", json::array({json{{"material", "air"},
+                                                                             {"circle", {{"center_um", {1.05, 0.98}}, {"radius_um", 0.25}}}}})},
+                                               {"factorization", "laurent"}}})},
+                  {"aperiodic", {{"pml", {{"x", {{"width_um", 0.3}, {"beta", 1.0}}}, {"z", {{"width_um", 0.3}, {"beta", 1.0}}}}}}}};
+  check(hole, scatterObjective(1.0, 0.5),
+        {"/layers/0/regions/0/circle/radius_um", "/materials/film/n/0", "/materials/film/n/1", "/layers/0/thickness_um",
+         "/incidence/lambda_um", "/incidence/phi_deg"},
+        1e-6, "scattered hole 2D");
+  json ridge = pmlRidge();
+  ridge["scattered_field"] = true;
+  check(ridge, scatterObjective(1.0, 0.6),
+        {"/layers/1/breakpoints_um/1", "/materials/bar/n/1", "/materials/film/eps", "/layers/0/thickness_um",
+         "/incidence/lambda_um"},
+        1e-6, "scattered ridge normal");
+}
