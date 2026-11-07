@@ -194,7 +194,9 @@ Abweichung Adjungierte gegen Differenzenquotient der Vorwärtsrechnung (h = 1e-6
 | Symmetrisches Lamellengitter, Normaleinfall (exakte Entartung) | Dicke, n, Kante | ≤ 1e-9 |
 | V9/V15: Polygon- und Kreissäulen (2D, Laurent) | Ecken, Radius, Mittelpunkt, Dicke, n | ≤ 2,5e-9 |
 | NURBS-Säule (rationaler Kreis, Laurent) | Kontrollpunkte / Gewicht | ≤ 9e-9 / 4,5e-8 |
-| Kreissäulen, FFF_sym (Normalenfeld NF eingefroren) | Radius / n | 1,8e-7 / 2e-9 (N = 3) |
+| Kreissäulen, FFF_sym (v2.11: Normalenfeld NF eingefroren) | Radius / n | 1,8e-7 / 2e-9 (N = 3); Mittelpunkt: −0,44 gegen Trend ≈ 0 (46 % bei N = 3, 150 % bei N = 5, 29 % bei N = 8), Polygonecke 0,7 % |
+| Säulen FFF_sym, v2.12: Rasterfeld NF über eine Rasterzelle mitbewegt | Radius, n / Mittelpunkt, Polygonecken | 2e-7, 2e-9 / Mittelpunkt −5e-6 (Trend −7e-4 bei h = 2e-3), Ecken 4e-4–6e-4 gegen den Quotienten bei h = 1e-3 |
+| Anisotrope 2D-Säulen, FFF_B | Tensoreinträge, Dicke, Radius / Mittelpunkt, Ecken | ≤ 4e-7 / Mittelpunkt 2e-6 (Trend −6e-5), Ecken ≤ 2,5e-3 gegen h = 1e-3 |
 | V13-Typ Gold-Sinus TM, Laurent | Tiefe, Verschiebung | 3e-10, Verschiebung ≈ 0 (Translation) |
 | V13-Typ, FFF_rig (Profil-Normalenfeld mitdifferenziert) | Tiefe | 7e-7 (eingefroren wäre der Gradient −7,0 statt −83,0) |
 | RK (Lamellen, Sinusprofil) | Dicke, Kante, n | ≤ 9e-7 (der Quotient sieht andere adaptive Schritte); RK = RCWA ≤ 2e-9 |
@@ -227,4 +229,10 @@ numerische Basen der Halbräume und Einfall in X fest; die Wirkungsgrade aus den
 2D-Konturen über die abgebildeten Koeffizienten. Mit `"auto"`-Fixpunkten hängt die Abbildung von den Kanten und
 Polygonecken ab: dafür Fehlermeldung (Fixpunkte explizit angeben); λ, Winkel und Superstrat/Substrat mit
 Transformation ebenso. Offen: Rückwärtsfunktionen über das GPU-Backend, anisotrope 2D-Querschnitte mit FFF_B
-(Rasterfeld), `profile2d` mit anisotropen Medien, aperiodische Strukturen (PML).
+`profile2d` mit anisotropen Medien, aperiodische Strukturen (PML). Rasterfeld von Algorithmus NF (v2.12): unterhalb
+einer Rasterzelle springt die Vorwärtsrechnung um ~1e-7 (Kreismittelpunkt in 2-nm-Schritten), der volle
+Differenzenquotient hängt dort von h ab (−0,82 / −0,086 / −0,0077 / −0,0012 für h = 1e-6 … 1e-3); eingefroren erzeugt
+das stehenbleibende Feld eine Scheinableitung. Formparameter mit FFF bewegen das Feld deshalb mit
+(Differenzenquotient der NF-Koeffizienten bzw. der FFF_B-Gitter über eine Rasterzelle, zwei NF-Rechnungen je
+Parameter); der Indikatoranteil bleibt exakt. Anisotrope FFF_B-Querschnitte: Materialparameter als
+Richtungsableitung der Gitter (zwei Auswertungen je Parameter).

@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <variant>
 
 #include "fg/core/error.hpp"
@@ -662,7 +663,7 @@ class CrossSectionModel final : public LayerModel {
     rank1_ = aniso || fac_ == Factorization::FFF_B;
     const int Px = 2 * map.Nx(), Pz = 2 * map.Nz();
     if (fac_ == Factorization::FFF_B) {
-      Q_ = projectorQ(map);
+      // built on first use (models at theta +- H of the M19 normal field quotient need only the raster)
     } else if (aniso) {
       // Laurent with tensors: exact polygon coefficients entry by entry
       std::vector<Grid> g(9, Grid(Px, Pz));
@@ -708,11 +709,43 @@ class CrossSectionModel final : public LayerModel {
     }
   }
   double thickness_um() const override { return geo_->thickness(); }
-  QBlocks Q(double) const override { return Q_; }
+  QBlocks Q(double) const override {
+    if (fac_ == Factorization::FFF_B) std::call_once(qOnce_, [this] { Q_ = projectorQ(map_); });
+    return Q_;
+  }
+  double normalFieldStep() const override {
+    if (fac_ == Factorization::Laurent) return 0.0;
+    const NormalFieldRaster& R = rasterX();
+    return std::max(dx_ / R.Gx, dz_ / R.Gz);
+  }
   bool adjointSlice(double, AdjointSlice& a) const override {
     const bool anisoLaurent = !iso_ && fac_ == Factorization::Laurent;
-    if (!iso_ && !anisoLaurent) return false;  // anisotropic FFF_B: raster normal field (open)
     const int Px = 2 * map_.Nx(), Pz = 2 * map_.Nz();
+    if (!iso_ && !anisoLaurent) {  // anisotropic FFF_B: raster normal field frozen (Plan "Methode", 2.)
+      a.aniso = true;
+      a.fac = Factorization::FFF_B;
+      a.tensors = tensors_;
+      a.materials.assign(1, geo_->background());
+      for (std::size_t k = 0; k < geo_->count(); ++k) a.materials.push_back(geo_->material(k));
+      (void)Q(0.0);
+      const std::vector<std::vector<Grid>>& smooth = fffBSmooth_;
+      a.grids = fffB_;
+      a.gridsFor = [this](const std::vector<Mat3C>& t) { return fffBGrids(t); };
+      a.gridsRasterOf = [this](const LayerModel& other) {
+        const auto* o = dynamic_cast<const CrossSectionModel*>(&other);
+        FG_REQUIRE(o != nullptr, "adjoint: the layer model changed its type");
+        return fffBGrids(tensors_, nullptr, &o->rasterX());
+      };
+      a.shapePx = 3 * Px;
+      a.shapePz = 3 * Pz;
+      a.gridsShape = [smooth, Px, Pz](std::size_t k, const Grid& dchi) {  // d g_m = d_km * d chi_k
+        std::vector<Grid> d(37, Grid(Px, Pz));
+        for (std::size_t m = 0; m < 37; ++m)
+          if (smooth[k - 1][m].Px() > 0) d[m] = fourier::convolveCoefficients(smooth[k - 1][m], dchi, Px, Pz);
+        return d;
+      };
+      return true;
+    }
     a.fac = fac_;
     a.sc = sc_;
     a.sc.normal = &nf_;
@@ -815,17 +848,27 @@ class CrossSectionModel final : public LayerModel {
   /// the exact polygon coefficients (Laurent rule for smooth x discontinuous, Pf = 2P orders of the
   /// smooth factor). Exact when N is constant (z-invariant strips: Li formula).
   QBlocks projectorQ(const IndexMap& map) const {
+    fffB_ = fffBGrids(tensors_, &fffBSmooth_);  // kept for the adjoint (M19 Phase 2)
+    std::vector<Grid> g = fffB_;
+    return anisoQFromGrids(Factorization::FFF_B, g, map);
+  }
+  /// Grids of projectorQ for the region tensors tens (same geometry and raster); smooth: the factors
+  /// F(t_k, N) - F(t_bg, N) of every region (orders 2 Px, 2 Pz), for the shape derivative (M19 Phase 2).
+  std::vector<Grid> fffBGrids(const std::vector<Mat3C>& tens, std::vector<std::vector<Grid>>* smooth = nullptr,
+                              const NormalFieldRaster* raster = nullptr) const {
+    const IndexMap& map = map_;
     const int Px = 2 * map.Nx(), Pz = 2 * map.Nz(), Pfx = 2 * Px, Pfz = 2 * Pz;
-    const NormalFieldRaster& R = rasterX();
+    const NormalFieldRaster& R = raster ? *raster : rasterX();
     const int Gx = R.Gx, Gz = R.Gz;
     FG_REQUIRE(Gx > 2 * Pfx && Gz > 2 * Pfz, "polygon2d FFF_B: normal field raster too coarse");
     const std::size_t n = R.nx.size();
     const std::size_t K = geo_->count();
     std::vector<Grid> chi;
     std::vector<bool> differs;
+    if (smooth) smooth->assign(K, std::vector<Grid>(37));
     for (std::size_t k = 0; k < K; ++k) {
-      differs.push_back((tensors_[k + 1] - tensors_[0]).cwiseAbs().maxCoeff() != 0.0);
-      chi.push_back(differs.back() ? indicator(k, Px + Pfx, Pz + Pfz) : Grid());
+      differs.push_back(smooth || (tens[k + 1] - tens[0]).cwiseAbs().maxCoeff() != 0.0);
+      chi.push_back(differs.back() ? chiExt(k) : Grid());
     }
     std::vector<Grid> g(37);
     // blocks of functions (G1, G2, H1, P_T, 1/xi) to bound the raster memory
@@ -840,11 +883,11 @@ class CrossSectionModel final : public LayerModel {
           diff[k].assign(static_cast<std::size_t>(nb), std::vector<cplx>(n));
       for (std::size_t j = 0; j < n; ++j) {
         const Vec3D N(R.nx[j], R.has3D() ? R.ny[j] : 0.0, R.nz[j]);
-        anisoEval(Factorization::FFF_B, tensors_[0], N, vb.data());
+        anisoEval(Factorization::FFF_B, tens[0], N, vb.data());
         for (int m = m0; m < m1; ++m) bg[static_cast<std::size_t>(m - m0)][j] = vb[static_cast<std::size_t>(m)];
         for (std::size_t k = 0; k < K; ++k) {
           if (diff[k].empty()) continue;
-          anisoEval(Factorization::FFF_B, tensors_[k + 1], N, vk.data());
+          anisoEval(Factorization::FFF_B, tens[k + 1], N, vk.data());
           for (int m = m0; m < m1; ++m)
             diff[k][static_cast<std::size_t>(m - m0)][j] = vk[static_cast<std::size_t>(m)] - vb[static_cast<std::size_t>(m)];
         }
@@ -857,11 +900,20 @@ class CrossSectionModel final : public LayerModel {
           const Grid cd = fourier::convolveCoefficients(d, chi[k], Px, Pz);
           for (int p = -Px; p <= Px; ++p)
             for (int q = -Pz; q <= Pz; ++q) c(p, q) += cd(p, q);
+          if (smooth) (*smooth)[k][static_cast<std::size_t>(m)] = d;
         }
         g[static_cast<std::size_t>(m)] = std::move(c);
       }
     }
-    return anisoQFromGrids(Factorization::FFF_B, g, map);
+    return g;
+  }
+  /// Indicator of region k at the orders of the products with the smooth factors (cached).
+  const Grid& chiExt(std::size_t k) const {
+    const int Px = 2 * map_.Nx(), Pz = 2 * map_.Nz();
+    std::lock_guard<std::mutex> lock(chiMutex_);
+    if (chiExt_.size() != geo_->count()) chiExt_.assign(geo_->count(), std::nullopt);
+    if (!chiExt_[k]) chiExt_[k] = indicator(k, 3 * Px, 3 * Pz);
+    return *chiExt_[k];
   }
 
   /// Indicator coefficients of inclusion k, in transformed coordinates from the mapped contour (M17).
@@ -936,6 +988,11 @@ class CrossSectionModel final : public LayerModel {
   IndexMap map_;
   std::shared_ptr<const CoordinateMap> xm_, zm_;
   std::vector<Mat3C> tensors_;  ///< background, inclusions
+  mutable std::vector<std::optional<Grid>> chiExt_;  // indicators at 3 Px, 3 Pz (FFF_B)
+  mutable std::once_flag qOnce_;                      // FFF_B: Q on first use
+  mutable std::vector<Grid> fffB_;                    // FFF_B grids and smooth factors (adjoint)
+  mutable std::vector<std::vector<Grid>> fffBSmooth_;
+  mutable std::mutex chiMutex_;
   Factorization fac_ = Factorization::Auto;
   bool rank1_ = false;
   bool iso_ = false;                  // adjoint (M19): isotropic exact-coefficient path
@@ -945,7 +1002,7 @@ class CrossSectionModel final : public LayerModel {
   mutable bool nfReady_ = false;
   mutable NormalFieldCoefficients nf_;
   mutable NormalFieldRaster R_, RX_;
-  QBlocks Q_;
+  mutable QBlocks Q_;
 };
 
 // ------------------------------------------------------------------ height-dependent cross-sections (M13)

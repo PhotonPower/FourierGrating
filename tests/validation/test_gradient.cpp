@@ -1,7 +1,8 @@
 // Validation M19 (Plan section "M19: Tests und Abnahme"): gradients of the discrete adjoint against central
 // difference quotients of the forward computation, per parameter kind (V3, V9, V13, V15 type structures).
 // With Laurent / Li factorizations the normal field plays no role and the agreement is 1e-6; with FFF the
-// adjoint keeps the normal field frozen and the deviation from the full difference quotient is tabulated.
+// raster normal field of Algorithm NF moves with the geometry (difference quotient over one raster cell; the
+// forward map is not smooth below it, the trend is compared).
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -42,6 +43,19 @@ void check(const json& cfg, const fg::Objective& obj, const std::vector<std::str
     std::printf("%s %-40s adjoint % .10e  fd % .10e  rel %.2e\n", what, params[k].c_str(), g.grad[k], num,
                 std::abs(g.grad[k] - num) / std::max(1e-12, std::abs(num)));
     EXPECT_NEAR(g.grad[k], num, tol * std::max(1.0, std::abs(num))) << what << " " << params[k];
+  }
+}
+
+/// Against the difference quotient with the absolute step h: |adjoint - fd| <= rtol |fd| + atol (raster normal
+/// field of Algorithm NF: the forward map is not smooth below the raster cell, the trend is compared).
+void checkStep(const json& cfg, const fg::Objective& obj, const std::vector<std::string>& params, double h, double rtol,
+               double atol, const char* what) {
+  const auto g = fg::gradient(cfg.dump(), obj, params);
+  for (std::size_t k = 0; k < params.size(); ++k) {
+    const double v = cfg.at(json::json_pointer(params[k])).get<double>();
+    const double num = fd(cfg, obj, params[k], h / std::max(1.0, std::abs(v)));
+    std::printf("%s %-40s adjoint % .10e  fd(h=%.0e) % .10e\n", what, params[k].c_str(), g.grad[k], h, num);
+    EXPECT_NEAR(g.grad[k], num, rtol * std::abs(num) + atol) << what << " " << params[k];
   }
 }
 
@@ -131,12 +145,18 @@ TEST(M19_Gradient, ShapesLaurent) {
         "circle");
 }
 
-// FFF_sym: the adjoint keeps the raster normal field of Algorithm NF frozen (Plan "Methode", 2.); the full
-// difference quotient also moves it. Measured deviation: radius 1.8e-7 (N = 3), n 2e-9.
-TEST(M19_Gradient, ShapesFFFFrozenNormalField) {
-  const auto obj = objective({{'R', 0, 0, 1.0}, {'T', -1, 0, 0.7}});
+// FFF_sym: the raster normal field of Algorithm NF moves with the geometry (difference quotient over one raster
+// cell). Frozen, a translation of the circle gave -0.44 against a trend of ~0 (the field stays behind); the
+// forward map jumps by ~1e-7 below the raster cell, so translations and vertices are compared with the
+// difference quotient at h = 1e-3..2e-3 um: vertices 4e-4..6e-4, centre |0 - (-7e-4)|; radius and n exact.
+TEST(M19_Gradient, ShapesFFFNormalFieldMoves) {
+  const auto obj = objective({{'R', 0, 0, 1.0}, {'T', -1, 0, 0.7}, {'T', 0, -1, 0.4}});
   check(pillars2D("FFF_sym", true), obj, {"/layers/0/regions/0/circle/radius_um", "/materials/pillar/n"}, 1e-5,
         "circle FFF_sym");
+  checkStep(pillars2D("FFF_sym", true), obj, {"/layers/0/regions/0/circle/center_um/0"}, 2e-3, 0.0, 2e-3,
+            "circle FFF_sym centre");
+  checkStep(pillars2D("FFF_sym", false), obj, {"/layers/0/inclusions/0/vertices_um/1/0", "/layers/0/inclusions/0/vertices_um/2/1"},
+            1e-3, 2e-3, 0.0, "polygon FFF_sym");
 }
 
 // V13 type: gold sinus profile, TM (staircase slices fixed), depth and shift. The analytic profile normal
@@ -543,4 +563,23 @@ TEST(M19_Gradient, CoordinateTransform) {
         1e-6, "asr polygon");
   circ["materials"]["pillar"] = co;
   check(circ, obj2, {"/layers/0/regions/0/circle/radius_um", "/materials/pillar/eps_tensor/0/2/0"}, 1e-6, "asr circle aniso");
+}
+
+// Phase 2: anisotropic 2D cross-sections with FFF_B; shapes: indicator part exact, the raster normal field of
+// Algorithm NF moves with the geometry (difference quotient over one raster cell), compared with the trend.
+TEST(M19_Gradient, AnisotropicFFFB2D) {
+  const json co = {{"eps_tensor",
+                    {{{2.6, 0.05}, {0.0, 0.0}, {0.3, -0.02}}, {{0.0, 0.0}, {2.4, 0.04}, {0.0, 0.0}}, {{-0.3, 0.02}, {0.0, 0.0}, {2.9, 0.06}}}}};
+  const auto obj = objective({{'R', 0, 0, 1.0}, {'T', -1, 0, 0.7}, {'T', 0, -1, 0.4}});
+  json circ = pillars2D("FFF_B", true);
+  circ["materials"]["pillar"] = co;
+  check(circ, obj, {"/materials/pillar/eps_tensor/0/2/0", "/materials/pillar/eps_tensor/1/1/1", "/layers/0/thickness_um"},
+        1e-6, "FFF_B circle");
+  check(circ, obj, {"/layers/0/regions/0/circle/radius_um"}, 1e-5, "FFF_B circle radius");
+  checkStep(circ, obj, {"/layers/0/regions/0/circle/center_um/0"}, 2e-3, 0.0, 2e-4, "FFF_B circle centre");
+  json poly = pillars2D("FFF_B", false);
+  poly["materials"]["pillar"] = co;
+  check(poly, obj, {"/materials/pillar/eps_tensor/2/2/0"}, 1e-6, "FFF_B polygon");
+  checkStep(poly, obj, {"/layers/0/inclusions/0/vertices_um/1/0", "/layers/0/inclusions/0/vertices_um/2/1"}, 1e-3, 5e-3, 0.0,
+            "FFF_B polygon vertices");
 }

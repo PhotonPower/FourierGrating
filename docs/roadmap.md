@@ -164,11 +164,13 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
 - [x] **M19** Differenzierbarkeit: diskrete Adjungierte (Plan „Konvention“, Rückwärtsregeln), Formableitungen
   (eq:shape2d, eq:shape3d), C++-API `gradient`/`vjp`, Python `value_and_grad`, PyTorch-/JAX-Adapter
   - Abnahme: Rückwärtsfunktionen gegen Differenzenquotienten 1e-6; Ende-zu-Ende V3, V9, V13, V15, V18 ≤ 7e-7
-    (Laurent/Li ≤ 1e-7, Profil-Normalenfeld mitdifferenziert, Rasterfeld NF eingefroren); Entartung 1e-9; RK = RCWA
+    (Laurent/Li ≤ 1e-7, Profil-Normalenfeld mitdifferenziert, Rasterfeld NF in v2.12 über eine Rasterzelle); Entartung 1e-9; RK = RCWA
     2e-9; Aufwand 1,3–2,3× Vorwärtsrechnung; Beispiele `optimize_littrow.py`, `optimize_nurbs_pillar.py`; Plan v2.11
   - Phase 2 umgesetzt: Wellenlänge, Winkel φ, ψ, δ, Brechzahl/Permittivität von Superstrat und Substrat (≤ 2e-7, RK 2e-6);
     `checkpoint_every` (bitgleich); anisotrope Materialien (Tensor, Hauptwerte, Euler-Winkel) mit Laurent/FFF_A/FFF_B in
     Lamellen und Profilen, Laurent in 2D-Querschnitten (≤ 3e-7); Koordinatentransformationen (ASR) mit Material-,
-    Dicken- und Geometrieparametern (≤ 4e-7, RK 8e-6; Fixpunkte explizit für Geometrieparameter)
-  - Offen (Phase 2): GPU-Rückwärtsfunktionen, anisotrope 2D-Querschnitte mit FFF_B, `profile2d` anisotrop,
+    Dicken- und Geometrieparametern (≤ 4e-7, RK 8e-6; Fixpunkte explizit für Geometrieparameter); anisotrope
+    2D-Querschnitte mit FFF_B; Rasterfeld NF bei Formparametern mitbewegt (eingefroren war die Verschiebung eines
+    Kreises um 50–150 % falsch, nur der Radius war geprüft)
+  - Offen (Phase 2): GPU-Rückwärtsfunktionen, `profile2d` anisotrop,
     aperiodische Strukturen (PML), λ/Winkel/Halbräume mit Transformation

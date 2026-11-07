@@ -49,12 +49,14 @@ struct Param {
   bool tensor = false;  ///< anisotropic material: d eps_tensor / d theta in dE (eps_tensor, eps_principal, euler_deg)
   Mat3C dE = Mat3C::Zero();
   int index = 0;   ///< breakpoint index
+  // shape: the structure at theta + d (normal field difference quotient with the raster step, M19)
+  std::function<Stack(double)> stackAt;
   // shape: the structure at theta +- delta; the layers whose regions may move
   std::shared_ptr<const Stack> plus, minus;
   double delta = 0;
   std::vector<std::size_t> layers;
   /// profiles: d [[N_i N_j]] / d theta, d [[N_i]] / d theta (the analytic profile normal field is smooth and
-  /// differentiated; the raster field of Algorithm NF of 2D cross-sections stays frozen)
+  /// differentiated; the raster field of Algorithm NF of 2D cross-sections: quotient over one raster cell, stackAt)
   bool hasDnf = false;
   NormalFieldCoefficients dnf;
 };
@@ -184,6 +186,11 @@ Param resolve(const json& j, const io::RunConfig& cfg, const std::string& ptr, c
     jm1[jp] = v - p.delta;
     p.plus = std::make_shared<const Stack>(io::parseConfig(jp1.dump()).stack);
     p.minus = std::make_shared<const Stack>(io::parseConfig(jm1.dump()).stack);
+    p.stackAt = [j, jp, v](double d) {
+      json a = j;
+      a[jp] = v + d;
+      return io::parseConfig(a.dump()).stack;
+    };
     p.layers = {p.layer};
   } else {
     throw Error("gradient: unsupported layer parameter '" + ptr + "'");
@@ -570,10 +577,12 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   // material cotangents (complex, Plan convention) per material name
   std::map<std::string, cplx> epsBar;
   std::map<std::string, Mat3C> tensorBar;  // anisotropic layers: cotangents of the region tensors (M19 Phase 2)
-  auto isParamMaterial = [&](const std::string& name) {
-    for (const auto& p : ps)
-      if (p.kind == Param::Kind::Material && p.material == name) return true;
-    return false;
+  /// d eps / d theta of a material parameter as a tensor (isotropic: d eps 1)
+  auto materialDirection = [&](const Param& p) -> Mat3C {
+    if (p.tensor) return p.dE;
+    cplx deps = p.comp == 0 ? cplx(1.0) : I;
+    if (p.viaN) deps *= 2.0 * std::sqrt(st.material(p.material).eps);  // eps = n^2
+    return deps * Mat3C::Identity();
   };
   auto onLayer = [](const Param& p, std::size_t k) {
     return p.layer == k || std::find(p.layers.begin(), p.layers.end(), k) != p.layers.end();
@@ -631,14 +640,24 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   };
   /// d chi / d theta of a moving region (transformed coordinates: the mapped contour, central differences)
   auto regionDerivative = [&](const geometry::Region& r0, const geometry::Region& rPlus, const geometry::Region& rMinus,
-                              double delta) {
-    if (!tr.x && !tr.z) return adjoint::shapeDerivative(r0, rPlus, rMinus, delta, st.dx_um, st.dz_um, Px, Pz);
-    const Grid gp = fourier::regionCoefficients(rPlus, st.dx_um, st.dz_um, Px, Pz, tr.x.get(), tr.z.get());
-    const Grid gm = fourier::regionCoefficients(rMinus, st.dx_um, st.dz_um, Px, Pz, tr.x.get(), tr.z.get());
-    Grid d(Px, Pz);
-    for (int p = -Px; p <= Px; ++p)
-      for (int q = -Pz; q <= Pz; ++q) d(p, q) = (gp(p, q) - gm(p, q)) / (2 * delta);
+                              double delta, int px, int pz) {
+    if (!tr.x && !tr.z) return adjoint::shapeDerivative(r0, rPlus, rMinus, delta, st.dx_um, st.dz_um, px, pz);
+    const Grid gp = fourier::regionCoefficients(rPlus, st.dx_um, st.dz_um, px, pz, tr.x.get(), tr.z.get());
+    const Grid gm = fourier::regionCoefficients(rMinus, st.dx_um, st.dz_um, px, pz, tr.x.get(), tr.z.get());
+    Grid d(px, pz);
+    for (int p = -px; p <= px; ++p)
+      for (int q = -pz; q <= pz; ++q) d(p, q) = (gp(p, q) - gm(p, q)) / (2 * delta);
     return d;
+  };
+  /// Shape parameters with a raster normal field (Algorithm NF): the layer at theta +- H, H = raster cell (M19:
+  /// the normal field moves with the geometry; NF is not smooth below its raster resolution)
+  auto nfModels = [&](const Param& p, std::size_t layer, const detail::LayerModel& model, double& H) {
+    H = model.normalFieldStep();
+    std::pair<std::unique_ptr<detail::LayerModel>, std::unique_ptr<detail::LayerModel>> m;
+    if (H <= 0 || !p.stackAt) return m;
+    m.first = detail::buildLayerModel(p.stackAt(H), layer, map, opt.rcwaSlices);
+    m.second = detail::buildLayerModel(p.stackAt(-H), layer, map, opt.rcwaSlices);
+    return m;
   };
   /// dL/dQ of the slice of layer k at height y_um -> parameters (materials, geometry, profiles)
   auto fromQbar = [&](std::size_t layer, bool homogeneous, double y_um, const QBlocks& Qb) {
@@ -657,8 +676,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     }
     detail::AdjointSlice a;
     FG_REQUIRE(model.adjointSlice(y_um, a), "gradient: layer " + std::to_string(layer) +
-                                                " has no adjoint (FFF_B with a raster normal field, 2D profile with "
-                                                "anisotropic media, or transformed)");
+                                                " has no adjoint (2D profile with anisotropic media)");
     if (a.aniso) {
       std::vector<Grid> gb;
       adjoint::qAnisotropic(a.fac, a.grids, map, Qb, gb);
@@ -667,32 +685,26 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         for (std::size_t m = 0; m < gb.size(); ++m) v += gridDot(gb[m], d[m]);
         return v;
       };
-      // region tensors of the materials that are parameters (holomorphic: real central step)
-      std::vector<std::string> done;
-      for (std::size_t k = 0; k < a.materials.size(); ++k) {
-        const std::string& name = a.materials[k];
-        if (!isParamMaterial(name) || std::find(done.begin(), done.end(), name) != done.end()) continue;
-        done.push_back(name);
-        Mat3C& T = tensorBar.try_emplace(name, Mat3C::Zero()).first->second;
+      // material parameters: directional derivative of the grids along d eps / d theta of their regions
+      // (holomorphic in the tensors: central step along the complex direction; two grid evaluations each)
+      for (std::size_t q = 0; q < ps.size(); ++q) {
+        const Param& p = ps[q];
+        if (p.kind != Param::Kind::Material || std::find(a.materials.begin(), a.materials.end(), p.material) == a.materials.end())
+          continue;
+        const Mat3C D = materialDirection(p);
         constexpr double h = 1e-6;
-        for (int i = 0; i < 3; ++i)
-          for (int jj = 0; jj < 3; ++jj) {
-            auto tp = a.tensors, tm = a.tensors;
-            for (std::size_t r = 0; r < tp.size(); ++r)
-              if (a.materials[r] == name) {
-                tp[r](i, jj) += h;
-                tm[r](i, jj) -= h;
-              }
-            const auto gp = a.gridsFor(tp), gm = a.gridsFor(tm);
-            cplx v = 0;
-            for (std::size_t m = 0; m < gb.size(); ++m) {
-              Grid d = gp[m];
-              for (int pp = -d.Px(); pp <= d.Px(); ++pp)
-                for (int qq = -d.Pz(); qq <= d.Pz(); ++qq) d(pp, qq) = (gp[m](pp, qq) - gm[m](pp, qq)) / (2 * h);
-              v += gridInner(gb[m], d);
-            }
-            T(i, jj) += v;
+        auto tp = a.tensors, tm = a.tensors;
+        for (std::size_t r = 0; r < tp.size(); ++r)
+          if (a.materials[r] == p.material) {
+            tp[r] += h * D;
+            tm[r] -= h * D;
           }
+        const auto gp = a.gridsFor(tp), gm = a.gridsFor(tm);
+        std::vector<Grid> d = gp;
+        for (std::size_t m = 0; m < d.size(); ++m)
+          for (int pp = -d[m].Px(); pp <= d[m].Px(); ++pp)
+            for (int qq = -d[m].Pz(); qq <= d[m].Pz(); ++qq) d[m](pp, qq) = (gp[m](pp, qq) - gm[m](pp, qq)) / (2 * h);
+        out.grad[q] += dotAll(d);
       }
       for (std::size_t q = 0; q < ps.size(); ++q) {
         const Param& p = ps[q];
@@ -729,19 +741,36 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
             for (int pp = -d[m].Px(); pp <= d[m].Px(); ++pp)
               for (int qq = -d[m].Pz(); qq <= d[m].Pz(); ++qq) d[m](pp, qq) = (gp[m](pp, qq) - gm[m](pp, qq)) / (2 * p.delta);
           out.grad[q] += dotAll(d);
-        } else if (p.kind == Param::Kind::Shape) {  // 2D Laurent: eps_ij = sum_k t_k,ij chi_k
-          FG_REQUIRE(a.fac == Factorization::Laurent, "gradient: shapes of anisotropic layers need the Laurent factorization");
+        } else if (p.kind == Param::Kind::Shape) {  // 2D: Laurent eps_ij = sum_k t_k,ij chi_k; FFF_B: gridsShape
+          FG_REQUIRE(a.fac == Factorization::Laurent || a.gridsShape,
+                     "gradient: shapes of anisotropic layers need the Laurent or FFF_B factorization");
           const auto R0 = regionsOf(st.layers[layer].spec), Rp = regionsOf(p.plus->layers[layer].spec),
                      Rm = regionsOf(p.minus->layers[layer].spec);
           for (std::size_t r = 0; r < R0.size(); ++r) {
             if (sameControlPoints(R0[r], Rp[r]) && sameControlPoints(R0[r], Rm[r])) continue;
-            const Grid dchi = regionDerivative(R0[r], Rp[r], Rm[r], p.delta);
+            if (a.gridsShape) {  // indicator part (raster fixed); the raster part below
+              out.grad[q] += dotAll(a.gridsShape(r + 1, regionDerivative(R0[r], Rp[r], Rm[r], p.delta, a.shapePx, a.shapePz)));
+              continue;
+            }
+            const Grid dchi = regionDerivative(R0[r], Rp[r], Rm[r], p.delta, Px, Pz);
             const Mat3C dt = a.tensors[r + 1] - a.tensors[0];
             std::vector<Grid> d(9, Grid(Px, Pz));
             for (int e = 0; e < 9; ++e)
               for (int pp = -Px; pp <= Px; ++pp)
                 for (int qq = -Pz; qq <= Pz; ++qq) d[static_cast<std::size_t>(e)](pp, qq) = dt(e / 3, e % 3) * dchi(pp, qq);
             out.grad[q] += dotAll(d);
+          }
+          if (a.gridsRasterOf) {  // the raster normal field moves with the geometry
+            double H = 0;
+            const auto nm = nfModels(p, layer, model, H);
+            if (nm.first) {
+              const auto gp = a.gridsRasterOf(*nm.first), gm = a.gridsRasterOf(*nm.second);
+              std::vector<Grid> d = gp;
+              for (std::size_t m = 0; m < d.size(); ++m)
+                for (int pp = -d[m].Px(); pp <= d[m].Px(); ++pp)
+                  for (int qq = -d[m].Pz(); qq <= d[m].Pz(); ++qq) d[m](pp, qq) = (gp[m](pp, qq) - gm[m](pp, qq)) / (2 * H);
+              out.grad[q] += dotAll(d);
+            }
           }
         }
       }
@@ -809,7 +838,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         for (std::size_t r = 0; r < R0.size(); ++r) {
           if (sameControlPoints(R0[r], Rp[r]) && sameControlPoints(R0[r], Rm[r])) continue;
           const std::size_t idx = r + 1;
-          const Grid dchi = regionDerivative(R0[r], Rp[r], Rm[r], p.delta);
+          const Grid dchi = regionDerivative(R0[r], Rp[r], Rm[r], p.delta, Px, Pz);
           const cplx er = epsOf(a.materials[idx]);
           Grid de = dchi, di = dchi;
           for (int pp = -Px; pp <= Px; ++pp)
@@ -818,6 +847,22 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
               di(pp, qq) *= 1.0 / er - 1.0 / eb;
             }
           out.grad[q] += gridDot(g.eps, de) + gridDot(g.invEps, di);
+        }
+        double H = 0;
+        const auto nm = nfModels(p, layer, model, H);
+        if (nm.first) {
+          const NormalFieldCoefficients &np = nm.first->NN(y_um), &nmi = nm.second->NN(y_um);
+          auto ddot = [&](const Grid& gb, const Grid& x, const Grid& y) {
+            if (x.Px() < Px || y.Px() < Px || x.Pz() < Pz || y.Pz() < Pz) return 0.0;
+            Grid d(Px, Pz);
+            for (int pp = -Px; pp <= Px; ++pp)
+              for (int qq = -Pz; qq <= Pz; ++qq) d(pp, qq) = (x(pp, qq) - y(pp, qq)) / (2 * H);
+            return gridDot(gb, d);
+          };
+          for (std::size_t ii = 0; ii < 3; ++ii) {
+            for (std::size_t kk = 0; kk < 3; ++kk) out.grad[q] += ddot(g.NN[ii][kk], np.NN[ii][kk], nmi.NN[ii][kk]);
+            out.grad[q] += ddot(g.N[ii], np.N[ii], nmi.N[ii]);
+          }
         }
       }
     }
@@ -1043,20 +1088,22 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     if (p.kind != Param::Kind::Material) continue;
     const auto tb = tensorBar.find(p.material);
     if (p.tensor) {  // dL = Re sum conj(Tbar_ij) dE_ij
-      if (tb != tensorBar.end()) out.grad[q] = std::real((tb->second.conjugate().cwiseProduct(p.dE)).sum());
+      if (tb != tensorBar.end()) out.grad[q] += std::real((tb->second.conjugate().cwiseProduct(p.dE)).sum());
       continue;
     }
     // isotropic material in anisotropic layers: eps 1 -> trace of the tensor cotangent
     const cplx eb = epsBar[p.material] + (tb != tensorBar.end() ? tb->second.trace() : cplx(0));
     if (!p.viaN) {
-      out.grad[q] = p.comp == 0 ? eb.real() : eb.imag();
+      out.grad[q] += p.comp == 0 ? eb.real() : eb.imag();
     } else {
       const cplx nidx = std::sqrt(st.material(p.material).eps);  // eps = n^2
       const cplx deps = p.comp == 0 ? 2.0 * nidx : 2.0 * nidx * I;
-      out.grad[q] = std::real(std::conj(eb) * deps);
+      out.grad[q] += std::real(std::conj(eb) * deps);
     }
   }
-  out.notes = {"RCWA slices fixed (Plan M19 \"Methode\" 1.)", "normal field frozen (Plan M19 \"Methode\" 2.)"};
+  out.notes = {"RCWA slices fixed (Plan M19 \"Methode\" 1.)",
+               "normal field: profiles differentiated, Algorithm NF over one raster cell, CAD sections frozen (Plan M19 "
+               "\"Methode\" 2., v2.12)"};
   return out;
 }
 

@@ -12,8 +12,14 @@
   `adjoint::qAnisotropic` (Laurent, FFF_A, FFF_B); homogene Schichten, Lamellen, Profile, 2D-Querschnitte (Laurent).
 - Gradienten mit Koordinatentransformationen (ASR, x und z): Lamellen, Profile, 2D-Querschnitte, anisotrop, RK;
   `detail::transformedCoordinates` gemeinsam mit dem Löser.
+- Gradienten anisotroper 2D-Querschnitte mit FFF_B.
 - V20f: Reziprozität der Streuamplituden (Winkelspektrum des Streufeldes, 5e-2 bei L = 8 µm).
 - Python-CI mit PyTorch, JAX und scipy; NURBS-Beispiel als Test.
+
+### Geändert
+- Gradienten nach Formparametern mit FFF in 2D: das Rasterfeld von Algorithmus NF bewegt sich mit der Geometrie
+  (Differenzenquotient über eine Rasterzelle). Eingefroren war z. B. die Verschiebung eines Kreises um 30–150 %
+  falsch (nur der Radius war geprüft). Kosten: zwei NF-Rechnungen je Formparameter.
 
 ## [0.18.0] – M19 (Differenzierbarkeit)
 

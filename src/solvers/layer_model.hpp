@@ -48,6 +48,11 @@ struct AdjointSlice {
   std::function<std::vector<fourier::CoefficientGrid>(double)> gridsDepth;
   /// profiles in transformed coordinates: grids for the shift x0 + delta (no translation symmetry in X)
   std::function<std::vector<fourier::CoefficientGrid>(double)> gridsShift;
+  /// 2D cross-sections: d grids for a change d chi of the indicator of region k (k >= 1; orders shapePx, shapePz)
+  std::function<std::vector<fourier::CoefficientGrid>(std::size_t, const fourier::CoefficientGrid&)> gridsShape;
+  int shapePx = 0, shapePz = 0;
+  /// anisotropic FFF_B cross-sections: grids with the raster normal field of another model of this layer
+  std::function<std::vector<fourier::CoefficientGrid>(const LayerModel&)> gridsRasterOf;
 };
 
 class LayerModel {
@@ -77,6 +82,9 @@ class LayerModel {
   virtual const NormalFieldCoefficients& NN(double y_um) const = 0;
   /// Adjoint data at height y (isotropic layers without coordinate transformation); false: not available.
   virtual bool adjointSlice(double /*y_um*/, AdjointSlice& /*out*/) const { return false; }
+  /// Cell size (um) of the raster normal field of Algorithm NF if the factorization uses it, else 0 (M19:
+  /// step of the normal field difference quotient for shape parameters).
+  virtual double normalFieldStep() const { return 0.0; }
   /// Sectioned layers: the cross-section regions at height y (shape derivatives); empty otherwise.
   virtual std::vector<geometry::Region> sectionRegions(double /*y_um*/) const { return {}; }
   /// Permittivities occurring in the layer (spectral radius estimate).
