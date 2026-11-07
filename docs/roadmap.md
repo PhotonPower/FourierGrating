@@ -174,7 +174,7 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
     Kreises um 50–150 % falsch, nur der Radius war geprüft); λ, Winkel, Superstrat/Substrat auch mit ASR (≤ 2,5e-7);
     `profile2d` isotrop und anisotrop (Materialien, Tiefe, Verschiebungen x0/z0; ≤ 3e-7)
     Aperiodisch (Plan v2.13, Stufe A): Streuflüsse oben/unten bei Normaleinfall, alle Parameterarten außer φ (≤ 3e-7);
-    modaler Einfall, Leistungen der geführten Moden (≤ 1e-8); Streufeldformulierung (Stufe B, RCWA): schräger Einfall,
-    alle Parameterarten (≤ 1,4e-7)
-  - Offen (Phase 2): GPU-Rückwärtsfunktionen; aperiodisch: RK mit Streufeldformulierung (Stufe B), seitlicher
-    Fluss/Absorption (Stufe C, optional)
+    modaler Einfall, Leistungen der geführten Moden (≤ 1e-8); Streufeldformulierung (Stufe B, RCWA und RK): schräger
+    Einfall, alle Parameterarten (≤ 1,4e-7)
+  - Offen (Phase 2): GPU-Rückwärtsfunktionen; aperiodisch: seitlicher Fluss/Absorption (Stufe C, optional),
+    Profilschichten mit PML

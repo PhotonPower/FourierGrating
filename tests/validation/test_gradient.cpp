@@ -830,3 +830,23 @@ TEST(M19_Gradient, AperiodicScatteredField2D) {
          "/incidence/lambda_um"},
         1e-6, "scattered ridge normal");
 }
+
+// Stufe B with RK: the augmented system (F; 1) with the source sigma(y) in the last column.
+TEST(M19_Gradient, AperiodicScatteredFieldRK) {
+  json cfg = pmlRidge();
+  cfg["incidence"]["phi_deg"] = 25;
+  cfg["solver"] = "rk";
+  cfg["rk"] = {{"tol", 1e-8}};
+  cfg["truncation"]["Nx"] = 12;
+  {
+    const auto c = fg::io::parseConfig(cfg.dump());
+    const auto r = fg::makeSolver(c.solver)->solve(c.stack, c.scan.front());
+    // the solver also splits the RK slices at the nodes of the lateral-flux quadrature (another step sequence):
+    // equal within the RK tolerance
+    const auto g = fg::gradient(cfg.dump(), scatterObjective(1.0, 0.0), {});
+    EXPECT_NEAR(g.result.scattering.up, r.scattering.up, 1e-8 * std::abs(r.scattering.up));
+  }
+  check(cfg, scatterObjective(1.0, 0.6),
+        {"/layers/1/breakpoints_um/1", "/materials/film/eps", "/layers/1/thickness_um", "/incidence/lambda_um"}, 2e-6,
+        "scattered ridge rk");
+}

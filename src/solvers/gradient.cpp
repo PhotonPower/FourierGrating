@@ -578,7 +578,6 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     return detail::separable(map, oblX ? &Tx : nullptr, oblZ ? &Tz : nullptr);
   };
   if (scat) {
-    FG_REQUIRE(opt.kind == SolverKind::RCWA, "gradient: scattered-field formulation with RK (Plan v2.13, Stufe B)");
     FG_REQUIRE(opt.checkpointEvery <= 1, "gradient: checkpoint_every with the scattered-field formulation");
     a_in = VecC::Zero(nh);  // the sources drive the scattered field
     bgf = backgroundField(st, opt, wl, inc.alpha0, inc.gamma0);
@@ -609,6 +608,18 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         sig += w(k) * (bloch ? VecC(MB.col(k * nf + c) - bgMB[l].col(k * nf + c)) : VecC(M.col(k * nf + c) - bgM[l].col(k * nf + c)));
     return bloch ? detail::componentwise(Tsrc, sig) : sig;
   };
+  /// background field (incidence order, 4 components) of background layer l at the normalized height y
+  auto bgFieldAt = [&](std::size_t l, double y, VecC* Ek = nullptr) {
+    const BgLayerField& L = bgf[l];
+    VecC f = VecC::Zero(4);
+    if (Ek) Ek->resize(4);
+    for (int k = 0; k < 4; ++k) {
+      const cplx E = std::exp(L.lambda(k) * (y - (k < 2 ? L.y1 : L.y0)));
+      if (Ek) (*Ek)(k) = E;
+      f += L.Psi.col(k) * (L.amp(k) * E);
+    }
+    return f;
+  };
   const ModeBasis& rp = trans ? refPhys : ref;
   const ModeBasis& sp = trans ? subPhys : sm;
   auto Mof = [&](const QBlocks& Q) {
@@ -634,6 +645,27 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       auto Mfun = [&m, &Mof, k0](double yl) { return Mof(m.Q(yl / k0)); };
       RKStats rs;
       e.steps = RKSteps{};
+      if (scat) {  // affine transfer F(yb) = T F(ya) + f: the augmented linear system (F; 1) (as the solver)
+        if (e.constant) e.Mc = Mfun(0.0);
+        const Eigen::Index n = 4 * nf;
+        auto aug = [&](double yl) {
+          const MatC Mm = e.constant ? e.Mc : Mfun(yl);
+          const MatC MB = bloch ? buildPropagationMatrix(m.Q(yl / k0), alB, gaB) : MatC();
+          MatC A = MatC::Zero(n + 1, n + 1);
+          A.topLeftCorner(n, n) = Mm;
+          A.topRightCorner(n, 1) = sourceOf(Mm, MB, e.bgl, bgFieldAt(e.bgl, e.y0n + yl));
+          return A;
+        };
+        const MatC Ta = rkTransfer(aug, e.ya, e.yb, tab, opt.rkTol, e.rho, rs, &e.steps);
+        e.T = Ta.topLeftCorner(n, n);
+        e.F0 = Ta.topRightCorner(n, 1);
+        e.S = fromTransfer(ref.PsiInv * e.T * ref.Psi);
+        const VecC g = ref.PsiInv * e.F0;
+        e.su = g.tail(nh) - e.S.S12 * g.head(nh);
+        e.sv = -(e.S.S22 * g.head(nh));
+        e.stored = true;
+        return;
+      }
       if (e.constant) {
         e.Mc = Mfun(0.0);
         e.T = rkTransferConstant(e.Mc, e.yb - e.ya, tab, opt.rkTol, e.rho, rs, &e.steps);
@@ -765,6 +797,8 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         e.ya = ya;
         e.yb = yb;
         e.rho = rho;
+        e.y0n = yBottom;  // RK: the layer bottom
+        if (scat) e.bgl = bgOf[k];
         rebuild(e);
         if ((!e.T.allFinite() || e.T.cwiseAbs().maxCoeff() > growth) && depth < 12) {
           slice(ya, 0.5 * (ya + yb), depth + 1);
@@ -1190,7 +1224,8 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   MatC TsrcB = bloch ? MatC(MatC::Zero(nf, nf)) : MatC();
   VecC alBb = VecC::Zero(nf), gaBb = VecC::Zero(nf);
   /// backward of element i >= 1 from the cotangent Eb of its S-matrix
-  auto backward = [&](std::size_t i, const SMatrix& Eb, const MatC* Msrc = nullptr, const MatC* MBsrc = nullptr) {
+  auto backward = [&](std::size_t i, const SMatrix& Eb, const MatC* Msrc = nullptr, const MatC* MBsrc = nullptr,
+                      const VecC* fbar = nullptr) {
     const Elem& e = el[i];
     const auto& model = *models[e.layer];
     std::vector<std::string> mats;
@@ -1201,13 +1236,13 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       if (model.adjointSlice(e.y_um, a)) mats = a.materials;
     }
     const bool own = layerHasParams(e.layer, mats);
-    if (!own && !global) return;
+    if (!own && !global && !fbar) return;
     // eigen-decompositions / stage matrices only if Q matters (materials, geometry, profile normal field)
     bool needQ = false;
     for (const auto& p : ps)
       needQ = needQ || (p.kind == Param::Kind::Material && std::find(mats.begin(), mats.end(), p.material) != mats.end()) ||
               (onLayer(p, e.layer) && (p.hasDnf || (p.kind != Param::Kind::Thickness && p.kind != Param::Kind::ProfileDepth)));
-    needQ = needQ || global;
+    needQ = needQ || global || fbar;
     // dL/dM of a node or slice -> Q (own parameters) and alpha, gamma (global parameters)
     auto fromMbar = [&](const QBlocks& Q, const MatC& Mb, double y_um, bool homogeneous) {
       QBlocks Qb;
@@ -1217,6 +1252,110 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       else adjoint::propagationMatrix(Q, al, ga, Mb, Qb);
       if (own) fromQbar(e.layer, homogeneous, y_um, Qb);
     };
+    if (e.rk && fbar) {
+      // scattered field: the augmented system (F; 1), T_aug = [[T, f], [0, 1]]; the nodes [[M, sigma], [0, 0]]
+      const MatC Tref = ref.PsiInv * e.T * ref.Psi;
+      MatC Trefb;
+      adjoint::fromTransfer(Tref, Eb, Trefb);
+      if (global) {
+        adjoint::accumulate(refPsiInvb, MatC(Trefb * (e.T * ref.Psi).adjoint()));
+        adjoint::accumulate(refPsib, MatC((ref.PsiInv * e.T).adjoint() * Trefb));
+      }
+      const Eigen::Index n = 4 * nf;
+      auto augAt = [&](double yl) {
+        const MatC Mm = e.constant ? e.Mc : MatC(Mof(model.Q(yl / k0)));
+        const MatC MB = bloch ? buildPropagationMatrix(model.Q(yl / k0), alB, gaB) : MatC();
+        MatC A = MatC::Zero(n + 1, n + 1);
+        A.topLeftCorner(n, n) = Mm;
+        A.topRightCorner(n, 1) = sourceOf(Mm, MB, e.bgl, bgFieldAt(e.bgl, e.y0n + yl));
+        return A;
+      };
+      auto nodesAt = [&](std::size_t k) {
+        std::vector<MatC> nodes;
+        for (int s2 = 0; s2 < tab.stages(); ++s2) nodes.push_back(augAt(e.steps.y[k] + tab.c(s2) * e.steps.h[k]));
+        return nodes;
+      };
+      const std::size_t ms = e.steps.h.size();
+      std::vector<MatC> Pk(ms), Lk(ms);
+      for (std::size_t k = 0; k < ms; ++k) {
+        Pk[k] = rkStepPropagator(nodesAt(k), e.steps.h[k], tab);
+        Lk[k] = k == 0 ? Pk[k] : MatC(Pk[k] * Lk[k - 1]);
+      }
+      MatC G = MatC::Zero(n + 1, n + 1);
+      G.topLeftCorner(n, n) = ref.PsiInv.adjoint() * Trefb * ref.Psi.adjoint();
+      G.topRightCorner(n, 1) = *fbar;
+      const double tk = model.thickness_um();
+      double dLdH = 0;
+      MatC Msum = MatC::Zero(n, n);
+      const BgLayerField& L = bgf[e.bgl];
+      for (std::size_t k = ms; k-- > 0;) {
+        const MatC Pb = k == 0 ? G : MatC(G * Lk[k - 1].adjoint());
+        std::vector<MatC> nb;
+        double hb = 0;
+        adjoint::rkStep(nodesAt(k), e.steps.h[k], tab, Pb, nb, &hb);
+        dLdH += hb * e.steps.h[k];  // h_k proportional to the thickness
+        for (int s2 = 0; s2 < tab.stages(); ++s2) {
+          const double yl = e.steps.y[k] + tab.c(s2) * e.steps.h[k], y_um = yl / k0, y = e.y0n + yl;
+          const MatC& N2 = nb[static_cast<std::size_t>(s2)];
+          MatC Mb = N2.topLeftCorner(n, n);
+          const VecC sigb = N2.topRightCorner(n, 1);
+          // sigma = T(s), s = sum_q w_q (M - M_bg)_{:, q nf + c}, w = sum_k Psi_k amp_k E_k(y)
+          VecC Ek;
+          const VecC w = bgFieldAt(e.bgl, y, &Ek);
+          const QBlocks Qy = model.Q(e.constant ? 0.0 : y_um);
+          const MatC Ms = bloch ? buildPropagationMatrix(Qy, alB, gaB) : MatC(e.constant ? e.Mc : MatC(Mof(Qy)));
+          const MatC& Lm = bloch ? bgMB[e.bgl] : bgM[e.bgl];
+          MatC& Lmb = bloch ? bgMBb[e.bgl] : bgMb[e.bgl];
+          if (Lmb.size() == 0) Lmb = MatC::Zero(n, n);
+          VecC spre = VecC::Zero(n);
+          for (int q = 0; q < 4; ++q) spre += w(q) * VecC(Ms.col(q * nf + c) - Lm.col(q * nf + c));
+          if (bloch)
+            for (int q = 0; q < 4; ++q) TsrcB += sigb.segment(q * nf, nf) * spre.segment(q * nf, nf).adjoint();
+          const VecC sb = bloch ? detail::componentwise(MatC(Tsrc.adjoint()), sigb) : sigb;
+          VecC wb(4);
+          MatC MBb = bloch ? MatC(MatC::Zero(n, n)) : MatC();
+          for (int q = 0; q < 4; ++q) {
+            wb(q) = VecC(Ms.col(q * nf + c) - Lm.col(q * nf + c)).dot(sb);
+            (bloch ? MBb : Mb).col(q * nf + c) += std::conj(w(q)) * sb;
+            Lmb.col(q * nf + c) -= std::conj(w(q)) * sb;
+          }
+          if (bloch) {
+            QBlocks Qb;
+            if (global) adjoint::propagationMatrix(Qy, alB, gaB, MBb, Qb, alBb, gaBb);
+            else adjoint::propagationMatrix(Qy, alB, gaB, MBb, Qb);
+            if (own) fromQbar(e.layer, false, y_um, Qb);
+          }
+          double yb = 0;  // the node height
+          for (int k2 = 0; k2 < 4; ++k2) {
+            cplx Eb2 = 0, ab = 0;
+            for (int q = 0; q < 4; ++q) {
+              Eb2 += std::conj(L.Psi(q, k2) * L.amp(k2)) * wb(q);
+              ab += std::conj(L.Psi(q, k2) * Ek(k2)) * wb(q);
+              bgPsiB[e.bgl](q, k2) += wb(q) * std::conj(L.amp(k2) * Ek(k2));
+            }
+            bgAmpB[e.bgl](k2) += ab;
+            const double yr = k2 < 2 ? L.y1 : L.y0;
+            bgKapB[e.bgl](k2) += Eb2 * std::conj(Ek(k2) * (y - yr));
+            const double d = std::real(std::conj(Eb2) * Ek(k2) * L.lambda(k2));
+            yb += d;
+            (k2 < 2 ? bgY1B : bgY0B)[e.bgl] -= d;
+          }
+          dLdlnk0 += yb * y;
+          for (std::size_t q = 0; q < ps.size(); ++q) {
+            if (ps[q].kind != Param::Kind::Thickness) continue;
+            if (ps[q].layer < e.layer) out.grad[q] += k0 * yb;
+            else if (ps[q].layer == e.layer) out.grad[q] += yb * yl / tk;  // the steps scale with the thickness
+          }
+          if (e.constant) Msum += Mb;
+          else fromMbar(Qy, Mb, y_um, false);
+        }
+        G = Pk[k].adjoint() * G;
+      }
+      thicknessParam(e.layer, dLdH / tk);
+      dLdlnk0 += dLdH;
+      if (e.constant) fromMbar(model.Q(0.0), Msum, 0.0, false);
+      return;
+    }
     if (e.rk) {
       // S = fromTransfer(Psi^-1 T Psi), T = P_m ... P_1 (fixed step sequence, Plan "RK-Propagator")
       const MatC Tref = ref.PsiInv * e.T * ref.Psi;
@@ -1386,6 +1525,19 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
           adjoint::starSources(P[j - 1], el[j].S, Pu[j - 1], el[j].sv.size() ? el[j].sv : z, ub, vb, Ab, Bb, Aub, Avb, Bub, Bvb);
           ub = std::move(Aub);
           vb = std::move(Avb);
+          if (el[j].su.size() && el[j].rk) {  // affine sources u = g_b - S12 g_a, v = -S22 g_a, g = Psi^-1 f
+            const Elem& e = el[j];
+            const VecC g = ref.PsiInv * e.F0;
+            Bb.S12 -= Bub * g.head(nh).adjoint();
+            Bb.S22 -= Bvb * g.head(nh).adjoint();
+            VecC gb(2 * nh);
+            gb << -(e.S.S12.adjoint() * Bub) - e.S.S22.adjoint() * Bvb, Bub;
+            if (global) adjoint::accumulate(refPsiInvb, MatC(gb * e.F0.adjoint()));
+            const VecC fb = ref.PsiInv.adjoint() * gb;
+            Pbar = std::move(Ab);
+            backward(j, Bb, nullptr, nullptr, &fb);
+            continue;
+          }
           if (el[j].su.size()) {
             MatC Msrc, MBsrc;
             sourceBackward(j, Bub, Bvb, Bb, Msrc, MBsrc);

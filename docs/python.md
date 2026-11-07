@@ -95,8 +95,8 @@ v2.13 Stufe A): bei Normaleinfall die Streuflüsse `{("scattering", "up"): w, ("
 Beugungsordnungen) nach Dicken, Kanten, Formparametern, Materialien, λ, ψ, δ und Superstrat/Substrat; bei modalem
 Einfall die Leistungen der geführten Moden `{("mode", "R", j): w, ("mode", "T", j): w}` (Index wie in
 `result.modal`, die Auswahl der geführten Moden bleibt fest; auch Materialien der strukturierten Halbräume); bei
-schrägem Einfall (Streufeldformulierung, Stufe B) die Streuflüsse mit allen Parameterarten (RCWA); noch nicht: RK mit
-der Streufeldformulierung, Profilschichten mit PML, seitlicher Fluss und Absorption (Fehlermeldung). Achtung:
+schrägem Einfall (Streufeldformulierung, Stufe B) die Streuflüsse mit allen Parameterarten (RCWA und RK); noch nicht:
+Profilschichten mit PML, seitlicher Fluss und Absorption (Fehlermeldung). Achtung:
 oben und unten hängen einzeln von der Fenstergröße ab. Die Adapter `fouriergrating.torch`/`.jax` decken nur
 Effizienzen ab. Festgelegt (Plan M19 „Methode“): Scheibenzerlegung und RK-Schrittfolge; das Normalenfeld der Profile wird
 mitdifferenziert, das Rasterfeld der 2D-Querschnitte (Algorithmus NF, FFF) bei Formparametern über eine Rasterzelle

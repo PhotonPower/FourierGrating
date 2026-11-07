@@ -579,8 +579,8 @@ Basen der Halbräume über die Eigenvektor-Rückwärtsregel, Kotangenten von $A,
 Umrechnungsmatrizen \eqref{eq:ct_rayleigh}, \eqref{eq:ct_inc} nach $k_0\alpha_0$, $k_0\gamma_0$ per zentralem
 Differenzenquotienten. \verb|profile2d| (isotrop und anisotrop): Materialien und Tiefe; die Scheiben behalten ihre
 relative Höhe, es bewegt sich das analytische Normalenfeld; Verschiebungen $x_0$, $z_0$ als Translation aller Gitter
-der Scheibe. Nicht umgesetzt: Rückwärtsfunktionen auf dem GPU-Backend, aperiodische Strukturen (Spezifikation in
-Abschnitt~\ref{sec:adj_aperiodic}). Anisotrope
+der Scheibe. Aperiodische Strukturen: Abschnitt~\ref{sec:adj_aperiodic}. Nicht umgesetzt: Rückwärtsfunktionen auf
+dem GPU-Backend. Anisotrope
 2D-Querschnitte mit FFF\_B (v2.12): Rückwärtsregel \eqref{eq:QaniB} bis zu den Gittern, Materialparameter als
 Richtungsableitung der Gitter, Formparameter über die Faltung mit den glatten Faktoren plus Rasteranteil.
 
@@ -630,6 +630,19 @@ vorhandene Rückwärtsregel des RK-Schritts gilt unverändert. Der Gradient folg
 den Gauß-Knoten der Seiten, also die Rückwärtsregel der Feldrekonstruktion (Nahfeld). Bis dahin: Fehlermeldung.
 
 \textbf{Nicht differenzierbar:} PML-Breite, $\beta$ und Fenster (numerische Hilfsgrößen; Fehlermeldung).
+
+\paragraph{Umsetzung (v2.13).} Stufen A und B in \verb|src/solvers/gradient.cpp|: der Treiber nimmt eine Zielfunktion
+auf den Amplituden (oben $b$, unten $t$ in $X$) mit ihren Kotangenten, auch durch die Halbraumbasen, ihre Eigenwerte
+und die Einfallsamplituden. Normaleinfall: drei Durchläufe (Hintergrundstapel vorwärts, Stapel, Hintergrundstapel mit
+$-\bar b,-\bar t$). Modaler Einfall: die Basen der strukturierten Halbräume rückwärts bis zu ihren Schichtmodellen.
+Streufeldformulierung: $u,v$ der Kette; Rückwärtsregel des Sternprodukts mit Quellvektoren
+(\verb|adjoint::starSources|), der partikulären Lösungen ($\bar M\mathrel{+}=\bar r\,p^H$, $\bar\kappa=-p^H\bar r$
+mit $\bar r=(\kappa-M)^{-H}\bar p$) und der Quelle nach $M$, $M$ in der Blochbasis und $M_{\text{bg}}$; die
+Hintergrunddaten (Amplituden, Exponenten, Modenvektoren, Schichtgrenzen), $T_{mn}$ und $I_0$ bekommen analytische
+Kotangenten und werden nach Dicken, Hintergrundmaterialien, $\lambda$ und Winkeln per zentralem Differenzenquotienten
+der $N=0$-Rechnung abgeleitet. RK: erweitertes System mit $\sigma(y)$ in der letzten Spalte. Der Löser teilt die
+RK-Scheiben zusätzlich an den Knoten der seitlichen Flussquadratur; der Wert stimmt dann auf die RK-Toleranz. Nicht
+umgesetzt: Profilschichten mit PML (Hintergrund geteilt bei der Profilhöhe), Stufe C.
 
 \subsection{Tests und Abnahme (M19)}
 \begin{itemize}[nosep]
