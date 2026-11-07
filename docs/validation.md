@@ -204,6 +204,11 @@ Abweichung Adjungierte gegen Differenzenquotient der Vorwärtsrechnung (h = 1e-6
 | Phase 2: anisotropes Sinusprofil (FFF_A, FFF_B) | Tiefe, Verschiebung, Euler-Winkel, Hauptwert | ≤ 3e-7 (Verschiebung ≈ 0: Translation) |
 | Phase 2: anisotrope 2D-Säule (Laurent) | Radius, Tensoreintrag | 4e-11 / 4e-8 |
 | Phase 2: RK (Lamellen) | λ, φ, n Superstrat/Substrat | ≤ 1,7e-6 (der Quotient sieht andere adaptive Schritte) |
+| Phase 2: ASR (η = 0,5) konische Lamellen (Li, Laurent) | Dicken, Kanten (auf und neben den Fixpunkten), n (Re, Im), ε | ≤ 4e-7; Wirkungsgrade = Löser 1e-12 |
+| Phase 2: ASR Sinusprofil (Laurent, FFF_rig), anisotrop (FFF_A, FFF_B) | Tiefe, Verschiebung, n, Euler-Winkel | ≤ 1,2e-7, Euler-Winkel 6e-7 (Gradient 3e-5) |
+| Phase 2: ASR anisotrope Lamellen (Laurent, FFF_A, FFF_B) | Tensoreintrag, Kanten, Dicke | ≤ 7e-9 |
+| Phase 2: ASR in x und z, 2D-Säulen (Laurent) | Radius, Mittelpunkt, Ecken, n, Dicke, Tensoreintrag | ≤ 3,4e-7 (abgebildete Kontur per Differenzenquotient, adaptive Quadratur) |
+| Phase 2: ASR mit RK (Lamellen) | Dicke, Kante, n | ≤ 8e-6 relativ (3,7e-8 absolut; adaptive Schritte) |
 
 Aufwand (2D, N = 3, Laurent, 5 Parameter): Gradient = 1,3 × Vorwärtsrechnung (gemessen 1,3–2,3); die Kosten
 hängen nicht von der Zahl der Parameter ab (Formableitungen kosten nur die Konturquadratur). Beispiele:
@@ -216,5 +221,10 @@ den Dicken; Einfallsvektor und Effizienznormierung (wenige Skalare, O(n_f)) per 
 Differenzenquotienten. Anisotrope Scheiben: Rückwärtsregel der Faktorisierung (Laurent, FFF_A, FFF_B) bis zu den
 Gittern der Koeffizientenfunktionen; deren Ableitung nach den Regionstensoren per zentralem Differenzenquotienten der
 1D-Koeffizienten (holomorph, ohne O(n³)), Kanten analytisch, Profilverschiebung als Translation, Profiltiefe über das
-mitbewegte Normalenfeld. Offen: Rückwärtsfunktionen über das GPU-Backend, anisotrope 2D-Querschnitte mit FFF_B
-(Rasterfeld), `profile2d` mit anisotropen Medien.
+mitbewegte Normalenfeld. Koordinatentransformationen (ASR): M mit A, G (Rückwärtsregel mit festen A, G),
+numerische Basen der Halbräume und Einfall in X fest; die Wirkungsgrade aus den physikalischen Rayleigh-Amplituden
+(lineare Abbildung, Kotangente durch ihre Adjungierte); Kanten und Profilkreuzungen in X mit dX/dx = 1/f'(X);
+2D-Konturen über die abgebildeten Koeffizienten. Mit `"auto"`-Fixpunkten hängt die Abbildung von den Kanten und
+Polygonecken ab: dafür Fehlermeldung (Fixpunkte explizit angeben); λ, Winkel und Superstrat/Substrat mit
+Transformation ebenso. Offen: Rückwärtsfunktionen über das GPU-Backend, anisotrope 2D-Querschnitte mit FFF_B
+(Rasterfeld), `profile2d` mit anisotropen Medien, aperiodische Strukturen (PML).

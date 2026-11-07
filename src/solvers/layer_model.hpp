@@ -9,10 +9,14 @@
 #include <vector>
 
 #include "fg/core/index_map.hpp"
+#include "fg/geometry/aperiodic.hpp"
+#include "fg/geometry/coordinate_transform.hpp"
 #include "fg/geometry/normal_field.hpp"
 #include "fg/geometry/stack.hpp"
 #include "fg/linalg/backend.hpp"
+#include "fg/physics/modes.hpp"
 #include "fg/physics/qmatrix.hpp"
+#include "fg/solvers/rcwa.hpp"
 #include "fg/adjoint/gradient.hpp"
 #include "fg/io/config.hpp"
 #include "fg/solvers/solver.hpp"
@@ -42,6 +46,8 @@ struct AdjointSlice {
   std::function<void(std::size_t, double, cplx*)> evalAt;
   /// profiles: grids for the depth a + delta at the same crossings (only the normal field moves)
   std::function<std::vector<fourier::CoefficientGrid>(double)> gridsDepth;
+  /// profiles in transformed coordinates: grids for the shift x0 + delta (no translation symmetry in X)
+  std::function<std::vector<fourier::CoefficientGrid>(double)> gridsShift;
 };
 
 class LayerModel {
@@ -99,5 +105,22 @@ GradientResult gradientWithModels(const std::string& configJson, const io::RunCo
                                   const std::vector<std::string>& params);
 /// Identical to makeSolver(opt)->solve(stack, wl) with the models of buildLayerModels.
 Result solveWithModels(const SolverOptions& opt, const Stack& stack, const Wavelength& wl, const LayerModels& models);
+
+/// Transformed coordinates (Plan section "M17", eq:ct_deriv): A = [[1/f']] alpha, G = [[1/g']] gamma (PML zones:
+/// Plan eq:pml) and the conversions of eq:ct_rayleigh (toPhys) and eq:ct_inc (fromPhys) per field component.
+struct TransformedCoordinates {
+  MatC A, G, toPhys, fromPhys;
+};
+TransformedCoordinates transformedCoordinates(const IndexMap& map, const ResolvedTransform& tr, const PmlMap* pmlX,
+                                              const PmlMap* pmlZ, const VecC& alpha, const VecC& gamma, double kx0,
+                                              double kz0);
+/// Applies an n_f x n_f matrix to each of the four field components of F.
+VecC componentwise(const MatC& T, const VecC& F);
+/// Separable n_f x n_f matrix T(r, r') = Tx(n, n') Tz(m, m') (identity blocks for null factors).
+MatC separable(const IndexMap& map, const MatC* Tx, const MatC* Tz);
+/// Modes of a homogeneous isotropic medium in transformed coordinates (TE/TM pairs exactly degenerate).
+LayerModes homogeneousModes(const MatC& M);
+/// Mode basis of a homogeneous half space from the eigen-decomposition of M (transformed coordinates).
+ModeBasis numericBasis(const MatC& M);
 
 }  // namespace fg::detail

@@ -446,3 +446,101 @@ TEST(M19_Gradient, Anisotropic) {
         {"/layers/0/regions/0/circle/radius_um", "/layers/0/regions/0/circle/center_um/0", "/materials/pillar/eps_tensor/0/2/0"},
         1e-6, "pillar aniso");
 }
+
+// Phase 2: coordinate transformations (ASR, Plan section "M17"): M with A, G, numerical half-space bases in X,
+// efficiencies from the physical Rayleigh amplitudes; lamellae, profiles (also anisotropic), 2D pillars, RK.
+TEST(M19_Gradient, CoordinateTransform) {
+  const auto obj = objective({{'R', -1, 0, 1.0}, {'T', 0, 0, 0.5}, {'R', 0, 0, -0.3}});
+  json lam = lamellar1D("li_lamellar");
+  lam["coordinate_transform"] = {{"x", {{"type", "asr"}, {"eta", 0.5}, {"breakpoints_um", {0.3, 0.75}}}}};
+  {
+    const auto c = fg::io::parseConfig(lam.dump());
+    const auto r = fg::makeSolver(c.solver)->solve(c.stack, c.scan.front());
+    const auto g = fg::gradient(lam.dump(), obj, {});
+    ASSERT_EQ(r.reflected.size(), g.result.reflected.size());
+    for (std::size_t k = 0; k < r.reflected.size(); ++k)
+      EXPECT_NEAR(r.reflected[k].efficiency, g.result.reflected[k].efficiency, 1e-12);
+    for (std::size_t k = 0; k < r.transmitted.size(); ++k)
+      EXPECT_NEAR(r.transmitted[k].efficiency, g.result.transmitted[k].efficiency, 1e-12);
+  }
+  for (const char* fac : {"li_lamellar", "laurent"}) {
+    lam["layers"][1]["factorization"] = fac;
+    check(lam, obj,
+          {"/layers/1/thickness_um", "/layers/0/thickness_um", "/layers/1/breakpoints_um/1", "/layers/1/breakpoints_um/2",
+           "/materials/bar/n/0", "/materials/bar/n/1", "/materials/film/eps"},
+          1e-6, fac);
+  }
+  // map breakpoints away from the jumps
+  lam["coordinate_transform"]["x"]["breakpoints_um"] = {0.1, 0.6};
+  check(lam, obj, {"/layers/1/breakpoints_um/1", "/layers/1/breakpoints_um/2", "/materials/bar/n/0"}, 1e-6, "asr off-jump");
+  // "auto": the map follows the jumps, only material and thickness parameters
+  lam["coordinate_transform"]["x"]["breakpoints_um"] = "auto";
+  check(lam, obj, {"/layers/1/thickness_um", "/materials/bar/n/1"}, 1e-6, "asr auto");
+  EXPECT_THROW(fg::gradient(lam.dump(), obj, {"/layers/1/breakpoints_um/1"}), fg::Error);
+  EXPECT_THROW(fg::gradient(lam.dump(), obj, {"/incidence/lambda_um"}), fg::Error);
+  // RK
+  json rk = lam;
+  rk["coordinate_transform"]["x"]["breakpoints_um"] = {0.3, 0.75};
+  rk["solver"] = "rk";
+  rk["rk"] = {{"tol", 1e-10}};
+  rk["truncation"] = {{"Nx", 6}};
+  check(rk, obj, {"/layers/1/thickness_um", "/layers/1/breakpoints_um/1", "/materials/bar/n/1"}, 1e-6, "asr rk");
+  // sinus profile (Laurent exact, FFF_rig with the normal field at f(X))
+  json prof{{"dimension", "1D"},
+            {"truncation", {{"Nx", 8}}},
+            {"period_um", {{"x", 1.0}}},
+            {"incidence", {{"lambda_um", 0.6328}, {"phi_deg", 20}, {"psi_deg", 10}, {"delta_deg", 45}}},
+            {"rcwa", {{"slices", 8}}},
+            {"coordinate_transform", {{"x", {{"type", "asr"}, {"eta", 0.4}, {"breakpoints_um", {0.2, 0.7}}}}}},
+            {"materials", {{"air", {{"n", 1.0}}}, {"glass", {{"n", 1.5}}}, {"bar", {{"n", {1.8, 0.02}}}}}},
+            {"superstrate", "air"},
+            {"substrate", "glass"},
+            {"layers", json::array({json{{"type", "profile1d"},
+                                         {"shape", "sinus"},
+                                         {"depth_um", 0.25},
+                                         {"x0_um", 0.1},
+                                         {"below", "bar"},
+                                         {"above", "air"},
+                                         {"factorization", "laurent"}}})}};
+  const auto pobj = objective({{'R', -1, 0, 1.0}, {'T', 1, 0, 0.3}});
+  check(prof, pobj, {"/layers/0/depth_um", "/layers/0/x0_um", "/materials/bar/n/0"}, 1e-6, "asr sinus laurent");
+  prof["layers"][0]["factorization"] = "FFF_rig";
+  check(prof, pobj, {"/layers/0/depth_um", "/layers/0/x0_um", "/materials/bar/n/0"}, 1e-5, "asr sinus FFF_rig");
+  // anisotropic lamella and profile
+  const json co = {{"eps_tensor",
+                    {{{2.6, 0.05}, {0.0, 0.0}, {0.3, -0.02}}, {{0.0, 0.0}, {2.4, 0.04}, {0.0, 0.0}}, {{-0.3, 0.02}, {0.0, 0.0}, {2.9, 0.06}}}}};
+  const json lnb = {{"eps_principal", {4.98, 4.98, 4.6}}, {"euler_deg", {20, 70, 10}}};
+  json alam = lamellar1D("FFF_A");
+  alam["truncation"] = {{"Nx", 8}};
+  alam["materials"]["co"] = co;
+  alam["layers"][1]["materials"] = {"bar", "co", "air"};
+  alam["coordinate_transform"] = {{"x", {{"type", "asr"}, {"eta", 0.5}, {"breakpoints_um", {0.3, 0.75}}}}};
+  for (const char* fac : {"laurent", "FFF_A", "FFF_B"}) {
+    alam["layers"][1]["factorization"] = fac;
+    check(alam, obj,
+          {"/materials/co/eps_tensor/0/2/0", "/layers/1/breakpoints_um/1", "/layers/1/breakpoints_um/2",
+           "/layers/1/thickness_um"},
+          1e-6, (std::string("asr aniso ") + fac).c_str());
+  }
+  prof["materials"]["lnb"] = lnb;
+  prof["layers"][0]["below"] = "lnb";
+  for (const char* fac : {"FFF_A", "FFF_B"}) {
+    prof["layers"][0]["factorization"] = fac;
+    check(prof, pobj, {"/layers/0/depth_um", "/layers/0/x0_um", "/materials/lnb/euler_deg/0"}, 1e-6,
+          (std::string("asr aniso sinus ") + fac).c_str());
+  }
+  // 2D pillars, both axes transformed
+  const json ct2 = {{"x", {{"type", "asr"}, {"eta", 0.4}, {"breakpoints_um", {0.11, 0.39}}}},
+                    {"z", {{"type", "asr"}, {"eta", 0.3}, {"breakpoints_um", {0.13, 0.41}}}}};
+  const auto obj2 = objective({{'R', 0, 0, 1.0}, {'T', -1, 0, 0.7}, {'T', 0, -1, 0.4}});
+  json circ = pillars2D("laurent", true);
+  circ["coordinate_transform"] = ct2;
+  check(circ, obj2, {"/layers/0/regions/0/circle/radius_um", "/layers/0/regions/0/circle/center_um/0", "/materials/pillar/n"},
+        1e-6, "asr circle");
+  json poly = pillars2D("laurent", false);
+  poly["coordinate_transform"] = ct2;
+  check(poly, obj2, {"/layers/0/inclusions/0/vertices_um/1/0", "/layers/0/inclusions/0/vertices_um/2/1", "/layers/0/thickness_um"},
+        1e-6, "asr polygon");
+  circ["materials"]["pillar"] = co;
+  check(circ, obj2, {"/layers/0/regions/0/circle/radius_um", "/materials/pillar/eps_tensor/0/2/0"}, 1e-6, "asr circle aniso");
+}

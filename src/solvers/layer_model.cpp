@@ -212,7 +212,7 @@ class LamellarModel final : public LayerModel {
  public:
   LamellarModel(const Stack& st, const Lamellar1DLayer& l, Factorization fac, const IndexMap& map,
                 const ResolvedTransform& tr)
-      : l_(l), dx_(st.dx_um), nn_(constantNN(Vec3D(1, 0, 0), map)), map_(map), fac_(fac), transformed_(tr.x != nullptr) {
+      : l_(l), dx_(st.dx_um), nn_(constantNN(Vec3D(1, 0, 0), map)), map_(map), fac_(fac), xm_(tr.x) {
     FG_REQUIRE(l.breakpoints_um.size() == l.materials.size() + 1, "lamellar: breakpoints/materials");
     bool iso = true;
     for (const auto& name : l.materials) {
@@ -249,16 +249,25 @@ class LamellarModel final : public LayerModel {
   double thickness_um() const override { return l_.thickness_um; }
   QBlocks Q(double) const override { return Q_; }
   bool adjointSlice(double, AdjointSlice& a) const override {
-    if (transformed_) return false;
+    // transformed coordinates: the intervals in X (Plan section "M17")
+    std::vector<double> br = l_.breakpoints_um;
+    std::vector<std::size_t> idx(l_.materials.size());
+    for (std::size_t k = 0; k < idx.size(); ++k) idx[k] = k;
+    mapIntervals(xm_.get(), br, idx);
+    std::vector<Mat3C> tens;
+    std::vector<cplx> ev;
+    for (std::size_t k : idx) {
+      a.materials.push_back(l_.materials[k]);
+      tens.push_back(tensors_[k]);
+      ev.push_back(epsList[k]);
+    }
     if (!iso_) {
-      anisoAdjointSlice(l_.breakpoints_um, tensors_, [](double) { return Vec3D(1, 0, 0); }, anisoFac_, dx_, map_, a);
-      a.materials = l_.materials;
+      anisoAdjointSlice(br, tens, [](double) { return Vec3D(1, 0, 0); }, anisoFac_, dx_, map_, a);
       return true;
     }
     a.fac = fac_ == Factorization::Laurent ? Factorization::Laurent : Factorization::LiLamellar;
-    isoGrids(l_.breakpoints_um, epsList, dx_, map_, a.sc);
-    a.breaks = l_.breakpoints_um;
-    a.materials = l_.materials;
+    isoGrids(br, ev, dx_, map_, a.sc);
+    a.breaks = br;
     a.chi = intervalIndicators(a.breaks, dx_, map_);
     return true;
   }
@@ -279,7 +288,8 @@ class LamellarModel final : public LayerModel {
   NormalFieldCoefficients nn_;
   IndexMap map_;
   Factorization fac_, anisoFac_ = Factorization::FFF_A;
-  bool transformed_ = false, iso_ = false;
+  std::shared_ptr<const CoordinateMap> xm_;
+  bool iso_ = false;
 };
 
 // ------------------------------------------------------------------ profile y = g(x) (1D)
@@ -339,12 +349,12 @@ class ProfileModel final : public LayerModel {
   }
   Mat3C epsAt(double x, double y, double) const override { return profileValue(p_, x, dx_) > y ? tb_ : ta_; }
   bool adjointSlice(double y, AdjointSlice& a) const override {
-    if (xm_) return false;
-    const double d = p_.depth_um;
+    const double d = p_.depth_um, yc = std::clamp(y, 1e-14 * d, d * (1 - 1e-14));
     if (aniso_) {
       std::vector<double> br;
       std::vector<bool> below;
-      profileIntervals(p_, std::clamp(y, 1e-14 * d, d * (1 - 1e-14)), dx_, br, below);
+      profileIntervals(p_, yc, dx_, br, below);
+      mapIntervals(xm_.get(), br, below);  // zeros of g(f(X)) - y (Plan section "M17")
       std::vector<Mat3C> tens;
       for (bool b : below) {
         tens.push_back(b ? tb_ : ta_);
@@ -352,9 +362,11 @@ class ProfileModel final : public LayerModel {
       }
       const Profile1DLayer p = p_;
       const double dx = dx_;
-      auto normalOf = [dx](const Profile1DLayer& q) {
-        return [q, dx](double x) -> Vec3D {
-          const double sl = profileSlope(q, x, dx);
+      const std::shared_ptr<const CoordinateMap> xm = xm_;
+      // physical normals at x = f(X)
+      auto normalOf = [dx, xm](const Profile1DLayer& q) {
+        return [q, dx, xm](double X) -> Vec3D {
+          const double sl = profileSlope(q, xm ? xm->f(X) : X, dx);
           return Vec3D(-sl, 1.0, 0.0) / std::sqrt(1.0 + sl * sl);
         };
       };
@@ -366,10 +378,25 @@ class ProfileModel final : public LayerModel {
         q.depth_um += delta;
         return anisoGridsOf(br, tens, normalOf(q), f, dx, map);
       };
+      if (xm_) {
+        const Mat3C tb = tb_, ta = ta_;
+        a.gridsShift = [yc, tb, ta, p, dx, f, map, xm, normalOf](double delta) {
+          Profile1DLayer q = p;
+          q.x0_um += delta;
+          std::vector<double> b;
+          std::vector<bool> lo;
+          profileIntervals(q, yc, dx, b, lo);
+          mapIntervals(xm.get(), b, lo);
+          std::vector<Mat3C> t;
+          for (bool l : lo) t.push_back(l ? tb : ta);
+          return anisoGridsOf(b, t, normalOf(q), f, dx, map);
+        };
+      }
       return true;
     }
     std::vector<bool> below;
-    profileIntervals(p_, std::clamp(y, 1e-14 * d, d * (1 - 1e-14)), dx_, a.breaks, below);
+    profileIntervals(p_, yc, dx_, a.breaks, below);
+    mapIntervals(xm_.get(), a.breaks, below);
     std::vector<cplx> ve;
     for (bool b : below) {
       ve.push_back(b ? epsB_ : epsA_);
@@ -684,7 +711,7 @@ class CrossSectionModel final : public LayerModel {
   QBlocks Q(double) const override { return Q_; }
   bool adjointSlice(double, AdjointSlice& a) const override {
     const bool anisoLaurent = !iso_ && fac_ == Factorization::Laurent;
-    if ((!iso_ && !anisoLaurent) || xm_ || zm_) return false;  // anisotropic FFF_B: raster normal field (open)
+    if (!iso_ && !anisoLaurent) return false;  // anisotropic FFF_B: raster normal field (open)
     const int Px = 2 * map_.Nx(), Pz = 2 * map_.Nz();
     a.fac = fac_;
     a.sc = sc_;

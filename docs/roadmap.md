@@ -168,6 +168,7 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
     2e-9; Aufwand 1,3–2,3× Vorwärtsrechnung; Beispiele `optimize_littrow.py`, `optimize_nurbs_pillar.py`; Plan v2.11
   - Phase 2 umgesetzt: Wellenlänge, Winkel φ, ψ, δ, Brechzahl/Permittivität von Superstrat und Substrat (≤ 2e-7, RK 2e-6);
     `checkpoint_every` (bitgleich); anisotrope Materialien (Tensor, Hauptwerte, Euler-Winkel) mit Laurent/FFF_A/FFF_B in
-    Lamellen und Profilen, Laurent in 2D-Querschnitten (≤ 3e-7)
+    Lamellen und Profilen, Laurent in 2D-Querschnitten (≤ 3e-7); Koordinatentransformationen (ASR) mit Material-,
+    Dicken- und Geometrieparametern (≤ 4e-7, RK 8e-6; Fixpunkte explizit für Geometrieparameter)
   - Offen (Phase 2): GPU-Rückwärtsfunktionen, anisotrope 2D-Querschnitte mit FFF_B, `profile2d` anisotrop,
-    Koordinatentransformationen/aperiodisch
+    aperiodische Strukturen (PML), λ/Winkel/Halbräume mit Transformation

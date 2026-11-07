@@ -564,9 +564,15 @@ Differenzenquotienten abgeleitet. \verb|checkpoint_every|: gespeichert werden nu
 Scheibendaten werden rückwärts je Abschnitt neu gerechnet (Gradient bitgleich). Anisotrope Materialien: Rückwärtsregel
 von \eqref{eq:QaniA}, \eqref{eq:QaniB} und Laurent bis zu den Gittern der Koeffizientenfunktionen; deren Ableitung nach
 den Regionstensoren per zentralem Differenzenquotienten der Koeffizienten (holomorph, $O(n_f)$), Kanten analytisch,
-Profiltiefe über das mitbewegte Normalenfeld; Lamellen, Profile und 2D-Querschnitte mit Laurent. Nicht umgesetzt:
-Rückwärtsfunktionen auf dem GPU-Backend, anisotrope 2D-Querschnitte mit FFF\_B (Rasterfeld von Algorithmus~NF),
-\verb|profile2d| mit anisotropen Medien, Koordinatentransformationen und aperiodische Strukturen.
+Profiltiefe über das mitbewegte Normalenfeld; Lamellen, Profile und 2D-Querschnitte mit Laurent.
+Koordinatentransformationen (Abschnitt M17): $M$ mit $A,G$, numerische Basen der Halbräume und Einfall
+\eqref{eq:ct_inc} hängen nicht von Material-, Dicken- und Geometrieparametern ab; die Wirkungsgrade folgen aus den
+physikalischen Amplituden \eqref{eq:ct_rayleigh}, einer linearen Abbildung der Amplituden in $X$. Kanten und
+Profilkreuzungen bewegen sich in $X$ mit $\mathrm{d}X/\mathrm{d}x=1/f'(X)$, 2D-Konturen über ihre abgebildeten
+Koeffizienten. Voraussetzung: die Fixpunkte der Abbildung hängen nicht vom Parameter ab (bei \verb|"auto"| folgen
+sie Kanten und Polygonecken; dann Fehlermeldung). Nicht umgesetzt: Rückwärtsfunktionen auf dem GPU-Backend,
+anisotrope 2D-Querschnitte mit FFF\_B (Rasterfeld von Algorithmus~NF), \verb|profile2d| mit anisotropen Medien,
+$\lambda$, Winkel und Halbräume mit Transformation (numerische Basen), aperiodische Strukturen.
 
 \subsection{Tests und Abnahme (M19)}
 \begin{itemize}[nosep]
@@ -574,7 +580,8 @@ Rückwärtsfunktionen auf dem GPU-Backend, anisotrope 2D-Querschnitte mit FFF\_B
         $\le7\cdot10^{-7}$ (Laurent/Li $\le10^{-7}$), Entartung $10^{-9}$, RK $=$ RCWA $2\cdot10^{-9}$, Aufwand
         $1{,}3$--$2{,}3\times$; Messwerte in \verb|docs/validation.md|. Phase~2 (v2.12): $\lambda,\Phi,\Psi,\delta$ und
         Superstrat/Substrat gegen Differenzenquotienten $\le2\cdot10^{-7}$ (RK $2\cdot10^{-6}$, adaptive Schritte);
-        anisotrope Lamellen, Profile (Laurent, FFF\_A, FFF\_B) und 2D-Säulen (Laurent) $\le3\cdot10^{-7}$.
+        anisotrope Lamellen, Profile (Laurent, FFF\_A, FFF\_B) und 2D-Säulen (Laurent) $\le3\cdot10^{-7}$;
+        mit ASR-Transformation (Lamellen, Profile, 2D-Säulen in $x$ und $z$) $\le4\cdot10^{-7}$, RK $8\cdot10^{-6}$.
   \item Jede Rückwärtsfunktion: zentraler Differenzenquotient mit Zufallsmatrizen ($h=10^{-7}$, Real- und Imaginärteil),
         relative Übereinstimmung $10^{-6}$.
   \item Ende-zu-Ende je Parameterart auf V3, V9, V13, V15, V18: Adjungierte gegen Differenzenquotient mit eingefrorenem

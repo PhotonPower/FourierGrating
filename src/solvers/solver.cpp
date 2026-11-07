@@ -30,54 +30,7 @@
 
 namespace fg {
 
-namespace {
-
-using detail::LayerModel;
-
-/// Normalized problem data for one wavelength.
-struct Setup {
-  IndexMap map{0, 0};
-  double k0 = 0;
-  VecC alpha, gamma;
-  IncidentWave inc;
-  cplx epsSup = 1.0;
-  ModeBasis ref;  // reference medium = superstrate
-  const Material* sub = nullptr;
-  ModeBasis subModes;
-  // coordinate transformation (Plan section "M17"): A = [[1/f']] alpha, G = [[1/g']] gamma; ref and
-  // subModes are then numerical bases in X, refPhys/subPhys the analytic bases of the physical orders
-  ResolvedTransform tr;
-  bool transformed = false;
-  MatC A, G;
-  MatC toPhys, fromPhys;  ///< n_f x n_f per field component: eq:ct_rayleigh, eq:ct_inc (separable)
-  ModeBasis refPhys, subPhys;
-  // aperiodic structure (Plan section "M18"): PML zones enter only through [[1/f']] (f(X) = X wherever
-  // the structure is); the transformed path above with these coefficients
-  bool aperiodic = false;
-  std::shared_ptr<const PmlMap> pmlX, pmlZ;
-  // structured half spaces (Plan "Einfall (b)"): numerical bases from their cross-sections
-  std::optional<QBlocks> supQ, subQ;
-  // scattered-field formulation (Plan section "Streufeldformulierung"): the background stack at the
-  // incidence order only (Airy), per background layer as four exponential modes (normalized y)
-  bool scattered = false;
-  struct BgLayer {
-    double y0 = 0, y1 = 0;
-    MatC Psi;          ///< 4 x 4 single-order modes (down x, down z | up x, up z)
-    VecC lambda, amp;  ///< amplitudes: down referenced at y1, up at y0
-    MatC M, MB;        ///< propagation matrix of the background material (computation / Bloch basis)
-    QBlocks Q, Q1;     ///< background permittivity (n_f orders / the incidence order)
-  };
-  std::vector<BgLayer> bg;
-  VecC bgTop, bgSub;        ///< single order: up amplitudes at the top (superstrate), down at y = 0 (substrate)
-  double incIntensity = 0;  ///< |S_y| of the incident plane wave
-  /// Oblique incidence on a PML axis: the scattered field has no Bloch phase there; the sources are
-  /// formed in the Bloch basis (alphaB, gammaB) and re-expanded over the physical region (Tsrc).
-  bool blochSource = false;
-  VecC alphaB, gammaB;
-  MatC Tsrc;
-  const ModeBasis& physRef() const { return transformed ? refPhys : ref; }
-  const ModeBasis& physSub() const { return transformed ? subPhys : subModes; }
-};
+namespace detail {
 
 /// Applies an n_f x n_f matrix to each of the four field components of F.
 VecC componentwise(const MatC& T, const VecC& F) {
@@ -171,6 +124,95 @@ MatC separable(const IndexMap& map, const MatC* Tx, const MatC* Tz) {
     }
   return T;
 }
+
+TransformedCoordinates transformedCoordinates(const IndexMap& map, const ResolvedTransform& tr, const PmlMap* pmlX,
+                                              const PmlMap* pmlZ, const VecC& alpha, const VecC& gamma, double kx0,
+                                              double kz0) {
+  const int nf = map.size(), Nx = map.Nx(), Nz = map.Nz();
+  std::vector<cplx> cx, cz;
+  if (tr.x) cx = tr.x->inverseDerivativeCoefficients(2 * Nx);
+  if (tr.z) cz = tr.z->inverseDerivativeCoefficients(2 * Nz);
+  if (pmlX) cx = pmlX->inverseDerivativeCoefficients(2 * Nx);  // Plan eq:pml
+  if (pmlZ) cz = pmlZ->inverseDerivativeCoefficients(2 * Nz);
+  TransformedCoordinates t;
+  t.A = MatC::Zero(nf, nf);
+  t.G = MatC::Zero(nf, nf);
+  for (int r = 0; r < nf; ++r)
+    for (int c = 0; c < nf; ++c) {
+      const auto [n, m] = map.orders(r);
+      const auto [n2, m2] = map.orders(c);
+      // [[1/f']] is Toeplitz in n and the identity in m (and vice versa)
+      if (m == m2) t.A(r, c) = (!cx.empty() ? cx[static_cast<std::size_t>(n - n2 + 2 * Nx)] : cplx(n == n2 ? 1.0 : 0.0)) * alpha(c);
+      if (n == n2) t.G(r, c) = (!cz.empty() ? cz[static_cast<std::size_t>(m - m2 + 2 * Nz)] : cplx(m == m2 ? 1.0 : 0.0)) * gamma(c);
+    }
+  MatC Cx, Cz, Dx, Dz;
+  if (tr.x) {
+    Cx = tr.x->toPhysical(kx0, Nx);
+    Dx = tr.x->fromPhysical(kx0, Nx);
+  }
+  if (tr.z) {
+    Cz = tr.z->toPhysical(kz0, Nz);
+    Dz = tr.z->fromPhysical(kz0, Nz);
+  }
+  t.toPhys = separable(map, tr.x ? &Cx : nullptr, tr.z ? &Cz : nullptr);
+  t.fromPhys = separable(map, tr.x ? &Dx : nullptr, tr.z ? &Dz : nullptr);
+  return t;
+}
+
+}  // namespace detail
+
+namespace {
+
+using detail::componentwise;
+using detail::homogeneousModes;
+using detail::LayerModel;
+using detail::numericBasis;
+using detail::separable;
+
+/// Normalized problem data for one wavelength.
+struct Setup {
+  IndexMap map{0, 0};
+  double k0 = 0;
+  VecC alpha, gamma;
+  IncidentWave inc;
+  cplx epsSup = 1.0;
+  ModeBasis ref;  // reference medium = superstrate
+  const Material* sub = nullptr;
+  ModeBasis subModes;
+  // coordinate transformation (Plan section "M17"): A = [[1/f']] alpha, G = [[1/g']] gamma; ref and
+  // subModes are then numerical bases in X, refPhys/subPhys the analytic bases of the physical orders
+  ResolvedTransform tr;
+  bool transformed = false;
+  MatC A, G;
+  MatC toPhys, fromPhys;  ///< n_f x n_f per field component: eq:ct_rayleigh, eq:ct_inc (separable)
+  ModeBasis refPhys, subPhys;
+  // aperiodic structure (Plan section "M18"): PML zones enter only through [[1/f']] (f(X) = X wherever
+  // the structure is); the transformed path above with these coefficients
+  bool aperiodic = false;
+  std::shared_ptr<const PmlMap> pmlX, pmlZ;
+  // structured half spaces (Plan "Einfall (b)"): numerical bases from their cross-sections
+  std::optional<QBlocks> supQ, subQ;
+  // scattered-field formulation (Plan section "Streufeldformulierung"): the background stack at the
+  // incidence order only (Airy), per background layer as four exponential modes (normalized y)
+  bool scattered = false;
+  struct BgLayer {
+    double y0 = 0, y1 = 0;
+    MatC Psi;          ///< 4 x 4 single-order modes (down x, down z | up x, up z)
+    VecC lambda, amp;  ///< amplitudes: down referenced at y1, up at y0
+    MatC M, MB;        ///< propagation matrix of the background material (computation / Bloch basis)
+    QBlocks Q, Q1;     ///< background permittivity (n_f orders / the incidence order)
+  };
+  std::vector<BgLayer> bg;
+  VecC bgTop, bgSub;        ///< single order: up amplitudes at the top (superstrate), down at y = 0 (substrate)
+  double incIntensity = 0;  ///< |S_y| of the incident plane wave
+  /// Oblique incidence on a PML axis: the scattered field has no Bloch phase there; the sources are
+  /// formed in the Bloch basis (alphaB, gammaB) and re-expanded over the physical region (Tsrc).
+  bool blochSource = false;
+  VecC alphaB, gammaB;
+  MatC Tsrc;
+  const ModeBasis& physRef() const { return transformed ? refPhys : ref; }
+  const ModeBasis& physSub() const { return transformed ? subPhys : subModes; }
+};
 
 /// Field system of an assembly: the full 4 n_f problem, or one polarization of the decoupled 1D
 /// in-plane problem (2 n_f, Plan eq:TE / eq:TM).
@@ -705,33 +747,13 @@ class StackSolver final : public Solver {
   static void transform(Setup& s) {
     FG_PROF_SCOPE("solve.transform");
     s.transformed = true;
-    const int nf = s.map.size(), Nx = s.map.Nx(), Nz = s.map.Nz();
-    std::vector<cplx> cx, cz;
-    if (s.tr.x) cx = s.tr.x->inverseDerivativeCoefficients(2 * Nx);
-    if (s.tr.z) cz = s.tr.z->inverseDerivativeCoefficients(2 * Nz);
-    if (s.pmlX) cx = s.pmlX->inverseDerivativeCoefficients(2 * Nx);  // Plan eq:pml
-    if (s.pmlZ) cz = s.pmlZ->inverseDerivativeCoefficients(2 * Nz);
-    s.A = MatC::Zero(nf, nf);
-    s.G = MatC::Zero(nf, nf);
-    for (int r = 0; r < nf; ++r)
-      for (int c = 0; c < nf; ++c) {
-        const auto [n, m] = s.map.orders(r);
-        const auto [n2, m2] = s.map.orders(c);
-        // [[1/f']] is Toeplitz in n and the identity in m (and vice versa)
-        if (m == m2) s.A(r, c) = (!cx.empty() ? cx[static_cast<std::size_t>(n - n2 + 2 * Nx)] : cplx(n == n2 ? 1.0 : 0.0)) * s.alpha(c);
-        if (n == n2) s.G(r, c) = (!cz.empty() ? cz[static_cast<std::size_t>(m - m2 + 2 * Nz)] : cplx(m == m2 ? 1.0 : 0.0)) * s.gamma(c);
-      }
-    MatC Cx, Cz, Dx, Dz;
-    if (s.tr.x) {
-      Cx = s.tr.x->toPhysical(s.inc.alpha0 * s.k0, Nx);
-      Dx = s.tr.x->fromPhysical(s.inc.alpha0 * s.k0, Nx);
-    }
-    if (s.tr.z) {
-      Cz = s.tr.z->toPhysical(s.inc.gamma0 * s.k0, Nz);
-      Dz = s.tr.z->fromPhysical(s.inc.gamma0 * s.k0, Nz);
-    }
-    s.toPhys = separable(s.map, s.tr.x ? &Cx : nullptr, s.tr.z ? &Cz : nullptr);
-    s.fromPhys = separable(s.map, s.tr.x ? &Dx : nullptr, s.tr.z ? &Dz : nullptr);
+    const int nf = s.map.size();
+    auto t = detail::transformedCoordinates(s.map, s.tr, s.pmlX.get(), s.pmlZ.get(), s.alpha, s.gamma,
+                                            s.inc.alpha0 * s.k0, s.inc.gamma0 * s.k0);
+    s.A = std::move(t.A);
+    s.G = std::move(t.G);
+    s.toPhys = std::move(t.toPhys);
+    s.fromPhys = std::move(t.fromPhys);
     s.refPhys = std::move(s.ref);
     s.subPhys = std::move(s.subModes);
     s.ref = numericBasis(buildPropagationMatrix(homogeneousIsotropicQ(s.epsSup, nf), s.A, s.G));

@@ -88,8 +88,9 @@ alle Zahlen einer `polygon2d`- oder `contour2d`-Geometrie (Ecken, NURBS-Kontroll
 bleibt verlustfrei) und Substrat, sowie `incidence/lambda_um`, `phi_deg`, `psi_deg`, `delta_deg` (am aktuellen
 Scanpunkt, auch wenn dort eine Liste steht). Anisotrope Materialien: `.../eps_tensor/i/j/0|1`, `.../eps_principal/k`, `.../euler_deg/k` in
 homogenen Schichten, Lamellen und Profilen (Laurent, `FFF_A`, `FFF_B`) und in 2D-Querschnitten mit Laurent. RCWA
-und RK, periodische Gitter ohne Koordinatentransformation; anisotrope 2D-Querschnitte mit `FFF_B` und
-`profile2d` mit anisotropen Medien: noch nicht (Fehlermeldung). Festgelegt (Plan M19 „Methode“): Scheibenzerlegung und RK-Schrittfolge; das Normalenfeld der
+und RK, periodische Gitter, auch mit Koordinatentransformation (ASR; Geometrieparameter dann nur mit expliziten
+`breakpoints_um`, λ, Winkel und Superstrat/Substrat nicht); anisotrope 2D-Querschnitte mit `FFF_B`,
+`profile2d` mit anisotropen Medien und aperiodische Strukturen: noch nicht (Fehlermeldung). Festgelegt (Plan M19 „Methode“): Scheibenzerlegung und RK-Schrittfolge; das Normalenfeld der
 2D-Querschnitte (Algorithmus NF) ist eingefroren, das der Profile wird mitdifferenziert. CAD-Körper: C++-API
 `fg::gradient(opt, stack, wl, objective, {StackParameter{...}})` mit dem neu geschnittenen Körper bei θ ± δ
 (seitliche Bewegungen). `sim.last_result` enthält die Effizienzen der Rechnung.
