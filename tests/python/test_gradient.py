@@ -83,6 +83,27 @@ def test_aperiodic_scattering_objective():
     np.testing.assert_allclose(v, grad, rtol=1e-12)
 
 
+def test_aperiodic_mode_objective():
+    """Plan v2.13, Stufe A: guided-mode powers at modal excitation (abrupt end of a slab waveguide)."""
+    cfg = {
+        "dimension": "1D", "truncation": {"Nx": 16}, "period_um": {"x": 3.0}, "incidence": {"lambda_um": 0.6328},
+        "materials": {"air": {"n": 1.0}, "core": {"n": 2.0}}, "superstrate": "air", "substrate": "air",
+        "superstrate_structure": {"type": "lamellar1d", "breakpoints_um": [0.0, 1.3, 1.7, 3.0],
+                                  "materials": ["air", "core", "air"]},
+        "layers": [{"type": "homogeneous", "thickness_um": 0.2, "material": "air"}],
+        "aperiodic": {"pml": {"x": {"width_um": 0.4}}, "excitation": {"mode": 0}},
+    }
+    sim = fg.Simulation(cfg)
+    value, grad = sim.value_and_grad({("mode", "R", 0): 1.0}, ["/materials/core/n"])
+    assert value == pytest.approx(sim.solve().modal["reflected"][0]["power"], rel=1e-12)
+    vals = []
+    for n in (2.0 + 1e-6, 2.0 - 1e-6):
+        s = fg.Simulation(cfg)
+        s.set_parameter("/materials/core/n", n)
+        vals.append(s.solve().modal["reflected"][0]["power"])
+    assert grad[0] == pytest.approx((vals[0] - vals[1]) / 2e-6, rel=1e-6)
+
+
 def test_unsupported_parameter_raises():
     sim = fg.Simulation(CFG)
     with pytest.raises(Exception):

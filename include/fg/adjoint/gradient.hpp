@@ -51,7 +51,7 @@ struct GradientResult {
 /// polygon2d geometry: control points, weights, circle centre and radius, vertices), "/materials/name/n",
 /// "/materials/name/n/0|1" (real/imaginary part), "/materials/name/eps", "/eps/0|1". RCWA and RK, periodic
 /// structures (also with coordinate transformations) and aperiodic ones with PML at normal incidence
-/// (Objective::scattering); the slices, the RK step sequence are fixed, the raster normal field of 2D
+/// (Objective::scattering) or modal excitation (Objective::modes); the slices, the RK step sequence are fixed, the raster normal field of 2D
 /// cross-sections moves over one raster cell (profile normal fields are differentiated).
 GradientResult gradient(const std::string& configJson, const Objective& objective, const std::vector<std::string>& params);
 

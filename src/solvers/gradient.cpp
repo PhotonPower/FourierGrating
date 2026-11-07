@@ -308,9 +308,11 @@ struct AmpBar {
 };
 using AmpObjective =
     std::function<double(const AmpContext&, const VecC& b, const VecC& t, VecC& bbar, VecC& tbar, AmpBar& ab, Result& res)>;
+/// Incident amplitudes from the superstrate basis (modal excitation: a guided mode; fixed, not differentiated).
+using IncidentHook = std::function<VecC(const ModeBasis& ref)>;
 GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wavelength& wl,
                             const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps,
-                            const AmpObjective* ampObj = nullptr);
+                            const AmpObjective* ampObj = nullptr, const IncidentHook* incident = nullptr);
 }  // namespace
 
 GradientResult gradient(const SolverOptions& opt, const Stack& stack, const Wavelength& wl, const Objective& objective,
@@ -355,10 +357,12 @@ namespace {
 
 GradientResult aperiodicGradient(const Stack& st, const SolverOptions& opt, const Wavelength& wl,
                                  const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps);
+GradientResult modalGradient(const Stack& st, const SolverOptions& opt, const Wavelength& wl,
+                             const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps);
 
 GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wavelength& wl,
                             const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps,
-                            const AmpObjective* ampObj) {
+                            const AmpObjective* ampObj, const IncidentHook* incident) {
   if (st.aperiodic.enabled && !ampObj) return aperiodicGradient(st, opt, wl, prebuilt, objective, std::move(ps));
   FG_PROF_SCOPE("gradient");
   FG_REQUIRE(!opt.scatteredField, "gradient: the scattered-field formulation is not available (Plan v2.13, Stufe B)");
@@ -373,6 +377,18 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     if (st.aperiodic.z.active()) pmlZ = std::make_shared<const PmlMap>(st.dz_um, st.aperiodic.z.width_um, st.aperiodic.z.beta);
   }
   const bool trans = tr.active() || pmlX || pmlZ;
+  // structured superstrate/substrate (aperiodic, M18): numerical bases of their y-invariant layer models
+  std::unique_ptr<detail::LayerModel> halfSup, halfSub;
+  auto halfSpaceModel = [&](const LayerEntry& le) {
+    Stack t = st;
+    t.layers = {le};
+    auto m = detail::buildLayerModel(t, 0, IndexMap(opt.Nx, st.is2D() ? opt.Nz : 0), opt.rcwaSlices);
+    FG_REQUIRE(m->yInvariant(), "a structured superstrate/substrate must be y-invariant");
+    return m;
+  };
+  if (st.superstrateStructure) halfSup = halfSpaceModel(*st.superstrateStructure);
+  if (st.substrateStructure) halfSub = halfSpaceModel(*st.substrateStructure);
+  const QBlocks Qsup = halfSup ? halfSup->Q(0.0) : QBlocks{}, Qsub = halfSub ? halfSub->Q(0.0) : QBlocks{};
   detail::applyThreadSettings(opt);
   const IndexMap map(opt.Nx, st.is2D() ? opt.Nz : 0);
   const int nf = map.size(), nh = 2 * nf, c = map.center();
@@ -422,8 +438,8 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     tc = detail::transformedCoordinates(map, tr, pmlX.get(), pmlZ.get(), al, ga, inc.alpha0 * k0, inc.gamma0 * k0);
     refPhys = std::move(ref);
     subPhys = std::move(sm);
-    ref = detail::numericBasis(buildPropagationMatrix(homogeneousIsotropicQ(sup.eps, nf), tc.A, tc.G));
-    sm = detail::numericBasis(buildPropagationMatrix(homogeneousIsotropicQ(sub.eps, nf), tc.A, tc.G));
+    ref = detail::numericBasis(buildPropagationMatrix(halfSup ? Qsup : homogeneousIsotropicQ(sup.eps, nf), tc.A, tc.G));
+    sm = detail::numericBasis(buildPropagationMatrix(halfSub ? Qsub : homogeneousIsotropicQ(sub.eps, nf), tc.A, tc.G));
     a_in = (ref.PsiInv * detail::componentwise(tc.fromPhys, refPhys.Psi.leftCols(nh) * a_ph)).head(nh);
     for (int q = 0; q < nh; ++q)  // no modes growing upwards in the incident field (as in the solver)
       if (ref.lambda(q).real() > 1e-8) a_in(q) = 0;
@@ -435,6 +451,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     Tb = (refPhys.PsiInv * cw(ref.Psi.rightCols(nh))).bottomRows(nh);
     Tt = (subPhys.PsiInv * cw(sm.Psi.leftCols(nh))).topRows(nh);
   }
+  if (incident) a_in = (*incident)(ref);
   const ModeBasis& rp = trans ? refPhys : ref;
   const ModeBasis& sp = trans ? subPhys : sm;
   auto Mof = [&](const QBlocks& Q) {
@@ -640,6 +657,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     global = global || p.kind == Param::Kind::Lambda || p.kind == Param::Kind::Phi || p.kind == Param::Kind::Psi ||
              p.kind == Param::Kind::Delta ||
              (p.kind == Param::Kind::Material && (p.material == st.superstrate || p.material == st.substrate));
+  global = global || halfSup || halfSub;
   VecC alb = VecC::Zero(nf), gab = VecC::Zero(nf);
   MatC Abar, Gbar;  // transformed coordinates: cotangents of A = [[1/f']] alpha, G = [[1/g']] gamma
   MatC refPsib, refPsiInvb, smPsib;
@@ -737,8 +755,9 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     return m;
   };
   /// dL/dQ of the slice of layer k at height y_um -> parameters (materials, geometry, profiles)
-  auto fromQbar = [&](std::size_t layer, bool homogeneous, double y_um, const QBlocks& Qb) {
-    const auto& model = *models[layer];
+  auto fromQbar = [&](std::size_t layer, bool homogeneous, double y_um, const QBlocks& Qb,
+                      const detail::LayerModel* other = nullptr) {
+    const auto& model = other ? *other : *models[layer];
     if (homogeneous) {
       const Material& mat = model.material();
       const std::string& name = std::get<HomogeneousLayer>(st.layers[layer].spec).material;
@@ -1137,19 +1156,23 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         refPhysPsib.leftCols(nh) += vb * a_ph.adjoint();
         aphb = refPhys.Psi.leftCols(nh).adjoint() * vb;
       }
-      ainb = aphb;  // the physical incident amplitudes
-      // numerical bases of the half spaces (Plan section "M17"): eigenvectors of M_sup, M_sub in X
-      auto halfSpace = [&](const ModeBasis& mb, MatC Psib, const MatC& PsiInvb, cplx eps, cplx& epsb) {
+      ainb = incident ? VecC(VecC::Zero(nh)) : aphb;  // the physical incident amplitudes (modal: fixed)
+      // numerical bases of the half spaces (Plan section "M17"): eigenvectors of M_sup, M_sub in X; structured
+      // half spaces (M18): Q of their layer model, back to its materials
+      const std::size_t noLayer = st.layers.size();
+      auto halfSpace = [&](const ModeBasis& mb, MatC Psib, const MatC& PsiInvb, cplx eps, cplx& epsb,
+                           const detail::LayerModel* hm, const QBlocks& Qh) {
         Psib -= mb.PsiInv.adjoint() * PsiInvb * mb.PsiInv.adjoint();  // PsiInv = Psi^-1
         std::vector<int> cls(static_cast<std::size_t>(2 * nh), 0);
         for (int q = nh; q < 2 * nh; ++q) cls[static_cast<std::size_t>(q)] = 1;
         const MatC Mb = adjoint::eig(mb.Psi, mb.lambda, Psib, VecC(), cls);
         QBlocks Qb;
-        adjoint::propagationMatrix(homogeneousIsotropicQ(eps, nf), tc.A, tc.G, Mb, Qb, Abar, Gbar);
-        epsb += Qb(0, 0).trace() + Qb(1, 1).trace() + Qb(2, 2).trace();
+        adjoint::propagationMatrix(hm ? Qh : homogeneousIsotropicQ(eps, nf), tc.A, tc.G, Mb, Qb, Abar, Gbar);
+        if (hm) fromQbar(noLayer, false, 0.0, Qb, hm);
+        else epsb += Qb(0, 0).trace() + Qb(1, 1).trace() + Qb(2, 2).trace();
       };
-      halfSpace(ref, refPsib, refPsiInvb, sup.eps, epsSupb);
-      halfSpace(sm, smPsib, MatC(MatC::Zero(4 * nf, 4 * nf)), sub.eps, epsSubb);
+      halfSpace(ref, refPsib, refPsiInvb, sup.eps, epsSupb, halfSup.get(), Qsup);
+      halfSpace(sm, smPsib, MatC(MatC::Zero(4 * nf, 4 * nf)), sub.eps, epsSubb, halfSub.get(), Qsub);
       adjoint::isotropicModes(sup.eps, al, ga, refPhys, refPhysPsib, refPhysPsiInvb, VecC(), epsSupb, alb, gab);
       adjoint::isotropicModes(sub.eps, al, ga, subPhys, MatC(), subPhysPsiInvb, VecC(), epsSubb, alb, gab);
       // A = C_x diag(alpha), G = C_z diag(gamma)
@@ -1280,6 +1303,144 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   return out;
 }
 
+/// Modal excitation (Plan section "Gradienten aperiodischer Strukturen", Stufe A): a guided mode of the
+/// structured superstrate comes in; L = sum w |r_j|^2 + sum w |t_j|^2 with the powers of the solver
+/// (|b_k|^2 P_k / P_in, flux over the physical region). The selection of the guided modes is fixed; the powers
+/// do not depend on phase and scale of the eigenvectors, so the eigenvector reverse rule applies.
+GradientResult modalGradient(const Stack& st, const SolverOptions& opt, const Wavelength& wl,
+                             const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps) {
+  FG_PROF_SCOPE("gradient.modal");
+  const AperiodicSpec& ap = st.aperiodic;
+  FG_REQUIRE(objective.scattering.empty(), "gradient: modal excitation: use mode objectives (|r_j|^2, |t_j|^2)");
+  for (const auto& p : ps)
+    FG_REQUIRE(p.kind != Param::Kind::Phi && p.kind != Param::Kind::Psi && p.kind != Param::Kind::Delta,
+               "gradient: modal excitation ignores the incidence angles");
+  const IndexMap map(opt.Nx, st.is2D() ? opt.Nz : 0);
+  const int nf = map.size(), nh = 2 * nf;
+  const double x0 = ap.x.active() ? ap.x.width_um : 0.0, x1 = ap.x.active() ? st.dx_um - ap.x.width_um : st.dx_um;
+  const double z0 = ap.z.active() ? ap.z.width_um : 0.0, z1 = ap.z.active() ? st.dz_um - ap.z.width_um : st.dz_um;
+  auto axisInt = [](double kappa, double a, double b) -> cplx {
+    if (std::abs(kappa) * (b - a) < 1e-12) return b - a;
+    return (std::exp(I * (kappa * b)) - std::exp(I * (kappa * a))) / (I * kappa);
+  };
+  MatC W(nf, nf);
+  for (int r = 0; r < nf; ++r)
+    for (int cc = 0; cc < nf; ++cc) {
+      const auto [nr, mr] = map.orders(r);
+      const auto [nc, mc] = map.orders(cc);
+      W(r, cc) = axisInt(2 * PI * (nc - nr) / st.dx_um, x0, x1);
+      if (st.is2D()) W(r, cc) *= axisInt(2 * PI * (mc - mr) / st.dz_um, z0, z1);
+    }
+  auto flux = [&](const VecC& F) {
+    return 0.5 * std::real(F.segment(2 * nf, nf).dot(W * F.segment(nf, nf)) - F.segment(3 * nf, nf).dot(W * F.head(nf)));
+  };
+  auto fluxBar = [&](const VecC& F) {
+    VecC Fb(4 * nf);
+    Fb.head(nf) = -0.5 * (W * F.segment(3 * nf, nf));
+    Fb.segment(nf, nf) = 0.5 * (W * F.segment(2 * nf, nf));
+    Fb.segment(2 * nf, nf) = 0.5 * (W * F.segment(nf, nf));
+    Fb.segment(3 * nf, nf) = -0.5 * (W * F.head(nf));
+    return Fb;
+  };
+  // guided modes of a basis among the columns [first, first + nh) (criteria of the solver, Plan section "M18")
+  const double cell = st.dx_um * (st.is2D() ? st.dz_um : 1.0);
+  auto guided = [&](const ModeBasis& b, int first, const std::string& clad) {
+    const double nclad = std::sqrt(std::max(st.material(clad).tensor()(0, 0).real(), 0.0));
+    std::vector<std::pair<double, int>> g;
+    for (int k = first; k < first + nh; ++k) {
+      const cplx l = b.lambda(k);
+      const VecC& F = b.Psi.col(k);
+      const VecC Ex = F.head(nf), Ez = F.segment(nf, nf);
+      const double in = std::real(Ex.dot(W * Ex) + Ez.dot(W * Ez)) / (cell * (Ex.squaredNorm() + Ez.squaredNorm()));
+      if (std::abs(l.real()) <= 1e-3 * std::abs(l.imag()) && std::abs(l.imag()) > nclad * (1 + 1e-9) && in >= 0.9)
+        g.push_back({std::abs(l.imag()), k});
+    }
+    std::sort(g.begin(), g.end(), [](const auto& a, const auto& c) { return a.first > c.first; });
+    std::vector<int> out;
+    for (const auto& [n, k] : g) out.push_back(k);
+    return out;
+  };
+  auto describe = [&](const ModeBasis& b, int col, int index) {
+    ModeCoefficient m;
+    m.index = index;
+    m.nEff = cplx(std::abs(b.lambda(col).imag()), std::abs(b.lambda(col).real()));
+    const VecC E = b.Psi.col(col);
+    const double ex = E.segment(0, nf).squaredNorm(), ez = E.segment(nf, nf).squaredNorm();
+    m.teFraction = ex + ez > 0 ? ez / (ex + ez) : 0.0;
+    return m;
+  };
+  int cin = -1, jin = 0;
+  const IncidentHook pick = [&](const ModeBasis& ref) {
+    const std::vector<int> down = guided(ref, 0, st.superstrate);
+    FG_REQUIRE(!down.empty(), "modal excitation: the structured superstrate has no guided mode");
+    if (ap.nEff > 0) {
+      for (int k = 1; k < static_cast<int>(down.size()); ++k)
+        if (std::abs(std::abs(ref.lambda(down[static_cast<std::size_t>(k)]).imag()) - ap.nEff) <
+            std::abs(std::abs(ref.lambda(down[static_cast<std::size_t>(jin)]).imag()) - ap.nEff))
+          jin = k;
+    } else {
+      FG_REQUIRE(ap.mode >= 0 && ap.mode < static_cast<int>(down.size()),
+                 "modal excitation: mode " + std::to_string(ap.mode) + " not guided");
+      jin = ap.mode;
+    }
+    cin = down[static_cast<std::size_t>(jin)];
+    VecC a = VecC::Zero(nh);
+    a(cin) = 1.0;
+    return a;
+  };
+  auto weight = [&](char side, int index) {
+    double w = 0;
+    for (const auto& [m, v] : objective.modes)
+      if (m.side == side && m.index == index) w += v;
+    return w;
+  };
+  const AmpObjective modes = [&](const AmpContext& cx, const VecC& b, const VecC& t, VecC& bbar, VecC& tbar, AmpBar& ab,
+                                 Result& res) {
+    const VecC& Fin = cx.ref.Psi.col(cin);
+    const double Pin = -flux(Fin);
+    FG_REQUIRE(Pin > 0, "modal excitation: the incident mode carries no power through the physical region");
+    ModalResult& mr = res.modal;
+    mr.present = true;
+    mr.incident = describe(cx.ref, cin, jin);
+    mr.incident.amplitude = 1.0;
+    mr.incident.power = 1.0;
+    ab.refPsi = MatC::Zero(4 * nf, 4 * nf);
+    ab.subPsi = MatC::Zero(4 * nf, 4 * nf);
+    double L = 0, sum = 0;
+    int used = 0;
+    auto side = [&](const ModeBasis& mb, const std::vector<int>& cols, int offset, double sign, const VecC& amp, VecC& ampBar,
+                    MatC& PsiBar, char s, std::vector<ModeCoefficient>& list) {
+      for (std::size_t k = 0; k < cols.size(); ++k) {
+        const int col = cols[k], i = col - offset;
+        const VecC& F = mb.Psi.col(col);
+        const double Pk = sign * flux(F), power = std::norm(amp(i)) * Pk / Pin;
+        ModeCoefficient m = describe(mb, col, static_cast<int>(k));
+        m.amplitude = amp(i) * std::sqrt(std::abs(Pk) / Pin);
+        m.power = power;
+        sum += power;
+        list.push_back(m);
+        const double w = weight(s, static_cast<int>(k));
+        if (w == 0) continue;
+        ++used;
+        L += w * power;
+        ampBar(i) += 2 * w * Pk / Pin * amp(i);
+        PsiBar.col(col) += (sign * w * std::norm(amp(i)) / Pin) * fluxBar(F);
+      }
+    };
+    side(cx.ref, guided(cx.ref, nh, st.superstrate), nh, 1.0, b, bbar, ab.refPsi, 'R', mr.reflected);
+    if (st.substrateStructure)
+      side(cx.sub, guided(cx.sub, 0, st.substrate), 0, -1.0, t, tbar, ab.subPsi, 'T', mr.transmitted);
+    FG_REQUIRE(used == static_cast<int>(objective.modes.size()) || objective.modes.empty(),
+               "gradient: a mode of the objective is not guided");
+    mr.radiated = 1.0 - sum;
+    ab.refPsi.col(cin) += (L / Pin) * fluxBar(Fin);  // P_in = -q_W(psi_in)
+    return L;
+  };
+  GradientResult out = gradientCore(st, opt, wl, prebuilt, objective, std::move(ps), &modes, &pick);
+  out.notes.push_back("modal excitation: the selection of the guided modes is fixed");
+  return out;
+}
+
 /// Aperiodic structures, total-field formulation at normal incidence (Plan section "Gradienten aperiodischer
 /// Strukturen", Stufe A): P_up = q_W(Psi_up (b - b_bg)) / S_inc, P_down = -q_W(Psi_down (t - t_bg)) / S_inc with the
 /// window flux q_W of the solver. Three passes with the same driver: the background stack forward (b_bg, t_bg), the
@@ -1290,9 +1451,10 @@ GradientResult aperiodicGradient(const Stack& st, const SolverOptions& opt, cons
   FG_PROF_SCOPE("gradient.aperiodic");
   const AperiodicSpec& ap = st.aperiodic;
   FG_REQUIRE(objective.weights.empty(), "gradient: aperiodic structures have no diffraction orders (use scattering)");
-  FG_REQUIRE(objective.modes.empty(), "gradient: guided-mode objectives are not available yet (Plan v2.13, Stufe A)");
-  FG_REQUIRE(!ap.modeExcitation && !st.superstrateStructure && !st.substrateStructure,
-             "gradient: structured superstrate/substrate are not available yet (Plan v2.13, Stufe A)");
+  if (ap.modeExcitation) return modalGradient(st, opt, wl, prebuilt, objective, std::move(ps));
+  FG_REQUIRE(objective.modes.empty(), "gradient: guided-mode objectives need a modal excitation");
+  FG_REQUIRE(!st.superstrateStructure && !st.substrateStructure,
+             "gradient: structured superstrate/substrate with plane-wave excitation are not available");
   const Material& sup = st.material(st.superstrate);
   const IncidentWave inc0 = makeIncidence(std::sqrt(sup.eps.real()), wl.phi, wl.psi, wl.delta);
   FG_REQUIRE(!opt.scatteredField && (!ap.x.active() || std::abs(inc0.alpha0) < 1e-12) &&

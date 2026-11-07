@@ -741,3 +741,38 @@ TEST(M19_Gradient, AperiodicContactHole) {
          "/materials/film/n/1", "/layers/0/thickness_um"},
         1e-6, "contact hole");
 }
+
+// Stufe A: modal excitation. A slab waveguide (core n = 2) ends in a wider block of another material on a
+// structured substrate (the same waveguide continues below): |r_0|^2, |t_0|^2 and a higher mode; the core index
+// acts on both half-space bases (eigenvector reverse rule) and on the layer.
+TEST(M19_Gradient, AperiodicModal) {
+  const json slab = {{"type", "lamellar1d"}, {"breakpoints_um", {0.0, 1.3, 1.7, 3.0}}, {"materials", {"air", "core", "air"}}};
+  const json cfg{{"dimension", "1D"},
+                 {"truncation", {{"Nx", 20}}},
+                 {"period_um", {{"x", 3.0}}},
+                 {"incidence", {{"lambda_um", 0.6328}}},
+                 {"materials", {{"air", {{"n", 1.0}}}, {"core", {{"n", 2.0}}}, {"block", {{"n", {1.7, 0.01}}}}}},
+                 {"superstrate", "air"},
+                 {"substrate", "air"},
+                 {"superstrate_structure", slab},
+                 {"substrate_structure", slab},
+                 {"layers", json::array({json{{"type", "lamellar1d"},
+                                              {"thickness_um", 0.35},
+                                              {"breakpoints_um", {0.0, 1.1, 1.85, 3.0}},
+                                              {"materials", {"air", "block", "air"}}}})},
+                 {"aperiodic", {{"pml", {{"x", {{"width_um", 0.4}, {"beta", 1.0}}}}}, {"excitation", {{"mode", 0}}}}}};
+  fg::Objective obj;
+  obj.modes = {{fg::ModeRef{'R', 0}, 1.0}, {fg::ModeRef{'T', 0}, -0.5}, {fg::ModeRef{'R', 1}, 0.3}};
+  {  // the powers are the solver's
+    const auto c = fg::io::parseConfig(cfg.dump());
+    const auto r = fg::makeSolver(c.solver)->solve(c.stack, c.scan.front());
+    const auto g = fg::gradient(cfg.dump(), obj, {});
+    ASSERT_EQ(g.result.modal.reflected.size(), r.modal.reflected.size());
+    ASSERT_EQ(g.result.modal.transmitted.size(), r.modal.transmitted.size());
+    EXPECT_NEAR(g.value, r.modal.reflected[0].power - 0.5 * r.modal.transmitted[0].power + 0.3 * r.modal.reflected[1].power,
+                1e-12);
+  }
+  check(cfg, obj, {"/layers/0/thickness_um", "/layers/0/breakpoints_um/1", "/materials/block/n/0", "/materials/block/n/1",
+                   "/materials/core/n", "/incidence/lambda_um"},
+        1e-6, "modal");
+}

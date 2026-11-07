@@ -92,8 +92,10 @@ und RK, periodische Gitter, auch mit Koordinatentransformation (ASR; Geometriepa
 `breakpoints_um`); anisotrope 2D-Querschnitte auch mit `FFF_B`;
 `profile2d` (isotrop und anisotrop; Materialien, `depth_um`, `x0_um`, `z0_um`). Aperiodische Strukturen (PML, Plan
 v2.13 Stufe A): bei Normaleinfall die Streuflüsse `{("scattering", "up"): w, ("scattering", "down"): w}` (statt
-Beugungsordnungen) nach Dicken, Kanten, Formparametern, Materialien, λ, ψ, δ und Superstrat/Substrat; noch nicht:
-schräger Einfall (Streufeldformulierung), modaler Einfall, seitlicher Fluss und Absorption (Fehlermeldung). Achtung:
+Beugungsordnungen) nach Dicken, Kanten, Formparametern, Materialien, λ, ψ, δ und Superstrat/Substrat; bei modalem
+Einfall die Leistungen der geführten Moden `{("mode", "R", j): w, ("mode", "T", j): w}` (Index wie in
+`result.modal`, die Auswahl der geführten Moden bleibt fest; auch Materialien der strukturierten Halbräume); noch nicht:
+schräger Einfall (Streufeldformulierung), seitlicher Fluss und Absorption (Fehlermeldung). Achtung:
 oben und unten hängen einzeln von der Fenstergröße ab. Die Adapter `fouriergrating.torch`/`.jax` decken nur
 Effizienzen ab. Festgelegt (Plan M19 „Methode“): Scheibenzerlegung und RK-Schrittfolge; das Normalenfeld der Profile wird
 mitdifferenziert, das Rasterfeld der 2D-Querschnitte (Algorithmus NF, FFF) bei Formparametern über eine Rasterzelle

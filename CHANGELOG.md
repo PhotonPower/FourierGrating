@@ -19,7 +19,8 @@
 - Plan v2.13: Spezifikation der Gradienten aperiodischer Strukturen (Streuflüsse oben/unten, Modenleistungen;
   Stufen A–C).
 - Gradienten aperiodischer Strukturen bei Normaleinfall (Stufe A): `Objective::scattering` (`ScatterRef` Up/Down),
-  Python `{("scattering", "up"): w}`; `ModeRef`/`Objective::modes` vorgesehen (noch Fehlermeldung).
+  Python `{("scattering", "up"): w}`; bei modalem Einfall Leistungen der geführten Moden (`Objective::modes`,
+  `ModeRef`; Python `{("mode", "R", j): w}`).
 - V20f: Reziprozität der Streuamplituden (Winkelspektrum des Streufeldes, 5e-2 bei L = 8 µm).
 - Python-CI mit PyTorch, JAX und scipy; NURBS-Beispiel als Test.
 
