@@ -1204,37 +1204,76 @@ class Profile2DModel final : public LayerModel {
     FG_PROF_SCOPE("profile.Q");
     const double a = p_.depth_um;
     const double yc = std::clamp(y, 1e-14 * a, a * (1 - 1e-14));
-    const int Px = 2 * map_.Nx(), Pz = 2 * map_.Nz();
     if (tensorPath_) {
-      if (p_.shape == Profile2DLayer::Shape::SinusX) {
-        // z-invariant: identical to the 1D anisotropic profile (V8/V9)
-        std::vector<double> br;
-        std::vector<bool> below;
-        profileIntervals(line(0.0), yc, dx_, br, below);
-        mapIntervals(xm_.get(), br, below);
-        std::vector<Mat3C> tens;
-        for (bool b : below) tens.push_back(b ? tb_ : ta_);
-        return anisotropicQ(br, tens, [this](double X) { return profile2DNormal(p_, dx_, dz_, fx(X), 0.0); }, fac_,
-                            dx_, map_);
-      }
-      std::vector<Grid> g(static_cast<std::size_t>(anisoCount(fac_)), Grid(Px, Pz));
+      std::vector<Grid> g = anisoGrids(p_, yc, tb_, ta_);
+      return anisoQFromGrids(fac_, g, map_);
+    }
+    SliceCoefficients sc = sliceCoefficients(yc);  // z-invariant sinus: exact intervals, q = 0 only (V9)
+    sc.normal = &nf_;
+    return isotropicQ(fac_, sc, map_);
+  }
+  Mat3C epsAt(double x, double y, double z) const override {
+    return profileValue(line(z), x, dx_) > y ? tb_ : ta_;
+  }
+  Vec3D normalAt(double x, double, double z) const override { return profile2DNormal(p_, dx_, dz_, x, z); }
+  const NormalFieldCoefficients& NN(double) const override { return nf_; }
+  /// M19: isotropic slices as eps = eps_below chi + eps_above (1 - chi) with the frozen-free analytic normal field;
+  /// anisotropic slices through their coefficient grids (tensors, depth at the same relative height).
+  bool adjointSlice(double y, AdjointSlice& a) const override {
+    const double d = p_.depth_um, yc = std::clamp(y, 1e-14 * d, d * (1 - 1e-14));
+    a.materials = {p_.below, p_.above};
+    a.fac = fac_;
+    if (tensorPath_) {
+      a.aniso = true;
+      a.tensors = {tb_, ta_};
+      a.grids = anisoGrids(p_, yc, tb_, ta_);
+      a.gridsFor = [this, yc](const std::vector<Mat3C>& t) { return anisoGrids(p_, yc, t[0], t[1]); };
+      a.gridsDepth = [this, yc](double delta) {
+        Profile2DLayer q = p_;
+        q.depth_um += delta;
+        return anisoGrids(q, yc, tb_, ta_);
+      };
+      return true;
+    }
+    const int Px = 2 * map_.Nx(), Pz = 2 * map_.Nz();
+    Grid chi(Px, Pz);  // indicator of the medium below
+    if (p_.shape == Profile2DLayer::Shape::SinusX) {
+      std::vector<double> br;
+      std::vector<bool> below;
+      profileIntervals(line(0.0), yc, dx_, br, below);
+      mapIntervals(xm_.get(), br, below);
+      std::vector<cplx> v;
+      for (bool b : below) v.push_back(b ? 1.0 : 0.0);
+      const auto c = fourier::piecewiseConstant1D(br, v, dx_, Px);
+      for (int pp = -Px; pp <= Px; ++pp) chi(pp, 0) = c[static_cast<std::size_t>(pp + Px)];
+    } else {
+      std::vector<Grid> g(1, Grid(Px, Pz));
       std::vector<double> br;
       std::vector<bool> below;
       zIntegrate(yc, [&](double Z, double w) {
-        const double z = fz(Z);
-        lineIntervals(z, yc, br, below);
+        lineIntervals(fz(Z), yc, br, below);
         mapIntervals(xm_.get(), br, below);
-        std::vector<Mat3C> tens;
-        for (bool b : below) tens.push_back(b ? tb_ : ta_);
-        const auto c = anisoLineCoefficients(
-            br, tens, [&](double X) { return profile2DNormal(p_, dx_, dz_, fx(X), z); }, fac_, dx_, Px);
-        accumulate(g, c, Z, w);
+        std::vector<cplx> v;
+        for (bool b : below) v.push_back(b ? 1.0 : 0.0);
+        accumulate(g, {fourier::piecewiseConstant1D(br, v, dx_, Px)}, Z, w);
       });
-      return anisoQFromGrids(fac_, g, map_);
+      chi = std::move(g[0]);
     }
+    Grid chiA(Px, Pz);
+    for (int pp = -Px; pp <= Px; ++pp)
+      for (int qq = -Pz; qq <= Pz; ++qq) chiA(pp, qq) = (pp == 0 && qq == 0 ? 1.0 : 0.0) - chi(pp, qq);
+    a.chi = {chi, chiA};
+    a.sc = sliceCoefficients(yc);
+    a.sc.normal = &nf_;
+    return true;
+  }
+
+ private:
+  /// Isotropic grids of eps and 1/eps at height yc (as in Q).
+  SliceCoefficients sliceCoefficients(double yc) const {
+    const int Px = 2 * map_.Nx(), Pz = 2 * map_.Nz();
     SliceCoefficients sc;
     if (p_.shape == Profile2DLayer::Shape::SinusX) {
-      // z-invariant: exact intervals, q = 0 only (identical to the 1D sinus, V9)
       std::vector<double> br;
       std::vector<bool> below;
       profileIntervals(line(0.0), yc, dx_, br, below);
@@ -1260,39 +1299,63 @@ class Profile2DModel final : public LayerModel {
       sc.eps = std::move(g[0]);
       sc.invEps = std::move(g[1]);
     }
-    sc.normal = &nf_;
-    return isotropicQ(fac_, sc, map_);
+    return sc;
   }
-  Mat3C epsAt(double x, double y, double z) const override {
-    return profileValue(line(z), x, dx_) > y ? tb_ : ta_;
+  /// Grids of the tensor path at height yc for the profile p (depth variations: the same relative height, hence
+  /// the same crossings and quadrature lines) and the tensors below / above.
+  std::vector<Grid> anisoGrids(const Profile2DLayer& p, double yc, const Mat3C& tb, const Mat3C& ta) const {
+    const int Px = 2 * map_.Nx();
+    const double ys = yc * (p.depth_um / p_.depth_um);
+    if (p.shape == Profile2DLayer::Shape::SinusX) {
+      // z-invariant: identical to the 1D anisotropic profile (V8/V9)
+      std::vector<double> br;
+      std::vector<bool> below;
+      profileIntervals(line(p, 0.0), ys, dx_, br, below);
+      mapIntervals(xm_.get(), br, below);
+      std::vector<Mat3C> tens;
+      for (bool b : below) tens.push_back(b ? tb : ta);
+      return anisoGridsOf(br, tens, [this, &p](double X) { return profile2DNormal(p, dx_, dz_, fx(X), 0.0); }, fac_,
+                          dx_, map_);
+    }
+    std::vector<Grid> g(static_cast<std::size_t>(anisoCount(fac_)), Grid(Px, 2 * map_.Nz()));
+    std::vector<double> br;
+    std::vector<bool> below;
+    zIntegrate(yc, [&](double Z, double w) {
+      const double z = fz(Z);
+      lineIntervals(p, z, ys, br, below);
+      mapIntervals(xm_.get(), br, below);
+      std::vector<Mat3C> tens;
+      for (bool b : below) tens.push_back(b ? tb : ta);
+      const auto c = anisoLineCoefficients(
+          br, tens, [&](double X) { return profile2DNormal(p, dx_, dz_, fx(X), z); }, fac_, dx_, Px);
+      accumulate(g, c, Z, w);
+    });
+    return g;
   }
-  Vec3D normalAt(double x, double, double z) const override { return profile2DNormal(p_, dx_, dz_, x, z); }
-  const NormalFieldCoefficients& NN(double) const override { return nf_; }
-
- private:
   /// Physical coordinates of the transformed ones (Plan section "M17").
   double fx(double X) const { return xm_ ? xm_->f(X) : X; }
   double fz(double Z) const { return zm_ ? zm_->f(Z) : Z; }
   /// The 1D profile x -> g(x, z) of the line z = const.
-  Profile1DLayer line(double z) const {
+  Profile1DLayer line(double z) const { return line(p_, z); }
+  Profile1DLayer line(const Profile2DLayer& p, double z) const {
     Profile1DLayer l;
-    l.x0_um = p_.x0_um;
-    switch (p_.shape) {
+    l.x0_um = p.x0_um;
+    switch (p.shape) {
       case Profile2DLayer::Shape::SinusX:
         l.shape = Profile1DLayer::Shape::Sinus;
-        l.depth_um = p_.depth_um;
+        l.depth_um = p.depth_um;
         break;
       case Profile2DLayer::Shape::EggCrate:
         l.shape = Profile1DLayer::Shape::Sinus;
-        l.depth_um = 0.5 * p_.depth_um * (1.0 + std::cos(2 * PI / dz_ * (z - p_.z0_um)));
+        l.depth_um = 0.5 * p.depth_um * (1.0 + std::cos(2 * PI / dz_ * (z - p.z0_um)));
         break;
       case Profile2DLayer::Shape::Function: {
         l.shape = Profile1DLayer::Shape::Function;
-        l.depth_um = p_.depth_um;
-        const auto g = p_.g;
+        l.depth_um = p.depth_um;
+        const auto g = p.g;
         l.g = [g, z](double x) { return g(x, z); };
-        if (p_.grad) {
-          const auto gr = p_.grad;
+        if (p.grad) {
+          const auto gr = p.grad;
           l.dg = [gr, z](double x) { return gr(x, z)[0]; };
         }
         break;
@@ -1302,7 +1365,10 @@ class Profile2DModel final : public LayerModel {
   }
   /// Intervals (breaks, below flags) of the line z at height y.
   void lineIntervals(double z, double y, std::vector<double>& br, std::vector<bool>& below) const {
-    const Profile1DLayer l = line(z);
+    lineIntervals(p_, z, y, br, below);
+  }
+  void lineIntervals(const Profile2DLayer& p, double z, double y, std::vector<double>& br, std::vector<bool>& below) const {
+    const Profile1DLayer l = line(p, z);
     if (l.shape == Profile1DLayer::Shape::Sinus && l.depth_um <= y) {
       br = {0.0, dx_};
       below = {false};

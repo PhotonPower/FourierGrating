@@ -148,6 +148,29 @@ Param resolve(const json& j, const io::RunConfig& cfg, const std::string& ptr, c
   const std::string& f = t[2];
   if (f == "thickness_um") {
     p.kind = Param::Kind::Thickness;
+  } else if (f == "depth_um" && std::holds_alternative<Profile2DLayer>(spec)) {
+    // profile2d (egg_crate, sinus_x): the slices keep their relative height, the crossings stay; the analytic
+    // normal field moves (isotropic: its coefficients, anisotropic: the coefficient grids of the slice)
+    const auto& pr = std::get<Profile2DLayer>(spec);
+    p.kind = Param::Kind::ProfileDepth;
+    const double v = j.at(jp).get<double>(), delta = 1e-6 * std::max(1.0, std::abs(v));
+    p.delta = delta;
+    Profile2DLayer a = pr, b = pr;
+    a.depth_um += delta;
+    b.depth_um -= delta;
+    const ResolvedTransform tr = resolveTransform(cfg.stack);
+    const double dx = cfg.stack.dx_um, dz = cfg.stack.dz_um;
+    const auto na = normalField(a, dx, dz, map, tr.x.get(), tr.z.get()), nb = normalField(b, dx, dz, map, tr.x.get(), tr.z.get());
+    p.dnf = na;
+    auto diff = [&](Grid& d, const Grid& x, const Grid& y) {
+      for (int pp = -x.Px(); pp <= x.Px(); ++pp)
+        for (int qq = -x.Pz(); qq <= x.Pz(); ++qq) d(pp, qq) = (x(pp, qq) - y(pp, qq)) / (2 * delta);
+    };
+    for (std::size_t i = 0; i < 3; ++i) {
+      for (std::size_t k = 0; k < 3; ++k) diff(p.dnf.NN[i][k], na.NN[i][k], nb.NN[i][k]);
+      diff(p.dnf.N[i], na.N[i], nb.N[i]);
+    }
+    p.hasDnf = true;
   } else if (f == "depth_um" || f == "x0_um") {
     const auto* pr = std::get_if<Profile1DLayer>(&spec);
     FG_REQUIRE(pr && pr->shape == Profile1DLayer::Shape::Sinus, "gradient: depth_um/x0_um need a sinus profile1d layer");
@@ -676,7 +699,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     }
     detail::AdjointSlice a;
     FG_REQUIRE(model.adjointSlice(y_um, a), "gradient: layer " + std::to_string(layer) +
-                                                " has no adjoint (2D profile with anisotropic media)");
+                                                " has no adjoint");
     if (a.aniso) {
       std::vector<Grid> gb;
       adjoint::qAnisotropic(a.fac, a.grids, map, Qb, gb);

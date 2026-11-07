@@ -212,6 +212,7 @@ Abweichung Adjungierte gegen Differenzenquotient der Vorwärtsrechnung (h = 1e-6
 | Phase 2: ASR in x und z, 2D-Säulen (Laurent) | Radius, Mittelpunkt, Ecken, n, Dicke, Tensoreintrag | ≤ 3,4e-7 (abgebildete Kontur per Differenzenquotient, adaptive Quadratur) |
 | Phase 2: ASR mit RK (Lamellen) | Dicke, Kante, n, λ | ≤ 8e-6 relativ (3,7e-8 absolut; adaptive Schritte) |
 | Phase 2: ASR, globale Parameter (Lamellen, Sinusprofil, 2D-Säulen in x und z) | λ, φ, ψ, δ, n Superstrat, n Substrat (Re, Im) | ≤ 2,5e-7 (λ der 2D-Säule), sonst ≤ 2e-8 |
+| Phase 2: `profile2d` Eierkarton (Laurent, FFF_rig; anisotrop FFF_A, FFF_B), sinus_x anisotrop | Tiefe, n (Re, Im), λ, Hauptwert, Euler-Winkel | ≤ 3e-7 (Euler-Winkel, Gradient 1e-4), sonst ≤ 1,5e-8 |
 
 Aufwand (2D, N = 3, Laurent, 5 Parameter): Gradient = 1,3 × Vorwärtsrechnung (gemessen 1,3–2,3); die Kosten
 hängen nicht von der Zahl der Parameter ab (Formableitungen kosten nur die Konturquadratur). Beispiele:
@@ -231,8 +232,10 @@ numerische Basen der Halbräume und Einfall in X fest; die Wirkungsgrade aus den
 Polygonecken ab: dafür Fehlermeldung (Fixpunkte explizit angeben). λ, Winkel und Superstrat/Substrat mit
 Transformation: numerische Basen der Halbräume über die Eigenvektor-Rückwärtsregel (TE/TM-Paare entartet: nur der
 Unterraum), Kotangenten von A, G aus allen M, Umrechnungsmatrizen nach k0 α0, k0 γ0 per zentralem
-Differenzenquotienten der 1D-Matrizen. Offen: Rückwärtsfunktionen über das GPU-Backend,
-`profile2d` mit anisotropen Medien, aperiodische Strukturen (PML). Rasterfeld von Algorithmus NF (v2.12): unterhalb
+Differenzenquotienten der 1D-Matrizen. `profile2d`: isotrop als eps = eps_unten χ + eps_oben (1 − χ) mit dem
+analytischen Normalenfeld, anisotrop über die Koeffizientengitter; die Tiefe hält die relative Höhe der Scheiben (gleiche
+Kreuzungen und Quadraturlinien), es bewegt sich das Normalenfeld. Offen: Rückwärtsfunktionen über das GPU-Backend,
+aperiodische Strukturen (PML), Verschiebungen x0/z0 von `profile2d`. Rasterfeld von Algorithmus NF (v2.12): unterhalb
 einer Rasterzelle springt die Vorwärtsrechnung um ~1e-7 (Kreismittelpunkt in 2-nm-Schritten), der volle
 Differenzenquotient hängt dort von h ab (−0,82 / −0,086 / −0,0077 / −0,0012 für h = 1e-6 … 1e-3); eingefroren erzeugt
 das stehenbleibende Feld eine Scheinableitung. Formparameter mit FFF bewegen das Feld deshalb mit

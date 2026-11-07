@@ -594,3 +594,39 @@ TEST(M19_Gradient, AnisotropicFFFB2D) {
   checkStep(poly, obj, {"/layers/0/inclusions/0/vertices_um/1/0", "/layers/0/inclusions/0/vertices_um/2/1"}, 1e-3, 5e-3, 0.0,
             "FFF_B polygon vertices");
 }
+
+// Phase 2: profile2d (egg crate, sinus_x), isotropic (FFF_rig, Laurent) and anisotropic (FFF_A, FFF_B): materials,
+// tensor entries, Euler angles and the depth (relative height kept, analytic normal field moves).
+TEST(M19_Gradient, Profile2D) {
+  const json lnb = {{"eps_principal", {4.98, 4.98, 4.6}}, {"euler_deg", {20, 70, 10}}};
+  json cfg{{"dimension", "2D"},
+           {"truncation", {{"Nx", 3}, {"Nz", 3}}},
+           {"period_um", {{"x", 0.5}, {"z", 0.6}}},
+           {"incidence", {{"lambda_um", 0.6328}, {"phi_deg", 15}, {"psi_deg", 30}, {"delta_deg", 35}}},
+           {"rcwa", {{"slices", 6}}},
+           {"materials", {{"air", {{"n", 1.0}}}, {"glass", {{"n", 1.5}}}, {"bar", {{"n", {1.8, 0.02}}}}, {"lnb", lnb}}},
+           {"superstrate", "air"},
+           {"substrate", "glass"},
+           {"layers", json::array({json{{"type", "profile2d"},
+                                        {"shape", "egg_crate"},
+                                        {"depth_um", 0.15},
+                                        {"x0_um", 0.05},
+                                        {"z0_um", 0.1},
+                                        {"below", "bar"},
+                                        {"above", "air"},
+                                        {"factorization", "laurent"}}})}};
+  const auto obj = objective({{'R', 0, 0, 1.0}, {'T', -1, 0, 0.7}, {'T', 0, -1, 0.4}});
+  check(cfg, obj, {"/layers/0/depth_um", "/materials/bar/n/0", "/materials/bar/n/1", "/incidence/lambda_um"}, 1e-6,
+        "egg crate laurent");
+  cfg["layers"][0]["factorization"] = "FFF_rig";
+  check(cfg, obj, {"/layers/0/depth_um", "/materials/bar/n/0"}, 1e-6, "egg crate FFF_rig");
+  cfg["layers"][0]["below"] = "lnb";
+  for (const char* fac : {"FFF_A", "FFF_B"}) {
+    cfg["layers"][0]["factorization"] = fac;
+    check(cfg, obj, {"/layers/0/depth_um", "/materials/lnb/eps_principal/2", "/materials/lnb/euler_deg/1"}, 1e-6,
+          (std::string("egg crate aniso ") + fac).c_str());
+  }
+  cfg["layers"][0]["shape"] = "sinus_x";
+  cfg["layers"][0]["factorization"] = "FFF_A";
+  check(cfg, obj, {"/layers/0/depth_um", "/materials/lnb/euler_deg/0"}, 1e-6, "sinus_x aniso FFF_A");
+}

@@ -90,7 +90,8 @@ Scanpunkt, auch wenn dort eine Liste steht). Anisotrope Materialien: `.../eps_te
 homogenen Schichten, Lamellen und Profilen (Laurent, `FFF_A`, `FFF_B`) und in 2D-Querschnitten mit Laurent. RCWA
 und RK, periodische Gitter, auch mit Koordinatentransformation (ASR; Geometrieparameter dann nur mit expliziten
 `breakpoints_um`); anisotrope 2D-Querschnitte auch mit `FFF_B`;
-`profile2d` mit anisotropen Medien und aperiodische Strukturen: noch nicht (Fehlermeldung). Festgelegt (Plan M19 „Methode“): Scheibenzerlegung und RK-Schrittfolge; das Normalenfeld der Profile wird
+`profile2d` (isotrop und anisotrop; Materialien und `depth_um`, ohne Verschiebungen `x0_um`/`z0_um`); aperiodische
+Strukturen: noch nicht (Fehlermeldung). Festgelegt (Plan M19 „Methode“): Scheibenzerlegung und RK-Schrittfolge; das Normalenfeld der Profile wird
 mitdifferenziert, das Rasterfeld der 2D-Querschnitte (Algorithmus NF, FFF) bei Formparametern über eine Rasterzelle
 (je Formparameter zwei NF-Rechnungen; unterhalb der Rasterzelle ist die Vorwärtsrechnung nicht glatt), das der
 CAD-Schnitte bleibt eingefroren. CAD-Körper: C++-API
