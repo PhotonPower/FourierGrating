@@ -45,6 +45,8 @@ struct Param {
   std::string material;
   bool viaN = false;
   int comp = 0;    ///< material: 0 = real part, 1 = imaginary part
+  bool tensor = false;  ///< anisotropic material: d eps_tensor / d theta in dE (eps_tensor, eps_principal, euler_deg)
+  Mat3C dE = Mat3C::Zero();
   int index = 0;   ///< breakpoint index
   // shape: the structure at theta +- delta; the layers whose regions may move
   std::shared_ptr<const Stack> plus, minus;
@@ -113,12 +115,25 @@ Param resolve(const json& j, const io::RunConfig& cfg, const std::string& ptr, c
   if (t.size() >= 3 && t[0] == "materials") {
     p.kind = Param::Kind::Material;
     p.material = t[1];
+    if (!cfg.stack.material(p.material).isotropic) {  // M19 Phase 2: tensor entries, principal values, Euler angles
+      FG_REQUIRE(t[2] == "eps_tensor" || t[2] == "eps_principal" || t[2] == "euler_deg",
+                 "gradient: anisotropic material parameters are eps_tensor, eps_principal or euler_deg ('" + ptr + "')");
+      FG_REQUIRE(p.material != cfg.stack.superstrate && p.material != cfg.stack.substrate,
+                 "gradient: superstrate and substrate are isotropic");
+      p.tensor = true;
+      const double v = j.at(jp).get<double>(), h = 1e-6 * std::max(1.0, std::abs(v));
+      json a = j, b = j;
+      a[jp] = v + h;
+      b[jp] = v - h;
+      p.dE = (io::parseConfig(a.dump()).stack.material(p.material).epsTensor -
+              io::parseConfig(b.dump()).stack.material(p.material).epsTensor) / (2 * h);
+      return p;
+    }
     FG_REQUIRE(t[2] == "n" || t[2] == "eps", "gradient: material parameters are n or eps ('" + ptr + "')");
     p.viaN = t[2] == "n";
     p.comp = t.size() >= 4 ? std::stoi(t[3]) : 0;
     FG_REQUIRE(p.material != cfg.stack.superstrate || p.comp == 0,
                "gradient: the superstrate stays lossless (no imaginary part as parameter): '" + ptr + "'");
-    FG_REQUIRE(cfg.stack.material(p.material).isotropic, "gradient: anisotropic materials are not available: '" + ptr + "'");
     return p;
   }
   FG_REQUIRE(t.size() >= 3 && t[0] == "layers", "gradient: unsupported parameter '" + ptr + "'");
@@ -135,6 +150,7 @@ Param resolve(const json& j, const io::RunConfig& cfg, const std::string& ptr, c
     FG_REQUIRE(pr && pr->shape == Profile1DLayer::Shape::Sinus, "gradient: depth_um/x0_um need a sinus profile1d layer");
     p.kind = f == "depth_um" ? Param::Kind::ProfileDepth : Param::Kind::ProfileShift;
     const double v = j.at(jp).get<double>(), delta = 1e-6 * std::max(1.0, std::abs(v));
+    p.delta = delta;
     Profile1DLayer a = *pr, b = *pr;
     (f == "depth_um" ? a.depth_um : a.x0_um) += delta;
     (f == "depth_um" ? b.depth_um : b.x0_um) -= delta;
@@ -486,6 +502,12 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   double dLdlnk0 = 0;  // all normalized thicknesses scale with k0
   // material cotangents (complex, Plan convention) per material name
   std::map<std::string, cplx> epsBar;
+  std::map<std::string, Mat3C> tensorBar;  // anisotropic layers: cotangents of the region tensors (M19 Phase 2)
+  auto isParamMaterial = [&](const std::string& name) {
+    for (const auto& p : ps)
+      if (p.kind == Param::Kind::Material && p.material == name) return true;
+    return false;
+  };
   auto onLayer = [](const Param& p, std::size_t k) {
     return p.layer == k || std::find(p.layers.begin(), p.layers.end(), k) != p.layers.end();
   };
@@ -522,13 +544,99 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     const auto& model = *models[layer];
     if (homogeneous) {
       const Material& mat = model.material();
-      FG_REQUIRE(mat.isotropic, "gradient: anisotropic materials are not available");
-      epsBar[std::get<HomogeneousLayer>(st.layers[layer].spec).material] += Qb(0, 0).trace() + Qb(1, 1).trace() + Qb(2, 2).trace();
+      const std::string& name = std::get<HomogeneousLayer>(st.layers[layer].spec).material;
+      if (mat.isotropic) {
+        epsBar[name] += Qb(0, 0).trace() + Qb(1, 1).trace() + Qb(2, 2).trace();
+      } else {  // Q_ij = eps_ij 1
+        Mat3C& T = tensorBar.try_emplace(name, Mat3C::Zero()).first->second;
+        for (int i = 0; i < 3; ++i)
+          for (int jj = 0; jj < 3; ++jj) T(i, jj) += Qb(i, jj).size() ? Qb(i, jj).trace() : cplx(0);
+      }
       return;
     }
     detail::AdjointSlice a;
-    FG_REQUIRE(model.adjointSlice(y_um, a),
-               "gradient: layer " + std::to_string(layer) + " has no adjoint (anisotropic, FFF_B or transformed)");
+    FG_REQUIRE(model.adjointSlice(y_um, a), "gradient: layer " + std::to_string(layer) +
+                                                " has no adjoint (FFF_B with a raster normal field, 2D profile with "
+                                                "anisotropic media, or transformed)");
+    if (a.aniso) {
+      std::vector<Grid> gb;
+      adjoint::qAnisotropic(a.fac, a.grids, map, Qb, gb);
+      auto dotAll = [&](const std::vector<Grid>& d) {  // Re sum conj(gbar) d
+        double v = 0;
+        for (std::size_t m = 0; m < gb.size(); ++m) v += gridDot(gb[m], d[m]);
+        return v;
+      };
+      // region tensors of the materials that are parameters (holomorphic: real central step)
+      std::vector<std::string> done;
+      for (std::size_t k = 0; k < a.materials.size(); ++k) {
+        const std::string& name = a.materials[k];
+        if (!isParamMaterial(name) || std::find(done.begin(), done.end(), name) != done.end()) continue;
+        done.push_back(name);
+        Mat3C& T = tensorBar.try_emplace(name, Mat3C::Zero()).first->second;
+        constexpr double h = 1e-6;
+        for (int i = 0; i < 3; ++i)
+          for (int jj = 0; jj < 3; ++jj) {
+            auto tp = a.tensors, tm = a.tensors;
+            for (std::size_t r = 0; r < tp.size(); ++r)
+              if (a.materials[r] == name) {
+                tp[r](i, jj) += h;
+                tm[r](i, jj) -= h;
+              }
+            const auto gp = a.gridsFor(tp), gm = a.gridsFor(tm);
+            cplx v = 0;
+            for (std::size_t m = 0; m < gb.size(); ++m) {
+              Grid d = gp[m];
+              for (int pp = -d.Px(); pp <= d.Px(); ++pp)
+                for (int qq = -d.Pz(); qq <= d.Pz(); ++qq) d(pp, qq) = (gp[m](pp, qq) - gm[m](pp, qq)) / (2 * h);
+              v += gridInner(gb[m], d);
+            }
+            T(i, jj) += v;
+          }
+      }
+      for (std::size_t q = 0; q < ps.size(); ++q) {
+        const Param& p = ps[q];
+        if (!onLayer(p, layer)) continue;
+        if (p.kind == Param::Kind::Breakpoint) {  // jump between regions j-1 and j moves
+          const auto j0 = static_cast<std::size_t>(p.index);
+          const double x = a.breaks[j0];
+          std::vector<cplx> fl(gb.size()), fr(gb.size());
+          a.evalAt(j0 - 1, x, fl.data());
+          a.evalAt(j0, x, fr.data());
+          std::vector<Grid> d(gb.size(), Grid(Px, Pz));
+          for (std::size_t m = 0; m < gb.size(); ++m)
+            for (int pp = -Px; pp <= Px; ++pp) d[m](pp, 0) = std::exp(-I * (2 * PI * pp * x / st.dx_um)) / st.dx_um * (fl[m] - fr[m]);
+          out.grad[q] += dotAll(d);
+        } else if (p.kind == Param::Kind::ProfileShift) {  // translation: g_p -> -i p K g_p
+          std::vector<Grid> d = a.grids;
+          for (auto& g : d)
+            for (int pp = -g.Px(); pp <= g.Px(); ++pp)
+              for (int qq = -g.Pz(); qq <= g.Pz(); ++qq) g(pp, qq) *= -I * (2 * PI * pp / st.dx_um);
+          out.grad[q] += dotAll(d);
+        } else if (p.kind == Param::Kind::ProfileDepth) {  // same crossings, the normal field moves
+          const auto gp = a.gridsDepth(p.delta), gm = a.gridsDepth(-p.delta);
+          std::vector<Grid> d = gp;
+          for (std::size_t m = 0; m < d.size(); ++m)
+            for (int pp = -d[m].Px(); pp <= d[m].Px(); ++pp)
+              for (int qq = -d[m].Pz(); qq <= d[m].Pz(); ++qq) d[m](pp, qq) = (gp[m](pp, qq) - gm[m](pp, qq)) / (2 * p.delta);
+          out.grad[q] += dotAll(d);
+        } else if (p.kind == Param::Kind::Shape) {  // 2D Laurent: eps_ij = sum_k t_k,ij chi_k
+          FG_REQUIRE(a.fac == Factorization::Laurent, "gradient: shapes of anisotropic layers need the Laurent factorization");
+          const auto R0 = regionsOf(st.layers[layer].spec), Rp = regionsOf(p.plus->layers[layer].spec),
+                     Rm = regionsOf(p.minus->layers[layer].spec);
+          for (std::size_t r = 0; r < R0.size(); ++r) {
+            if (sameControlPoints(R0[r], Rp[r]) && sameControlPoints(R0[r], Rm[r])) continue;
+            const Grid dchi = adjoint::shapeDerivative(R0[r], Rp[r], Rm[r], p.delta, st.dx_um, st.dz_um, Px, Pz);
+            const Mat3C dt = a.tensors[r + 1] - a.tensors[0];
+            std::vector<Grid> d(9, Grid(Px, Pz));
+            for (int e = 0; e < 9; ++e)
+              for (int pp = -Px; pp <= Px; ++pp)
+                for (int qq = -Pz; qq <= Pz; ++qq) d[static_cast<std::size_t>(e)](pp, qq) = dt(e / 3, e % 3) * dchi(pp, qq);
+            out.grad[q] += dotAll(d);
+          }
+        }
+      }
+      return;
+    }
     adjoint::IsoGridBar g;
     switch (a.fac) {
       case Factorization::Laurent: adjoint::qLaurent(a.sc, map, Qb, g); break;
@@ -820,7 +928,13 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   for (std::size_t q = 0; q < ps.size(); ++q) {
     const Param& p = ps[q];
     if (p.kind != Param::Kind::Material) continue;
-    const cplx eb = epsBar[p.material];
+    const auto tb = tensorBar.find(p.material);
+    if (p.tensor) {  // dL = Re sum conj(Tbar_ij) dE_ij
+      if (tb != tensorBar.end()) out.grad[q] = std::real((tb->second.conjugate().cwiseProduct(p.dE)).sum());
+      continue;
+    }
+    // isotropic material in anisotropic layers: eps 1 -> trace of the tensor cotangent
+    const cplx eb = epsBar[p.material] + (tb != tensorBar.end() ? tb->second.trace() : cplx(0));
     if (!p.viaN) {
       out.grad[q] = p.comp == 0 ? eb.real() : eb.imag();
     } else {

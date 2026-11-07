@@ -561,16 +561,20 @@ $\alpha_n,\gamma_m$ (Kotangenten aus allen $M$ und den analytischen Basen der Ha
 \verb|isotropicModes|), über $k_0$ (normierte Dicken, $K_x=\lambda/d_x$) und über Einfallsvektor und
 Effizienznormierung; diese hängen von wenigen Skalaren ab und werden mit $O(n_f)$ Aufwand per zentralem
 Differenzenquotienten abgeleitet. \verb|checkpoint_every|: gespeichert werden nur jedes $k$-te Präfixprodukt, die
-Scheibendaten werden rückwärts je Abschnitt neu gerechnet (Gradient bitgleich). Nicht umgesetzt: Rückwärtsfunktionen
-auf dem GPU-Backend,
-anisotrope Materialien und FFF\_A/FFF\_B, Koordinatentransformationen und aperiodische Strukturen.
+Scheibendaten werden rückwärts je Abschnitt neu gerechnet (Gradient bitgleich). Anisotrope Materialien: Rückwärtsregel
+von \eqref{eq:QaniA}, \eqref{eq:QaniB} und Laurent bis zu den Gittern der Koeffizientenfunktionen; deren Ableitung nach
+den Regionstensoren per zentralem Differenzenquotienten der Koeffizienten (holomorph, $O(n_f)$), Kanten analytisch,
+Profiltiefe über das mitbewegte Normalenfeld; Lamellen, Profile und 2D-Querschnitte mit Laurent. Nicht umgesetzt:
+Rückwärtsfunktionen auf dem GPU-Backend, anisotrope 2D-Querschnitte mit FFF\_B (Rasterfeld von Algorithmus~NF),
+\verb|profile2d| mit anisotropen Medien, Koordinatentransformationen und aperiodische Strukturen.
 
 \subsection{Tests und Abnahme (M19)}
 \begin{itemize}[nosep]
   \item \textbf{Nach der Umsetzung (v2.11):} Rückwärtsfunktionen $10^{-6}$; Ende-zu-Ende V3, V9, V13, V15, V18
         $\le7\cdot10^{-7}$ (Laurent/Li $\le10^{-7}$), Entartung $10^{-9}$, RK $=$ RCWA $2\cdot10^{-9}$, Aufwand
         $1{,}3$--$2{,}3\times$; Messwerte in \verb|docs/validation.md|. Phase~2 (v2.12): $\lambda,\Phi,\Psi,\delta$ und
-        Superstrat/Substrat gegen Differenzenquotienten $\le2\cdot10^{-7}$ (RK $2\cdot10^{-6}$, adaptive Schritte).
+        Superstrat/Substrat gegen Differenzenquotienten $\le2\cdot10^{-7}$ (RK $2\cdot10^{-6}$, adaptive Schritte);
+        anisotrope Lamellen, Profile (Laurent, FFF\_A, FFF\_B) und 2D-Säulen (Laurent) $\le3\cdot10^{-7}$.
   \item Jede Rückwärtsfunktion: zentraler Differenzenquotient mit Zufallsmatrizen ($h=10^{-7}$, Real- und Imaginärteil),
         relative Übereinstimmung $10^{-6}$.
   \item Ende-zu-Ende je Parameterart auf V3, V9, V13, V15, V18: Adjungierte gegen Differenzenquotient mit eingefrorenem

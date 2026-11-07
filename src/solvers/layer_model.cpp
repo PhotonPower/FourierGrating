@@ -149,15 +149,37 @@ std::vector<std::vector<cplx>> anisoLineCoefficients(const std::vector<double>& 
       dx, Px);
 }
 
-/// Q blocks of an anisotropic 1D slice (Plan eq:QaniA / eq:QaniB; Laurent for comparison).
-QBlocks anisotropicQ(const std::vector<double>& br, const std::vector<Mat3C>& eps,
-                     const std::function<Vec3D(double)>& Nfun, Factorization fac, double dx,
-                     const IndexMap& map) {
+/// Grids of the anisotropic coefficient functions of a 1D slice (order as in anisoEval).
+std::vector<Grid> anisoGridsOf(const std::vector<double>& br, const std::vector<Mat3C>& eps,
+                               const std::function<Vec3D(double)>& Nfun, Factorization fac, double dx,
+                               const IndexMap& map) {
   const int Px = 2 * map.Nx(), Pz = 2 * map.Nz();
   const auto c = anisoLineCoefficients(br, eps, Nfun, fac, dx, Px);
   std::vector<Grid> g(c.size(), Grid(Px, Pz));
   for (std::size_t m = 0; m < c.size(); ++m)
     for (int p = -Px; p <= Px; ++p) g[m](p, 0) = c[m][static_cast<std::size_t>(p + Px)];
+  return g;
+}
+
+/// Adjoint description of an anisotropic 1D slice (M19 Phase 2).
+void anisoAdjointSlice(const std::vector<double>& br, const std::vector<Mat3C>& tens, std::function<Vec3D(double)> Nfun,
+                       Factorization f, double dx, const IndexMap& map, AdjointSlice& a) {
+  a.aniso = true;
+  a.fac = f;
+  a.breaks = br;
+  a.tensors = tens;
+  a.gridsFor = [br, Nfun, f, dx, map](const std::vector<Mat3C>& t) { return anisoGridsOf(br, t, Nfun, f, dx, map); };
+  a.grids = a.gridsFor(tens);
+  a.evalAt = [tens, Nfun, f](std::size_t k, double x, cplx* out) {
+    anisoEval(f, tens[k], f == Factorization::Laurent ? Vec3D(1, 0, 0) : Nfun(x), out);
+  };
+}
+
+/// Q blocks of an anisotropic 1D slice (Plan eq:QaniA / eq:QaniB; Laurent for comparison).
+QBlocks anisotropicQ(const std::vector<double>& br, const std::vector<Mat3C>& eps,
+                     const std::function<Vec3D(double)>& Nfun, Factorization fac, double dx,
+                     const IndexMap& map) {
+  auto g = anisoGridsOf(br, eps, Nfun, fac, dx, map);
   return anisoQFromGrids(fac, g, map);
 }
 
@@ -203,6 +225,7 @@ class LamellarModel final : public LayerModel {
     std::vector<double> br = l.breakpoints_um;
     if (!iso) {
       const Factorization f = fac == Factorization::Auto ? Factorization::FFF_A : fac;
+      anisoFac_ = f;
       std::vector<Mat3C> tens = tensors_;
       mapIntervals(tr.x.get(), br, tens);
       Q_ = anisotropicQ(br, tens, [](double) { return Vec3D(1, 0, 0); }, f, dx_, map);
@@ -226,7 +249,12 @@ class LamellarModel final : public LayerModel {
   double thickness_um() const override { return l_.thickness_um; }
   QBlocks Q(double) const override { return Q_; }
   bool adjointSlice(double, AdjointSlice& a) const override {
-    if (!iso_ || transformed_) return false;
+    if (transformed_) return false;
+    if (!iso_) {
+      anisoAdjointSlice(l_.breakpoints_um, tensors_, [](double) { return Vec3D(1, 0, 0); }, anisoFac_, dx_, map_, a);
+      a.materials = l_.materials;
+      return true;
+    }
     a.fac = fac_ == Factorization::Laurent ? Factorization::Laurent : Factorization::LiLamellar;
     isoGrids(l_.breakpoints_um, epsList, dx_, map_, a.sc);
     a.breaks = l_.breakpoints_um;
@@ -250,7 +278,7 @@ class LamellarModel final : public LayerModel {
   QBlocks Q_;
   NormalFieldCoefficients nn_;
   IndexMap map_;
-  Factorization fac_;
+  Factorization fac_, anisoFac_ = Factorization::FFF_A;
   bool transformed_ = false, iso_ = false;
 };
 
@@ -311,8 +339,35 @@ class ProfileModel final : public LayerModel {
   }
   Mat3C epsAt(double x, double y, double) const override { return profileValue(p_, x, dx_) > y ? tb_ : ta_; }
   bool adjointSlice(double y, AdjointSlice& a) const override {
-    if (aniso_ || xm_) return false;
+    if (xm_) return false;
     const double d = p_.depth_um;
+    if (aniso_) {
+      std::vector<double> br;
+      std::vector<bool> below;
+      profileIntervals(p_, std::clamp(y, 1e-14 * d, d * (1 - 1e-14)), dx_, br, below);
+      std::vector<Mat3C> tens;
+      for (bool b : below) {
+        tens.push_back(b ? tb_ : ta_);
+        a.materials.push_back(b ? p_.below : p_.above);
+      }
+      const Profile1DLayer p = p_;
+      const double dx = dx_;
+      auto normalOf = [dx](const Profile1DLayer& q) {
+        return [q, dx](double x) -> Vec3D {
+          const double sl = profileSlope(q, x, dx);
+          return Vec3D(-sl, 1.0, 0.0) / std::sqrt(1.0 + sl * sl);
+        };
+      };
+      anisoAdjointSlice(br, tens, normalOf(p), fac_, dx_, map_, a);
+      const Factorization f = fac_;
+      const IndexMap map = map_;
+      a.gridsDepth = [br, tens, p, dx, f, map, normalOf](double delta) {
+        Profile1DLayer q = p;
+        q.depth_um += delta;
+        return anisoGridsOf(br, tens, normalOf(q), f, dx, map);
+      };
+      return true;
+    }
     std::vector<bool> below;
     profileIntervals(p_, std::clamp(y, 1e-14 * d, d * (1 - 1e-14)), dx_, a.breaks, below);
     std::vector<cplx> ve;
@@ -593,6 +648,7 @@ class CrossSectionModel final : public LayerModel {
           for (int p = -Px; p <= Px; ++p)
             for (int q = -Pz; q <= Pz; ++q) g[static_cast<std::size_t>(e)](p, q) += d(e / 3, e % 3) * chi(p, q);
       }
+      anisoGrids_ = g;
       Q_ = anisoQFromGrids(Factorization::Laurent, g, map);
     } else {
       // exact coefficients: eps = eps_bg + sum_k (eps_k - eps_bg) chi_k (Plan eq:polygon)
@@ -627,12 +683,14 @@ class CrossSectionModel final : public LayerModel {
   double thickness_um() const override { return geo_->thickness(); }
   QBlocks Q(double) const override { return Q_; }
   bool adjointSlice(double, AdjointSlice& a) const override {
-    if (!iso_ || xm_ || zm_) return false;
+    const bool anisoLaurent = !iso_ && fac_ == Factorization::Laurent;
+    if ((!iso_ && !anisoLaurent) || xm_ || zm_) return false;  // anisotropic FFF_B: raster normal field (open)
     const int Px = 2 * map_.Nx(), Pz = 2 * map_.Nz();
     a.fac = fac_;
     a.sc = sc_;
     a.sc.normal = &nf_;
-    a.materials = matNames_;
+    a.materials.assign(1, geo_->background());
+    for (std::size_t k = 0; k < geo_->count(); ++k) a.materials.push_back(geo_->material(k));
     Grid bg(Px, Pz);  // chi_bg = 1 - sum chi_k
     bg(0, 0) = 1.0;
     a.chi.assign(1, bg);
@@ -641,6 +699,20 @@ class CrossSectionModel final : public LayerModel {
       for (int p = -Px; p <= Px; ++p)
         for (int q = -Pz; q <= Pz; ++q) a.chi[0](p, q) -= chi(p, q);
       a.chi.push_back(std::move(chi));
+    }
+    if (anisoLaurent) {  // grids eps_ij = sum_k t_k,ij chi_k (linear)
+      a.aniso = true;
+      a.tensors = tensors_;
+      a.grids = anisoGrids_;
+      const auto chi = a.chi;
+      a.gridsFor = [chi, Px, Pz](const std::vector<Mat3C>& t) {
+        std::vector<Grid> g(9, Grid(Px, Pz));
+        for (std::size_t k = 0; k < chi.size(); ++k)
+          for (int e = 0; e < 9; ++e)
+            for (int p = -Px; p <= Px; ++p)
+              for (int q = -Pz; q <= Pz; ++q) g[static_cast<std::size_t>(e)](p, q) += t[k](e / 3, e % 3) * chi[k](p, q);
+        return g;
+      };
     }
     return true;
   }
@@ -840,6 +912,7 @@ class CrossSectionModel final : public LayerModel {
   Factorization fac_ = Factorization::Auto;
   bool rank1_ = false;
   bool iso_ = false;                  // adjoint (M19): isotropic exact-coefficient path
+  std::vector<Grid> anisoGrids_;      // adjoint (M19 Phase 2): anisotropic Laurent grids eps_ij
   SliceCoefficients sc_;
   std::vector<std::string> matNames_;  // background, regions
   mutable bool nfReady_ = false;

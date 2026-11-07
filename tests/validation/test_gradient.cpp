@@ -391,3 +391,58 @@ TEST(M19_Gradient, CheckpointEveryIsBitIdentical) {
     }
   }
 }
+
+// M19 Phase 2: anisotropic media. Lamellae (Laurent, FFF_A, FFF_B): tensor entries, breakpoints, an isotropic
+// material of the same layer, thickness, wavelength; homogeneous film: principal values and Euler angles;
+// sinus profile (FFF_A, FFF_B): depth, shift, Euler angle; 2D pillar (Laurent): radius and tensor entry.
+TEST(M19_Gradient, Anisotropic) {
+  const json co = {{"eps_tensor",
+                    {{{2.6, 0.05}, {0.0, 0.0}, {0.3, -0.02}}, {{0.0, 0.0}, {2.4, 0.04}, {0.0, 0.0}}, {{-0.3, 0.02}, {0.0, 0.0}, {2.9, 0.06}}}}};
+  const json lnb = {{"eps_principal", {4.98, 4.98, 4.6}}, {"euler_deg", {20, 70, 10}}};
+  json lam{{"dimension", "1D"},
+           {"truncation", {{"Nx", 8}}},
+           {"period_um", {{"x", 1.0}}},
+           {"incidence", {{"lambda_um", 0.6328}, {"phi_deg", 20}, {"psi_deg", 15}, {"delta_deg", 30}}},
+           {"materials", {{"air", {{"n", 1.0}}}, {"glass", {{"n", 1.5}}}, {"bar", {{"n", {1.8, 0.05}}}}, {"co", co}, {"lnb", lnb}}},
+           {"superstrate", "air"},
+           {"substrate", "glass"},
+           {"layers", json::array({json{{"type", "homogeneous"}, {"thickness_um", 0.12}, {"material", "lnb"}},
+                                   json{{"type", "lamellar1d"},
+                                        {"thickness_um", 0.3},
+                                        {"breakpoints_um", {0.0, 0.3, 0.55, 1.0}},
+                                        {"materials", {"bar", "co", "air"}}}})}};
+  const auto obj = objective({{'R', -1, 0, 1.0}, {'T', 0, 0, 0.5}, {'R', 0, 0, -0.3}});
+  for (const char* fac : {"laurent", "FFF_A", "FFF_B"}) {
+    lam["layers"][1]["factorization"] = fac;
+    check(lam, obj,
+          {"/materials/co/eps_tensor/0/0/0", "/materials/co/eps_tensor/0/2/1", "/materials/co/eps_tensor/2/0/0",
+           "/layers/1/breakpoints_um/1", "/layers/1/breakpoints_um/2", "/materials/bar/n/0", "/layers/1/thickness_um",
+           "/materials/lnb/eps_principal/2", "/materials/lnb/euler_deg/1", "/incidence/lambda_um"},
+          1e-6, fac);
+  }
+  json prof{{"dimension", "1D"},
+            {"truncation", {{"Nx", 8}}},
+            {"period_um", {{"x", 1.0}}},
+            {"incidence", {{"lambda_um", 0.6328}, {"phi_deg", 20}, {"psi_deg", 10}, {"delta_deg", 45}}},
+            {"rcwa", {{"slices", 8}}},
+            {"materials", {{"air", {{"n", 1.0}}}, {"glass", {{"n", 1.5}}}, {"lnb", lnb}}},
+            {"superstrate", "air"},
+            {"substrate", "glass"},
+            {"layers", json::array({json{{"type", "profile1d"},
+                                         {"shape", "sinus"},
+                                         {"depth_um", 0.2},
+                                         {"x0_um", 0.1},
+                                         {"below", "lnb"},
+                                         {"above", "air"}}})}};
+  for (const char* fac : {"FFF_A", "FFF_B"}) {
+    prof["layers"][0]["factorization"] = fac;
+    check(prof, objective({{'R', -1, 0, 1.0}, {'T', 1, 0, 0.3}}),
+          {"/layers/0/depth_um", "/layers/0/x0_um", "/materials/lnb/euler_deg/0", "/materials/lnb/eps_principal/0"}, 1e-6,
+          fac);
+  }
+  json pil = pillars2D("laurent", true);
+  pil["materials"]["pillar"] = co;
+  check(pil, objective({{'R', 0, 0, 1.0}, {'T', -1, 0, 0.7}}),
+        {"/layers/0/regions/0/circle/radius_um", "/layers/0/regions/0/circle/center_um/0", "/materials/pillar/eps_tensor/0/2/0"},
+        1e-6, "pillar aniso");
+}

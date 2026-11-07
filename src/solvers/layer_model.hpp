@@ -2,6 +2,8 @@
 // Units: x, y in micrometres (y relative to the layer bottom); Q blocks in normalized form.
 #pragma once
 
+#include <functional>
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -30,6 +32,16 @@ struct AdjointSlice {
   std::vector<fourier::CoefficientGrid> chi;
   std::vector<double> breaks;
   std::shared_ptr<const LayerModel> keep;  ///< keeps the section model of sc.normal alive (sectioned layers)
+  // anisotropic slices (M19 Phase 2): grids of the coefficient functions in the order of adjoint::qAnisotropic
+  bool aniso = false;
+  std::vector<fourier::CoefficientGrid> grids;
+  std::vector<Mat3C> tensors;  ///< per region (order of materials)
+  /// grids for other region tensors (same geometry)
+  std::function<std::vector<fourier::CoefficientGrid>(const std::vector<Mat3C>&)> gridsFor;
+  /// 1D layers: coefficient functions of region k at x (moving jumps)
+  std::function<void(std::size_t, double, cplx*)> evalAt;
+  /// profiles: grids for the depth a + delta at the same crossings (only the normal field moves)
+  std::function<std::vector<fourier::CoefficientGrid>(double)> gridsDepth;
 };
 
 class LayerModel {

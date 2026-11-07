@@ -200,6 +200,9 @@ Abweichung Adjungierte gegen Differenzenquotient der Vorwärtsrechnung (h = 1e-6
 | RK (Lamellen, Sinusprofil) | Dicke, Kante, n | ≤ 9e-7 (der Quotient sieht andere adaptive Schritte); RK = RCWA ≤ 2e-9 |
 | V18-Typ Kegelstumpf, Schnittschicht (analytisch) / CAD-Körper | oberer Radius | 1e-9 / 8e-9 |
 | Phase 2: konische Lamellen, Gold-Sinus (verlustbehaftetes Substrat), 2D-Säulen | λ, φ, ψ, δ, n Superstrat, n Substrat (Re, Im) | ≤ 3e-8, λ der 2D-Säulen 1,8e-7 |
+| Phase 2: anisotrope Lamellen (Laurent, FFF_A, FFF_B) | ε-Tensoreinträge (Re, Im), Kanten, isotropes Material derselben Schicht, Dicke, λ; homogener Film: Hauptwerte, Euler-Winkel | ≤ 2e-8, Euler-Winkel bei Laurent 8e-7 (Gradient 1,5e-6) |
+| Phase 2: anisotropes Sinusprofil (FFF_A, FFF_B) | Tiefe, Verschiebung, Euler-Winkel, Hauptwert | ≤ 3e-7 (Verschiebung ≈ 0: Translation) |
+| Phase 2: anisotrope 2D-Säule (Laurent) | Radius, Tensoreintrag | 4e-11 / 4e-8 |
 | Phase 2: RK (Lamellen) | λ, φ, n Superstrat/Substrat | ≤ 1,7e-6 (der Quotient sieht andere adaptive Schritte) |
 
 Aufwand (2D, N = 3, Laurent, 5 Parameter): Gradient = 1,3 × Vorwärtsrechnung (gemessen 1,3–2,3); die Kosten
@@ -210,5 +213,8 @@ von 0,178 auf 0,337; als Test in der Python-CI, die PyTorch, JAX und scipy insta
 Präfixprodukt, die Scheibendaten werden rückwärts je Abschnitt neu gerechnet (Aufwand: eine zusätzliche
 Vorwärtsrechnung der Scheiben). Phase 2 (λ, Winkel, Superstrat/Substrat): Kotangenten von α, γ aus allen M und den Basen der Halbräume, von k₀ aus
 den Dicken; Einfallsvektor und Effizienznormierung (wenige Skalare, O(n_f)) per lokalem zentralem
-Differenzenquotienten. Offen: Rückwärtsfunktionen über das GPU-Backend, anisotrope Materialien,
-FFF_A/FFF_B.
+Differenzenquotienten. Anisotrope Scheiben: Rückwärtsregel der Faktorisierung (Laurent, FFF_A, FFF_B) bis zu den
+Gittern der Koeffizientenfunktionen; deren Ableitung nach den Regionstensoren per zentralem Differenzenquotienten der
+1D-Koeffizienten (holomorph, ohne O(n³)), Kanten analytisch, Profilverschiebung als Translation, Profiltiefe über das
+mitbewegte Normalenfeld. Offen: Rückwärtsfunktionen über das GPU-Backend, anisotrope 2D-Querschnitte mit FFF_B
+(Rasterfeld), `profile2d` mit anisotropen Medien.
