@@ -16,6 +16,8 @@
 - Gradienten nach λ, Winkeln und Superstrat/Substrat auch mit Koordinatentransformation; Rückwärtsregel der
   Propagationsmatrix nach dichten A, G.
 - Gradienten in `profile2d`-Schichten (isotrop und anisotrop): Materialien, `depth_um`, `x0_um`, `z0_um`.
+- Plan v2.13: Spezifikation der Gradienten aperiodischer Strukturen (Streuflüsse oben/unten, Modenleistungen;
+  Stufen A–C).
 - V20f: Reziprozität der Streuamplituden (Winkelspektrum des Streufeldes, 5e-2 bei L = 8 µm).
 - Python-CI mit PyTorch, JAX und scipy; NURBS-Beispiel als Test.
 

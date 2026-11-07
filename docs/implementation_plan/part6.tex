@@ -579,9 +579,57 @@ Basen der Halbräume über die Eigenvektor-Rückwärtsregel, Kotangenten von $A,
 Umrechnungsmatrizen \eqref{eq:ct_rayleigh}, \eqref{eq:ct_inc} nach $k_0\alpha_0$, $k_0\gamma_0$ per zentralem
 Differenzenquotienten. \verb|profile2d| (isotrop und anisotrop): Materialien und Tiefe; die Scheiben behalten ihre
 relative Höhe, es bewegt sich das analytische Normalenfeld; Verschiebungen $x_0$, $z_0$ als Translation aller Gitter
-der Scheibe. Nicht umgesetzt: Rückwärtsfunktionen auf dem GPU-Backend, aperiodische Strukturen. Anisotrope
+der Scheibe. Nicht umgesetzt: Rückwärtsfunktionen auf dem GPU-Backend, aperiodische Strukturen (Spezifikation in
+Abschnitt~\ref{sec:adj_aperiodic}). Anisotrope
 2D-Querschnitte mit FFF\_B (v2.12): Rückwärtsregel \eqref{eq:QaniB} bis zu den Gittern, Materialparameter als
 Richtungsableitung der Gitter, Formparameter über die Faltung mit den glatten Faktoren plus Rasteranteil.
+
+\subsection{Gradienten aperiodischer Strukturen (v2.13)}\label{sec:adj_aperiodic}
+Mit PML (M18) gibt es keine Beugungsordnungen; Zielgrößen sind die Ausgaben von Abschnitt~\ref{sec:pml}. Die Zielfunktion
+wird erweitert:
+\begin{equation}
+  L=\sum_k w_k\,e_k+\sum_s w_s\,P_s+\sum_j\big(w^r_j\,|r_j|^2+w^t_j\,|t_j|^2\big),\qquad s\in\{\text{oben},\text{unten}\},
+  \label{eq:obj_aperiodic}
+\end{equation}
+$P_s$ die normierten Streuflüsse \verb|scattering.up|/\verb|down|, $|r_j|^2,|t_j|^2$ die Leistungen der geführten Moden
+bei modalem Einfall. Beugungsordnungen und Streugrößen schließen sich aus (Fehlermeldung bei Mischung).
+Achtung: $P_{\text{oben}}$, $P_{\text{unten}}$ hängen einzeln von der Fenstergröße ab, nur oben $+$ unten $+$ seitlich nicht.
+{\footnotesize\begin{verbatim}
+struct ScatterRef { enum Kind { Up, Down, Lateral, Absorbed } kind; };          // Lateral, Absorbed: Stufe C
+struct ModeRef { char side = 'R'; int index = 0; };                              // |r_j|^2 bzw. |t_j|^2
+struct Objective { std::vector<std::pair<OrderRef, double>> weights;
+                   std::vector<std::pair<ScatterRef, double>> scattering;
+                   std::vector<std::pair<ModeRef, double>> modes; };
+// Python: {("scattering", "up"): 1.0, ("mode", "R", 0): -1.0}; JSON-Pointer der Parameter wie bisher
+\end{verbatim}}
+\textbf{Stufe A (Normaleinfall, Totalfeldformulierung; modaler Einfall).} Ohne Quellterm. Normaleinfall:
+$P_{\text{oben}}=q_W(\Psi_{\uparrow}(b-b_{\text{bg}}))/S_{\text{inc}}$, $P_{\text{unten}}=-q_W(\Psi^{\text{sub}}_{\downarrow}(t-t_{\text{bg}}))/S_{\text{inc}}$
+mit dem Fensterfluss $q_W(F)=\frac12\operatorname{Re}(\dots)$ (quadratische Form mit der Fenstermatrix $W$, wie
+\verb|planeFlux|). Die Kotangenten $\bar b=\partial L/\partial b$, $\bar t$ (Konvention oben) gehen durch die S-Matrix des
+Stapels wie bei den Wirkungsgraden; $\bar b_{\text{bg}}=-\bar b$, $\bar t_{\text{bg}}=-\bar t$ durch die des
+Hintergrundstapels (\verb|backgroundStack|, gleiche Transformation und gleiches $N$), mit demselben Treiber als zweiter
+Durchlauf. Geometrieparameter wirken nur auf den Stapel (Strukturen reichen nicht in die PML), Material-, Dicken- und
+globale Parameter auf beide. $S_{\text{inc}}$, $W$ und die Halbraumbasen hängen nur von $\lambda$ und den Halbräumen ab:
+Ableitung wie in Phase~2 (Eigenvektor-Rückwärtsregel, Skalare per zentralem Differenzenquotienten). Modaler Einfall:
+$r_j,t_j$ sind Einträge der S-Matrix in der Modenbasis der strukturierten Halbräume; $|r_j|^2$ hängt nicht von Phase und
+Skalierung der Eigenvektoren ab, also gilt die Eigenvektor-Rückwärtsregel; die Auswahl der geführten Moden
+(Kriterien in Abschnitt~\ref{sec:pml}) bleibt fest (Wechsel der Auswahl $\Rightarrow$ $L$ unstetig, nicht abgeleitet).
+
+\textbf{Stufe B (Streufeldformulierung, schräger Einfall).} Abgetastet wird das Streufeld knapp über und unter dem
+Stapel; Kotangenten der Feldkoeffizienten dort. Rückwärts durch die Verkettung mit Quellvektoren (Formeln für $u,v$ in
+der Umsetzung von M18; Rückwärtsregeln aus den Primitiven Produkt und Inverse), die partikulären Lösungen je Scheibe
+($g=\Psi^{-1}F_p$, Eigenvektor-Rückwärtsregel) und die Quelle $\sigma=(M-M_{\text{bg}})F_{\text{bg}}$:
+$\bar M\mathrel{+}=\bar\sigma F_{\text{bg}}^H$, $\bar F_{\text{bg}}=(M-M_{\text{bg}})^H\bar\sigma$, mit der
+Entwicklung $T_{mn}$ der Blochbasis. $F_{\text{bg}}$ (Airy, $N=0$, vier Exponentialmoden je Schicht) hängt von
+$\lambda$, Winkeln und den Hintergrundmaterialien ab: analytisch rückwärts oder, da nur $O(1)$ Skalare, per zentralem
+Differenzenquotienten. RK: das erweiterte System $(F;1)$ ist eine lineare ODE mit der erweiterten Matrix, die
+vorhandene Rückwärtsregel des RK-Schritts gilt unverändert. Der Gradient folgt dem Pfad der Vorwärtsrechnung
+(Resonanzfall RK mit Warnung: RK-Gradient).
+
+\textbf{Stufe C (optional, später):} seitlicher Streufluss und Absorption; beide brauchen die Felder im Schichtinneren an
+den Gauß-Knoten der Seiten, also die Rückwärtsregel der Feldrekonstruktion (Nahfeld). Bis dahin: Fehlermeldung.
+
+\textbf{Nicht differenzierbar:} PML-Breite, $\beta$ und Fenster (numerische Hilfsgrößen; Fehlermeldung).
 
 \subsection{Tests und Abnahme (M19)}
 \begin{itemize}[nosep]
@@ -599,6 +647,12 @@ Richtungsableitung der Gitter, Formparameter über die Faltung mit den glatten F
   \item Entartung: Normaleinfall auf symmetrisches Lamellengitter, Gradient endlich und $=$ Differenzenquotient.
   \item RK- und RCWA-Gradient stimmen im Grenzwert überein (Lamellen: $10^{-8}$).
   \item Aufwand: Gradient $\le5\times$ Vorwärtsrechnung (gemessen, Bericht).
+  \item Aperiodisch (v2.13): Steg und Graben (1D, V20b/V20c) und Kontaktloch (2D, V20g) mit PML gegen den zentralen
+        Differenzenquotienten der vollen Vorwärtsrechnung: $P_{\text{oben}}$, $P_{\text{unten}}$ nach Dicke, Kanten bzw.\
+        Radius, $n$ (Re, Im) von Struktur- und Hintergrundmaterial, $\lambda$; Stufe A bei Normaleinfall, Stufe B
+        schräg (RCWA und RK); modaler Einfall $|r_0|^2$, $|t_0|^2$ am abrupten Wellenleiterende (V20c). Toleranz $10^{-6}$
+        relativ; der Gradient ändert sich mit PML-Breite und $\beta$ höchstens um die Diskretisierungsänderung der
+        Vorwärtsrechnung (Bericht).
   \item Beispiel 1 (\verb|examples/python/optimize_littrow.py|): binäres Gitter, Littrow $-1$. Ordnung, Dicke und Tastgrad
         mit \verb|scipy.optimize.minimize| (L-BFGS-B); Optimum $=$ Rasterscan-Optimum auf $10^{-3}$.
   \item Beispiel 2 (\verb|examples/python/optimize_nurbs_pillar.py|): Kontrollpunkte einer \verb|Contour2D|-Säule mit
