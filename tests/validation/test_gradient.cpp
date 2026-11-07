@@ -660,3 +660,84 @@ TEST(M19_Gradient, Profile2DShift) {
     check(cfg, obj, ps, 1e-6, (std::string("aniso ") + fac).c_str());
   }
 }
+
+// Plan v2.13, Stufe A: aperiodic ridge with PML at normal incidence (total-field formulation): scattered powers up
+// and down through the window; the stack and the background stack (film, materials, thickness).
+namespace {
+json pmlRidge() {
+  return json{{"dimension", "1D"},
+              {"truncation", {{"Nx", 24}}},
+              {"period_um", {{"x", 3.0}}},
+              {"incidence", {{"lambda_um", 0.6328}, {"phi_deg", 0}, {"psi_deg", 0}, {"delta_deg", 40}}},
+              {"materials", {{"air", {{"n", 1.0}}}, {"glass", {{"n", 1.5}}}, {"bar", {{"n", {1.8, 0.05}}}}, {"film", {{"eps", 2.2}}}}},
+              {"superstrate", "air"},
+              {"substrate", "glass"},
+              {"layers", json::array({json{{"type", "homogeneous"}, {"thickness_um", 0.12}, {"material", "film"}},
+                                      json{{"type", "lamellar1d"},
+                                           {"thickness_um", 0.3},
+                                           {"breakpoints_um", {0.0, 1.2, 1.75, 3.0}},
+                                           {"materials", {"air", "bar", "air"}}}})},
+              {"aperiodic", {{"pml", {{"x", {{"width_um", 0.5}, {"beta", 1.5}}}}}, {"excitation", "plane_wave"}}}};
+}
+fg::Objective scatterObjective(double up, double down) {
+  fg::Objective o;
+  o.scattering = {{fg::ScatterRef{fg::ScatterRef::Kind::Up}, up}, {fg::ScatterRef{fg::ScatterRef::Kind::Down}, down}};
+  return o;
+}
+}  // namespace
+
+TEST(M19_Gradient, AperiodicNormalIncidence) {
+  const json cfg = pmlRidge();
+  const auto obj = scatterObjective(1.0, 0.6);
+  {  // the value is the solver's
+    const auto c = fg::io::parseConfig(cfg.dump());
+    const auto r = fg::makeSolver(c.solver)->solve(c.stack, c.scan.front());
+    const auto g = fg::gradient(cfg.dump(), obj, {});
+    EXPECT_NEAR(g.result.scattering.up, r.scattering.up, 1e-12 * std::abs(r.scattering.up));
+    EXPECT_NEAR(g.result.scattering.down, r.scattering.down, 1e-12 * std::abs(r.scattering.down));
+    EXPECT_NEAR(g.value, r.scattering.up + 0.6 * r.scattering.down, 1e-12);
+  }
+  const std::vector<std::string> ps{"/layers/1/thickness_um", "/layers/0/thickness_um", "/layers/1/breakpoints_um/1",
+                                    "/layers/1/breakpoints_um/2", "/materials/bar/n/0", "/materials/bar/n/1",
+                                    "/materials/film/eps"};
+  check(cfg, obj, ps, 1e-6, "pml ridge laurent");
+  json li = cfg;
+  li["layers"][1]["factorization"] = "li_lamellar";
+  check(li, scatterObjective(-0.4, 1.0), ps, 1e-6, "pml ridge li");
+  // global parameters: wavelength, polarization, superstrate/substrate (numerical bases with PML, S_inc)
+  check(cfg, obj, {"/incidence/lambda_um", "/incidence/delta_deg", "/incidence/psi_deg", "/materials/glass/n",
+                   "/materials/air/n"},
+        1e-6, "pml ridge global");
+}
+
+// Stufe A: RK in the same ridge.
+TEST(M19_Gradient, AperiodicRK) {
+  json rk = pmlRidge();
+  rk["solver"] = "rk";
+  rk["rk"] = {{"tol", 1e-8}};
+  rk["truncation"]["Nx"] = 12;
+  check(rk, scatterObjective(1.0, 0.6), {"/layers/1/breakpoints_um/1", "/materials/film/eps"}, 2e-6, "pml ridge rk");
+}
+
+// Stufe A: 2D contact hole (round hole in a film, PML in x and z, Laurent): radius, centre, film index (stack and
+// background) and thickness.
+TEST(M19_Gradient, AperiodicContactHole) {
+  const json hole{{"dimension", "2D"},
+                  {"truncation", {{"Nx", 4}, {"Nz", 4}}},
+                  {"period_um", {{"x", 2.0}, {"z", 2.0}}},
+                  {"incidence", {{"lambda_um", 0.6328}, {"phi_deg", 0}, {"psi_deg", 0}, {"delta_deg", 30}}},
+                  {"materials", {{"air", {{"n", 1.0}}}, {"glass", {{"n", 1.5}}}, {"film", {{"n", {2.1, 0.01}}}}}},
+                  {"superstrate", "air"},
+                  {"substrate", "glass"},
+                  {"layers", json::array({json{{"type", "contour2d"},
+                                               {"thickness_um", 0.3},
+                                               {"background", "film"},
+                                               {"regions", json::array({json{{"material", "air"},
+                                                                             {"circle", {{"center_um", {1.05, 0.98}}, {"radius_um", 0.25}}}}})},
+                                               {"factorization", "laurent"}}})},
+                  {"aperiodic", {{"pml", {{"x", {{"width_um", 0.3}, {"beta", 1.0}}}, {"z", {{"width_um", 0.3}, {"beta", 1.0}}}}}}}};
+  check(hole, scatterObjective(1.0, 0.5),
+        {"/layers/0/regions/0/circle/radius_um", "/layers/0/regions/0/circle/center_um/0", "/materials/film/n/0",
+         "/materials/film/n/1", "/layers/0/thickness_um"},
+        1e-6, "contact hole");
+}

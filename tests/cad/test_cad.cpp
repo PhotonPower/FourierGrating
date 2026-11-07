@@ -497,7 +497,8 @@ TEST(CAD_M19, FrustumTopRadiusGradient) {
     return base(json::array({cadLayer(s, json::array({{{"name", "Frustum"}, {"material", "pillar"}}}))}), "rcwa", 3);
   };
   const auto c = fg::io::parseConfig(cfgFor(r1).dump());
-  const fg::Objective obj{{{fg::OrderRef{'R', 0, 0}, 1.0}, {fg::OrderRef{'T', -1, 0}, 0.7}}};
+  fg::Objective obj;
+  obj.weights = {{fg::OrderRef{'R', 0, 0}, 1.0}, {fg::OrderRef{'T', -1, 0}, 0.7}};
   const auto g = fg::gradient(c.solver, c.stack, c.scan.front(), obj,
                               {fg::StackParameter{"r1", [&](double d) { return fg::io::parseConfig(cfgFor(r1 + d).dump()).stack; }}});
   auto L = [&](double top) {

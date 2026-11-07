@@ -20,6 +20,7 @@
 #include "fg/fourier/contour.hpp"
 #include "fg/core/error.hpp"
 #include "fg/core/prof.hpp"
+#include "fg/geometry/aperiodic.hpp"
 #include "fg/geometry/normal_field.hpp"
 #include "fg/io/config.hpp"
 #include "fg/physics/efficiency.hpp"
@@ -292,8 +293,24 @@ GradientResult gradient(const std::string& configJson, const Wavelength& wl, con
 }
 
 namespace {
+/// Objectives on the amplitudes (aperiodic structures, Plan section "Gradienten aperiodischer Strukturen"):
+/// the up-going amplitudes b above and the down-going t below the stack (in X) with the bases and the incident
+/// amplitudes; returns L and the cotangents bbar, tbar and fills the outputs of res.
+struct AmpContext {
+  const ModeBasis& ref;
+  const ModeBasis& sub;
+  const VecC& aIn;
+};
+/// Cotangents of the objective through the bases and the incident amplitudes directly (global parameters).
+struct AmpBar {
+  MatC refPsi, subPsi;
+  VecC aIn;
+};
+using AmpObjective =
+    std::function<double(const AmpContext&, const VecC& b, const VecC& t, VecC& bbar, VecC& tbar, AmpBar& ab, Result& res)>;
 GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wavelength& wl,
-                            const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps);
+                            const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps,
+                            const AmpObjective* ampObj = nullptr);
 }  // namespace
 
 GradientResult gradient(const SolverOptions& opt, const Stack& stack, const Wavelength& wl, const Objective& objective,
@@ -336,12 +353,26 @@ GradientResult gradientWithModels(const std::string& configJson, const io::RunCo
 
 namespace {
 
+GradientResult aperiodicGradient(const Stack& st, const SolverOptions& opt, const Wavelength& wl,
+                                 const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps);
+
 GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wavelength& wl,
-                            const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps) {
+                            const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps,
+                            const AmpObjective* ampObj) {
+  if (st.aperiodic.enabled && !ampObj) return aperiodicGradient(st, opt, wl, prebuilt, objective, std::move(ps));
   FG_PROF_SCOPE("gradient");
-  FG_REQUIRE(!st.aperiodic.enabled && !opt.scatteredField, "gradient: aperiodic structures are not available");
+  FG_REQUIRE(!opt.scatteredField, "gradient: the scattered-field formulation is not available (Plan v2.13, Stufe B)");
+  FG_REQUIRE(ampObj || (objective.scattering.empty() && objective.modes.empty()),
+             "gradient: scattering and mode objectives need an aperiodic structure");
   const ResolvedTransform tr = resolveTransform(st);
-  const bool trans = tr.active();
+  // PML zones of aperiodic structures (Plan section "M18"): a complex coordinate stretching, f(X) = X where
+  // structures lie
+  std::shared_ptr<const PmlMap> pmlX, pmlZ;
+  if (st.aperiodic.enabled) {
+    if (st.aperiodic.x.active()) pmlX = std::make_shared<const PmlMap>(st.dx_um, st.aperiodic.x.width_um, st.aperiodic.x.beta);
+    if (st.aperiodic.z.active()) pmlZ = std::make_shared<const PmlMap>(st.dz_um, st.aperiodic.z.width_um, st.aperiodic.z.beta);
+  }
+  const bool trans = tr.active() || pmlX || pmlZ;
   detail::applyThreadSettings(opt);
   const IndexMap map(opt.Nx, st.is2D() ? opt.Nz : 0);
   const int nf = map.size(), nh = 2 * nf, c = map.center();
@@ -388,7 +419,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       FG_REQUIRE(!moves, "gradient: a geometry parameter moves the breakpoints of coordinate_transform (\"auto\"); "
                          "give breakpoints_um explicitly");
     }
-    tc = detail::transformedCoordinates(map, tr, nullptr, nullptr, al, ga, inc.alpha0 * k0, inc.gamma0 * k0);
+    tc = detail::transformedCoordinates(map, tr, pmlX.get(), pmlZ.get(), al, ga, inc.alpha0 * k0, inc.gamma0 * k0);
     refPhys = std::move(ref);
     subPhys = std::move(sm);
     ref = detail::numericBasis(buildPropagationMatrix(homogeneousIsotropicQ(sup.eps, nf), tc.A, tc.G));
@@ -554,7 +585,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       if (o.side == side && o.n == n && o.m == m) w += v;
     return w;
   };
-  for (int r = 0; r < nf; ++r) {
+  for (int r = 0; r < nf && !ampObj; ++r) {
     const auto [n, m] = map.orders(r);
     const auto ro = planeWaveOrder(sup.eps, al(r), ga(r), rp.beta(r), +1, bP(r), bP(nf + r));
     if (ro.propagating) {
@@ -588,8 +619,15 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   }
   res.absorption = 1.0 - sumR - sumT;
   res.diag.energyBalance = sumR + sumT;
-  const VecC bbarP = bbar, tbarP = tbar;  // physical amplitudes (global parameters with a transformation)
-  if (trans) {  // back to the amplitudes in X
+  AmpBar ampBar;
+  if (ampObj) {  // aperiodic: objective on the amplitudes in X
+    out.value = (*ampObj)(AmpContext{ref, sm, a_in}, b, t, bbar, tbar, ampBar, res);
+    res.absorption = 0;
+    res.diag.energyBalance = 1.0;
+  }
+  // physical amplitudes (global parameters with a transformation); aperiodic: none
+  const VecC bbarP = ampObj ? VecC(VecC::Zero(nh)) : bbar, tbarP = ampObj ? VecC(VecC::Zero(nh)) : tbar;
+  if (trans && !ampObj) {  // back to the amplitudes in X
     bbar = Tb.adjoint() * bbar;
     tbar = Tt.adjoint() * tbar;
   }
@@ -1056,6 +1094,9 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       adjoint::accumulate(refPsib, MatC(MatC::Zero(4 * nf, 4 * nf)));
       adjoint::accumulate(refPsiInvb, MatC(MatC::Zero(4 * nf, 4 * nf)));
       adjoint::accumulate(smPsib, MatC(MatC::Zero(4 * nf, 4 * nf)));
+      if (ampBar.refPsi.size()) refPsib += ampBar.refPsi;
+      if (ampBar.subPsi.size()) smPsib += ampBar.subPsi;
+      if (ampBar.aIn.size()) ainb += ampBar.aIn;
       auto cwT = [&](const MatC& T, const VecC& v) { return detail::componentwise(T, v); };
       auto outer = [&](MatC& Tbr, const VecC& yb, const VecC& x) {  // T applied per component: Tbar += sum yb_k x_k^H
         for (int k = 0; k < 4; ++k) Tbr += yb.segment(k * nf, nf) * x.segment(k * nf, nf).adjoint();
@@ -1113,7 +1154,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       adjoint::isotropicModes(sub.eps, al, ga, subPhys, MatC(), subPhysPsiInvb, VecC(), epsSubb, alb, gab);
       // A = C_x diag(alpha), G = C_z diag(gamma)
       VecC ones = VecC::Ones(nf);
-      const auto c1 = detail::transformedCoordinates(map, tr, nullptr, nullptr, ones, ones, inc.alpha0 * k0, inc.gamma0 * k0);
+      const auto c1 = detail::transformedCoordinates(map, tr, pmlX.get(), pmlZ.get(), ones, ones, inc.alpha0 * k0, inc.gamma0 * k0);
       if (Abar.size())
         for (int cc = 0; cc < nf; ++cc)
           for (int r = 0; r < nf; ++r) {
@@ -1122,7 +1163,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
           }
       // conversions at kx0 = k0 alpha0, kz0 = k0 gamma0 (central differences of the 1D matrices)
       auto convDot = [&](double hx, double hz) {
-        const auto cp = detail::transformedCoordinates(map, tr, nullptr, nullptr, ones, ones, inc.alpha0 * k0 + hx,
+        const auto cp = detail::transformedCoordinates(map, tr, pmlX.get(), pmlZ.get(), ones, ones, inc.alpha0 * k0 + hx,
                                                        inc.gamma0 * k0 + hz);
         return std::real((toPhysb.adjoint() * cp.toPhys).trace() + (fromPhysb.adjoint() * cp.fromPhys).trace());
       };
@@ -1236,6 +1277,155 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   out.notes = {"RCWA slices fixed (Plan M19 \"Methode\" 1.)",
                "normal field: profiles differentiated, Algorithm NF over one raster cell, CAD sections frozen (Plan M19 "
                "\"Methode\" 2., v2.12)"};
+  return out;
+}
+
+/// Aperiodic structures, total-field formulation at normal incidence (Plan section "Gradienten aperiodischer
+/// Strukturen", Stufe A): P_up = q_W(Psi_up (b - b_bg)) / S_inc, P_down = -q_W(Psi_down (t - t_bg)) / S_inc with the
+/// window flux q_W of the solver. Three passes with the same driver: the background stack forward (b_bg, t_bg), the
+/// stack with bbar = dL/db, and the background stack with bbar_bg = -bbar (only material and thickness parameters
+/// act on it; the structures do not reach into the zones).
+GradientResult aperiodicGradient(const Stack& st, const SolverOptions& opt, const Wavelength& wl,
+                                 const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps) {
+  FG_PROF_SCOPE("gradient.aperiodic");
+  const AperiodicSpec& ap = st.aperiodic;
+  FG_REQUIRE(objective.weights.empty(), "gradient: aperiodic structures have no diffraction orders (use scattering)");
+  FG_REQUIRE(objective.modes.empty(), "gradient: guided-mode objectives are not available yet (Plan v2.13, Stufe A)");
+  FG_REQUIRE(!ap.modeExcitation && !st.superstrateStructure && !st.substrateStructure,
+             "gradient: structured superstrate/substrate are not available yet (Plan v2.13, Stufe A)");
+  const Material& sup = st.material(st.superstrate);
+  const IncidentWave inc0 = makeIncidence(std::sqrt(sup.eps.real()), wl.phi, wl.psi, wl.delta);
+  FG_REQUIRE(!opt.scatteredField && (!ap.x.active() || std::abs(inc0.alpha0) < 1e-12) &&
+                 (!ap.z.active() || std::abs(inc0.gamma0) < 1e-12),
+             "gradient: oblique incidence on a PML axis (scattered-field formulation) is not available yet (Plan v2.13, "
+             "Stufe B)");
+  double wUp = 0, wDown = 0;
+  for (const auto& [r, w] : objective.scattering) {
+    FG_REQUIRE(r.kind == ScatterRef::Kind::Up || r.kind == ScatterRef::Kind::Down,
+               "gradient: lateral scattering and absorption are not differentiated (Plan v2.13, Stufe C)");
+    (r.kind == ScatterRef::Kind::Up ? wUp : wDown) += w;
+  }
+  const Stack bg = backgroundStack(st);
+  // layer k of the stack -> layer of the background stack (layers of zero thickness are dropped)
+  std::vector<std::size_t> bgLayer(st.layers.size(), kNone);
+  {
+    std::size_t n = 0;
+    for (std::size_t k = 0; k < st.layers.size(); ++k) {
+      Stack one = st;
+      one.layers = {st.layers[k]};
+      if (!std::holds_alternative<Profile1DLayer>(st.layers[k].spec)) bgLayer[k] = n;
+      n += backgroundStack(one).layers.size();
+    }
+    FG_REQUIRE(n == bg.layers.size(), "gradient: background stack mismatch");
+  }
+  std::vector<Param> psBg;
+  std::vector<std::size_t> toBg;  // index into ps of each background parameter
+  for (std::size_t q = 0; q < ps.size(); ++q) {
+    const Param& p = ps[q];
+    switch (p.kind) {
+      case Param::Kind::Material:
+      case Param::Kind::Lambda:
+      case Param::Kind::Psi:
+      case Param::Kind::Delta:
+        psBg.push_back(p);
+        toBg.push_back(q);
+        break;
+      case Param::Kind::Phi:
+        throw Error("gradient: phi of an aperiodic structure at normal incidence (phi != 0 switches to the "
+                    "scattered-field formulation, Plan v2.13 Stufe B)");
+      case Param::Kind::Thickness:
+        FG_REQUIRE(bgLayer[p.layer] != kNone, "gradient: thickness of a profile layer with PML");
+        psBg.push_back(p);
+        psBg.back().layer = bgLayer[p.layer];
+        toBg.push_back(q);
+        break;
+      case Param::Kind::Breakpoint:
+      case Param::Kind::Shape:
+        break;  // inside the physical region: the background does not move
+      default:
+        throw Error("gradient: this parameter is not available for aperiodic structures yet (Plan v2.13)");
+    }
+  }
+  // window flux q_W(F) = 1/2 Re(Hx^H W Ez - Hz^H W Ex) over the physical region and its cotangent (as the solver)
+  const IndexMap map(opt.Nx, st.is2D() ? opt.Nz : 0);
+  const int nf = map.size(), nh = 2 * nf;
+  const double x0 = ap.x.active() ? ap.x.width_um : 0.0, x1 = ap.x.active() ? st.dx_um - ap.x.width_um : st.dx_um;
+  const double z0 = ap.z.active() ? ap.z.width_um : 0.0, z1 = ap.z.active() ? st.dz_um - ap.z.width_um : st.dz_um;
+  auto axisInt = [](double kappa, double a, double b) -> cplx {
+    if (std::abs(kappa) * (b - a) < 1e-12) return b - a;
+    return (std::exp(I * (kappa * b)) - std::exp(I * (kappa * a))) / (I * kappa);
+  };
+  MatC W(nf, nf);
+  for (int r = 0; r < nf; ++r)
+    for (int cc = 0; cc < nf; ++cc) {
+      const auto [nr, mr] = map.orders(r);
+      const auto [nc, mc] = map.orders(cc);
+      W(r, cc) = axisInt(2 * PI * (nc - nr) / st.dx_um, x0, x1);
+      if (st.is2D()) W(r, cc) *= axisInt(2 * PI * (mc - mr) / st.dz_um, z0, z1);
+    }
+  const double area = (x1 - x0) * (st.is2D() ? z1 - z0 : 1.0);
+  auto flux = [&](const VecC& F) {
+    return 0.5 * std::real(F.segment(2 * nf, nf).dot(W * F.segment(nf, nf)) - F.segment(3 * nf, nf).dot(W * F.head(nf)));
+  };
+  auto fluxBar = [&](const VecC& F) {  // dq = Re(Fbar^H dF), W Hermitian
+    VecC Fb(4 * nf);
+    Fb.head(nf) = -0.5 * (W * F.segment(3 * nf, nf));
+    Fb.segment(nf, nf) = 0.5 * (W * F.segment(2 * nf, nf));
+    Fb.segment(2 * nf, nf) = 0.5 * (W * F.segment(nf, nf));
+    Fb.segment(3 * nf, nf) = -0.5 * (W * F.head(nf));
+    return Fb;
+  };
+  // pass 1: background amplitudes
+  VecC bb, tb;
+  const AmpObjective record = [&](const AmpContext&, const VecC& b, const VecC& t, VecC& bbar, VecC& tbar, AmpBar&,
+                                  Result&) {
+    bb = b;
+    tb = t;
+    bbar.setZero();
+    tbar.setZero();
+    return 0.0;
+  };
+  gradientCore(bg, opt, wl, nullptr, Objective{}, {}, &record);
+  // pass 2: the stack
+  VecC cb, ct;
+  const AmpObjective scatter = [&](const AmpContext& cx, const VecC& b, const VecC& t, VecC& bbar, VecC& tbar, AmpBar& ab,
+                                   Result& res) {
+    const VecC Fi = cx.ref.Psi.leftCols(nh) * cx.aIn;
+    const double qi = flux(Fi), Sinc = std::abs(qi) / area;
+    const MatC up = cx.ref.Psi.rightCols(nh), down = cx.sub.Psi.leftCols(nh);
+    const VecC Fu = up * (b - bb), Fd = down * (t - tb);
+    ScatteringResult& sc = res.scattering;
+    sc.present = true;
+    sc.up = flux(Fu) / Sinc;
+    sc.down = -flux(Fd) / Sinc;
+    const double L = wUp * sc.up + wDown * sc.down;
+    const VecC Fub = (wUp / Sinc) * fluxBar(Fu), Fdb = (-wDown / Sinc) * fluxBar(Fd);
+    bbar = up.adjoint() * Fub;
+    tbar = down.adjoint() * Fdb;
+    cb = bbar;
+    ct = tbar;
+    // through the bases and S_inc = |q_W(Psi_down a_in)| / area (wavelength, polarization, half spaces)
+    const VecC Fib = (-L / Sinc * (qi < 0 ? -1.0 : 1.0) / area) * fluxBar(Fi);
+    ab.refPsi = MatC::Zero(4 * nf, 4 * nf);
+    ab.subPsi = MatC::Zero(4 * nf, 4 * nf);
+    ab.refPsi.rightCols(nh) += Fub * (b - bb).adjoint();
+    ab.refPsi.leftCols(nh) += Fib * cx.aIn.adjoint();
+    ab.subPsi.leftCols(nh) += Fdb * (t - tb).adjoint();
+    ab.aIn = cx.ref.Psi.leftCols(nh).adjoint() * Fib;
+    return L;
+  };
+  GradientResult out = gradientCore(st, opt, wl, prebuilt, objective, std::move(ps), &scatter);
+  out.notes.push_back("aperiodic: lateral scattering and absorption are not computed by the gradient");
+  // pass 3: the background stack with the negated cotangents
+  if (!psBg.empty()) {
+    const AmpObjective back = [&](const AmpContext&, const VecC&, const VecC&, VecC& bbar, VecC& tbar, AmpBar&, Result&) {
+      bbar = -cb;
+      tbar = -ct;
+      return 0.0;
+    };
+    const GradientResult g = gradientCore(bg, opt, wl, nullptr, Objective{}, std::move(psBg), &back);
+    for (std::size_t i = 0; i < toBg.size(); ++i) out.grad[toBg[i]] += g.grad[i];
+  }
   return out;
 }
 

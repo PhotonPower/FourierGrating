@@ -173,12 +173,22 @@ auto timed(F&& f, double& seconds) {
 
 /// Incidence of a Simulation call: given values in degrees / micrometres, the rest from the
 /// first scan point of the configuration.
-/// Objective / cotangents from (side, n, m, weight) tuples (M19).
+/// Objective / cotangents from (side, n, m, weight) tuples (M19); aperiodic structures (Plan v2.13): side
+/// "S:UP", "S:DOWN", "S:LATERAL", "S:ABSORBED" (scattered powers) and "M:R", "M:T" with n = mode index.
 fg::Objective objective(const std::vector<std::tuple<std::string, int, int, double>>& w) {
   fg::Objective o;
   for (const auto& [side, n, m, v] : w) {
-    if (side != "R" && side != "T" && side != "r" && side != "t") throw fg::Error("objective: side must be 'R' or 'T'");
-    o.weights.push_back({fg::OrderRef{static_cast<char>(std::toupper(side[0])), n, m}, v});
+    using K = fg::ScatterRef::Kind;
+    if (side == "S:UP" || side == "S:DOWN" || side == "S:LATERAL" || side == "S:ABSORBED") {
+      const K k = side == "S:UP" ? K::Up : side == "S:DOWN" ? K::Down : side == "S:LATERAL" ? K::Lateral : K::Absorbed;
+      o.scattering.push_back({fg::ScatterRef{k}, v});
+    } else if (side == "M:R" || side == "M:T") {
+      o.modes.push_back({fg::ModeRef{side[2], n}, v});
+    } else if (side == "R" || side == "T" || side == "r" || side == "t") {
+      o.weights.push_back({fg::OrderRef{static_cast<char>(std::toupper(side[0])), n, m}, v});
+    } else {
+      throw fg::Error("objective: side must be 'R' or 'T' (or a scattering / mode key)");
+    }
   }
   return o;
 }

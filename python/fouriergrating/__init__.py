@@ -193,13 +193,23 @@ def near_field(cfg: Config) -> dict:
     return d
 
 
-#: objective / cotangents: {("R", n, m): weight} or [(side, n, m, weight), ...]
-Objective = Union[Mapping[Tuple[str, int, int], float], Sequence[Tuple[str, int, int, float]]]
+#: objective / cotangents: {("R", n, m): weight} or [(side, n, m, weight), ...]; aperiodic structures (Plan v2.13):
+#: {("scattering", "up"): w, ("scattering", "down"): w, ("mode", "R", j): w, ("mode", "T", j): w}
+Objective = Union[Mapping[tuple, float], Sequence[tuple]]
 
 
 def _weights(objective: "Objective") -> list:
-    items = objective.items() if isinstance(objective, Mapping) else [((s, n, m), w) for s, n, m, w in objective]
-    return [(str(s).upper(), int(n), int(m), float(w)) for (s, n, m), w in items]
+    items = objective.items() if isinstance(objective, Mapping) else [(tuple(t[:-1]), t[-1]) for t in objective]
+    out = []
+    for key, w in items:
+        if str(key[0]).lower() == "scattering":
+            out.append(("S:" + str(key[1]).upper(), 0, 0, float(w)))
+        elif str(key[0]).lower() == "mode":
+            out.append(("M:" + str(key[1]).upper(), int(key[2]), 0, float(w)))
+        else:
+            s, n, m = key
+            out.append((str(s).upper(), int(n), int(m), float(w)))
+    return out
 
 
 class Simulation:
@@ -223,8 +233,9 @@ class Simulation:
                        delta_deg: Optional[float] = None) -> Tuple[float, np.ndarray]:
         """L = sum of weight * efficiency and its gradient with respect to numbers of the configuration
         (JSON pointers as in ``set_parameter``) by the discrete adjoint (M19). ``objective``: a mapping
-        ``{("R", -1, 0): 1.0, ...}`` or a sequence of ``(side, n, m, weight)``. Cost: about 1.3 to 2.5
-        forward solves, independent of the number of parameters."""
+        ``{("R", -1, 0): 1.0, ...}`` or a sequence of ``(side, n, m, weight)``; aperiodic structures:
+        ``{("scattering", "up"): 1.0, ("scattering", "down"): 0.5}``. Cost: about 1.3 to 2.5 forward solves,
+        independent of the number of parameters."""
         d = self._sim.value_and_grad(_weights(objective), list(params), lambda_um, phi_deg, psi_deg, delta_deg)
         self.last_result = _result(d["result"])
         return float(d["value"]), np.asarray(d["grad"], dtype=float)

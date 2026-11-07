@@ -16,10 +16,26 @@ struct OrderRef {
   int n = 0, m = 0;
 };
 
+/// A scattering output of an aperiodic structure (Plan eq:obj_aperiodic): power of the scattered field up
+/// or down through the window; Lateral and Absorbed are not differentiated yet (Plan v2.13, Stufe C).
+struct ScatterRef {
+  enum class Kind { Up, Down, Lateral, Absorbed };
+  Kind kind = Kind::Up;
+};
+
+/// Power |r_j|^2 (side 'R') or |t_j|^2 (side 'T') of guided mode j at modal excitation.
+struct ModeRef {
+  char side = 'R';
+  int index = 0;
+};
+
 /// L = sum of weight * efficiency (Plan "Schnittstellen"); as cotangents of the efficiencies the same
-/// object defines a vector-Jacobian product.
+/// object defines a vector-Jacobian product. Aperiodic structures (Plan eq:obj_aperiodic): scattered
+/// powers and guided-mode powers instead of efficiencies.
 struct Objective {
   std::vector<std::pair<OrderRef, double>> weights;
+  std::vector<std::pair<ScatterRef, double>> scattering;
+  std::vector<std::pair<ModeRef, double>> modes;
 };
 
 struct GradientResult {
@@ -34,8 +50,9 @@ struct GradientResult {
 /// (sinus profile), "/layers/k/regions/..." and "/layers/k/inclusions/..." (any number of a contour2d or
 /// polygon2d geometry: control points, weights, circle centre and radius, vertices), "/materials/name/n",
 /// "/materials/name/n/0|1" (real/imaginary part), "/materials/name/eps", "/eps/0|1". RCWA and RK, periodic
-/// structures without coordinate transformation; the slices, the RK step sequence and the raster normal
-/// field of 2D cross-sections are fixed (profile normal fields are differentiated).
+/// structures (also with coordinate transformations) and aperiodic ones with PML at normal incidence
+/// (Objective::scattering); the slices, the RK step sequence are fixed, the raster normal field of 2D
+/// cross-sections moves over one raster cell (profile normal fields are differentiated).
 GradientResult gradient(const std::string& configJson, const Objective& objective, const std::vector<std::string>& params);
 
 /// A geometric parameter given by the structure at theta + delta (C++ API): the regions of contour2d,

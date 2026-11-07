@@ -173,5 +173,6 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
     2D-Querschnitte mit FFF_B; Rasterfeld NF bei Formparametern mitbewegt (eingefroren war die Verschiebung eines
     Kreises um 50–150 % falsch, nur der Radius war geprüft); λ, Winkel, Superstrat/Substrat auch mit ASR (≤ 2,5e-7);
     `profile2d` isotrop und anisotrop (Materialien, Tiefe, Verschiebungen x0/z0; ≤ 3e-7)
-  - Offen (Phase 2): GPU-Rückwärtsfunktionen, aperiodische Strukturen (PML; Plan v2.13: Stufe A Normaleinfall und
-    modaler Einfall, Stufe B Streufeldformulierung, Stufe C seitlicher Fluss/Absorption optional)
+    Aperiodisch (Plan v2.13, Stufe A): Streuflüsse oben/unten bei Normaleinfall, alle Parameterarten außer φ (≤ 3e-7)
+  - Offen (Phase 2): GPU-Rückwärtsfunktionen; aperiodisch: modaler Einfall (Stufe A), Streufeldformulierung (Stufe B),
+    seitlicher Fluss/Absorption (Stufe C, optional)

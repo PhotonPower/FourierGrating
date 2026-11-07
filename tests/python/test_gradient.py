@@ -51,6 +51,38 @@ def test_vjp_equals_gradient_and_list_form():
     assert sim.last_result.efficiency("R", -1) > 0
 
 
+PML_CFG = {
+    "dimension": "1D", "truncation": {"Nx": 16}, "period_um": {"x": 3.0},
+    "incidence": {"lambda_um": 0.6328, "phi_deg": 0, "delta_deg": 40},
+    "materials": {"air": {"n": 1.0}, "glass": {"n": 1.5}, "bar": {"n": [1.8, 0.05]}},
+    "superstrate": "air", "substrate": "glass",
+    "layers": [{"type": "lamellar1d", "thickness_um": 0.3, "breakpoints_um": [0.0, 1.2, 1.75, 3.0],
+                "materials": ["air", "bar", "air"]}],
+    "aperiodic": {"pml": {"x": {"width_um": 0.5, "beta": 1.5}}},
+}
+
+
+def test_aperiodic_scattering_objective():
+    """Plan v2.13, Stufe A: scattered powers of an aperiodic ridge (PML, normal incidence)."""
+    obj = {("scattering", "up"): 1.0, ("scattering", "down"): 0.5}
+    params = ["/layers/0/thickness_um", "/materials/bar/n/0"]
+    sim = fg.Simulation(PML_CFG)
+    value, grad = sim.value_and_grad(obj, params)
+    sc = sim.solve().scattering
+    assert value == pytest.approx(sc["up"] + 0.5 * sc["down"], rel=1e-12)
+    for k, p in enumerate(params):
+        h = 1e-6
+        vals = []
+        for sgn in (1, -1):
+            s = fg.Simulation(PML_CFG)
+            s.set_parameter(p, (0.3 if k == 0 else 1.8) + sgn * h)
+            r = s.solve().scattering
+            vals.append(r["up"] + 0.5 * r["down"])
+        assert grad[k] == pytest.approx((vals[0] - vals[1]) / (2 * h), rel=1e-6)
+    v = sim.vjp([("scattering", "up", 1.0), ("scattering", "down", 0.5)], params)
+    np.testing.assert_allclose(v, grad, rtol=1e-12)
+
+
 def test_unsupported_parameter_raises():
     sim = fg.Simulation(CFG)
     with pytest.raises(Exception):
