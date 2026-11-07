@@ -497,14 +497,22 @@ TEST(M19_Gradient, CoordinateTransform) {
   lam["coordinate_transform"]["x"]["breakpoints_um"] = "auto";
   check(lam, obj, {"/layers/1/thickness_um", "/materials/bar/n/1"}, 1e-6, "asr auto");
   EXPECT_THROW(fg::gradient(lam.dump(), obj, {"/layers/1/breakpoints_um/1"}), fg::Error);
-  EXPECT_THROW(fg::gradient(lam.dump(), obj, {"/incidence/lambda_um"}), fg::Error);
+  // global parameters: numerical half-space bases (eigenvector adjoint), A, G, conversions at k0 alpha0
+  lam["coordinate_transform"]["x"]["breakpoints_um"] = {0.3, 0.75};
+  lam["materials"]["glass"] = {{"n", {1.5, 0.01}}};
+  check(lam, obj,
+        {"/incidence/lambda_um", "/incidence/phi_deg", "/incidence/psi_deg", "/incidence/delta_deg", "/materials/air/n",
+         "/materials/glass/n/0", "/materials/glass/n/1"},
+        1e-6, "asr global");
+  lam["materials"]["glass"] = {{"n", 1.5}};
   // RK
   json rk = lam;
   rk["coordinate_transform"]["x"]["breakpoints_um"] = {0.3, 0.75};
   rk["solver"] = "rk";
   rk["rk"] = {{"tol", 1e-10}};
   rk["truncation"] = {{"Nx", 6}};
-  check(rk, obj, {"/layers/1/thickness_um", "/layers/1/breakpoints_um/1", "/materials/bar/n/1"}, 1e-6, "asr rk");
+  check(rk, obj, {"/layers/1/thickness_um", "/layers/1/breakpoints_um/1", "/materials/bar/n/1", "/incidence/lambda_um"}, 1e-6,
+        "asr rk");
   // sinus profile (Laurent exact, FFF_rig with the normal field at f(X))
   json prof{{"dimension", "1D"},
             {"truncation", {{"Nx", 8}}},
@@ -523,7 +531,8 @@ TEST(M19_Gradient, CoordinateTransform) {
                                          {"above", "air"},
                                          {"factorization", "laurent"}}})}};
   const auto pobj = objective({{'R', -1, 0, 1.0}, {'T', 1, 0, 0.3}});
-  check(prof, pobj, {"/layers/0/depth_um", "/layers/0/x0_um", "/materials/bar/n/0"}, 1e-6, "asr sinus laurent");
+  check(prof, pobj, {"/layers/0/depth_um", "/layers/0/x0_um", "/materials/bar/n/0", "/incidence/lambda_um", "/incidence/phi_deg"},
+        1e-6, "asr sinus laurent");
   prof["layers"][0]["factorization"] = "FFF_rig";
   check(prof, pobj, {"/layers/0/depth_um", "/layers/0/x0_um", "/materials/bar/n/0"}, 1e-5, "asr sinus FFF_rig");
   // anisotropic lamella and profile
@@ -555,7 +564,9 @@ TEST(M19_Gradient, CoordinateTransform) {
   const auto obj2 = objective({{'R', 0, 0, 1.0}, {'T', -1, 0, 0.7}, {'T', 0, -1, 0.4}});
   json circ = pillars2D("laurent", true);
   circ["coordinate_transform"] = ct2;
-  check(circ, obj2, {"/layers/0/regions/0/circle/radius_um", "/layers/0/regions/0/circle/center_um/0", "/materials/pillar/n"},
+  check(circ, obj2,
+        {"/layers/0/regions/0/circle/radius_um", "/layers/0/regions/0/circle/center_um/0", "/materials/pillar/n",
+         "/incidence/lambda_um", "/incidence/phi_deg", "/incidence/psi_deg", "/materials/air/n", "/materials/glass/n"},
         1e-6, "asr circle");
   json poly = pillars2D("laurent", false);
   poly["coordinate_transform"] = ct2;

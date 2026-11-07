@@ -89,7 +89,7 @@ bleibt verlustfrei) und Substrat, sowie `incidence/lambda_um`, `phi_deg`, `psi_d
 Scanpunkt, auch wenn dort eine Liste steht). Anisotrope Materialien: `.../eps_tensor/i/j/0|1`, `.../eps_principal/k`, `.../euler_deg/k` in
 homogenen Schichten, Lamellen und Profilen (Laurent, `FFF_A`, `FFF_B`) und in 2D-Querschnitten mit Laurent. RCWA
 und RK, periodische Gitter, auch mit Koordinatentransformation (ASR; Geometrieparameter dann nur mit expliziten
-`breakpoints_um`, λ, Winkel und Superstrat/Substrat nicht); anisotrope 2D-Querschnitte auch mit `FFF_B`;
+`breakpoints_um`); anisotrope 2D-Querschnitte auch mit `FFF_B`;
 `profile2d` mit anisotropen Medien und aperiodische Strukturen: noch nicht (Fehlermeldung). Festgelegt (Plan M19 „Methode“): Scheibenzerlegung und RK-Schrittfolge; das Normalenfeld der Profile wird
 mitdifferenziert, das Rasterfeld der 2D-Querschnitte (Algorithmus NF, FFF) bei Formparametern über eine Rasterzelle
 (je Formparameter zwei NF-Rechnungen; unterhalb der Rasterzelle ist die Vorwärtsrechnung nicht glatt), das der

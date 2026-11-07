@@ -13,6 +13,8 @@
 - Gradienten mit Koordinatentransformationen (ASR, x und z): Lamellen, Profile, 2D-Querschnitte, anisotrop, RK;
   `detail::transformedCoordinates` gemeinsam mit dem Löser.
 - Gradienten anisotroper 2D-Querschnitte mit FFF_B.
+- Gradienten nach λ, Winkeln und Superstrat/Substrat auch mit Koordinatentransformation; Rückwärtsregel der
+  Propagationsmatrix nach dichten A, G.
 - V20f: Reziprozität der Streuamplituden (Winkelspektrum des Streufeldes, 5e-2 bei L = 8 µm).
 - Python-CI mit PyTorch, JAX und scipy; NURBS-Beispiel als Test.
 

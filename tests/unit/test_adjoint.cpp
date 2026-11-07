@@ -330,6 +330,22 @@ TEST(Adjoint, PropagationMatrixAlphaGamma) {
   expectClose(adj, fd([&](double t) { return re(K, fg::buildPropagationMatrix(Q, VecC(al + t * da), VecC(ga + t * dg))); }));
 }
 
+// M19 Phase 2: transformed coordinates, M with dense A, G w.r.t. A and G.
+TEST(Adjoint, PropagationMatrixDenseAG) {
+  const int n = 4;
+  fg::QBlocks Q;
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j)
+      Q(i, j) = random(n, n, 0.3) + (i == j ? MatC(2.5 * MatC::Identity(n, n)) : MatC(MatC::Zero(n, n)));
+  const MatC A = random(n, n, 0.5), G = random(n, n, 0.5), dA = random(n, n), dG = random(n, n);
+  const MatC K = random(4 * n, 4 * n);
+  fg::QBlocks Qb;
+  MatC Ab, Gb;
+  fg::adjoint::propagationMatrix(Q, A, G, K, Qb, Ab, Gb);
+  const double adj = std::real((Ab.adjoint() * dA).trace() + (Gb.adjoint() * dG).trace());
+  expectClose(adj, fd([&](double t) { return re(K, fg::buildPropagationMatrix(Q, MatC(A + t * dA), MatC(G + t * dG))); }));
+}
+
 // M19 Phase 2: analytic basis of an isotropic medium (superstrate, substrate) w.r.t. eps, alpha, gamma.
 TEST(Adjoint, IsotropicModes) {
   const int n = 5;

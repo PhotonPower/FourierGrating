@@ -248,6 +248,19 @@ void propagationMatrix(const QBlocks& Q, const VecC& alpha, const VecC& gamma, c
 void propagationMatrix(const QBlocks& Q, const MatC& A, const MatC& G, const MatC& Mbar, QBlocks& Qbar) {
   propagationBackward(Q, A, G, Mbar, Qbar);
 }
+void propagationMatrix(const QBlocks& Q, const MatC& A, const MatC& G, const MatC& Mbar, QBlocks& Qbar, MatC& Abar,
+                       MatC& Gbar) {
+  const int n = Q.nf();
+  if (Abar.size() == 0) Abar = MatC::Zero(n, n);
+  if (Gbar.size() == 0) Gbar = MatC::Zero(n, n);
+  propagationBackward(Q, A, G, Mbar, Qbar, &Abar, &Gbar);
+  // rows 3, 4: i A G, -i A A, i G G, -i G A (C = s X Y: Xbar += conj(s) Cbar Y^H, Ybar += conj(s) X^H Cbar)
+  const cplx i1 = I;
+  const MatC m20 = std::conj(i1) * Mbar.block(2 * n, 0, n, n), m21 = std::conj(-i1) * Mbar.block(2 * n, n, n, n);
+  const MatC m30 = std::conj(i1) * Mbar.block(3 * n, 0, n, n), m31 = std::conj(-i1) * Mbar.block(3 * n, n, n, n);
+  Abar += m20 * G.adjoint() + m21 * A.adjoint() + A.adjoint() * m21 + G.adjoint() * m31;
+  Gbar += A.adjoint() * m20 + m30 * G.adjoint() + G.adjoint() * m30 + m31 * A.adjoint();
+}
 void propagationMatrix(const QBlocks& Q, const VecC& alpha, const VecC& gamma, const MatC& Mbar, QBlocks& Qbar,
                        VecC& alphabar, VecC& gammabar) {
   const int n = Q.nf();

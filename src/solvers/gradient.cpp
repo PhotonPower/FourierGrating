@@ -556,6 +556,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   }
   res.absorption = 1.0 - sumR - sumT;
   res.diag.energyBalance = sumR + sumT;
+  const VecC bbarP = bbar, tbarP = tbar;  // physical amplitudes (global parameters with a transformation)
   if (trans) {  // back to the amplitudes in X
     bbar = Tb.adjoint() * bbar;
     tbar = Tt.adjoint() * tbar;
@@ -569,9 +570,8 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     global = global || p.kind == Param::Kind::Lambda || p.kind == Param::Kind::Phi || p.kind == Param::Kind::Psi ||
              p.kind == Param::Kind::Delta ||
              (p.kind == Param::Kind::Material && (p.material == st.superstrate || p.material == st.substrate));
-  FG_REQUIRE(!trans || !global,
-             "gradient: wavelength, angles and superstrate/substrate with coordinate_transform are not available");
   VecC alb = VecC::Zero(nf), gab = VecC::Zero(nf);
+  MatC Abar, Gbar;  // transformed coordinates: cotangents of A = [[1/f']] alpha, G = [[1/g']] gamma
   MatC refPsib, refPsiInvb, smPsib;
   double dLdlnk0 = 0;  // all normalized thicknesses scale with k0
   // material cotangents (complex, Plan convention) per material name
@@ -889,7 +889,8 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     // dL/dM of a node or slice -> Q (own parameters) and alpha, gamma (global parameters)
     auto fromMbar = [&](const QBlocks& Q, const MatC& Mb, double y_um, bool homogeneous) {
       QBlocks Qb;
-      if (trans) adjoint::propagationMatrix(Q, tc.A, tc.G, Mb, Qb);
+      if (trans && global) adjoint::propagationMatrix(Q, tc.A, tc.G, Mb, Qb, Abar, Gbar);
+      else if (trans) adjoint::propagationMatrix(Q, tc.A, tc.G, Mb, Qb);
       else if (global) adjoint::propagationMatrix(Q, al, ga, Mb, Qb, alb, gab);
       else adjoint::propagationMatrix(Q, al, ga, Mb, Qb);
       if (own) fromQbar(e.layer, homogeneous, y_um, Qb);
@@ -996,14 +997,97 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     MatC Xb;
     adjoint::fromTransfer(MatC(ref.PsiInv * sm.Psi), E0bar, Xb);
     adjoint::accumulate(refPsiInvb, MatC(Xb * sm.Psi.adjoint()));
-    smPsib = ref.PsiInv.adjoint() * Xb;
+    adjoint::accumulate(smPsib, MatC(ref.PsiInv.adjoint() * Xb));
     cplx epsSupb = 0, epsSubb = 0;
-    adjoint::isotropicModes(sup.eps, al, ga, ref, refPsib, refPsiInvb, VecC(), epsSupb, alb, gab);
-    adjoint::isotropicModes(sub.eps, al, ga, sm, smPsib, MatC(), VecC(), epsSubb, alb, gab);
     // amplitudes b = S12 a_in, t = S22 a_in
-    const VecC ainb = Plast.S12.adjoint() * bbar + Plast.S22.adjoint() * tbar;
+    VecC ainb = Plast.S12.adjoint() * bbar + Plast.S22.adjoint() * tbar;
+    double dLdkx0 = 0, dLdkz0 = 0;  // transformed coordinates: conversions eq:ct_rayleigh / eq:ct_inc at k0 alpha0
+    if (trans) {
+      MatC refPhysPsib = MatC::Zero(4 * nf, 4 * nf), refPhysPsiInvb = MatC::Zero(4 * nf, 4 * nf),
+           subPhysPsiInvb = MatC::Zero(4 * nf, 4 * nf), toPhysb = MatC::Zero(nf, nf), fromPhysb = MatC::Zero(nf, nf);
+      adjoint::accumulate(refPsib, MatC(MatC::Zero(4 * nf, 4 * nf)));
+      adjoint::accumulate(refPsiInvb, MatC(MatC::Zero(4 * nf, 4 * nf)));
+      adjoint::accumulate(smPsib, MatC(MatC::Zero(4 * nf, 4 * nf)));
+      auto cwT = [&](const MatC& T, const VecC& v) { return detail::componentwise(T, v); };
+      auto outer = [&](MatC& Tbr, const VecC& yb, const VecC& x) {  // T applied per component: Tbar += sum yb_k x_k^H
+        for (int k = 0; k < 4; ++k) Tbr += yb.segment(k * nf, nf) * x.segment(k * nf, nf).adjoint();
+      };
+      // reflected: bP = (PsiInv_phys toPhys(Psi_up b))_up
+      {
+        const VecC x = ref.Psi.rightCols(nh) * b, y = cwT(tc.toPhys, x);
+        VecC z = VecC::Zero(2 * nh);
+        z.tail(nh) = bbarP;
+        refPhysPsiInvb += z * y.adjoint();
+        const VecC yb = refPhys.PsiInv.adjoint() * z;
+        outer(toPhysb, yb, x);
+        const VecC xb = cwT(MatC(tc.toPhys.adjoint()), yb);
+        refPsib.rightCols(nh) += xb * b.adjoint();
+      }
+      // transmitted: tP = (PsiInv_phys,sub toPhys(Psi_sub,down t))_down
+      {
+        const VecC x = sm.Psi.leftCols(nh) * t, y = cwT(tc.toPhys, x);
+        VecC z = VecC::Zero(2 * nh);
+        z.head(nh) = tbarP;
+        subPhysPsiInvb += z * y.adjoint();
+        const VecC yb = subPhys.PsiInv.adjoint() * z;
+        outer(toPhysb, yb, x);
+        const VecC xb = cwT(MatC(tc.toPhys.adjoint()), yb);
+        smPsib.leftCols(nh) += xb * t.adjoint();
+      }
+      // incidence: a_in = mask (PsiInv_sup fromPhys(Psi_phys,down a_ph))_down
+      VecC aphb;
+      {
+        const VecC v = refPhys.Psi.leftCols(nh) * a_ph, w = cwT(tc.fromPhys, v);
+        VecC z = VecC::Zero(2 * nh);
+        for (int q = 0; q < nh; ++q)
+          if (!(ref.lambda(q).real() > 1e-8)) z(q) = ainb(q);
+        refPsiInvb += z * w.adjoint();
+        const VecC wb = ref.PsiInv.adjoint() * z;
+        outer(fromPhysb, wb, v);
+        const VecC vb = cwT(MatC(tc.fromPhys.adjoint()), wb);
+        refPhysPsib.leftCols(nh) += vb * a_ph.adjoint();
+        aphb = refPhys.Psi.leftCols(nh).adjoint() * vb;
+      }
+      ainb = aphb;  // the physical incident amplitudes
+      // numerical bases of the half spaces (Plan section "M17"): eigenvectors of M_sup, M_sub in X
+      auto halfSpace = [&](const ModeBasis& mb, MatC Psib, const MatC& PsiInvb, cplx eps, cplx& epsb) {
+        Psib -= mb.PsiInv.adjoint() * PsiInvb * mb.PsiInv.adjoint();  // PsiInv = Psi^-1
+        std::vector<int> cls(static_cast<std::size_t>(2 * nh), 0);
+        for (int q = nh; q < 2 * nh; ++q) cls[static_cast<std::size_t>(q)] = 1;
+        const MatC Mb = adjoint::eig(mb.Psi, mb.lambda, Psib, VecC(), cls);
+        QBlocks Qb;
+        adjoint::propagationMatrix(homogeneousIsotropicQ(eps, nf), tc.A, tc.G, Mb, Qb, Abar, Gbar);
+        epsb += Qb(0, 0).trace() + Qb(1, 1).trace() + Qb(2, 2).trace();
+      };
+      halfSpace(ref, refPsib, refPsiInvb, sup.eps, epsSupb);
+      halfSpace(sm, smPsib, MatC(MatC::Zero(4 * nf, 4 * nf)), sub.eps, epsSubb);
+      adjoint::isotropicModes(sup.eps, al, ga, refPhys, refPhysPsib, refPhysPsiInvb, VecC(), epsSupb, alb, gab);
+      adjoint::isotropicModes(sub.eps, al, ga, subPhys, MatC(), subPhysPsiInvb, VecC(), epsSubb, alb, gab);
+      // A = C_x diag(alpha), G = C_z diag(gamma)
+      VecC ones = VecC::Ones(nf);
+      const auto c1 = detail::transformedCoordinates(map, tr, nullptr, nullptr, ones, ones, inc.alpha0 * k0, inc.gamma0 * k0);
+      if (Abar.size())
+        for (int cc = 0; cc < nf; ++cc)
+          for (int r = 0; r < nf; ++r) {
+            alb(cc) += Abar(r, cc) * std::conj(c1.A(r, cc));
+            gab(cc) += Gbar(r, cc) * std::conj(c1.G(r, cc));
+          }
+      // conversions at kx0 = k0 alpha0, kz0 = k0 gamma0 (central differences of the 1D matrices)
+      auto convDot = [&](double hx, double hz) {
+        const auto cp = detail::transformedCoordinates(map, tr, nullptr, nullptr, ones, ones, inc.alpha0 * k0 + hx,
+                                                       inc.gamma0 * k0 + hz);
+        return std::real((toPhysb.adjoint() * cp.toPhys).trace() + (fromPhysb.adjoint() * cp.fromPhys).trace());
+      };
+      constexpr double hk = 1e-6;
+      if (tr.x) dLdkx0 = (convDot(hk, 0) - convDot(-hk, 0)) / (2 * hk);
+      if (tr.z) dLdkz0 = (convDot(0, hk) - convDot(0, -hk)) / (2 * hk);
+    } else {
+      adjoint::isotropicModes(sup.eps, al, ga, ref, refPsib, refPsiInvb, VecC(), epsSupb, alb, gab);
+      adjoint::isotropicModes(sub.eps, al, ga, sm, smPsib, MatC(), VecC(), epsSubb, alb, gab);
+    }
     // directional derivatives w.r.t. the scalars the bases, M and the amplitudes depend on
-    double dAlpha0 = alb.real().sum(), dGamma0 = gab.real().sum(), dKx = 0, dKz = 0;
+    double dAlpha0 = alb.real().sum() + k0 * dLdkx0, dGamma0 = gab.real().sum() + k0 * dLdkz0, dKx = 0, dKz = 0;
+    dLdlnk0 += inc.alpha0 * k0 * dLdkx0 + inc.gamma0 * k0 * dLdkz0;
     for (int r = 0; r < nf; ++r) {
       const auto [n, m] = map.orders(r);
       dKx += n * alb(r).real();
@@ -1030,12 +1114,12 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       for (int r = 0; r < nf; ++r) {
         const auto [n, m] = map.orders(r);
         if (const double w = weight('R', n, m); w != 0) {
-          const auto ro = planeWaveOrder(g.epsSup, a(r), gg(r), betaBranch(g.epsSup, a(r), gg(r)), +1, b(r), b(nf + r));
+          const auto ro = planeWaveOrder(g.epsSup, a(r), gg(r), betaBranch(g.epsSup, a(r), gg(r)), +1, bP(r), bP(nf + r));
           if (ro.propagating) v += w * ro.Sy / S;
         }
         if (!subLossless) continue;
         if (const double w = weight('T', n, m); w != 0) {
-          const auto to = planeWaveOrder(g.epsSub, a(r), gg(r), betaBranch(g.epsSub, a(r), gg(r)), -1, t(r), t(nf + r));
+          const auto to = planeWaveOrder(g.epsSub, a(r), gg(r), betaBranch(g.epsSub, a(r), gg(r)), -1, tP(r), tP(nf + r));
           if (to.propagating) v -= w * to.Sy / S;
         }
       }

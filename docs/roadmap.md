@@ -171,6 +171,5 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
     Lamellen und Profilen, Laurent in 2D-Querschnitten (≤ 3e-7); Koordinatentransformationen (ASR) mit Material-,
     Dicken- und Geometrieparametern (≤ 4e-7, RK 8e-6; Fixpunkte explizit für Geometrieparameter); anisotrope
     2D-Querschnitte mit FFF_B; Rasterfeld NF bei Formparametern mitbewegt (eingefroren war die Verschiebung eines
-    Kreises um 50–150 % falsch, nur der Radius war geprüft)
-  - Offen (Phase 2): GPU-Rückwärtsfunktionen, `profile2d` anisotrop,
-    aperiodische Strukturen (PML), λ/Winkel/Halbräume mit Transformation
+    Kreises um 50–150 % falsch, nur der Radius war geprüft); λ, Winkel, Superstrat/Substrat auch mit ASR (≤ 2,5e-7)
+  - Offen (Phase 2): GPU-Rückwärtsfunktionen, `profile2d` anisotrop, aperiodische Strukturen (PML)

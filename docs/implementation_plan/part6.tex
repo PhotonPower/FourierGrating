@@ -574,9 +574,11 @@ Koordinatentransformationen (Abschnitt M17): $M$ mit $A,G$, numerische Basen der
 physikalischen Amplituden \eqref{eq:ct_rayleigh}, einer linearen Abbildung der Amplituden in $X$. Kanten und
 Profilkreuzungen bewegen sich in $X$ mit $\mathrm{d}X/\mathrm{d}x=1/f'(X)$, 2D-Konturen über ihre abgebildeten
 Koeffizienten. Voraussetzung: die Fixpunkte der Abbildung hängen nicht vom Parameter ab (bei \verb|"auto"| folgen
-sie Kanten und Polygonecken; dann Fehlermeldung). Nicht umgesetzt: Rückwärtsfunktionen auf dem GPU-Backend,
-anisotrope 2D-Querschnitte mit FFF\_B (Rasterfeld von Algorithmus~NF), \verb|profile2d| mit anisotropen Medien,
-$\lambda$, Winkel und Halbräume mit Transformation (numerische Basen), aperiodische Strukturen. Anisotrope
+sie Kanten und Polygonecken; dann Fehlermeldung). $\lambda$, Winkel und Halbräume mit Transformation: numerische
+Basen der Halbräume über die Eigenvektor-Rückwärtsregel, Kotangenten von $A,G$ aus allen $M$, die
+Umrechnungsmatrizen \eqref{eq:ct_rayleigh}, \eqref{eq:ct_inc} nach $k_0\alpha_0$, $k_0\gamma_0$ per zentralem
+Differenzenquotienten. Nicht umgesetzt: Rückwärtsfunktionen auf dem GPU-Backend, \verb|profile2d| mit anisotropen
+Medien, aperiodische Strukturen. Anisotrope
 2D-Querschnitte mit FFF\_B (v2.12): Rückwärtsregel \eqref{eq:QaniB} bis zu den Gittern, Materialparameter als
 Richtungsableitung der Gitter, Formparameter über die Faltung mit den glatten Faktoren plus Rasteranteil.
 

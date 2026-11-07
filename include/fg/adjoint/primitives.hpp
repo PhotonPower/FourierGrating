@@ -57,6 +57,10 @@ void propagationMatrix(const QBlocks& Q, const VecC& alpha, const VecC& gamma, c
                        VecC& alphabar, VecC& gammabar);
 /// The same with dense A, G (M17).
 void propagationMatrix(const QBlocks& Q, const MatC& A, const MatC& G, const MatC& Mbar, QBlocks& Qbar);
+/// The same, also the cotangents of the dense A, G (transformed coordinates, M19 Phase 2); Abar, Gbar are added to
+/// (empty: started at zero).
+void propagationMatrix(const QBlocks& Q, const MatC& A, const MatC& G, const MatC& Mbar, QBlocks& Qbar, MatC& Abar,
+                       MatC& Gbar);
 
 /// Cotangents of the coefficient grids of an isotropic slice (Plan "Faktorisierung"); the normal field
 /// is frozen (Plan "Methode", 2.).
