@@ -630,3 +630,33 @@ TEST(M19_Gradient, Profile2D) {
   cfg["layers"][0]["factorization"] = "FFF_A";
   check(cfg, obj, {"/layers/0/depth_um", "/materials/lnb/euler_deg/0"}, 1e-6, "sinus_x aniso FFF_A");
 }
+
+// Phase 2: shifts x0/z0 of profile2d (translation of the slice grids). A single layer only changes the phases, so a
+// second, fixed egg crate below makes the efficiencies depend on the relative position.
+TEST(M19_Gradient, Profile2DShift) {
+  const json lnb = {{"eps_principal", {4.98, 4.98, 4.6}}, {"euler_deg", {20, 70, 10}}};
+  auto egg = [](double x0, double z0, const char* below, const char* above) {
+    return json{{"type", "profile2d"}, {"shape", "egg_crate"}, {"depth_um", 0.12}, {"x0_um", x0}, {"z0_um", z0},
+                {"below", below},      {"above", above},       {"factorization", "laurent"}};
+  };
+  json cfg{{"dimension", "2D"},
+           {"truncation", {{"Nx", 3}, {"Nz", 3}}},
+           {"period_um", {{"x", 0.5}, {"z", 0.6}}},
+           {"incidence", {{"lambda_um", 0.6328}, {"phi_deg", 15}, {"psi_deg", 30}, {"delta_deg", 35}}},
+           {"rcwa", {{"slices", 4}}},
+           {"materials", {{"air", {{"n", 1.0}}}, {"glass", {{"n", 1.5}}}, {"bar", {{"n", {1.8, 0.02}}}}, {"lnb", lnb}}},
+           {"superstrate", "air"},
+           {"substrate", "glass"},
+           {"layers", json::array({egg(0.07, 0.11, "bar", "air"), egg(0.0, 0.0, "glass", "bar")})}};
+  const auto obj = objective({{'R', 0, 0, 1.0}, {'T', -1, 0, 0.7}, {'T', 0, -1, 0.4}, {'R', 1, 1, 0.3}});
+  const std::vector<std::string> ps{"/layers/0/x0_um", "/layers/0/z0_um", "/layers/1/x0_um"};
+  check(cfg, obj, ps, 1e-6, "laurent");
+  for (auto& l : cfg["layers"]) l["factorization"] = "FFF_rig";
+  check(cfg, obj, ps, 1e-6, "FFF_rig");
+  cfg["layers"][0]["below"] = "lnb";
+  cfg["layers"][1]["above"] = "lnb";
+  for (const char* fac : {"FFF_A", "FFF_B"}) {
+    for (auto& l : cfg["layers"]) l["factorization"] = fac;
+    check(cfg, obj, ps, 1e-6, (std::string("aniso ") + fac).c_str());
+  }
+}

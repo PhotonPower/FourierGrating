@@ -171,6 +171,15 @@ Param resolve(const json& j, const io::RunConfig& cfg, const std::string& ptr, c
       diff(p.dnf.N[i], na.N[i], nb.N[i]);
     }
     p.hasDnf = true;
+  } else if ((f == "x0_um" || f == "z0_um") && std::holds_alternative<Profile2DLayer>(spec)) {
+    // profile2d (egg_crate, sinus_x): translation of the whole slice, g_pq -> -i (p Kx | q Kz) g_pq
+    const auto& pr = std::get<Profile2DLayer>(spec);
+    FG_REQUIRE(pr.shape != Profile2DLayer::Shape::Function, "gradient: " + f + " needs an egg_crate or sinus_x layer");
+    const ResolvedTransform tr = resolveTransform(cfg.stack);
+    FG_REQUIRE(!(f == "x0_um" ? tr.x : tr.z), "gradient: " + f + " of profile2d with a coordinate transformation in " +
+                                                  (f == "x0_um" ? "x" : "z"));
+    p.kind = Param::Kind::ProfileShift;
+    p.index = f == "x0_um" ? 0 : 1;
   } else if (f == "depth_um" || f == "x0_um") {
     const auto* pr = std::get_if<Profile1DLayer>(&spec);
     FG_REQUIRE(pr && pr->shape == Profile1DLayer::Shape::Sinus, "gradient: depth_um/x0_um need a sinus profile1d layer");
@@ -630,6 +639,13 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       for (int q = -Pz; q <= Pz; ++q) s += std::real(std::conj(gb(p, q)) * d(p, q));
     return s;
   };
+  /// d g / d shift for a translation along x (axis 0) or z (axis 1): g_pq -> -i (p Kx | q Kz) g_pq
+  auto translated = [&](Grid g, int axis) {
+    for (int pp = -g.Px(); pp <= g.Px(); ++pp)
+      for (int qq = -g.Pz(); qq <= g.Pz(); ++qq)
+        g(pp, qq) *= -I * (axis == 0 ? 2 * PI * pp / st.dx_um : 2 * PI * qq / st.dz_um);
+    return g;
+  };
   auto gridInner = [&](const Grid& gb, const Grid& chi) {  // sum gbar conj(chi)
     cplx s = 0;
     if (gb.Px() < Px || gb.Pz() < Pz) return s;
@@ -753,9 +769,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
           out.grad[q] += dotAll(d);
         } else if (p.kind == Param::Kind::ProfileShift) {  // translation: g_p -> -i p K g_p
           std::vector<Grid> d = a.grids;
-          for (auto& g : d)
-            for (int pp = -g.Px(); pp <= g.Px(); ++pp)
-              for (int qq = -g.Pz(); qq <= g.Pz(); ++qq) g(pp, qq) *= -I * (2 * PI * pp / st.dx_um);
+          for (auto& g : d) g = translated(g, p.index);
           out.grad[q] += dotAll(d);
         } else if (p.kind == Param::Kind::ProfileDepth) {  // same crossings, the normal field moves
           const auto gp = a.gridsDepth(p.delta), gm = a.gridsDepth(-p.delta);
@@ -838,7 +852,18 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
           out.grad[q] += gridDot(g.N[ii], p.dnf.N[ii]);
         }
       }
-      if (p.kind == Param::Kind::ProfileShift) {
+      if (p.kind == Param::Kind::ProfileShift && std::holds_alternative<Profile2DLayer>(st.layers[layer].spec)) {
+        // profile2d: translation of all grids of the slice (the analytic normal field moves along)
+        auto dot = [&](const Grid& gb, const Grid& cg) {
+          return cg.Px() < Px || cg.Pz() < Pz ? 0.0 : gridDot(gb, translated(cg, p.index));
+        };
+        out.grad[q] += dot(g.eps, a.sc.eps) + dot(g.invEps, a.sc.invEps);
+        if (a.sc.normal)
+          for (std::size_t ii = 0; ii < 3; ++ii) {
+            for (std::size_t kk = 0; kk < 3; ++kk) out.grad[q] += dot(g.NN[ii][kk], a.sc.normal->NN[ii][kk]);
+            out.grad[q] += dot(g.N[ii], a.sc.normal->N[ii]);
+          }
+      } else if (p.kind == Param::Kind::ProfileShift) {
         // the crossings move with the profile: dx_j / dx0 = 1, dX_j / dx0 = 1 / f'(X_j) (the period ends 0
         // and d are no crossings; the extra breaks of the map have the same material on both sides)
         for (std::size_t jj = 1; jj + 1 < a.breaks.size(); ++jj)
