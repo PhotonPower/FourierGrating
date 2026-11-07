@@ -384,3 +384,73 @@ TEST(Adjoint, SliceSMatrixReferenceBasis) {
                 return reS(K, fg::stableLayerSMatrix(m, 0.6, r));
               }));
 }
+
+// M19 Phase 2: anisotropic factorizations (Laurent tensor, FFF_A, FFF_B) w.r.t. their coefficient grids.
+TEST(Adjoint, QAnisotropic) {
+  const int N = 2;
+  const fg::IndexMap map(N, 0);
+  auto grid = [&](double scale, double mean) {
+    fg::fourier::CoefficientGrid g(2 * N, 0);
+    std::uniform_real_distribution<double> u(-1, 1);
+    for (int p = -2 * N; p <= 2 * N; ++p) g(p, 0) = scale * cplx(u(rng), u(rng)) + (p == 0 ? mean : 0.0);
+    return g;
+  };
+  using G = std::vector<fg::fourier::CoefficientGrid>;
+  auto toSc = [](fg::Factorization f, const G& g) {
+    fg::SliceCoefficients sc;
+    sc.isotropic = false;
+    auto take = [&](std::array<std::array<fg::fourier::CoefficientGrid, 3>, 3>& m, int off) {
+      for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) m[std::size_t(i)][std::size_t(j)] = g[std::size_t(off + 3 * i + j)];
+    };
+    if (f == fg::Factorization::Laurent) {
+      take(sc.epsTensor, 0);
+    } else if (f == fg::Factorization::FFF_A) {
+      take(sc.C, 0);
+      take(sc.epsC, 9);
+    } else {
+      take(sc.G1, 0);
+      take(sc.G2, 9);
+      take(sc.H1, 18);
+      take(sc.PT, 27);
+      sc.invXi = g[36];
+    }
+    return sc;
+  };
+  auto Qof = [&](fg::Factorization f, const G& g) {
+    const auto sc = toSc(f, g);
+    return f == fg::Factorization::Laurent ? fg::qLaurent(sc, map)
+           : f == fg::Factorization::FFF_A ? fg::qFFFAnisotropicA(sc, map)
+                                           : fg::qFFFAnisotropicB(sc, map);
+  };
+  fg::QBlocks K;
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j) K(i, j) = random(map.size(), map.size());
+  auto reQ = [&](const fg::QBlocks& Q) {
+    double s = 0;
+    for (int i = 0; i < 3; ++i)
+      for (int j = 0; j < 3; ++j) s += re(K(i, j), Q(i, j));
+    return s;
+  };
+  for (auto f : {fg::Factorization::Laurent, fg::Factorization::FFF_A, fg::Factorization::FFF_B}) {
+    const std::size_t cnt = f == fg::Factorization::Laurent ? 9 : f == fg::Factorization::FFF_A ? 18 : 37;
+    G g(cnt), d(cnt);
+    for (std::size_t k = 0; k < cnt; ++k) {
+      const bool diag = (k % 9) % 4 == 0 && k < 36;  // diagonal entries of each 3 x 3 block
+      g[k] = grid(0.2, diag ? 2.0 : 0.1);
+      d[k] = grid(1.0, 0.0);
+    }
+    if (cnt == 37) g[36] = grid(0.1, 0.5);
+    G gb;
+    fg::adjoint::qAnisotropic(f, g, map, K, gb);
+    double adj = 0;
+    for (std::size_t k = 0; k < cnt; ++k)
+      for (int p = -2 * N; p <= 2 * N; ++p) adj += std::real(std::conj(gb[k](p, 0)) * d[k](p, 0));
+    expectClose(adj, fd([&](double t) {
+                  G gt = g;
+                  for (std::size_t k = 0; k < cnt; ++k)
+                    for (int p = -2 * N; p <= 2 * N; ++p) gt[k](p, 0) += t * d[k](p, 0);
+                  return reQ(Qof(f, gt));
+                }));
+  }
+}

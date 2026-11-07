@@ -72,6 +72,11 @@ void qFFFIsotropicRigorous(const SliceCoefficients& c, const IndexMap& map, cons
 /// Anisotropic Laurent: cotangents of the nine grids eps_ij.
 void qLaurentTensor(const IndexMap& map, const QBlocks& Qbar, std::array<std::array<fourier::CoefficientGrid, 3>, 3>& g);
 
+/// Anisotropic factorizations (M19 Phase 2): Q from the grids g of the coefficient functions in the order of
+/// the layer models (Laurent: eps_ij; FFF_A: C, eps C (Plan eq:QaniA); FFF_B: G1, G2, H1, P_T, 1/xi (Plan
+/// eq:QaniB)); gbar receives the cotangents of all grids (same sizes as g).
+void qAnisotropic(Factorization f, const std::vector<fourier::CoefficientGrid>& g, const IndexMap& map, const QBlocks& Qbar,
+                  std::vector<fourier::CoefficientGrid>& gbar);
 /// One RK step P = rkStepPropagator(nodes, h, tab): cotangents of the stage matrices (and of h).
 void rkStep(const std::vector<MatC>& nodes, double h, const ButcherTableau& tab, const MatC& Pbar, std::vector<MatC>& nodesBar,
             double* hbar = nullptr);

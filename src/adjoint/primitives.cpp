@@ -375,6 +375,69 @@ void qFFFIsotropicRigorous(const SliceCoefficients& c, const IndexMap& map, cons
   toeplitz(map, Eb, g.eps);
 }
 
+namespace {
+MatC blockToeplitz(const std::vector<fourier::CoefficientGrid>& g, int off, const IndexMap& map) {
+  const int n = map.size();
+  MatC T(3 * n, 3 * n);
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j) T.block(i * n, j * n, n, n) = fourier::toeplitz(map, g[static_cast<std::size_t>(off + 3 * i + j)]);
+  return T;
+}
+void blockToeplitzBar(const MatC& Tb, int off, const IndexMap& map, std::vector<fourier::CoefficientGrid>& gbar) {
+  const int n = map.size();
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j) toeplitz(map, MatC(Tb.block(i * n, j * n, n, n)), gbar[static_cast<std::size_t>(off + 3 * i + j)]);
+}
+}  // namespace
+
+void qAnisotropic(Factorization f, const std::vector<fourier::CoefficientGrid>& g, const IndexMap& map, const QBlocks& Qbar,
+                  std::vector<fourier::CoefficientGrid>& gbar) {
+  const int n = map.size();
+  gbar.resize(g.size());
+  for (std::size_t k = 0; k < g.size(); ++k)
+    if (gbar[k].Px() < g[k].Px() || gbar[k].Pz() < g[k].Pz()) gbar[k] = fourier::CoefficientGrid(g[k].Px(), g[k].Pz());
+  MatC Qb(3 * n, 3 * n);
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j) Qb.block(i * n, j * n, n, n) = block(Qbar, i, j, n);
+  if (f == Factorization::Laurent) {
+    blockToeplitzBar(Qb, 0, map, gbar);
+    return;
+  }
+  if (f == Factorization::FFF_A) {
+    // Q = T_eC Y, Y = T_C^-1
+    const MatC TC = blockToeplitz(g, 0, map), TeC = blockToeplitz(g, 9, map);
+    const MatC Y = TC.partialPivLu().inverse();
+    const MatC TeCb = Qb * Y.adjoint(), Yb = TeC.adjoint() * Qb;
+    MatC TCb;
+    inverse(Y, Yb, TCb);
+    blockToeplitzBar(TCb, 0, map, gbar);
+    blockToeplitzBar(TeCb, 9, map, gbar);
+    return;
+  }
+  FG_REQUIRE(f == Factorization::FFF_B, "adjoint::qAnisotropic: factorization Laurent, FFF_A or FFF_B");
+  // Q = G1 PT + G2 Z, Z = XiB^-1 R, R = 1 - H1 PT (Plan eq:QaniB)
+  const MatC G1 = blockToeplitz(g, 0, map), G2 = blockToeplitz(g, 9, map), H1 = blockToeplitz(g, 18, map),
+             PT = blockToeplitz(g, 27, map);
+  const MatC Xi = fourier::toeplitz(map, g[36]);
+  MatC XiB = MatC::Zero(3 * n, 3 * n);
+  for (int i = 0; i < 3; ++i) XiB.block(i * n, i * n, n, n) = Xi;
+  const MatC R = MatC::Identity(3 * n, 3 * n) - H1 * PT;
+  const MatC Z = XiB.partialPivLu().solve(R);
+  const MatC G1b = Qb * PT.adjoint(), G2b = Qb * Z.adjoint(), Zb = G2.adjoint() * Qb;
+  MatC PTb = G1.adjoint() * Qb;
+  MatC XiBb = MatC::Zero(3 * n, 3 * n), Rb = MatC::Zero(3 * n, 3 * n);
+  solve(XiB, Z, Zb, &XiBb, &Rb);
+  const MatC H1b = -Rb * PT.adjoint();
+  PTb -= H1.adjoint() * Rb;
+  MatC Xib = MatC::Zero(n, n);
+  for (int i = 0; i < 3; ++i) Xib += XiBb.block(i * n, i * n, n, n);
+  blockToeplitzBar(G1b, 0, map, gbar);
+  blockToeplitzBar(G2b, 9, map, gbar);
+  blockToeplitzBar(H1b, 18, map, gbar);
+  blockToeplitzBar(PTb, 27, map, gbar);
+  toeplitz(map, Xib, gbar[36]);
+}
+
 void rkStep(const std::vector<MatC>& nodes, double h, const ButcherTableau& tab, const MatC& Pbar, std::vector<MatC>& nodesBar,
             double* hbar) {
   const int s = tab.stages();
