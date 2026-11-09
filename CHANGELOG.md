@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- Plan v2.14 (Teil 7): Spezifikation der Zylinderkoordinaten – M20 rotationssymmetrische Strukturen
+  (Fourier–Bessel-Spektrum, Galerkin-Matrizen, Li in r über stetige Hilfsgrößen, Strahlen, Streufeld, Fernfeld) und
+  M21 P-zählige Drehsymmetrie; Prototyp `scripts/proto_cylindrical.py` (Fasermoden, exzentrischer Kern);
+  Roadmap ergänzt.
 - M19 Phase 2: Gradienten nach Wellenlänge, Einfallswinkeln, Polarisationswinkel und Brechzahl/Permittivität von
   Superstrat und Substrat (`/incidence/...`, `/materials/<superstrat|substrat>/...`); Rückwärtsregeln
   `adjoint::isotropicModes`, Propagationsmatrix nach α, γ, Scheiben-S-Matrix nach der Referenzbasis.

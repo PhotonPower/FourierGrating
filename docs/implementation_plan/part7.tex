@@ -1,0 +1,594 @@
+%=====================================================================
+\clearpage
+\section{Erweiterungen ab Version 2.14: Zylinderkoordinaten (M20, M21)}\label{sec:cylext}
+%=====================================================================
+\providecommand{\hk}[1]{\langle\!\langle #1\rangle\!\rangle}
+Die Abschnitte \ref{sec:cylext}--\ref{sec:cylP} spezifizieren die dritte Ausbaustufe: Strukturen mit
+\textbf{Rotationssymmetrie} um die Stapelachse $y$ (M20) und mit \textbf{$P$-zähliger Drehsymmetrie} (M21).
+Beispiele: Lochblenden und Bullseye-Strukturen in Metallfilmen, Zonenplatten, Mikrolinsen, Säulen, Kugeln und
+Kegelstümpfe auf Substraten, kreisförmige Bragg-Gitter, Ring- und Scheibenresonatoren (M20) sowie quadratische und
+hexagonale Säulen, Sternstrukturen, Mikropropeller und Einzelelemente von Metaoberflächen (M21).
+
+Die Strukturen sind isoliert (aperiodisch in $x$ und $z$), liegen aber auf einem in $x,z$ unbegrenzten
+Schichtstapel. Kartesisch sind sie mit M18 (PML in $x$ und $z$) rechenbar, aber teuer: $n_f=(2N+1)^2$ mit $N$
+proportional zur Zellgröße. In Zylinderkoordinaten entkoppeln die azimutalen Harmonischen $e^{im\varphi}$
+exakt (M20) bzw.\ in Klassen $m_0+P\mathbb Z$ (M21), und je Harmonischer bleibt ein Problem in $(r,y)$ mit
+$n_f=N_k$ Stützstellen eines Hankel-Spektrums. Die Ableitungen sind in dieser Basis diagonal, die
+Propagationsgleichung hat dieselbe Form $dF/dy=M(y)F$ wie bisher; RK, RCWA, S-Matrix, Sternprodukt,
+Streufeldformulierung, Adjungierte und CUDA-Backend werden unverändert wiederverwendet.
+
+Das Buch behandelt Zylinderkoordinaten in Kap.~X--XV; Abschnitt~\ref{sec:scope} hat sie bisher ausgeschlossen. Die
+Formulierung hier folgt der Idee von Bonod, Popov und Nevière (Fourier--Bessel-Basis, Faktorisierungsregeln
+[20--22]), ist aber eine \textbf{Eigenherleitung dieses Projekts}
+(Galerkin-Matrizen mit analytischem Hintergrund, stetige Hilfsvariablen für die inverse Regel); vor der Umsetzung
+mit den Arbeiten vergleichen und Abweichungen hier dokumentieren.
+
+\subsection{Annahmen und Festlegungen}
+\begin{enumerate}[nosep]
+  \item Die Zylinderachse ist die Stapelachse $y$, Achsenposition $x=z=0$. Alle Schichtgrenzen bleiben Ebenen
+        $y=\text{const}$, Substrat und Superstrat bleiben homogen und isotrop.
+  \item Materialien in M20 isotrop. Anisotrope Tensoren sind nur zulässig, wenn ihre Komponenten in der Basis
+        $(\mathbf e_r,\mathbf e_y,\mathbf e_\varphi)$ nicht von $\varphi$ abhängen (z.\,B.\ radial orientiert einachsig);
+        das ist \emph{nicht} Teil von M20/M21.
+  \item Der Hintergrund jeder Schicht (Material für $r>R_s$, $R_s$ = Außenradius der Struktur) ist homogen. Alle
+        strukturbedingten Anteile haben kompakten Träger $[0,R_s]$.
+  \item Anregung: Strahlen mit Hankel-Spektrum (Gauß, benutzerdefiniert) im Totalfeld; ebene Wellen beliebiger
+        Richtung ausschließlich über die Streufeldformulierung (Abschnitt~\ref{sec:scatfield}), denn ihr Spektrum ist
+        eine Deltafunktion.
+  \item Mit ausgeschalteter Option (kein Block \verb|"cylindrical"|) bleiben alle bisherigen Pfade bitgleich
+        (Golden Files).
+\end{enumerate}
+
+\subsection{Meilensteine und Abhängigkeiten}
+\begin{center}
+\small
+\begin{tabular}{p{1.0cm}p{6.6cm}p{3.0cm}p{3.8cm}}
+\toprule
+M & Inhalt & setzt voraus & prüfbar in der Sandbox \\
+\midrule
+M20 & Rotationssymmetrische Strukturen: Fourier--Bessel-Spektrum, Galerkin-Matrizen, Laurent und Li in $r$,
+      Strahlen und Streufeld, Fernfeld, Nahfeld, Ringschichten, CAD-Rotationskörper & M18 (Streufeld), M14 (CAD) & ja \\
+M21 & $P$-zählige Drehsymmetrie: gekoppelte Harmonische, Winkelkoeffizienten aus Querschnitten (Polygon, Kontur, CAD),
+      Symmetrieklassen & M20, M13 & ja \\
+\bottomrule
+\end{tabular}
+\end{center}
+Gradienten (M19) werden für beide Meilensteine mitgeführt, sobald die Vorwärtsrechnung abgenommen ist.
+
+%=====================================================================
+\section{M20: Rotationssymmetrische Strukturen}\label{sec:cyl}
+%=====================================================================
+
+\subsection{Ziel}
+Beugung an Strukturen mit $\varepsilon=\varepsilon(r,y)$ auf beliebigen Schichtstapeln, angeregt durch Strahlen auf der
+Achse (Gauß, linear, zirkular, radial oder azimutal polarisiert) oder ebene Wellen unter beliebigem Winkel. Ausgaben:
+reflektierte, transmittierte und absorbierte Leistung, Streu- und Extinktionsquerschnitt, Winkelspektrum und
+Fernfeld, Nahfeld in horizontalen und vertikalen Schnitten.
+
+\subsection{Koordinaten und Maxwellgleichungen}
+$x=r\cos\varphi$, $z=r\sin\varphi$ (der Azimut läuft von $x$ nach $z$, wie $\Psi$ in \eqref{eq:incidence}),
+$\mathbf e_r=(\cos\varphi,0,\sin\varphi)$, $\mathbf e_\varphi=(-\sin\varphi,0,\cos\varphi)$. Das Tripel
+$(\mathbf e_r,\mathbf e_y,\mathbf e_\varphi)$ ist rechtshändig ($\mathbf e_r\times\mathbf e_y=\mathbf e_\varphi$) und
+entspricht $(\mathbf e_x,\mathbf e_y,\mathbf e_z)$: \textbf{$x\leftrightarrow r$, $z\leftrightarrow\varphi$}. In normierten
+Einheiten \eqref{eq:maxwell_norm} ($\mu=1$, $\mathbf H\equiv\tilde{\mathbf H}$) lauten die Komponenten (Gegenstück zu
+\eqref{eq:mx1}--\eqref{eq:mx3}):
+\begin{align}
+  \partial_yE_\varphi-\tfrac1r\partial_\varphi E_y&=iB_r, &
+  \partial_yH_\varphi-\tfrac1r\partial_\varphi H_y&=-iD_r,\label{eq:cyl_mx1}\\
+  \tfrac1r\partial_\varphi E_r-\tfrac1r\partial_r(rE_\varphi)&=iB_y, &
+  \tfrac1r\partial_\varphi H_r-\tfrac1r\partial_r(rH_\varphi)&=-iD_y,\label{eq:cyl_mx2}\\
+  \partial_rE_y-\partial_yE_r&=iB_\varphi, & \partial_rH_y-\partial_yH_r&=-iD_\varphi .\label{eq:cyl_mx3}
+\end{align}
+Herleitung: Standardrotation in $(\rho,\varphi,Z)$ mit $Z=-y$, $A_Z=-A_y$ (denn $\mathbf e_r\times\mathbf e_\varphi=-\mathbf e_y$).
+
+\subsection{Azimutale Entwicklung und zirkulare Komponenten}
+Jede Komponente wird nach $u=\sum_mu_m(r,y)\,e^{im\varphi}$ entwickelt. Hängt $\varepsilon$ nicht von $\varphi$ ab,
+kommutiert der Maxwelloperator mit Drehungen um $y$; die Harmonischen entkoppeln exakt, $\partial_\varphi\to im$.
+Statt $E_r,E_\varphi$ werden die \textbf{zirkularen Komponenten}
+\begin{equation}
+  E_\pm=E_r\pm iE_\varphi,\qquad E_x\pm iE_z=e^{\pm i\varphi}E_\pm,\qquad
+  E_x=\tfrac12\big(e^{i\varphi}E_++e^{-i\varphi}E_-\big),\quad E_z=\tfrac1{2i}\big(e^{i\varphi}E_+-e^{-i\varphi}E_-\big)
+  \label{eq:cyl_pm}
+\end{equation}
+verwendet (ebenso $H_\pm$, $D_\pm$, $B_\pm$). Da die kartesischen Komponenten glatt sind, verhält sich die
+$m$-te Harmonische auf der Achse wie $E_{\pm,m}\sim r^{|m\pm1|}$, $E_{y,m}\sim r^{|m|}$; die natürlichen Basen sind
+$J_{m+1}$, $J_{m-1}$ und $J_m$. Aus \eqref{eq:cyl_mx1}--\eqref{eq:cyl_mx3} folgt je Harmonischer
+\begin{equation}
+\begin{aligned}
+  \partial_yE_+&=\big(\partial_r-\tfrac mr\big)E_y-B_+, & \partial_yE_-&=\big(\partial_r+\tfrac mr\big)E_y+B_-,\\
+  \partial_yH_+&=\big(\partial_r-\tfrac mr\big)H_y+D_+, & \partial_yH_-&=\big(\partial_r+\tfrac mr\big)H_y-D_-,\\
+  B_y&=\tfrac12\Big[\big(\partial_r+\tfrac{m+1}r\big)E_+-\big(\partial_r-\tfrac{m-1}r\big)E_-\Big], &
+  D_y&=-\tfrac12\Big[\big(\partial_r+\tfrac{m+1}r\big)H_+-\big(\partial_r-\tfrac{m-1}r\big)H_-\Big].
+\end{aligned}
+\label{eq:cyl_pmeq}
+\end{equation}
+
+\subsection{Hankel-Darstellung und Propagationsgleichung}
+Hankel-Transformation der Ordnung $\nu$ (für ganzzahlige $\nu$, $J_{-n}=(-1)^nJ_n$):
+\begin{equation}
+  \hat f(k)=\int_0^\infty f(r)\,J_\nu(kr)\,r\,dr,\qquad f(r)=\int_0^\infty\hat f(k)\,J_\nu(kr)\,k\,dk,\qquad
+  \int_0^\infty f\bar g\,r\,dr=\int_0^\infty\hat f\bar{\hat g}\,k\,dk .
+  \label{eq:hankel}
+\end{equation}
+$E_+,H_+$ werden mit $\nu=m+1$, $E_-,H_-$ mit $\nu=m-1$, $E_y,H_y,D_y$ mit $\nu=m$ transformiert. Mit den
+Rekursionen
+\begin{equation}
+  \Big(\frac{d}{dr}-\frac\nu r\Big)J_\nu(kr)=-kJ_{\nu+1}(kr),\qquad \Big(\frac{d}{dr}+\frac\nu r\Big)J_\nu(kr)=kJ_{\nu-1}(kr)
+  \label{eq:besselrec}
+\end{equation}
+werden alle Ableitungen in \eqref{eq:cyl_pmeq} \textbf{diagonal} in $k$ und bilden jede Komponente auf die Ordnung
+der Zielkomponente ab. Mit $\kappa=\operatorname{diag}(k_j)$ (gemeinsames Gitter für alle Ordnungen,
+Abschnitt~\ref{sec:cylgrid}) und den Spektren $e_\pm,h_\pm,e_y,h_y,d_y,d_\pm$:
+\begin{equation}
+  h_y=\tfrac12\kappa(e_++e_-),\quad d_y=-\tfrac12\kappa(h_++h_-),\quad
+  \partial_ye_\pm=\mp\kappa e_y\mp h_\pm,\quad \partial_yh_+=-\kappa h_y+d_+,\quad\partial_yh_-=\kappa h_y-d_- .
+  \label{eq:cyl_spec}
+\end{equation}
+Die Faktorisierung (Abschnitt~\ref{sec:cylfact}) liefert $d_\pm=Q_{\pm+}e_++Q_{\pm-}e_-$ und $d_y=Q_{yy}e_y$
+(in M20 keine Kopplung $r$--$y$). Mit $\mathcal E=Q_{yy}^{-1}$, also $e_y=-\tfrac12\mathcal E\kappa(h_++h_-)$, und dem
+Zustandsvektor $F=(e_+,e_-,h_+,h_-)^T\in\mathbb C^{4n_f}$, $n_f=N_k$:
+\begin{equation}
+  \frac{dF}{dy}=M F,\qquad
+  M=\begin{pmatrix}0&0&\tfrac12\kappa\mathcal E\kappa-\mathbb 1&\tfrac12\kappa\mathcal E\kappa\\
+  0&0&-\tfrac12\kappa\mathcal E\kappa&\mathbb 1-\tfrac12\kappa\mathcal E\kappa\\
+  Q_{++}-\tfrac12\kappa^2&Q_{+-}-\tfrac12\kappa^2&0&0\\
+  \tfrac12\kappa^2-Q_{-+}&\tfrac12\kappa^2-Q_{--}&0&0\end{pmatrix}.
+  \label{eq:cyl_M}
+\end{equation}
+$M$ hat die Form $\begin{pmatrix}0&\mathcal P\\\mathcal R&0\end{pmatrix}$; der reduzierte RCWA-Pfad
+\eqref{eq:rcwa_reduced} ist unverändert anwendbar. Anders als \eqref{eq:Mmu1a} enthält $M$ keine Faktoren $i$
+(sie stecken in $E_\pm$).
+\begin{tcolorbox}[title=Prüfpunkt (Unit-Test \texttt{test\_cyl\_propagation\_matrix})]
+Homogenes isotropes Medium ($Q_{\pm\pm}=\varepsilon\mathbb 1$, $Q_{\pm\mp}=0$, $\mathcal E=\mathbb 1/\varepsilon$): je Knoten
+gilt $M^2=(k^2-\varepsilon)\mathbb 1$, also $\lambda=\pm i\beta$, $\beta=\sqrt{\varepsilon-k^2}$, und \eqref{eq:cyl_Psi}
+sind Eigenvektoren (Prototyp: $4\cdot10^{-16}$). Die Gleichungen \eqref{eq:cyl_pmeq}--\eqref{eq:cyl_M} sind mit dem
+Fasertest V21b numerisch geprüft (Abschnitt~\ref{sec:cylfact}, Befund).
+\end{tcolorbox}
+
+\subsection{Diskretes Spektrum}\label{sec:cylgrid}
+Das Spektrum wird an Knoten $k_j$ mit Gewichten $w_j$ ($j=1\dots N_k$) einer zusammengesetzten Gauß--Legendre-Quadratur
+auf $[0,k_{\max}]$ dargestellt (Nyström): $f(r)\approx\sum_jw_jk_j\hat f(k_j)J_\nu(k_jr)$. Alle Ordnungen verwenden
+\emph{dieselben} Knoten, damit \eqref{eq:besselrec} exakt diagonal bleibt. Festlegungen (Startwerte, in der
+Konvergenzstudie V21h bestätigen):
+\begin{itemize}[nosep]
+  \item \textbf{Panelgrenzen} bei $0$, $\operatorname{Re}\sqrt{\varepsilon_{\text{sub}}}$, $\operatorname{Re}\sqrt{\varepsilon_{\text{sup}}}$
+        (Verzweigungspunkte $\beta=0$ der Halbräume), an den Enden des deformierten Abschnitts (unten) und bei $k_{\max}$.
+  \item \textbf{Verzweigungspunkte:} Die Spektren hängen über $\beta_h=\sqrt{\varepsilon_h-k^2}$ wurzelartig von $k$ ab
+        (Gegenstück zur Rayleigh-Anomalie). Auf jedem Panel mit einem Verzweigungspunkt $k_h$ als Endpunkt wird so
+        substituiert, dass $dk/dt$ dort wie $\sqrt{|k-k_h|}$ verschwindet: $k=k_h\sin t$ auf $[0,k_h]$ (dann $dk=\beta_h\,dt$,
+        Knoten gleichmäßig im Ausbreitungswinkel), $k=k_h\cosh t$ oberhalb, $k=\bar k+\Delta\sin t$ zwischen zwei
+        Verzweigungspunkten. Die Integranden werden dadurch glatt in $t$.
+  \item \textbf{Dichte:} Panelbreite $\le\pi/(2R_s)$ mit 8 Knoten (die Kerne $\int_0^{R_s}J_\nu(kr)J_{\nu'}(k'r)r\,dr$
+        oszillieren in $k$ mit Periode $\approx\pi/R_s$). Damit $N_k\approx2k_{\max}R_s/\pi$ (normierte Einheiten).
+        Prototyp (Faser, $R_s=2$): ab $\Delta k\approx0{,}7\approx\pi/(2{,}3R_s)$ dichteunabhängig, der Fehler ist dann
+        allein durch $k_{\max}$ bestimmt.
+  \item \textbf{Abschneidung:} $k_{\max}=\kappa_{\max}\max_j\operatorname{Re}\sqrt{\varepsilon_j}$ über alle Materialien,
+        Standard $\kappa_{\max}=6$; die Rolle von $k_{\max}$ entspricht der Fourierordnung $N$ im kartesischen Pfad.
+  \item \textbf{Komplexer Integrationsweg:} Gebundene Moden des Hintergrundstapels (Wellenleiterfilme,
+        Oberflächenplasmonen) haben Pole auf der reellen Achse zwischen $k_a=\max_h\operatorname{Re}\sqrt{\varepsilon_h}$ und
+        $k_b$ (Standard: $1{,}2\max_j\operatorname{Re}\sqrt{\varepsilon_j}$ über alle Schichten; für Metall/Dielektrikum
+        zusätzlich $1{,}2\operatorname{Re}\sqrt{\varepsilon_m\varepsilon_d/(\varepsilon_m+\varepsilon_d)}$). Auf $[k_a,k_b]$:
+        $k(t)=t-i\delta\sin\big(\pi\tfrac{t-k_a}{k_b-k_a}\big)$, $dk=k'(t)\,dt$, Standard $\delta=0{,}05(k_b-k_a)$.
+        Bei $e^{-i\omega t}$ liegen die Pole verlustbehafteter Moden in der oberen Halbebene; der Weg weicht nach unten
+        aus. Auf dem Weg gilt der Wurzelzweig \eqref{eq:beta_branch} unverändert ($\operatorname{Im}\beta^2>0$). Die
+        Deformation ist nur nötig, wenn der Hintergrund gebundene Moden trägt (Prüfung: Eigenwerte der Hintergrund-S-Matrix
+        im Intervall; sonst Weg reell). Gebundene Moden verlassen die Struktur seitlich; ihr Fluss erscheint nicht in
+        oben/unten (Ausgaben).
+\end{itemize}
+
+\subsection{Galerkin-Matrizen}\label{sec:cylgal}
+Für eine Funktion $g(r)$ (in einer Scheibe) und Ordnungen $\nu$ (Ausgang), $\nu'$ (Eingang):
+\begin{equation}
+  \hk{g}_{\nu\leftarrow\nu'}=\Big(w_lk_l\int_0^\infty g(r)\,J_\nu(k_jr)\,J_{\nu'}(k_lr)\,r\,dr\Big)_{jl},\qquad
+  \hk{g}_{\nu\leftarrow\nu}=g_\infty\mathbb 1+\hk{g-g_\infty}_{\nu\leftarrow\nu}.
+  \label{eq:cyl_gal}
+\end{equation}
+Das ist das Gegenstück zur Toeplitz-Matrix \eqref{eq:toeplitz}. Der konstante Hintergrund $g_\infty$ ist wegen der
+Orthogonalität in \eqref{eq:hankel} exakt die Einheitsmatrix und wird \emph{analytisch} eingesetzt; numerisch
+integriert wird nur der kompakte Rest über $[0,R_s]$. \textbf{Gemischte Ordnungen ($\nu\ne\nu'$) treten nur mit
+kompakt getragenen Funktionen auf} (Abschnitt~\ref{sec:cylfact}); der Hintergrund würde dort eine nichtlokale
+Ordnungsumrechnung erfordern, die so vermieden wird.
+\begin{itemize}[nosep]
+  \item \textbf{Gleiche Ordnung, stückweise konstant} ($g=g_i$ auf $[r_{i-1},r_i]$): Lommel-Integrale,
+        \begin{equation}
+          \int J_\nu(ar)J_\nu(br)\,r\,dr=\frac{r\big[bJ_\nu(ar)J_\nu'(br)-aJ_\nu'(ar)J_\nu(br)\big]}{a^2-b^2},\qquad
+          \int J_\nu(ar)^2\,r\,dr=\frac{r^2}2\Big[J_\nu'(ar)^2+\Big(1-\frac{\nu^2}{a^2r^2}\Big)J_\nu(ar)^2\Big]
+          \label{eq:lommel}
+        \end{equation}
+        (geprüft für $\nu=0,1,3,-2$ und komplexe $a,b$ auf $10^{-16}$). Für $|a-b|\,r_i<10^{-2}$ statt der ersten Formel
+        Gauß-Quadratur (Auslöschung).
+  \item \textbf{Gemischte Ordnungen und glatte Funktionen:} zusammengesetzte Gauß--Legendre-Quadratur in $r$ zwischen den
+        Bruchstellen, Panelbreite $\le\pi/(2k_{\max})$, 16 Knoten; Auswertung als Matrixprodukt
+        $T_\nu\,\operatorname{diag}(g(r_s)r_sW_s)\,T_{\nu'}^T\operatorname{diag}(wk)$ mit $T_\nu=(J_\nu(k_jr_s))$.
+  \item Bessel-Funktionen komplexen Arguments (deformierter Weg): Implementierung nach Amos (ZBESJ); vorhandene Bibliotheken
+        auf Unterstützung komplexer Argumente prüfen. Genauigkeit gegen \verb|scipy.special.jv| im Test $10^{-13}$. Die
+        Argumente bleiben $|k|r\le k_{\max}R_s$.
+\end{itemize}
+
+\subsection{Faktorisierung}\label{sec:cylfact}
+\paragraph{Laurent.} $Q_{++}=\hk{\varepsilon}_{m+1\leftarrow m+1}$, $Q_{--}=\hk{\varepsilon}_{m-1\leftarrow m-1}$,
+$Q_{+-}=Q_{-+}=0$, $Q_{yy}=\hk\varepsilon_{m\leftarrow m}$. Einfach, aber an Wänden $r=\text{const}$ ist $E_r$ unstetig;
+die Konvergenz ist dann erster Ordnung in $1/k_{\max}$ (Befund unten).
+
+\paragraph{Li in $r$ (Standard für Scheiben mit Wänden $r=\text{const}$).} An einer Wand $r=\text{const}$ sind $E_\varphi$,
+$E_y$ und $D_r$ stetig, $E_r$ und $D_\varphi$ springen. $E_r$ ist in $E_\pm$ mit $E_\varphi$ gemischt, eine inverse
+Regel direkt auf $E_\pm$ ist daher falsch. Stattdessen werden die \emph{stetigen} Hilfsgrößen
+\begin{equation}
+  G_\pm=\frac{D_r}{\varepsilon_\infty}\pm iE_\varphi\qquad(\text{Ordnung }m\pm1,\ \varepsilon_\infty=\text{Hintergrund der Scheibe})
+\end{equation}
+eingeführt. Mit $\rho=\varepsilon_\infty/\varepsilon$ gilt exakt
+\begin{equation}
+  \begin{pmatrix}E_+\\E_-\end{pmatrix}=\frac12\begin{pmatrix}\rho+1&\rho-1\\\rho-1&\rho+1\end{pmatrix}\begin{pmatrix}G_+\\G_-\end{pmatrix},\qquad
+  \begin{pmatrix}D_+\\D_-\end{pmatrix}=\frac12\begin{pmatrix}\varepsilon_\infty+\varepsilon&\varepsilon_\infty-\varepsilon\\\varepsilon_\infty-\varepsilon&\varepsilon_\infty+\varepsilon\end{pmatrix}
+  \begin{pmatrix}G_+\\G_-\end{pmatrix}.
+  \label{eq:cyl_G}
+\end{equation}
+Jedes Produkt ist unstetig $\times$ stetig, also gilt die Laurent-Regel. Mit $p=m+1$, $q=m-1$, $a=\tfrac12(\rho-1)$,
+$b=\tfrac12(\varepsilon-\varepsilon_\infty)$ (beide kompakt getragen):
+\begin{equation}
+  \mathfrak A=\begin{pmatrix}\mathbb 1+\hk a_{p\leftarrow p}&\hk a_{p\leftarrow q}\\\hk a_{q\leftarrow p}&\mathbb 1+\hk a_{q\leftarrow q}\end{pmatrix},\quad
+  \mathfrak B=\begin{pmatrix}\varepsilon_\infty\mathbb 1+\hk b_{p\leftarrow p}&-\hk b_{p\leftarrow q}\\-\hk b_{q\leftarrow p}&\varepsilon_\infty\mathbb 1+\hk b_{q\leftarrow q}\end{pmatrix},\quad
+  \begin{pmatrix}Q_{++}&Q_{+-}\\Q_{-+}&Q_{--}\end{pmatrix}=\mathfrak B\,\mathfrak A^{-1}
+  \label{eq:cyl_li}
+\end{equation}
+($\mathfrak A$ mit LU faktorisieren, nicht invertieren). Die inverse Regel steckt in $\mathfrak A^{-1}$. $E_y$ ist an
+den Wänden tangential: $Q_{yy}=\hk\varepsilon_{m\leftarrow m}$ (Laurent). Grenzfall $\varepsilon\equiv\varepsilon_\infty$:
+$\mathfrak A=\mathbb 1$, $\mathfrak B=\varepsilon_\infty\mathbb 1$ (Unit-Test). Für $m=0$ ist $J_{-1}=-J_1$; die Formeln
+gelten unverändert.
+
+\textbf{Regularität auf der Achse.} Mit konstantem $\varepsilon_\infty$ ist $G_\pm$ auf der Achse nicht regulär, wenn dort
+ein anderes Material liegt (z.\,B.\ $m=1$: $G_+$ enthält einen Anteil $\sim r^0$ in der $J_2$-Basis). Eine glatte
+Referenz $\varepsilon_{\text{ref}}(r)$ (logarithmisch von $\varepsilon(0)$ nach $\varepsilon_\infty$) behebt das, war im
+Prototyp aber nicht besser (Tabelle). Standard ist daher konstantes $\varepsilon_\infty$; die glatte Referenz bleibt als
+Option \verb|"li_r_reference": "smooth"| für die Konvergenzstudie mit Metallen.
+
+\begin{tcolorbox}[title={Befund Prototyp (Python, \texttt{scripts/proto\_cylindrical.py}): Fasermoden als Eigenwerte von $M$}]
+$y$-invariante Scheibe mit Kern $\varepsilon_1=4$, Radius $k_0a=2$, Mantel $\varepsilon_2=1$; geführte Moden sind
+Eigenwerte $\pm i\beta$ von \eqref{eq:cyl_M}, Referenz: exakte Eigenwertgleichung der Stufenindexfaser. Fehler
+$|\beta-\beta_{\text{exakt}}|$ ($N_k=20k_{\max}$, dichteunabhängig; \enquote{glatt}: $\varepsilon_{\text{ref}}$ auf $[a/2,a]$):
+\begin{center}
+\begin{tabular}{llccc}
+\toprule
+Mode & Faktorisierung & $k_{\max}=4$ & $8$ & $16$ \\
+\midrule
+TM$_{01}$ ($m=0$) & Laurent & $3{,}3\cdot10^{-2}$ & $1{,}6\cdot10^{-2}$ & $8{,}1\cdot10^{-3}$ \\
+ & Li in $r$, $\varepsilon_\infty$ & $4{,}8\cdot10^{-3}$ & $5{,}6\cdot10^{-4}$ & $7{,}7\cdot10^{-5}$ \\
+ & Li in $r$, glatt & $1{,}3\cdot10^{-2}$ & $2{,}0\cdot10^{-3}$ & $7{,}2\cdot10^{-5}$ \\
+\midrule
+HE$_{11}$ ($m=1$) & Laurent & $5{,}2\cdot10^{-3}$ & $3{,}1\cdot10^{-3}$ & $1{,}5\cdot10^{-3}$ \\
+ & Li in $r$, $\varepsilon_\infty$ & $8{,}7\cdot10^{-4}$ & $3{,}6\cdot10^{-4}$ & $1{,}9\cdot10^{-5}$ \\
+ & Li in $r$, glatt & $4{,}8\cdot10^{-3}$ & $5{,}1\cdot10^{-4}$ & $2{,}0\cdot10^{-5}$ \\
+\midrule
+Hybridmode $m=2$ & Laurent & $2{,}0\cdot10^{-2}$ & $1{,}0\cdot10^{-2}$ & $5{,}4\cdot10^{-3}$ \\
+ & Li in $r$, $\varepsilon_\infty$ & $5{,}2\cdot10^{-3}$ & $4{,}9\cdot10^{-4}$ & $1{,}1\cdot10^{-4}$ \\
+ & Li in $r$, glatt & $1{,}3\cdot10^{-2}$ & $1{,}7\cdot10^{-3}$ & $9{,}4\cdot10^{-5}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Laurent konvergiert wie $1/k_{\max}$, Li in $r$ etwa wie $k_{\max}^{-3}$. TE$_{01}$ (nur $E_\varphi$) ist in allen Varianten
+identisch. Die Vorzeichen in \eqref{eq:cyl_pmeq}--\eqref{eq:cyl_M} sind damit für $m=0,1,2$ bestätigt.
+\end{tcolorbox}
+
+\paragraph{Meridianprofile.} Schichten mit $y$-abhängigen Radien $r_i(y)$ (Kegelstumpf, Kugel, Linse): RCWA-Treppe mit
+Li in $r$ (Standard) oder RK mit $M(y)$ aus \eqref{eq:cyl_li} bei den Radien $r_i(y)$. Bei geneigten Wänden ist die
+inverse Regel für $E_r$ nur der Treppengrenzfall (Normale $\ne\mathbf e_r$). Eine FFF mit Normalenfeld in der
+Meridianebene ($\mathbf N=(N_r,N_y,0)$, Kopplung der Ordnungen $m\pm1$ mit $m$ über $N_rN_y$) ist \emph{nicht} Teil von
+M20; Herleitung im Plan nachtragen, falls V21c (Kugel) mit der Treppe zu langsam konvergiert.
+
+\subsection{Homogene Medien, Fluss und Leistungen}
+Je Knoten ist $M$ ein $4\times4$-Block. Mit $\mathcal B=\begin{pmatrix}\varepsilon-k^2/2&-k^2/2\\k^2/2&-\varepsilon+k^2/2\end{pmatrix}$
+($\mathcal B^2=\varepsilon\beta^2\mathbb 1$):
+\begin{equation}
+  F=\Psi V,\qquad\Psi=\begin{pmatrix}\mathbb 1&\mathbb 1\\-\mathcal V&\mathcal V\end{pmatrix},\qquad
+  \mathcal V=-\frac{i}{\beta}\mathcal B,\qquad\mathcal V^{-1}=\frac{i}{\varepsilon\beta}\mathcal B,
+  \label{eq:cyl_Psi}
+\end{equation}
+$V=(\mathbf a;\mathbf b)$, $\mathbf a=(a_+,a_-)$ abwärts ($\lambda=-i\beta$), $\mathbf b$ aufwärts, wie \eqref{eq:Psi_iso}.
+\textbf{TE} ($E_y=0$) $\Leftrightarrow e_+=e_-$, \textbf{TM} ($H_y=0$) $\Leftrightarrow e_+=-e_-$ (s/p-Ausgabe:
+$s=\tfrac12(e_++e_-)$, $p=\tfrac12(e_+-e_-)$). Kontrolle $k=0$: abwärts $H_+=i\sqrt\varepsilon E_+$ aus
+$\mathbf H=\mathbf k\times\mathbf E$. In homogenen Schichten gilt außerdem $e_y=-\frac{\kappa}{2\varepsilon}(h_++h_-)$.
+
+Poynting-Fluss durch eine Ebene $y=\text{const}$ (aus $(\mathbf E\times\bar{\mathbf H})_y=E_\varphi\bar H_r-E_r\bar H_\varphi$,
+$\varphi$-Integration und \eqref{eq:hankel}), summiert über die Harmonischen:
+\begin{equation}
+  P_y=\frac\pi2\sum_m\operatorname{Im}\sum_jw_jk_j\big(e_{+,j}\bar h_{+,j}-e_{-,j}\bar h_{-,j}\big),
+  \label{eq:cyl_flux}
+\end{equation}
+für eine einzelne Teilwelle in einem verlustfreien Halbraum ($k_j<\sqrt\varepsilon$) in geschlossener Form
+\begin{equation}
+  p_j=\pm\frac\pi2\,\frac{w_jk_j}{\beta_j}\Big[\big(\varepsilon-\tfrac{k_j^2}2\big)\big(|e_+|^2+|e_-|^2\big)-k_j^2\operatorname{Re}(e_+\bar e_-)\Big]
+  \ \ (+\text{ auf}, -\text{ ab}),
+  \label{eq:cyl_flux_closed}
+\end{equation}
+(TE: $\propto2k\beta|e|^2$, TM: $\propto2k\varepsilon|e|^2/\beta$; Prototyp gegen \eqref{eq:cyl_flux} auf $10^{-16}$).
+Die Knoten auf $[0,\sqrt\varepsilon_h)$ sind die Ausbreitungswinkel $\theta_j=\arcsin(k_j/\sqrt{\varepsilon_h})$;
+evaneszente und deformierte Knoten tragen keinen Fluss.
+
+\subsection{Anregung}\label{sec:cylexc}
+\paragraph{Strahlen (Totalfeld).} Vorgegeben ist das tangentiale Feld in der Taillenebene $y_f$ im Superstrat; es bestimmt
+das abwärts laufende Spektrum, Phasenbezug an der Oberkante: $a(k)=a_f(k)\,e^{i\beta(y_f-y_{\text{top}})}$, nur
+$k<\sqrt{\varepsilon_{\text{sup}}}$ (Apertur $\le1$). Gauß-Strahl mit Taille $w_0$ und Amplitude $E_0$:
+$\hat f(k)=E_0\tfrac{w_0^2}2e^{-k^2w_0^2/4}$ (Ordnung 0). Polarisation und Harmonische aus \eqref{eq:cyl_pm}:
+\begin{center}
+\small
+\begin{tabular}{p{2.8cm}p{2.6cm}p{9.6cm}}
+\toprule
+Polarisation & Harmonische & Spektren \\
+\midrule
+linear $x$ & $m=-1$ und $m=+1$ & $m=-1$: $a_+=\hat f$ ($J_0$), $a_-=0$; \ $m=+1$: $a_-=\hat f$ ($J_0$), $a_+=0$ \\
+zirkular ($E_z=\pm iE_x$) & $m=\pm1$ (eine) & wie oben, nur eine Harmonische, Amplitude $2\hat f$ \\
+radial / azimutal & $m=0$ & radial (TM): $a_+=-a_-$, azimutal (TE): $a_+=a_-$; Ordnung $\pm1$, z.\,B.\ $f=r\,e^{-r^2/w_0^2}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Bei rotationssymmetrischer Struktur folgt $m=+1$ aus $m=-1$ durch Spiegelung ($e_+\leftrightarrow e_-$ mit Vorzeichen nach
+$J_{-n}=(-1)^nJ_n$); linear polarisierte Strahlen kosten daher eine Rechnung. Benutzerdefinierte Spektren: Tabelle
+$(k,a_+,a_-)$ je $m$, auf die Knoten interpoliert. Hoch fokussierte Strahlen (Richards--Wolf) sind eine spätere Option.
+
+\paragraph{Ebene Welle (Streufeld).} Hintergrundfeld wie in Abschnitt~\ref{sec:scatfield} (analytisch, Airy):
+$\mathbf E_{\text{bg}}=e^{i(\alpha_0x+\gamma_0z)}\mathbf e(y)$, $k_\parallel=\sqrt{\alpha_0^2+\gamma_0^2}$, $(\alpha_0,\gamma_0)=k_\parallel(\cos\Psi,\sin\Psi)$.
+Mit Jacobi--Anger $e^{ik_\parallel r\cos(\varphi-\Psi)}=\sum_ni^nJ_n(k_\parallel r)e^{in(\varphi-\Psi)}$ und
+$c_\pm=e_x\pm ie_z$ (Tangentialkomponenten des Hintergrundes):
+\begin{equation}
+  E^{\text{bg}}_{+,m}=c_+\,i^{m+1}e^{-i(m+1)\Psi}J_{m+1}(k_\parallel r),\quad
+  E^{\text{bg}}_{-,m}=c_-\,i^{m-1}e^{-i(m-1)\Psi}J_{m-1}(k_\parallel r),\quad
+  E^{\text{bg}}_{y,m}=e_y\,i^me^{-im\Psi}J_m(k_\parallel r),
+  \label{eq:cyl_jacobi}
+\end{equation}
+$\mathbf H_{\text{bg}}$ analog. Polarisationsquelle $\mathbf P=(\varepsilon-\varepsilon_{\text{bg}})\mathbf E_{\text{bg}}$ ist kompakt
+getragen; ihre Spektren sind Spalten von \eqref{eq:cyl_gal} am Zusatzknoten $k'=k_\parallel$ (ohne Gewicht):
+$[P_\pm]_j=\int_0^{R_s}(\varepsilon-\varepsilon_{\text{bg}})J_{m\pm1}(k_jr)E^{\text{bg}}_{\pm,m}(r)\,r\,dr$, ebenso $P_y$. Mit
+$\mathbf D_s=\varepsilon\mathbf E_s+\mathbf P$ folgt aus \eqref{eq:cyl_spec} die inhomogene Gleichung (Gegenstück zu \eqref{eq:scat_ode})
+\begin{equation}
+  \frac{dF_s}{dy}=MF_s+\sigma,\qquad \sigma=\big(\kappa\mathcal Ep_y,\ -\kappa\mathcal Ep_y,\ p_+,\ -p_-\big)^T .
+  \label{eq:cyl_scat}
+\end{equation}
+Erweiterte Sternprodukte, RK mit Quellterm und partikuläre RCWA-Lösungen sind die von M18.
+\textbf{Konsistenz:} Liegt das Hintergrundfeld auf dem Gitter (Strahlen), wird wie in M18 $\sigma=(M-M_{\text{bg}})F_{\text{bg}}$
+gebildet (dieselbe Faktorisierung wie das Totalfeld; V21e auf Rundung). Bei ebenen Wellen ist das nicht möglich
+(Deltaspektrum); mit Li in $r$ ist die exakte Quelle dann mit der Faktorisierung des Streufeldes nur bis auf den
+Abschneidefehler konsistent (Grenzwerttest V21c).
+\textbf{Harmonische:} $|m|\le m_{\text{cut}}=\lceil x+4x^{1/3}+2\rceil$, $x=k_\parallel R_s$ für die Quelle bzw.\
+$\max_j\operatorname{Re}\sqrt{\varepsilon_j}\,R_s$ für die Feldauflösung (Wiscombe-Kriterium; Konvergenz in $m_{\text{cut}}$
+prüfen). Normaleinfall: nur $m=\pm1$. Die Harmonischen sind unabhängig und laufen parallel über \verb|solveScan|.
+
+\subsection{S-Matrix, Löser und Nahfeld}
+S-Matrix \eqref{eq:Sdef} mit $n_h=2N_k$ (Amplituden $a_\pm$, $b_\pm$), Referenzmedium und Grenzflächen wie
+Abschnitt~\ref{sec:smatrix} mit \eqref{eq:cyl_Psi}. RK (Abschnitt~\ref{sec:rk}), RCWA (Abschnitt~\ref{sec:rcwa}),
+interne Amplituden \eqref{eq:internal}, Parallelität (M15), Genauigkeit (M16) unverändert. Option analog
+\verb|split_polarizations|: für $m=0$ zerfällt das System exakt in TE ($e_+=e_-$) und TM ($e_+=-e_-$), je $2N_k$.
+\textbf{Nahfeld:} Synthese $E_\pm(r)=\sum_jw_jk_je_{\pm,j}J_{m\pm1}(k_jr)$ (ebenso $E_y$, $H$), Summe über $m$ mit
+$e^{im\varphi}$, Ausgabe in kartesischen Komponenten nach \eqref{eq:cyl_pm}. In Scheiben mit Li in $r$: FFF-konsistente
+Rekonstruktion wie \eqref{eq:recon}, d.\,h.\ $G_\pm=\mathfrak A^{-1}e_\pm$ synthetisieren (stetig) und $E_\pm$, $D_\pm$
+punktweise aus \eqref{eq:cyl_G}. Auf deformiertem Weg wächst $J_\nu(kr)$ wie $e^{|\operatorname{Im}k|r}$: Ausgabe nur
+für $r\le r_{\max}$ mit $\delta\,r_{\max}\le\ln10^{3}$, sonst Warnung (kleineres $\delta$ wählen). Schnitte:
+horizontal ($y=\text{const}$, Raster in $x$--$z$) und vertikal (Meridianebene $\varphi=\varphi_0$, also $x$--$y$ bei
+$\varphi_0=0$); Ausgabeformat wie M9.
+
+\subsection{Ausgaben}
+\begin{itemize}[nosep]
+  \item \textbf{Strahlen:} $R=P_{\text{auf}}/P_{\text{inc}}$, $T=P_{\text{ab,Substrat}}/P_{\text{inc}}$ aus \eqref{eq:cyl_flux},
+        $A=1-R-T$ (enthält bei geführten Moden den seitlichen Abfluss; Hinweis in der Ausgabe).
+  \item \textbf{Ebene Wellen:} Streuquerschnitt $\sigma_{\text{sca}}$ (µm$^2$) aus dem Streufeld oben und unten,
+        Absorption $\sigma_{\text{abs}}=\tfrac1{I_{\text{inc}}}\cdot\tfrac12\int\operatorname{Im}\varepsilon\,|\mathbf E|^2\,dV$ über die
+        strukturierten Bereiche (Gauß-Knoten in $r$, $y$; Summe über $m$), $\sigma_{\text{ext}}=\sigma_{\text{sca}}+\sigma_{\text{abs}}$.
+        Im homogenen Hintergrund zusätzlich optisches Theorem als Kontrolle.
+  \item \textbf{Winkelspektrum je $m$:} $dP/d\theta$ an den Knoten auf $[0,\sqrt{\varepsilon_h})$, s/p getrennt.
+  \item \textbf{Fernfeld:} kartesisches Winkelspektrum aus der zweidimensionalen Fouriertransformation einer Harmonischen,
+        $\widehat{f\,e^{in\varphi}}=2\pi(-i)^n\hat f_n(k)\,e^{in\varphi_k}$; mit \eqref{eq:cyl_pm}:
+        $\widehat{E_x\pm iE_z}=2\pi\sum_m(-i)^{m\pm1}\hat e_\pm(k)\,e^{i(m\pm1)\varphi_k}$. Raster in $(\theta,\varphi_k)$.
+  \item Nahfeld wie oben; Diagnose: Energiebilanz, größter Anteil der höchsten Knoten (Abschneideindikator).
+  \item Nicht in M20: seitlicher Fluss gebundener Moden über Residuen (Option, Herleitung bei Bedarf).
+\end{itemize}
+
+\subsection{Schichttypen, CAD und Konfiguration}
+\begin{itemize}[nosep]
+  \item \verb|rings|: Radien $r_1<\dots<r_n$ und $n+1$ Materialien von innen nach außen (letztes $=$ Hintergrund);
+        Gegenstück zu \verb|lamellar|.
+  \item \verb|rings_profile|: Radien als Funktionen $r_i(y)$ (Kegelstumpf, Kugelkappe, benutzerdefiniert); RCWA-Treppe
+        mit dem Scheibenkriterium \eqref{eq:slicecrit} oder RK.
+  \item \verb|cad| mit \verb|"axisymmetric": true|: horizontale Schnitte wie M14; jede Schnittregion muss aus Kreisen um
+        die Achse bestehen (Toleranz $10^{-9}R_s$), sonst Fehlercode \verb|E_NOT_AXISYMMETRIC| mit Höhe und Abweichung
+        (für die Prüfschleife des Sprachmodells, Abschnitt~\ref{sec:cadcheck}). Bandzerlegung und
+        Tschebyschow-Interpolation wie M14, interpoliert werden die Radien.
+  \item Gemischte Stapel: homogene Schichten wie bisher; kartesische Schichttypen sind im Zylinderpfad unzulässig
+        (Fehler), außer \verb|contour2d|/\verb|polygon2d|/\verb|cad| mit $P$-Symmetrie (M21).
+\end{itemize}
+{\footnotesize\begin{verbatim}
+"cylindrical": {
+  "symmetry": "axial",                       // M21: {"rotation": P}
+  "harmonics": "auto",                       // oder Liste [-1, 1]
+  "spectrum": {"kappa_max": 6, "dk_factor": 1.0, "deform": "auto"},  // deform: "auto" | false | {"delta": ...}
+  "factorization": "li_r"                    // "laurent" | "li_r"; Option "li_r_reference": "smooth"
+},
+"incidence": {"type": "gaussian_beam", "waist_um": 2.0, "focus_y_um": 0.5, "polarization": "x"}
+             // oder {"type": "plane_wave", "phi_deg": 30, "psi_deg": 0, "delta_deg": 0} -> Streufeld
+\end{verbatim}}
+
+\subsection{Architektur und Aufwand}
+Neues Modul \verb|fg::cyl| (\verb|include/fg/cyl|, \verb|src/cyl|): \verb|SpectralGrid| (Knoten, Gewichte, Weg,
+Substitutionen), \verb|HankelGalerkin| (Matrizen \eqref{eq:cyl_gal}, Lommel, Quadratur, Bessel komplex),
+\verb|CylLayerModel| (\verb|rings|, \verb|rings_profile|, CAD), \verb|cyl::propagationMatrix| \eqref{eq:cyl_M},
+\verb|cyl::ModeBasis| \eqref{eq:cyl_Psi}, \verb|cyl::Excitation| (Strahlen, Jacobi--Anger), \verb|cyl::Outputs|
+(Flüsse, Fernfeld, Nahfeld). Der Agent prüft zuerst, wo \verb|StackSolver| Kartesisches annimmt (\verb|IndexMap|,
+\eqref{eq:Psi_iso}, Effizienzen, Nahfeldsynthese), und legt diese Stellen hinter eine Schnittstelle (z.\,B.\
+\verb|ModalBasis|: $M(y)$, $\Psi$ der Halbräume und der Referenz, $n_h$, Flussform). Der kartesische Pfad bleibt
+bitgleich (Golden Files). Python: \verb|fg.solve| mit Zylinderkonfiguration, Ausgaben zusätzlich
+\verb|far_field| und \verb|angular_spectrum|.
+
+\textbf{Richtwerte} (normierte Einheiten, $\kappa_{\max}=6$, $n_{\max}=1{,}5$; kartesisch: Zelle $\approx3R_s$ mit PML,
+$N\approx k_{\max}\,\text{Zelle}/2\pi$):
+\begin{center}
+\small
+\begin{tabular}{lccc}
+\toprule
+$R_s$ bei $\lambda=1\,$µm & $N_k$ (je $m$) & $4n_f$ zylindrisch & $n_f$ kartesisch (M18) \\
+\midrule
+2\,µm & $\approx70$ & $\approx300$ & $\approx1\cdot10^4$ \\
+10\,µm & $\approx360$ & $\approx1400$ & $\approx3\cdot10^5$ (nicht rechenbar) \\
+50\,µm & $\approx1800$ & $\approx7000$ & -- \\
+\bottomrule
+\end{tabular}
+\end{center}
+Schräger Einfall vervielfacht die Zahl der Rechnungen um $\approx2m_{\text{cut}}+1$ (unabhängig, parallel).
+
+\subsection{Differenzierbarkeit}
+Die Rückwärtsregeln von M19 gelten für $M$, $\mathfrak A^{-1}$, S-Matrizen und Sternprodukte unverändert. Neu sind
+Formableitungen der Galerkin-Matrizen nach einem Wandradius $r_i$ (Leibniz):
+\begin{equation}
+  \frac{\partial}{\partial r_i}\hk{g}_{\nu\leftarrow\nu'}=\big(g(r_i^-)-g(r_i^+)\big)\,\big(w_lk_l\,J_\nu(k_jr_i)J_{\nu'}(k_lr_i)\,r_i\big)_{jl},
+  \label{eq:cyl_shape}
+\end{equation}
+dazu Materialableitungen (linear in $g$) und Ableitungen der Quelle \eqref{eq:cyl_jacobi} nach $k_\parallel$, $\Psi$.
+
+\subsection{Tests und Abnahme (M20)}
+\begin{itemize}[nosep]
+  \item Unit: Prüfpunkt zu \eqref{eq:cyl_M}; \eqref{eq:lommel} gegen Quadratur ($10^{-14}$, auch komplex);
+        Hintergrundidentität; \eqref{eq:cyl_li} mit $\varepsilon\equiv\varepsilon_\infty$; Hankel-Paar \eqref{eq:hankel} für
+        $r^\nu e^{-r^2}$ ($10^{-12}$); Bessel komplex gegen Referenz; \eqref{eq:cyl_flux_closed} $=$ \eqref{eq:cyl_flux}.
+  \item \textbf{V21a} (Schichtstapel, Gauß-Strahl, $m=\pm1$ und $m=0$): $R$, $T$ gegen knotenweise Fresnel/Airy $10^{-12}$;
+        verlustfrei $R+T=1$ auf $10^{-12}$.
+  \item \textbf{V21b} (Fasermoden, s.\ Befund): Eigenwerte der Scheibe gegen die exakte Eigenwertgleichung; Li in $r$
+        $\le2\cdot10^{-4}$ bei $k_{\max}=8n_{\text{Kern}}$ für TM$_{01}$, HE$_{11}$, $m=2$; Laurent nachweislich erster Ordnung.
+  \item \textbf{V21c} (Mie-Kugel): dielektrische Kugel ($n=1{,}5$, $k_0a=3$) im homogenen Medium, ebene Welle über
+        Streufeld, Treppe mit Li in $r$: $\sigma_{\text{sca}}$, $\sigma_{\text{ext}}$ gegen Mie (Bohren--Huffman, eigene
+        Referenzimplementierung im Test) nach Extrapolation in Scheibenzahl und $k_{\max}$ auf $10^{-3}$; Goldkugel qualitativ.
+  \item \textbf{V21d} (gegen kartesisch): runde Säule und rundes Kontaktloch (wie V20g) bei Normaleinfall: Streu- bzw.\
+        Transmissionsleistung $=$ M18-Ergebnis innerhalb dessen Konvergenz ($10^{-3}$).
+  \item \textbf{V21e} (Streufeld $=$ Totalfeld): Gauß-Strahl, Streufeld $+$ Hintergrund $=$ Totalfeld (RCWA $10^{-10}$,
+        RK auf RK-Toleranz), Laurent und Li in $r$.
+  \item \textbf{V21f} (Symmetrie und Weg): $m\leftrightarrow-m$ $10^{-12}$; Ergebnisse unabhängig von $\delta$ ($10^{-8}$) für
+        eine Lochblende im Silberfilm; mit verlustbehaftetem Metall und $\operatorname{Im}\varepsilon\to$ klein konvergiert
+        der reelle Weg gegen den deformierten (falsche Ausweichrichtung $\Rightarrow$ Sprung, Test schlägt fehl).
+  \item \textbf{V21g} (Lochblende im Metallschirm): qualitativer Vergleich mit Popov/Bonod [22] (Werte vor
+        Verwendung bibliographisch prüfen).
+  \item \textbf{V21h} (Konvergenzstudie): $N_k$-Dichte, $k_{\max}$, $m_{\text{cut}}$ und Scheibenzahl als CSV, Tabelle in
+        \verb|docs/validation.md|.
+  \item \textbf{V21i} (Gradienten): Radius, Material, Dicke gegen Differenzenquotienten ($10^{-6}$).
+  \item Alle bisherigen Tests bitgleich (Golden Files).
+\end{itemize}
+
+%=====================================================================
+\section{M21: $P$-zählige Drehsymmetrie}\label{sec:cylP}
+%=====================================================================
+
+\subsection{Ziel}
+Strukturen, die bei Drehung um $2\pi/P$ um die $y$-Achse in sich übergehen ($P\ge1$; $P=1$ ist der allgemeine Fall
+eines beliebigen isolierten 3D-Objekts). Die Querschnitte $y=\text{const}$ werden wie bisher als \verb|polygon2d|,
+\verb|contour2d| oder \verb|cad| beschrieben, um die Achse zentriert.
+
+\subsection{Winkelentwicklung und Kopplung}
+\begin{equation}
+  \varepsilon(r,\varphi,y)=\sum_q\varepsilon_q(r,y)\,e^{iqP\varphi},\qquad
+  \varepsilon_q=\frac1{2\pi}\int_0^{2\pi}\varepsilon\,e^{-iqP\varphi}d\varphi .
+  \label{eq:cylP_eps}
+\end{equation}
+Ein Produkt koppelt die Harmonische $m$ nur mit $m-qP$. Die Harmonischen zerfallen in $P$ unabhängige \textbf{Klassen}
+$m_l=m_0+lP$, $l\in\mathbb Z$, $m_0\in\{\lceil-P/2\rceil+1,\dots,\lfloor P/2\rfloor\}$; abgeschnitten wird
+$|l|\le L$. Für $q\ne0$ ist $\varepsilon_q$ kompakt getragen (der Hintergrund ist rotationssymmetrisch), $\varepsilon_0$
+ist Hintergrund plus kompakter Rest. Alle Galerkin-Blöcke außerhalb der Diagonale in $l$ sind daher kompakt, wie in
+Abschnitt~\ref{sec:cylgal} gefordert.
+
+\subsection{Gekoppelte Propagationsgleichung}
+Zustandsvektor $F=(e_+,e_-,h_+,h_-)$ mit $e_\pm=(e^{(l)}_\pm)_{l=-L..L}$, je Block $N_k$ Knoten, $n_f=(2L+1)N_k$.
+Die Ableitungsanteile hängen nach \eqref{eq:besselrec} nicht von $m$ ab (die Ordnungsbuchhaltung steckt in der Basis):
+in \eqref{eq:cyl_M} wird $\kappa$ durch $\mathbb 1_{2L+1}\otimes\kappa$ ersetzt. Laurent-Blöcke:
+\begin{equation}
+  \big(Q_{++}\big)_{ll'}=\hk{\varepsilon_{l-l'}}_{m_l+1\leftarrow m_{l'}+1},\quad
+  \big(Q_{--}\big)_{ll'}=\hk{\varepsilon_{l-l'}}_{m_l-1\leftarrow m_{l'}-1},\quad
+  \big(Q_{yy}\big)_{ll'}=\hk{\varepsilon_{l-l'}}_{m_l\leftarrow m_{l'}},\quad Q_{\pm\mp}=0 .
+  \label{eq:cylP_Q}
+\end{equation}
+Mit $\mathcal E=Q_{yy}^{-1}$ (voll, $n_f\times n_f$) gilt \eqref{eq:cyl_M} unverändert. Index: $(l,j)\mapsto lN_k+j$ über eine
+Klasse \verb|HarmonicMap| (Gegenstück zu \verb|IndexMap|).
+\begin{tcolorbox}[title={Befund Prototyp ($P=1$): exzentrischer Faserkern}]
+Kern wie in V21b, um $x_0$ (normiert) aus der Achse verschoben, Klasse $m_0=1$, Laurent, $k_{\max}=3$, $N_k=60$. Die
+Moden müssen mit denen des zentrierten Kerns übereinstimmen. Größte Abweichung des HE$_{11}$-Paares vom zentrierten
+Laurent-Wert $1{,}7167536$: $x_0=0{,}3$: $8\cdot10^{-5}$ ($L=3$), $4\cdot10^{-8}$ ($L=5$); $x_0=0{,}6$: $7\cdot10^{-7}$
+($L=5$), $5\cdot10^{-8}$ ($L=7$). Die Konvergenz in $L$ ist exponentiell; Kopplung, Ordnungen und Vorzeichen von
+\eqref{eq:cylP_Q} sind damit bestätigt.
+\end{tcolorbox}
+
+\subsection{Winkelkoeffizienten aus Querschnitten}
+Für eine Region $\mathcal R$ (Polygon, \verb|Contour2D|, CAD-Schnitt) ist $\chi_q(r)=\frac1{2\pi}\int_{\text{Bögen}}e^{-iqP\varphi}d\varphi$
+über die Bögen des Kreises $|\mathbf x|=r$ in $\mathcal R$:
+\begin{equation}
+  \chi_0(r)=\frac{\text{Bogenlänge}}{2\pi r},\qquad
+  \chi_q(r)=\frac1{2\pi}\sum_{\text{Bögen }[\varphi_a,\varphi_b]}\frac{e^{-iqP\varphi_b}-e^{-iqP\varphi_a}}{-iqP}\quad(q\ne0),
+  \label{eq:cylP_chi}
+\end{equation}
+$\varepsilon_q=\varepsilon_{\text{bg}}\delta_{q0}+\sum_b(\varepsilon_b-\varepsilon_{\text{bg}})\chi^{(b)}_q$.
+\begin{itemize}[nosep]
+  \item Schnittpunkte Kreis--Rand: Polygonkanten quadratisch; rationale Bézierstücke $\mathbf C=\mathbf P(t)/w(t)$:
+        Nullstellen von $|\mathbf P(t)|^2-r^2w(t)^2$ (Grad $\le2p\le18$, Bernstein-Unterteilung mit Newton-Politur). Innen/außen
+        der Bögen über die Bogenmitte und den bestehenden Punkttest.
+  \item \textbf{Kritische Radien:} Eckenradien, Endpunkte der Segmente, lokale Extrema von $|\mathbf C(t)|$ (Tangentialpunkte);
+        dazwischen ist $\chi_q$ glatt. Quadratur in $r$ zwischen kritischen Radien mit Gauß--Legendre wie in
+        Abschnitt~\ref{sec:cylgal}, adaptiv (Vergleich mit doppelter Knotenzahl, $10^{-12}$). Nahe Tangentialradien
+        verhält sich $\chi_q$ wie $\sqrt{|r-r_t|}$: Panelgrenze genau dort.
+  \item Liegt die Achse in der Region, gilt $\chi_q\to\delta_{q0}$ für $r\to0$.
+  \item Symmetrieprüfung: Region um $2\pi/P$ gedreht $=$ Region (Randstichproben, Toleranz $10^{-9}R_s$), sonst Fehler
+        (CAD: Code \verb|E_ROT_SYMMETRY|). Spiegelsymmetrie $\varphi\to-\varphi$ wird erkannt ($\chi_q$ reell und gerade) und
+        für die Klassenreduktion genutzt.
+\end{itemize}
+
+\subsection{Faktorisierung}
+M21 verwendet \textbf{Laurent} \eqref{eq:cylP_Q} (Pflicht). Wände sind im Allgemeinen nicht $r=\text{const}$; Li in $r$
+gilt nur für den rotationssymmetrischen Anteil und ist allein nicht konsistent. FFF als \textbf{Stufe 2} (nicht Teil der
+Abnahme): Normalenfeld aus Algorithmus~NF im Querschnitt, in zirkularen Komponenten
+$N_\pm=e^{\mp i\varphi}(N_x\pm iN_z)$, $E_N=\tfrac12(N_-E_++N_+E_-)$, und stetige Hilfsgrößen nach dem Muster von
+\eqref{eq:cyl_G} mit $(D_N/\varepsilon_\infty,\ \mathbf E_T)$; die Winkelkoeffizienten von $N_\pm N_\pm$ und $N_\pm N_\mp$
+koppeln dann $e_+$ und $e_-$ über die Klassenblöcke. Herleitung und Prototyp (Fasertest mit quadratischem Kern gegen
+kartesische RCWA-Moden) vor der Umsetzung im Plan nachtragen; Anlass ist V22c mit Metall.
+
+\subsection{Anregung und Symmetrieklassen}
+Strahlen auf der Achse: $m=\pm1$ (linear) bzw.\ eine davon (zirkular), $m=0$ (radial/azimutal); jede Harmonische
+gehört zu genau einer Klasse $m_0\equiv m\pmod P$ (für $P=2$ liegen $m=\pm1$ in derselben Klasse und werden gemeinsam
+gerechnet). Ebene Wellen: alle $|m|\le m_{\text{cut}}$, also alle $P$ Klassen mit $L\approx m_{\text{cut}}/P$; die Quelle
+\eqref{eq:cyl_jacobi} wird je Klasse nach $l$ sortiert und mit den Blöcken $\hk{\varepsilon_q-\varepsilon_{\text{bg}}\delta_{q0}}$ am
+Zusatzknoten $k_\parallel$ gebildet. Startwert für die Feldauflösung $L=\lceil m_{\text{cut}}/P\rceil+2$, Konvergenz in $L$ prüfen.
+
+\subsection{Aufwand}
+Je Klasse $4(2L+1)N_k$ Unbekannte, $P$ Klassen. Gegenüber M20 kostet eine Klasse $\approx(2L+1)^3$-mal so viel wie eine
+Harmonische; der Gewinn gegenüber dem kartesischen Pfad wächst mit $R_s$ und $P$, weil $N_k$ linear in $R_s$ wächst
+statt $n_f$ quadratisch. Für kleine Objekte (wenige Wellenlängen) ohne Rotationssymmetrie ($P=1$) ist der kartesische
+Pfad (M18) meist günstiger; die Wahl bleibt beim Anwender, \verb|fgsolve --info| gibt beide Größen aus.
+
+\subsection{CAD und Konfiguration}
+\verb|"symmetry": {"rotation": P}| im Block \verb|"cylindrical"|; zulässig sind \verb|polygon2d|, \verb|contour2d|,
+\verb|cad| (Schnitte wie M14, Achse bei $x=z=0$) und \verb|rings|. Die CAD-Prüfung meldet zusätzlich die tatsächlich
+gefundene Symmetrieordnung (größtes $P$ mit erfüllter Drehsymmetrie), damit das Sprachmodell $P$ korrekt setzt.
+
+\subsection{Tests und Abnahme (M21)}
+\begin{itemize}[nosep]
+  \item Unit: \eqref{eq:cylP_chi} für Kreis (nur $q=0$), Quadrat und regelmäßiges Sechseck gegen numerische Quadratur
+        ($10^{-13}$); Bézier-Kreis $=$ exakter Kreis; Symmetrieprüfung lehnt ein gestörtes Sechseck ab.
+  \item \textbf{V22a}: rotationssymmetrische Struktur über den $P$-Pfad (beliebiges $P$) $=$ M20 ($10^{-12}$).
+  \item \textbf{V22b} (exzentrischer Kern, $P=1$, s.\ Befund): Moden $=$ zentrierter Kern ($10^{-7}$ bei $L=7$).
+  \item \textbf{V22c} (gegen kartesisch): quadratische ($P=4$) und hexagonale ($P=6$) dielektrische Säule auf Substrat,
+        Normaleinfall: Streuquerschnitt $=$ \verb|polygon2d| mit PML (M18) innerhalb dessen Konvergenz ($10^{-3}$),
+        beide Laurent; Silbersäule als Konvergenzstudie (Anlass für FFF Stufe~2).
+  \item \textbf{V22d} (Auswahlregeln): Blöcke zwischen Klassen exakt null; Drehung des Einfallsazimuts $\Psi$ um $2\pi/P$
+        ändert $\sigma_{\text{sca}}$, $\sigma_{\text{abs}}$ nicht ($10^{-12}$), Fernfeld gedreht.
+  \item \textbf{V22e} (Spiegelsymmetrie): Klassen $m_0$ und $-m_0$ ineinander überführt ($10^{-12}$).
+  \item \textbf{V22f} (CAD): hexagonale Säule aus Nurbforge $=$ \verb|polygon2d|-Pfad ($10^{-10}$); \verb|E_ROT_SYMMETRY|
+        bei gestörter Geometrie; gemeldete Symmetrieordnung korrekt.
+  \item \textbf{V22g} (Gradienten): Kontrollpunkte eines \verb|contour2d|-Querschnitts (Formableitung über die
+        Bogenenden in \eqref{eq:cylP_chi}) gegen Differenzenquotienten ($10^{-6}$).
+\end{itemize}
+
+\subsection*{Literatur zu M20/M21 (vor Verwendung bibliographisch prüfen)}
+\begin{enumerate}[label={[\arabic*]},nosep,leftmargin=2em,start=20]
+  \item N.~Bonod, E.~Popov, M.~Nevière, \enquote{Differential theory of diffraction by finite
+        cylindrical objects}, JOSA A 22, 481--490 (2005).
+  \item E.~Popov, M.~Nevière, N.~Bonod, \enquote{Factorization of products of discontinuous functions
+        applied to Fourier--Bessel basis}, JOSA A 21, 46--51 (2004).
+  \item E.~Popov, N.~Bonod, \enquote{Differential theory of diffraction in cylindrical coordinates},
+        phys.\ stat.\ sol.\ (b) (2007), doi:10.1002/pssb.200743151.
+  \item P.~Boyer, E.~Popov, M.~Nevière, G.~Renversez, \enquote{Diffraction theory: application of the fast Fourier
+        factorization to cylindrical devices with arbitrary cross section lighted in conical mounting}, JOSA A 23, 1146 (2006).
+  \item A.~W.~Snyder, J.~D.~Love, \emph{Optical Waveguide Theory}, Chapman \& Hall 1983 (Eigenwertgleichung der Stufenindexfaser, V21b).
+  \item C.~F.~Bohren, D.~R.~Huffman, \emph{Absorption and Scattering of Light by Small Particles}, Wiley 1983 (Mie, V21c).
+  \item W.~J.~Wiscombe, \enquote{Improved Mie scattering algorithms}, Appl.\ Opt.\ 19, 1505 (1980) (Abschneidekriterium $m_{\text{cut}}$).
+  \item NIST Digital Library of Mathematical Functions, §10.6 (Rekursionen), §10.22 (Integrale, Lommel).
+\end{enumerate}
