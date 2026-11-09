@@ -8,6 +8,7 @@
 
 #include "fg/geometry/aperiodic.hpp"
 #include "fg/geometry/coordinate_transform.hpp"
+#include "fg/geometry/cylindrical.hpp"
 #include "fg/geometry/layer.hpp"
 
 namespace fg {
@@ -24,6 +25,8 @@ struct Stack {
   /// Structured half spaces (M18, Plan "Einfall (b)"): y-invariant cross-sections (thickness ignored),
   /// e.g. a waveguide propagating along y; superstrate/substrate then name the cladding (background).
   std::optional<LayerEntry> superstrateStructure, substrateStructure;
+  /// Rotationally symmetric structure about the y axis (M20); dx_um, dz_um are then unused.
+  CylindricalSpec cylindrical;
 
   bool is2D() const { return dz_um > 0.0; }
   const Material& material(const std::string& name) const;

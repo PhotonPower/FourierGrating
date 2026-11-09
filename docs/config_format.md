@@ -164,6 +164,27 @@ langsam (~1/L, streifende Anteile). Modenanregung: `efficiencies.csv` mit `MR`/`
 efficiency = Leistung) und `Mrad`; Python `result.modal`. Nahfeld: `"nearfield": {"field": "scattered"}` gibt das
 Streufeld statt des Totalfeldes aus. PML und `coordinate_transform` (ASR) schließen sich aus.
 
+**Rotationssymmetrische Strukturen (M20, in Arbeit).** Strukturen um die Achse y (x = z = 0) auf einem Schichtstapel,
+angeregt durch einen Strahl auf der Achse; `period_um`, `truncation` und `dimension` entfallen:
+
+```jsonc
+"cylindrical": {
+  "symmetry": "axial",
+  "harmonics": "auto",                                    // oder Liste, z. B. [-1, 1]
+  "spectrum": {"kappa_max": 6, "dk_factor": 1.0, "nodes_per_panel": 8,
+               "deform": "auto"},                          // "auto" | false | {"delta": 0.05} (relativ zu k_b - k_a)
+  "factorization": "li_r"                                  // oder "laurent"
+},
+"incidence": {"type": "gaussian_beam", "lambda_um": 1.0, "waist_um": 0.5, "focus_y_um": 0.8,
+              "polarization": "x"},  // x | z | circular_plus | circular_minus | radial | azimuthal
+"layers": [{"type": "rings", "thickness_um": 0.3, "radii_um": [0.4], "materials": ["sin", "air"]}]
+```
+
+`rings`: n Radien und n + 1 Materialien von innen nach außen (das letzte gilt außerhalb). Erlaubt sind `homogeneous`
+und `rings`, isotrope Materialien, homogene Halbräume. Ausgabe in `efficiencies.csv`: Seiten `C_R`, `C_T`, `C_A`
+(Leistungen bezogen auf den einfallenden Strahl; `C_A` = 1 − R − T enthält auch den seitlichen Abfluss geführter
+Moden) und je Harmonischer `C_Rm`, `C_Tm` (n = m). Ebene Wellen, Nahfeld, `rings_profile` und CAD folgen.
+
 Bei einem Sweep beginnen die CSV-Zeilen mit `sweep_parameter, sweep_value`; das Nahfeld wird für den ersten
 Scanpunkt des ersten Sweep-Werts berechnet. Darstellung: `scripts/plot_efficiencies.py`.
 

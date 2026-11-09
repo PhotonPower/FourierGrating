@@ -102,6 +102,17 @@ py::dict toDict(const fg::Result& r, double seconds, const std::vector<fg::prof:
     md["radiated"] = r.modal.radiated;
     d["modal"] = md;
   }
+  if (r.cylindrical.present) {  // rotationally symmetric structures (M20)
+    py::dict cy;
+    cy["reflected"] = r.cylindrical.reflected;
+    cy["transmitted"] = r.cylindrical.transmitted;
+    cy["absorbed"] = r.cylindrical.absorbed;
+    cy["harmonics"] = r.cylindrical.harmonics;
+    cy["reflected_per_harmonic"] = r.cylindrical.reflectedPerHarmonic;
+    cy["transmitted_per_harmonic"] = r.cylindrical.transmittedPerHarmonic;
+    cy["nodes"] = r.cylindrical.nodes;
+    d["cylindrical"] = cy;
+  }
   py::dict diag;
   diag["energy_balance"] = r.diag.energyBalance;
   diag["max_condition_t11"] = r.diag.maxConditionT11;

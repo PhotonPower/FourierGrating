@@ -194,7 +194,12 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
     Weg), Galerkin-Matrizen (Lommel 5e-14 gegen Quadratur, gemischte Ordnungen per Quadratur, Hintergrund analytisch),
     Laurent und Li in r (`cylQ`), `propagationMatrix` (eq:cyl_M), `homogeneousModes` (eq:cyl_Psi), `flux` (eq:cyl_flux)
     – `tests/unit/test_cyl.cpp`; V21b (Fasermoden) – `tests/validation/test_v21_cyl.cpp`
-  - Als Nächstes: Schnittstelle `ModalBasis` im `StackSolver` (kartesischer Pfad bitgleich), Strahlanregung, V21a
+  - Erledigt (Löser, Plan v2.15): Schnittstelle `detail::ModalBasis` (`CartesianBasis` bitgleich, Golden Files exakt),
+    `CylBasis`; Schichttyp `rings`, Block `"cylindrical"`, Einfall `gaussian_beam` (x, z, zirkular, radial, azimutal),
+    CSV `C_R`/`C_T`/`C_A`; V21a (Schichtstapel = Dünnschicht je Knoten ≤ 1e-12, R + T = 1; Säule: m ↔ −m 1e-12, Laurent
+    energieerhaltend, Li 1,7e-5 bei κ = 4, RK = RCWA) – `tests/validation/test_v21_cyl.cpp`; Beispiel
+    `examples/cyl_pillar_beam.json`
+  - Als Nächstes: ebene Wellen (Streufeld, Jacobi–Anger), V21c (Mie), V21e; Nahfeld; `rings_profile`, CAD
 - [ ] **M21** P-zählige Drehsymmetrie: gekoppelte Harmonische m0 + lP, Winkelkoeffizienten aus `polygon2d`/
   `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)
   - Abnahme: V22a–g (Plan)

@@ -243,6 +243,9 @@ LayerEntry parseLayer(const json& j) {
     else if (shape == "sinus_x") p.shape = Profile2DLayer::Shape::SinusX;
     else throw Error("unknown profile2d shape '" + shape + "' (egg_crate | sinus_x)");
     le.spec = p;
+  } else if (type == "rings") {  // M20 (Plan section "M20: Schichttypen")
+    le.spec = RingsLayer{j.at("thickness_um").get<double>(), j.at("radii_um").get<std::vector<double>>(),
+                         j.at("materials").get<std::vector<std::string>>()};
   } else {
     throw Error("unknown layer type '" + type + "'");
   }
@@ -265,13 +268,16 @@ std::vector<double> parseRange(const json& v) {
 RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
   const json j = json::parse(text);
   RunConfig cfg;
-  const std::string dim = j.at("dimension").get<std::string>();
+  // rotationally symmetric structures (M20): no period, no truncation, "dimension" optional
+  const bool cylindrical = j.contains("cylindrical");
+  const std::string dim = cylindrical ? j.value("dimension", std::string("1D")) : j.at("dimension").get<std::string>();
   FG_REQUIRE(dim == "1D" || dim == "2D", "dimension must be \"1D\" or \"2D\"");
   const std::string solver = j.value("solver", std::string("rcwa"));
   FG_REQUIRE(solver == "rcwa" || solver == "rk", "solver must be \"rcwa\" or \"rk\"");
   cfg.solver.kind = solver == "rk" ? SolverKind::RK : SolverKind::RCWA;
-  cfg.solver.Nx = j.at("truncation").value("Nx", 10);
-  cfg.solver.Nz = j.at("truncation").value("Nz", 0);
+  const json trunc = cylindrical ? j.value("truncation", json::object()) : j.at("truncation");
+  cfg.solver.Nx = trunc.value("Nx", 10);
+  cfg.solver.Nz = trunc.value("Nz", 0);
   if (j.contains("rk")) {
     cfg.solver.rkTableau = j["rk"].value("tableau", cfg.solver.rkTableau);
     cfg.solver.rkTol = j["rk"].value("tol", cfg.solver.rkTol);
@@ -314,8 +320,10 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
   FG_REQUIRE(reduction == "sequential" || reduction == "tree", "reduction must be \"sequential\" or \"tree\"");
   cfg.solver.treeReduction = reduction == "tree";
 
-  cfg.stack.dx_um = j.at("period_um").at("x").get<double>();
-  cfg.stack.dz_um = dim == "2D" ? j.at("period_um").at("z").get<double>() : 0.0;
+  if (!cylindrical) {
+    cfg.stack.dx_um = j.at("period_um").at("x").get<double>();
+    cfg.stack.dz_um = dim == "2D" ? j.at("period_um").at("z").get<double>() : 0.0;
+  }
   FG_REQUIRE(dim == "1D" || cfg.stack.dz_um > 0, "2D gratings need period_um.z > 0");
   for (const auto& [name, mj] : j.at("materials").items()) cfg.stack.materials[name] = parseMaterial(name, mj);
   cfg.stack.superstrate = j.at("superstrate").get<std::string>();
@@ -323,6 +331,40 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
   (void)cfg.stack.material(cfg.stack.superstrate);
   (void)cfg.stack.material(cfg.stack.substrate);
   const json& inc = j.at("incidence");
+  if (cylindrical) {
+    // Plan section "M20: Schichttypen, CAD und Konfiguration"
+    const json& cj = j["cylindrical"];
+    CylindricalSpec& c = cfg.stack.cylindrical;
+    c.enabled = true;
+    FG_REQUIRE(cj.value("symmetry", std::string("axial")) == "axial", "cylindrical.symmetry must be \"axial\" (M20)");
+    if (cj.contains("harmonics") && !(cj["harmonics"].is_string() && cj["harmonics"].get<std::string>() == "auto"))
+      c.harmonics = cj["harmonics"].get<std::vector<int>>();
+    if (cj.contains("spectrum")) {
+      const json& sp = cj["spectrum"];
+      c.kappaMax = sp.value("kappa_max", c.kappaMax);
+      c.dkFactor = sp.value("dk_factor", c.dkFactor);
+      c.nodesPerPanel = sp.value("nodes_per_panel", c.nodesPerPanel);
+      if (sp.contains("deform")) {
+        const json& d = sp["deform"];
+        if (d.is_boolean() && !d.get<bool>()) c.deform = CylindricalSpec::Deform::Off;
+        else if (d.is_object()) c.deform = CylindricalSpec::Deform::On, c.deltaRel = d.value("delta", c.deltaRel);
+        else FG_REQUIRE(d.is_string() && d.get<std::string>() == "auto",
+                        "cylindrical.spectrum.deform must be \"auto\", false or {\"delta\": ...}");
+      }
+      FG_REQUIRE(c.kappaMax > 0 && c.dkFactor > 0 && c.nodesPerPanel >= 2, "cylindrical.spectrum: invalid values");
+    }
+    const std::string fac = cj.value("factorization", std::string("li_r"));
+    FG_REQUIRE(fac == "li_r" || fac == "laurent", "cylindrical.factorization must be \"li_r\" or \"laurent\"");
+    c.liR = fac == "li_r";
+    FG_REQUIRE(inc.value("type", std::string()) == "gaussian_beam",
+               "cylindrical: incidence.type must be \"gaussian_beam\" (plane waves follow in M20)");
+    c.waist_um = inc.at("waist_um").get<double>();
+    c.focus_y_um = inc.value("focus_y_um", 0.0);
+    c.polarization = inc.value("polarization", c.polarization);
+    FG_REQUIRE(c.waist_um > 0, "incidence.waist_um must be > 0");
+    for (const char* a : {"phi_deg", "psi_deg", "delta_deg"})
+      FG_REQUIRE(!inc.contains(a), std::string("gaussian_beam: ") + a + " is not used (beam on the axis)");
+  }
   // scan: cartesian product lambda x phi x psi x delta (each a number, an array or a range)
   for (double lam : parseRange(inc.at("lambda_um")))
     for (double phi : parseRange(inc.value("phi_deg", json(0.0))))
@@ -464,6 +506,16 @@ void writeRows(std::ofstream& out, const std::string& prefix, const std::vector<
       for (const auto& m : mr.reflected) row("MR", OrderEfficiency{m.index, 0, m.power, m.amplitude, 0, 0, 0});
       for (const auto& m : mr.transmitted) row("MT", OrderEfficiency{m.index, 0, m.power, m.amplitude, 0, 0, 0});
       row("Mrad", OrderEfficiency{0, 0, mr.radiated, 0, 0});
+    }
+    const CylindricalResult& cr = results[k].cylindrical;  // M20: R, T, A of the beam; per harmonic n = m
+    if (cr.present) {
+      for (const auto& [side, v] : {std::pair<const char*, double>{"C_R", cr.reflected}, {"C_T", cr.transmitted},
+                                    {"C_A", cr.absorbed}})
+        row(side, OrderEfficiency{0, 0, v, 0, 0});
+      for (std::size_t i = 0; i < cr.harmonics.size(); ++i) {
+        row("C_Rm", OrderEfficiency{cr.harmonics[i], 0, cr.reflectedPerHarmonic[i], 0, 0});
+        row("C_Tm", OrderEfficiency{cr.harmonics[i], 0, cr.transmittedPerHarmonic[i], 0, 0});
+      }
     }
   }
 }

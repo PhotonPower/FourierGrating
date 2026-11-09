@@ -438,6 +438,29 @@ $R_s$ bei $\lambda=1\,$µm & $N_k$ (je $m$) & $4n_f$ zylindrisch & $n_f$ kartesi
 \end{center}
 Schräger Einfall vervielfacht die Zahl der Rechnungen um $\approx2m_{\text{cut}}+1$ (unabhängig, parallel).
 
+\paragraph{Umsetzung (v2.15).} Schnittstelle \verb|detail::ModalBasis| (\verb|src/solvers/modal_basis.hpp|):
+\verb|ref|, \verb|sub|, \verb|M(Schicht, y)|, \verb|modes(M)|, \verb|homogeneousModes(Schicht)|, \verb|rhoEstimate| und
+die optionale Polarisation; Schichten als \verb|StackLayer| (Dicke, homogen, $y$-invariant, Scheibenzahl), von dem
+\verb|LayerModel| erbt. Die Assemblierung (homogene Schichten, RCWA-Scheiben, RK-Scheiben, Sternprodukt-Kette,
+Aufzeichnung) spricht nur mit der Schnittstelle; \verb|CartesianBasis| ersetzt die bisherige Systemklasse (Golden Files
+bitgleich), \verb|CylBasis| (\verb|src/solvers/cyl_basis.cpp|) liefert je Harmonischer $m$ die Basen
+\eqref{eq:cyl_Psi} von Superstrat und Substrat und $M$ der Ringschichten nach \eqref{eq:cyl_M} (vorab berechnet,
+$y$-invariant). Kartesisch bleiben vorerst die Quellen der Streufeldformulierung und die Nahfeldrekonstruktion
+(zylindrisch: ebene Wellen und Nahfeld, folgen). Festlegungen dieser Stufe:
+\begin{itemize}[nosep]
+  \item $R_s=\max(\text{äußerster Ringradius},\,2w_0)$ (ohne Ringe bestimmt der Strahl die Dichte).
+  \item Deformierter Weg bei \verb|"deform": "auto"|, wenn eine Schicht einen größeren Realteil der Brechzahl hat als
+        beide Halbräume oder ein Metall ($\operatorname{Re}\varepsilon<0$) vorkommt (hinreichend für gebundene Moden;
+        unnötige Deformation ist unschädlich, V21f). $\delta$ relativ: \verb|{"delta": 0.05}| bedeutet $0{,}05(k_b-k_a)$.
+  \item Lineare Polarisation: beide Harmonischen $m=\pm1$ werden gerechnet (die Spiegelung ist noch nicht genutzt; ihre
+        Gleichheit ist Testkriterium).
+  \item \textbf{Befund (V21a, dielektrische Säule):} Laurent erhält die Energie exakt ($|R+T-1|\le7\cdot10^{-13}$), denn
+        $\operatorname{diag}(wk)\hk{g}$ ist symmetrisch; Li in $r$ ($\mathfrak B\mathfrak A^{-1}$ nicht selbstadjungiert)
+        nur bis auf den Abschneidefehler: $7\cdot10^{-4}$, $1{,}7\cdot10^{-5}$, $1{,}5\cdot10^{-5}$ bei
+        $\kappa_{\max}=2,4,8$ (Sockel vermutlich die Achsenregularität von $G_\pm$, s.\,o.). $R$ konvergiert mit Li
+        dennoch deutlich schneller (Laurent erster Ordnung).
+\end{itemize}
+
 \subsection{Differenzierbarkeit}
 Die Rückwärtsregeln von M19 gelten für $M$, $\mathfrak A^{-1}$, S-Matrizen und Sternprodukte unverändert. Neu sind
 Formableitungen der Galerkin-Matrizen nach einem Wandradius $r_i$ (Leibniz):

@@ -105,8 +105,17 @@ struct SectionedLayer {
   int chebyshevNodes = 0;
 };
 
+/// Concentric rings around the cylinder axis (Plan section "M20: Schichttypen"): materials[i] on
+/// [radii[i-1], radii[i]] (radii[-1] = 0), the last material (one more than radii) for r > radii.back().
+/// Only with "cylindrical"; counterpart of lamellar1d.
+struct RingsLayer {
+  double thickness_um = 0;
+  std::vector<double> radii_um;
+  std::vector<std::string> materials;
+};
+
 using LayerSpec = std::variant<HomogeneousLayer, Lamellar1DLayer, Profile1DLayer, Polygon2DLayer,
-                               Profile2DLayer, Contour2DLayer, SectionedLayer>;
+                               Profile2DLayer, Contour2DLayer, SectionedLayer, RingsLayer>;
 
 struct LayerEntry {
   LayerSpec spec;

@@ -20,12 +20,15 @@ struct Simulation::Impl {
   IndexMap map() const { return IndexMap(cfg.solver.Nx, cfg.stack.is2D() ? cfg.solver.Nz : 0); }
 
   void buildAll() {
+    models.clear();
+    if (cfg.stack.cylindrical.enabled) return;  // M20: the cylindrical path builds its layers per solve
     detail::applyThreadSettings(cfg.solver);  // e.g. FFT sampling of the normal fields
     models = detail::buildLayerModels(cfg.stack, map(), cfg.solver.rcwaSlices);
     builds += static_cast<long>(models.size());
   }
 
   void build(std::size_t k) {
+    if (cfg.stack.cylindrical.enabled) return;
     detail::applyThreadSettings(cfg.solver);
     models[k] = detail::buildLayerModel(cfg.stack, k, map(), cfg.solver.rcwaSlices);
     ++builds;
@@ -50,6 +53,7 @@ Simulation::Simulation(Simulation&&) noexcept = default;
 Simulation& Simulation::operator=(Simulation&&) noexcept = default;
 
 Result Simulation::solve(const Wavelength& wl) {
+  if (impl_->cfg.stack.cylindrical.enabled) return makeSolver(impl_->cfg.solver)->solve(impl_->cfg.stack, wl);
   return detail::solveWithModels(impl_->cfg.solver, impl_->cfg.stack, wl, impl_->models);
 }
 
@@ -98,6 +102,7 @@ GradientResult Simulation::valueAndGrad(const Objective& objective, const std::v
 }
 GradientResult Simulation::valueAndGrad(const Wavelength& wl, const Objective& objective,
                                         const std::vector<std::string>& params) {
+  FG_REQUIRE(!impl_->cfg.stack.cylindrical.enabled, "gradients of cylindrical structures follow in M20 (V21i)");
   return detail::gradientWithModels(impl_->j.dump(), impl_->cfg, wl, &impl_->models, objective, params);
 }
 std::vector<double> Simulation::vjp(const Objective& cotangents, const std::vector<std::string>& params) {

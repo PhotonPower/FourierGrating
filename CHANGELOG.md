@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M20 (Löser): Schnittstelle `detail::ModalBasis` der Stapelassemblierung (kartesisch bitgleich), zylindrische Basis
+  je Harmonischer, Schichttyp `rings`, Konfigurationsblock `"cylindrical"` mit Strahlanregung (`gaussian_beam`),
+  Ausgabe `Result::cylindrical` und CSV-Seiten `C_R`, `C_T`, `C_A`, `C_Rm`, `C_Tm`; V21a; Beispiel
+  `examples/cyl_pillar_beam.json`.
 - M20 (Bausteine): Modul `fg::cyl` – Bessel-Funktionen ganzzahliger Ordnung mit komplexem Argument, diskretes
   Hankel-Spektrum (`spectralGrid`), Hankel-Galerkin-Matrizen (Lommel-Integrale, Quadratur), Faktorisierung Laurent und
   Li in r (`cylQ`), Propagationsmatrix, Modenbasis homogener Medien und Poynting-Fluss je Harmonischer; Unit-Tests

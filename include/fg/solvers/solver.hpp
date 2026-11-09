@@ -114,9 +114,21 @@ struct ModalResult {
   double radiated = 0;      ///< 1 - sum of the guided powers (radiation into the half spaces and the zones)
 };
 
+/// Rotationally symmetric structures (M20, Plan section "M20: Ausgaben"): powers relative to the incident
+/// beam, from the flux through y = top and y = 0 (Plan eq:cyl_flux); A = 1 - R - T also contains the power
+/// that guided modes carry away laterally.
+struct CylindricalResult {
+  bool present = false;
+  double reflected = 0, transmitted = 0, absorbed = 0;
+  std::vector<int> harmonics;
+  std::vector<double> reflectedPerHarmonic, transmittedPerHarmonic;  ///< relative to the total incident power
+  int nodes = 0;  ///< N_k of the spectral grid
+};
+
 struct Result {
   std::vector<OrderEfficiency> reflected, transmitted;
   double absorption = 0;
+  CylindricalResult cylindrical;  ///< "cylindrical" stacks only (reflected/transmitted then empty)
   ScatteringResult scattering;  ///< aperiodic structures only (reflected/transmitted then empty)
   ModalResult modal;            ///< modal excitation only
   Diagnostics diag;

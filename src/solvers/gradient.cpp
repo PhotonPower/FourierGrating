@@ -435,6 +435,7 @@ namespace detail {
 GradientResult gradientWithModels(const std::string& configJson, const io::RunConfig& cfg, const Wavelength& wl,
                                   const LayerModels* prebuilt, const Objective& objective,
                                   const std::vector<std::string>& params) {
+  FG_REQUIRE(!cfg.stack.cylindrical.enabled, "gradients of cylindrical structures follow in M20 (V21i)");
   const json j = json::parse(configJson);
   std::vector<Param> ps;
   const IndexMap map(cfg.solver.Nx, cfg.stack.is2D() ? cfg.solver.Nz : 0);

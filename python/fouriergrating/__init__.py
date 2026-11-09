@@ -117,6 +117,9 @@ class Result:
     scattering: Optional[dict] = None
     #: modal excitation (M18): ``{"incident", "reflected", "transmitted", "radiated"}`` guided-mode powers
     modal: Optional[dict] = None
+    #: rotationally symmetric structures (M20): ``{"reflected", "transmitted", "absorbed", "harmonics",
+    #: "reflected_per_harmonic", "transmitted_per_harmonic", "nodes"}`` powers relative to the incident beam
+    cylindrical: Optional[dict] = None
 
     def efficiency(self, side: str, n: int, m: int = 0) -> float:
         """Efficiency of order (n, m) on side ``"R"`` or ``"T"`` (0 if not propagating)."""
@@ -131,7 +134,7 @@ def _orders(rows: list) -> np.ndarray:
 
 def _result(d: dict) -> Result:
     return Result(_orders(d["reflected"]), _orders(d["transmitted"]), float(d["absorption"]), d["diagnostics"],
-                  d.get("incidence"), d.get("scattering"), d.get("modal"))
+                  d.get("incidence"), d.get("scattering"), d.get("modal"), d.get("cylindrical"))
 
 
 @dataclass

@@ -20,6 +20,7 @@
 #include "fg/adjoint/gradient.hpp"
 #include "fg/io/config.hpp"
 #include "fg/solvers/solver.hpp"
+#include "modal_basis.hpp"
 
 namespace fg::detail {
 
@@ -55,12 +56,8 @@ struct AdjointSlice {
   std::function<std::vector<fourier::CoefficientGrid>(const LayerModel&)> gridsRasterOf;
 };
 
-class LayerModel {
+class LayerModel : public StackLayer {
  public:
-  virtual ~LayerModel() = default;
-  virtual double thickness_um() const = 0;
-  virtual bool homogeneous() const { return false; }
-  virtual bool yInvariant() const { return true; }
   /// Homogeneous layers: the material.
   virtual const Material& material() const;
   /// Factorized permittivity blocks at height y (Plan section "Faktorisierung").
@@ -89,8 +86,6 @@ class LayerModel {
   virtual std::vector<geometry::Region> sectionRegions(double /*y_um*/) const { return {}; }
   /// Permittivities occurring in the layer (spectral radius estimate).
   std::vector<cplx> epsList;
-  /// Number of RCWA staircase slices (y-invariant layers: 1).
-  int rcwaSlices = 1;
   mutable std::vector<std::string> warnings;  ///< may grow lazily (e.g. y interpolation)
 };
 

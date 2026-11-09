@@ -20,6 +20,8 @@
 #include "fg/linalg/backend.hpp"
 #include "fg/physics/anisotropic.hpp"
 #include "fg/physics/efficiency.hpp"
+#include "fg/cyl/propagation.hpp"
+#include "cyl_basis.hpp"
 #include "fg/physics/modes.hpp"
 #include "fg/solvers/rcwa.hpp"
 #include "fg/solvers/resident.hpp"
@@ -214,23 +216,52 @@ struct Setup {
   const ModeBasis& physSub() const { return transformed ? subPhys : subModes; }
 };
 
-/// Field system of an assembly: the full 4 n_f problem, or one polarization of the decoupled 1D
-/// in-plane problem (2 n_f, Plan eq:TE / eq:TM).
-struct System {
-  std::optional<Polarization> pol;
-  ModeBasis ref, sub;
+/// Cartesian propagation matrix (Plan eq:Mmu1a): full 4 n_f system or one polarization (2 n_f).
+MatC propagation(const Setup& s, const std::optional<Polarization>& pol, const QBlocks& Q) {
+  if (pol) return buildPropagationMatrix(Q, s.alpha, *pol);
+  return s.transformed ? buildPropagationMatrix(Q, s.A, s.G) : buildPropagationMatrix(Q, s.alpha, s.gamma);
+}
 
-  MatC M(const QBlocks& Q, const Setup& s) const {
-    if (pol) return buildPropagationMatrix(Q, s.alpha, *pol);
-    return s.transformed ? buildPropagationMatrix(Q, s.A, s.G) : buildPropagationMatrix(Q, s.alpha, s.gamma);
+/// The layers of a Cartesian stack are LayerModels (only the Cartesian paths downcast).
+const LayerModel& cartesian(const detail::StackLayer& l) { return static_cast<const LayerModel&>(l); }
+
+/// Field system of a Cartesian assembly (Plan section "M20: Architektur"): the full 4 n_f problem, or one
+/// polarization of the decoupled 1D in-plane problem (2 n_f, Plan eq:TE / eq:TM).
+class CartesianBasis final : public detail::ModalBasis {
+ public:
+  explicit CartesianBasis(const Setup& s, std::optional<Polarization> pol = std::nullopt)
+      : s_(s), pol_(pol), ref_(basis(s.ref)), sub_(basis(s.subModes)) {}
+  const ModeBasis& ref() const override { return ref_; }
+  const ModeBasis& sub() const override { return sub_; }
+  MatC M(const detail::StackLayer& layer, double y_um) const override {
+    return propagation(s_, pol_, cartesian(layer).Q(y_um));
   }
-  LayerModes modes(const MatC& M) const { return pol ? layerModesPolarization(M, *pol) : layerModesAuto(M); }
-  ModeBasis basis(const ModeBasis& full) const { return pol ? polarizationBasis(full, *pol) : full; }
+  LayerModes modes(const MatC& M) const override {
+    return pol_ ? layerModesPolarization(M, *pol_) : layerModesAuto(M);
+  }
+  LayerModes homogeneousModes(const detail::StackLayer& layer) const override {
+    const LayerModel& m = cartesian(layer);
+    const Material& mat = m.material();
+    // analytic modes; in transformed coordinates numerical modes of M (Plan section "M17")
+    return s_.transformed ? detail::homogeneousModes(propagation(s_, pol_, m.Q(0.0)))
+                          : layerModesHomogeneous(basis(mat.isotropic ? isotropicModes(mat.eps, s_.alpha, s_.gamma)
+                                                                      : anisotropicModes(mat.epsTensor, s_.alpha, s_.gamma)));
+  }
+  double rhoEstimate(const detail::StackLayer& layer) const override;
+  std::optional<Polarization> polarization() const override { return pol_; }
+
+ private:
+  ModeBasis basis(const ModeBasis& full) const { return pol_ ? polarizationBasis(full, *pol_) : full; }
+  const Setup& s_;
+  std::optional<Polarization> pol_;
+  ModeBasis ref_, sub_;
 };
 
-System fullSystem(const Setup& s) { return {std::nullopt, s.ref, s.subModes}; }
-System polarizationSystem(const Setup& s, Polarization p) {
-  return {p, polarizationBasis(s.ref, p), polarizationBasis(s.subModes, p)};
+/// Layer pointers of the assembly.
+std::vector<const detail::StackLayer*> layerPtrs(const detail::LayerModels& models) {
+  std::vector<const detail::StackLayer*> v;
+  for (const auto& m : models) v.push_back(m.get());
+  return v;
 }
 
 /// Materials referenced by a 1D layer; nullopt for 2D layer types.
@@ -267,6 +298,10 @@ double rhoEstimate(const Setup& s, const std::vector<cplx>& eps) {
       rho = std::max(rho, std::abs(std::sqrt(a * a + g * g - e)));
     }
   return rho;
+}
+
+double CartesianBasis::rhoEstimate(const detail::StackLayer& layer) const {
+  return ::fg::rhoEstimate(s_, cartesian(layer).epsList);
 }
 
 /// Spectral radius for the slice criterion (Plan eq:slicecrit). Exact eigenvalues up to
@@ -334,12 +369,14 @@ class StackSolver final : public Solver {
 
   // ------------------------------------------------------------------ efficiencies
   Result solve(const Stack& stack, const Wavelength& wl) override {
+    if (stack.cylindrical.enabled) return cylindricalSolve(stack, wl);
     const Setup s = setup(stack, wl);
     return solveModels(stack, s, buildModels(stack, s));
   }
 
   /// solve() with prebuilt layer models (wavelength independent; Simulation, M12).
   Result solveWithModels(const Stack& stack, const Wavelength& wl, const detail::LayerModels& models) {
+    FG_REQUIRE(!stack.cylindrical.enabled, "cylindrical: prebuilt layer models are not available (M20)");
     return solveModels(stack, setup(stack, wl), models);
   }
 
@@ -399,7 +436,7 @@ class StackSolver final : public Solver {
       return res;
     }
     if (s.scattered) {
-      const Assembly as = assemble(s, fullSystem(s), models, false, {}, res.diag);
+      const Assembly as = assemble(s, CartesianBasis(s), layerPtrs(models), false, {}, res.diag);
       {
         // total field = background + scattered (no incoming scattered amplitudes)
         const int nf = s.map.size(), c = s.map.center();
@@ -431,7 +468,7 @@ class StackSolver final : public Solver {
         const int k = polarizationBlocks(p).amp[0];  // 0: x (TM), 1: z (TE)
         // not excited (|A| <= 1e-14 |A_inc|, e.g. cos 90 deg = 6e-17): its block stays zero
         if (a_in.segment(k * nf, nf).norm() <= 1e-14 * a_in.norm()) continue;
-        const SMatrix Sp = assemble(s, polarizationSystem(s, p), models, false, {}, res.diag).total;
+        const SMatrix Sp = assemble(s, CartesianBasis(s, p), layerPtrs(models), false, {}, res.diag).total;
         S.S11.block(k * nf, k * nf, nf, nf) = Sp.S11;
         S.S12.block(k * nf, k * nf, nf, nf) = Sp.S12;
         S.S21.block(k * nf, k * nf, nf, nf) = Sp.S21;
@@ -442,7 +479,7 @@ class StackSolver final : public Solver {
       res.diag.refinementFallbacks = counter.fallbacks;
       return res;
     }
-    const Assembly as = assemble(s, fullSystem(s), models, false, {}, res.diag);
+    const Assembly as = assemble(s, CartesianBasis(s), layerPtrs(models), false, {}, res.diag);
     efficiencies(s, as.total, res);
     res.diag.refinementSteps = counter.steps;
     res.diag.refinementFallbacks = counter.fallbacks;
@@ -461,6 +498,7 @@ class StackSolver final : public Solver {
 
   // ------------------------------------------------------------------ field coefficients
   FieldSampleSet fieldCoefficients(const Stack& stack, const Wavelength& wl, const std::vector<double>& y_um) override {
+    if (stack.cylindrical.enabled) throw NotImplemented("cylindrical near fields (M20)");
     const Setup s = setup(stack, wl);
     const auto models = buildModels(stack, s);
     return samples(s, models, y_um, nullptr);
@@ -469,6 +507,7 @@ class StackSolver final : public Solver {
   // ------------------------------------------------------------------ near field cuts
   NearFieldResult nearField(const Stack& stack, const Wavelength& wl, const NearFieldRequest& req) override {
     FG_PROF_SCOPE("nearfield");
+    if (stack.cylindrical.enabled) throw NotImplemented("cylindrical near fields (M20)");
     const Setup s = setup(stack, wl);
     const auto models = buildModels(stack, s);
     std::vector<double> ys;
@@ -497,6 +536,151 @@ class StackSolver final : public Solver {
   }
 
  private:
+  // ------------------------------------------------------------------ cylindrical (M20)
+  /// Beam on the axis through a stack with ring layers (Plan sections "M20: Anregung", "M20: S-Matrix,
+  /// Loeser und Nahfeld"): one assembly per azimuthal harmonic with the Hankel basis, powers from Plan
+  /// eq:cyl_flux.
+  Result cylindricalSolve(const Stack& stack, const Wavelength& wl) {
+    FG_PROF_SCOPE("solve.cylindrical");
+    detail::applyThreadSettings(opt_);
+    setEigenThreads({1, sliceThreads(), std::max(1, opt_.threadsBlas)});
+    const CylindricalSpec& c = stack.cylindrical;
+    FG_REQUIRE(!stack.aperiodic.enabled && !stack.superstrateStructure && !stack.substrateStructure &&
+                   !opt_.scatteredField,
+               "cylindrical: aperiodic, structured half spaces and scattered_field are not available (M20)");
+    FG_REQUIRE(c.waist_um > 0, "cylindrical: incidence gaussian_beam with waist_um > 0");
+    Result res;
+    res.diag.precision = linalg::precisionName(linalg::precision());
+    Setup s;
+    s.k0 = 2.0 * PI / wl.lambda_um;
+    const Material& sup = stack.material(stack.superstrate);
+    const Material& sub = stack.material(stack.substrate);
+    FG_REQUIRE(sup.isotropic && std::abs(sup.eps.imag()) < 1e-14 && sup.eps.real() > 0,
+               "superstrate must be isotropic and lossless");
+    FG_REQUIRE(sub.isotropic, "cylindrical: the substrate must be isotropic (M20)");
+    const auto layers = detail::buildCylLayers(stack, s.k0);
+    std::vector<const detail::StackLayer*> ptrs;
+    double yTop = 0, Rs_um = 2.0 * c.waist_um, nLayers = 0;
+    std::vector<cplx> metals, dielectrics{sup.eps, sub.eps};
+    for (std::size_t k = 0; k < layers.size(); ++k) {
+      ptrs.push_back(layers[k].get());
+      yTop += layers[k]->thickness_um() * s.k0;
+      if (const auto* r = std::get_if<RingsLayer>(&stack.layers[k].spec)) Rs_um = std::max(Rs_um, r->radii_um.back());
+      for (const cplx e : layers[k]->epsList) {
+        nLayers = std::max(nLayers, std::sqrt(e).real());
+        (e.real() < 0 ? metals : dielectrics).push_back(e);
+      }
+    }
+    // spectrum (Plan sec:cylgrid): branch points of the half spaces, complex path over [k_a, k_b] when
+    // the background can carry guided modes (a layer of higher index than both half spaces, or a metal)
+    const double nSup = std::sqrt(sup.eps).real(), nSub = std::sqrt(sub.eps).real(), ka = std::max(nSup, nSub);
+    const double nMax = std::max(ka, nLayers);
+    cyl::SpectrumOptions o;
+    o.kmax = c.kappaMax * nMax;
+    o.Rs = Rs_um * s.k0;
+    o.dkFactor = c.dkFactor;
+    o.nodesPerPanel = c.nodesPerPanel;
+    o.branchPoints = {nSub, nSup};
+    double kb = 1.2 * nMax;
+    for (const cplx em : metals)
+      for (const cplx ed : dielectrics) kb = std::max(kb, 1.2 * std::sqrt(em * ed / (em + ed)).real());
+    const bool guided = nLayers > ka || !metals.empty();
+    if (c.deform == CylindricalSpec::Deform::On || (c.deform == CylindricalSpec::Deform::Auto && guided)) {
+      FG_REQUIRE(kb < o.kmax, "cylindrical: k_b of the deformed path must be below k_max (raise kappa_max)");
+      o.deformA = ka;
+      o.deformB = kb;
+      o.delta = c.deltaRel * (kb - ka);
+    }
+    const cyl::SpectralGrid grid = cyl::spectralGrid(o);
+    const Eigen::Index n = grid.k.size();
+
+    // incident beam (Plan sec:cylexc): spectra of order 0 (w0^2/2 e^{-k^2 w0^2/4}) and order 1
+    // (k w0^4/4 e^{-k^2 w0^2/4}, of r e^{-r^2/w0^2}); phase referenced at the top, aperture <= 1
+    const double w0 = c.waist_um * s.k0, yf = c.focus_y_um * s.k0;
+    VecC g0 = VecC::Zero(n), g1 = VecC::Zero(n);
+    for (Eigen::Index j = 0; j < n; ++j) {
+      const cplx k = grid.k(j);
+      if (k.imag() != 0.0 || k.real() >= nSup) continue;
+      const cplx ph = std::exp(I * std::sqrt(sup.eps - k * k) * (yf - yTop)) * std::exp(-k * k * w0 * w0 / 4.0);
+      g0(j) = 0.5 * w0 * w0 * ph;
+      g1(j) = 0.25 * k * w0 * w0 * w0 * w0 * ph;
+    }
+    // harmonic -> (a_+, a_-) by Plan eq:cyl_pm
+    auto incident = [&](int m, VecC& ap, VecC& am) {
+      ap = VecC::Zero(n);
+      am = VecC::Zero(n);
+      const std::string& p = c.polarization;
+      if (p == "x") {
+        if (m == -1) ap = g0;
+        if (m == 1) am = g0;
+      } else if (p == "z") {
+        if (m == -1) ap = I * g0;
+        if (m == 1) am = -I * g0;
+      } else if (p == "circular_plus") {  // E_z = +i E_x: only E_x - i E_z = 2 f
+        if (m == 1) am = 2.0 * g0;
+      } else if (p == "circular_minus") {
+        if (m == -1) ap = 2.0 * g0;
+      } else if (p == "radial") {  // E_r = f: E_+ = E_- = f; spectrum of order -1 = -(order 1)
+        if (m == 0) ap = g1, am = -g1;
+      } else if (p == "azimuthal") {  // E_phi = f: E_pm = +-i f
+        if (m == 0) ap = I * g1, am = I * g1;
+      } else {
+        throw Error("cylindrical: polarization must be x, z, circular_plus, circular_minus, radial or azimuthal");
+      }
+    };
+    std::vector<int> ms = c.harmonics;
+    if (ms.empty()) {
+      const std::string& p = c.polarization;
+      ms = (p == "radial" || p == "azimuthal") ? std::vector<int>{0}
+           : p == "circular_plus"              ? std::vector<int>{1}
+           : p == "circular_minus"             ? std::vector<int>{-1}
+                                               : std::vector<int>{-1, 1};
+    }
+    const cyl::CylFactorization fac = c.liR ? cyl::CylFactorization::LiR : cyl::CylFactorization::Laurent;
+    double pInc = 0, pR = 0, pT = 0;
+    std::vector<double> rm, tm;
+    for (const int m : ms) {
+      VecC ap, am;
+      incident(m, ap, am);
+      VecC aIn(2 * n);
+      aIn << ap, am;
+      if (aIn.isZero(0.0)) {
+        rm.push_back(0);
+        tm.push_back(0);
+        continue;
+      }
+      const detail::CylBasis basis(grid, m, sup.eps, sub.eps, layers, fac);
+      const Assembly as = assemble(s, basis, ptrs, false, {}, res.diag);
+      const VecC b = as.total.S12 * aIn, aSub = as.total.S22 * aIn;
+      VecC V = VecC::Zero(4 * n);
+      V.head(2 * n) = aIn;
+      pInc -= cyl::flux(grid, basis.ref().Psi * V);
+      V.setZero();
+      V.tail(2 * n) = b;
+      rm.push_back(cyl::flux(grid, basis.ref().Psi * V));
+      V.setZero();
+      V.head(2 * n) = aSub;
+      tm.push_back(-cyl::flux(grid, basis.sub().Psi * V));
+      pR += rm.back();
+      pT += tm.back();
+    }
+    FG_REQUIRE(pInc > 0, "cylindrical: the incident beam carries no power (harmonics?)");
+    CylindricalResult& cr = res.cylindrical;
+    cr.present = true;
+    cr.harmonics = ms;
+    for (double& v : rm) v /= pInc;
+    for (double& v : tm) v /= pInc;
+    cr.reflectedPerHarmonic = rm;
+    cr.transmittedPerHarmonic = tm;
+    cr.reflected = pR / pInc;
+    cr.transmitted = pT / pInc;
+    cr.absorbed = 1.0 - cr.reflected - cr.transmitted;
+    cr.nodes = static_cast<int>(n);
+    res.absorption = cr.absorbed;
+    res.diag.energyBalance = cr.reflected + cr.transmitted;
+    return res;
+  }
+
   detail::LayerModels buildModels(const Stack& stack, const Setup& s) const {
     FG_PROF_SCOPE("solve.layer_models");
     return detail::buildLayerModels(stack, s.map, opt_.rcwaSlices);
@@ -585,7 +769,7 @@ class StackSolver final : public Solver {
         const auto m = detail::buildLayerModel(t, 0, s.map, opt_.rcwaSlices);
         FG_REQUIRE(m->yInvariant(), "a structured superstrate/substrate must be y-invariant");
         Qout = m->Q(0.0);
-        return numericBasis(fullSystem(s).M(*Qout, s));
+        return numericBasis(propagation(s, std::nullopt, *Qout));
       };
       if (stack.superstrateStructure) s.ref = halfSpace(*stack.superstrateStructure, s.supQ);
       if (stack.substrateStructure) s.subModes = halfSpace(*stack.substrateStructure, s.subQ);
@@ -619,7 +803,6 @@ class StackSolver final : public Solver {
     auto modes1 = [&](const Material& m) {
       return m.isotropic ? isotropicModes(m.eps, a0, g0) : anisotropicModes(m.epsTensor, a0, g0);
     };
-    const System sys = fullSystem(s);
     const int nf = s.map.size();
     s.bg.clear();
     for (std::size_t k = 0; k < bg.layers.size(); ++k) {
@@ -634,7 +817,7 @@ class StackSolver final : public Solver {
       L.amp.resize(4);
       L.amp << c1.head(2), c0.tail(2);
       const QBlocks Q = mat.isotropic ? homogeneousIsotropicQ(mat.eps, nf) : homogeneousTensorQ(mat.epsTensor, nf);
-      L.M = sys.M(Q, s);
+      L.M = propagation(s, std::nullopt, Q);
       if (s.blochSource) L.MB = buildPropagationMatrix(Q, s.alphaB, s.gammaB);
       L.Q = Q;
       L.Q1 = mat.isotropic ? homogeneousIsotropicQ(mat.eps, 1) : homogeneousTensorQ(mat.epsTensor, 1);
@@ -800,43 +983,36 @@ class StackSolver final : public Solver {
 
   /// Builds the total S-matrix. With record = true every element is kept (S, modes, RK transfer
   /// matrices at the requested normalized heights 'sampleY', sorted).
-  /// Reduced systems (sys.pol set) only for the total S-matrix (record = false).
+  /// Reduced systems (sys.polarization() set) only for the total S-matrix (record = false).
   /// The elements are independent (Plan section "M15", step 3): they are computed in blocks of
   /// sliceThreads() tasks in parallel and chained in stack order (sequential or fixed-shape tree).
-  Assembly assemble(const Setup& s, const System& sys, const std::vector<std::unique_ptr<LayerModel>>& models,
+  Assembly assemble(const Setup& s, const detail::ModalBasis& sys, const std::vector<const detail::StackLayer*>& layers,
                     bool record, const std::vector<double>& sampleY, Diagnostics& diag) {
     FG_PROF_SCOPE("solve.assemble");
-    FG_REQUIRE(!record || !sys.pol, "field records need the full 4 n_f system");
+    FG_REQUIRE(!record || !sys.polarization(), "field records need the full 4 n_f system");
     // resident chain (Plan section "M15", step 5): slice modes, slice S-matrices and star products
     // stay on the device; only the total S-matrix is downloaded (not for near-field records)
-    const bool res = !record && !s.scattered && linalg::gpuSelected(sys.ref.Psi.rows()) && linalg::gpu().resident();
+    const bool res = !record && !s.scattered && linalg::gpuSelected(sys.ref().Psi.rows()) && linalg::gpu().resident();
     std::shared_ptr<const linalg::DeviceMatrix> psiInvD;
     if (res) {
       linalg::Backend& d = linalg::gpu();
-      psiInvD = std::make_shared<const linalg::DeviceMatrix>(d.upload(sys.ref.PsiInv));
+      psiInvD = std::make_shared<const linalg::DeviceMatrix>(d.upload(sys.ref().PsiInv));
       d.synchronize();  // read by the task threads (their own streams)
     }
     std::vector<Task> tasks;
     double y = 0;
-    for (const auto& mp : models) {
-      const LayerModel& m = *mp;
+    for (const detail::StackLayer* mp : layers) {
+      const detail::StackLayer& m = *mp;
       const double H = m.thickness_um() * s.k0;
       const double y0 = y;
       if (m.homogeneous()) {
         tasks.push_back([&s, &sys, &m, y0, H, record, res, psiInvD](std::vector<Element>& out, Diagnostics&) {
-          const Material& mat = m.material();
-          // analytic modes; in transformed coordinates numerical modes of M (Plan section "M17")
-          auto modes = [&] {
-            return s.transformed ? homogeneousModes(sys.M(m.Q(0.0), s))
-                                 : layerModesHomogeneous(sys.basis(mat.isotropic
-                                                                       ? isotropicModes(mat.eps, s.alpha, s.gamma)
-                                                                       : anisotropicModes(mat.epsTensor, s.alpha, s.gamma)));
-          };
+          auto modes = [&] { return sys.homogeneousModes(m); };
           Element e;
           e.kind = Element::Kind::Modes;
           e.y0 = y0;
           e.y1 = y0 + H;
-          e.model = &m;
+          e.model = dynamic_cast<const LayerModel*>(&m);
           e.layerY0 = y0;
           if (res) {
             linalg::Backend& d = linalg::gpu();
@@ -846,7 +1022,7 @@ class StackSolver final : public Solver {
             return;
           }
           RCWASliceRecord rec;
-          e.S = stableLayerSMatrix(modes(), H, sys.ref, record ? &rec : nullptr);
+          e.S = stableLayerSMatrix(modes(), H, sys.ref(), record ? &rec : nullptr);
           e.modes = std::move(rec.modes);
           e.G = std::move(rec.G);
           out.push_back(std::move(e));
@@ -856,28 +1032,27 @@ class StackSolver final : public Solver {
         for (int k = 0; k < K; ++k)
           tasks.push_back([this, &s, &sys, &m, y0, H, K, k, record, res, psiInvD](std::vector<Element>& out, Diagnostics& dg) {
             const double yq = (k + 0.5) * m.thickness_um() / K;  // staircase: Q at slice centre
-            const QBlocks Q = m.Q(yq);
-            const MatC M = sys.M(Q, s);
+            const MatC M = sys.M(m, yq);
             if (s.scattered) {
-              scatteredSlices(s, sys, m, Q, M, y0, y0 + H * k / K, y0 + H * (k + 1) / K, yq, record, out, dg);
+              scatteredSlices(s, sys, cartesian(m), M, y0, y0 + H * k / K, y0 + H * (k + 1) / K, yq, record, out, dg);
               return;
             }
             Element e;
             e.kind = Element::Kind::Modes;
             e.y0 = y0 + H * k / K;
             e.y1 = y0 + H * (k + 1) / K;
-            e.model = &m;
+            e.model = dynamic_cast<const LayerModel*>(&m);
             e.layerY0 = y0;
             e.qHeight_um = yq;
             if (res) {
               linalg::Backend& d = linalg::gpu();
-              e.dS = resident::layerSMatrix(d, resident::layerModes(d, M, sys.pol), H / K, *psiInvD);
+              e.dS = resident::layerSMatrix(d, resident::layerModes(d, M, sys.polarization()), H / K, *psiInvD);
               d.synchronize();
               out.push_back(std::move(e));
               return;
             }
             RCWASliceRecord rec;
-            e.S = stableLayerSMatrix(sys.modes(M), H / K, sys.ref, record ? &rec : nullptr);
+            e.S = stableLayerSMatrix(sys.modes(M), H / K, sys.ref(), record ? &rec : nullptr);
             e.modes = std::move(rec.modes);
             e.G = std::move(rec.G);
             out.push_back(std::move(e));
@@ -929,7 +1104,7 @@ class StackSolver final : public Solver {
     };
     {
       Element e0;
-      e0.S = fromTransfer(linalg::product(sys.ref.PsiInv, sys.sub.Psi));  // substrate -> reference (Plan eq:Stot)
+      e0.S = fromTransfer(linalg::product(sys.ref().PsiInv, sys.sub().Psi));  // substrate -> reference (Plan eq:Stot)
       push(e0);
       if (record) as.elems.push_back(std::move(e0));
     }
@@ -966,17 +1141,17 @@ class StackSolver final : public Solver {
   /// RK treatment of one layer: stability sub-slices (Plan eq:slicecrit) with the spectral radius
   /// of the truncated M, a posteriori bisection, transfer matrices at recorded heights. Adds one
   /// task per stability slice.
-  void rkLayer(const Setup& s, const System& sys, const LayerModel& m, double y0, double H, bool record,
+  void rkLayer(const Setup& s, const detail::ModalBasis& sys, const detail::StackLayer& m, double y0, double H, bool record,
                const std::vector<double>& sampleY, std::vector<Task>& tasks) {
     const double a = m.thickness_um();
     std::function<MatC(double)> Mfun;
     if (m.yInvariant()) {
-      auto Mconst = std::make_shared<const MatC>(sys.M(m.Q(0.0), s));
+      auto Mconst = std::make_shared<const MatC>(sys.M(m, 0.0));
       Mfun = [Mconst](double) { return *Mconst; };
     } else {
-      Mfun = [&s, &sys, &m](double yl) { return sys.M(m.Q(yl / s.k0), s); };
+      Mfun = [&s, &sys, &m](double yl) { return sys.M(m, yl / s.k0); };
     }
-    double rho = rhoEstimate(s, m.epsList);
+    double rho = sys.rhoEstimate(m);
     if (m.yInvariant()) {
       rho = std::max(rho, spectralRadius(Mfun(0.0)));
     } else {
@@ -1006,18 +1181,18 @@ class StackSolver final : public Solver {
 
   /// Field transfer over [ya, yb] (layer-local normalized y), recording the transfer matrices at
   /// the requested heights; bisects while the growth exceeds growthLimit.
-  void rkSlice(const Setup& s, const System& sys, const LayerModel& m, const std::function<MatC(double)>& Mfun, bool constant,
+  void rkSlice(const Setup& s, const detail::ModalBasis& sys, const detail::StackLayer& m, const std::function<MatC(double)>& Mfun, bool constant,
                double y0, double ya, double yb, double rho, const ButcherTableau& tab, bool record,
                const std::vector<double>& sampleY, std::vector<Element>& out, Diagnostics& diag, int depth) const {
     if (s.scattered) {
       const bool bloch = s.blochSource;
       auto sigma = [&](double yl, const MatC& Mm) {
         const Setup::BgLayer& L = bgLayer(s, 0.5 * (ya + yb) + y0);
-        const MatC MB = bloch ? buildPropagationMatrix(m.Q(yl / s.k0), s.alphaB, s.gammaB) : MatC();
+        const MatC MB = bloch ? buildPropagationMatrix(cartesian(m).Q(yl / s.k0), s.alphaB, s.gammaB) : MatC();
         return sourceOf(s, Mm, bloch ? &MB : nullptr, L, bgField(L, y0 + yl));
       };
       Element e;
-      const Eigen::Index n = sys.ref.Psi.rows();
+      const Eigen::Index n = sys.ref().Psi.rows();
       MatC T = MatC::Identity(n, n);
       VecC f = VecC::Zero(n);
       double prev = ya;
@@ -1050,17 +1225,17 @@ class StackSolver final : public Solver {
       e.kind = Element::Kind::RK;
       e.y0 = y0 + ya;
       e.y1 = y0 + yb;
-      e.model = &m;
+      e.model = dynamic_cast<const LayerModel*>(&m);
       e.layerY0 = y0;
-      e.S = rkSliceSMatrix(T, sys.ref);
-      affineSources(e.S, f, sys.ref, e.su, e.sv);
+      e.S = rkSliceSMatrix(T, sys.ref());
+      affineSources(e.S, f, sys.ref(), e.su, e.sv);
       out.push_back(std::move(e));
       return;
     }
     auto transfer = [&](double from, double to) {
       RKStats st;
       MatC T = constant  ? rkTransferConstant(Mfun(0), to - from, tab, rkTol(), rho, st)
-               : sys.pol ? rkTransfer(Mfun, from, to, tab, rkTol(), rho, st)
+               : sys.polarization() ? rkTransfer(Mfun, from, to, tab, rkTol(), rho, st)
                          : rkTransferAuto(Mfun, from, to, tab, rkTol(), rho, st);
       diag.rkSteps += st.steps;
       return T;
@@ -1069,9 +1244,9 @@ class StackSolver final : public Solver {
     e.kind = Element::Kind::RK;
     e.y0 = y0 + ya;
     e.y1 = y0 + yb;
-    e.model = &m;
+    e.model = dynamic_cast<const LayerModel*>(&m);
     e.layerY0 = y0;
-    const Eigen::Index n = sys.ref.Psi.rows();
+    const Eigen::Index n = sys.ref().Psi.rows();
     MatC T = MatC::Identity(n, n);
     double prev = ya;
     if (record)
@@ -1092,17 +1267,17 @@ class StackSolver final : public Solver {
       return;
     }
     FG_REQUIRE(T.allFinite(), "RK transfer matrix not finite");
-    e.S = rkSliceSMatrix(T, sys.ref);
+    e.S = rkSliceSMatrix(T, sys.ref());
     out.push_back(std::move(e));
   }
 
   /// Modal slice [ya, yb] of a structured layer in the scattered-field formulation: cut at the
   /// background layer boundaries, S and the source amplitudes per piece; a piece whose background
   /// exponent resonates with a mode of M is integrated with RK (warning).
-  void scatteredSlices(const Setup& s, const System& sys, const LayerModel& m, const QBlocks& Q, const MatC& M, double y0,
+  void scatteredSlices(const Setup& s, const detail::ModalBasis& sys, const LayerModel& m, const MatC& M, double y0,
                        double ya, double yb, double yq, bool record, std::vector<Element>& out, Diagnostics& diag) const {
     const LayerModes modes = sys.modes(M);
-    const MatC MB = s.blochSource ? buildPropagationMatrix(Q, s.alphaB, s.gammaB) : MatC();
+    const MatC MB = s.blochSource ? buildPropagationMatrix(m.Q(yq), s.alphaB, s.gammaB) : MatC();
     const std::vector<double> cut = bgCuts(s, ya, yb);
     for (std::size_t c = 0; c + 1 < cut.size(); ++c) {
       Element e;
@@ -1113,10 +1288,10 @@ class StackSolver final : public Solver {
       e.layerY0 = y0;
       e.qHeight_um = yq;
       RCWASliceRecord rec;
-      e.S = stableLayerSMatrix(modes, e.y1 - e.y0, sys.ref, record ? &rec : nullptr);
+      e.S = stableLayerSMatrix(modes, e.y1 - e.y0, sys.ref(), record ? &rec : nullptr);
       e.modes = std::move(rec.modes);
       e.G = std::move(rec.G);
-      if (!modalSources(s, M, s.blochSource ? &MB : nullptr, modes, e.S, e.y0, e.y1, sys.ref, e.su, e.sv,
+      if (!modalSources(s, M, s.blochSource ? &MB : nullptr, modes, e.S, e.y0, e.y1, sys.ref(), e.su, e.sv,
                         record ? &e : nullptr)) {
         FG_REQUIRE(!record, "scattered field: resonant slice (RK fallback) in a near-field computation");
         diag.warnings.push_back("scattered field: background exponent resonates with a slice mode, slice integrated with RK");
@@ -1129,8 +1304,8 @@ class StackSolver final : public Solver {
                        [&](double y, const MatC& Mm) { return sourceOf(s, Mm, s.blochSource ? &MB : nullptr, L, bgField(L, y)); },
                        e.y0, e.y1, tab, rho, T, f, diag);
         e.kind = Element::Kind::RK;
-        e.S = rkSliceSMatrix(T, sys.ref);
-        affineSources(e.S, f, sys.ref, e.su, e.sv);
+        e.S = rkSliceSMatrix(T, sys.ref());
+        affineSources(e.S, f, sys.ref(), e.su, e.sv);
       }
       out.push_back(std::move(e));
     }
@@ -1315,8 +1490,8 @@ class StackSolver final : public Solver {
     FG_PROF_SCOPE("solve.scattering");
     const Stack bgStack = backgroundStack(stack);
     const auto bgModels = buildModels(bgStack, s);
-    const SMatrix S = assemble(s, fullSystem(s), models, false, {}, res.diag).total;
-    const SMatrix Sb = assemble(s, fullSystem(s), bgModels, false, {}, res.diag).total;
+    const SMatrix S = assemble(s, CartesianBasis(s), layerPtrs(models), false, {}, res.diag).total;
+    const SMatrix Sb = assemble(s, CartesianBasis(s), layerPtrs(bgModels), false, {}, res.diag).total;
     const int nf = s.map.size(), nh = 2 * nf;
     const VecC a_in = incidentAmplitudes(s);
     const VecC b = S.S12 * a_in, bb = Sb.S12 * a_in, t = S.S22 * a_in, tb = Sb.S22 * a_in;
@@ -1432,7 +1607,7 @@ class StackSolver final : public Solver {
   void modalOutputs(const Stack& stack, const Setup& s, const detail::LayerModels& models, Result& res) {
     FG_PROF_SCOPE("solve.modes");
     const AperiodicSpec& ap = stack.aperiodic;
-    const SMatrix S = assemble(s, fullSystem(s), models, false, {}, res.diag).total;
+    const SMatrix S = assemble(s, CartesianBasis(s), layerPtrs(models), false, {}, res.diag).total;
     const int nf = s.map.size(), nh = 2 * nf;
     const Window w = window(stack, s);
     const VecC none;
@@ -1528,7 +1703,7 @@ class StackSolver final : public Solver {
     std::vector<double> sorted = yn;
     std::sort(sorted.begin(), sorted.end());
     Diagnostics diag;
-    assembly_ = assemble(s, fullSystem(s), models, true, sorted, diag);
+    assembly_ = assemble(s, CartesianBasis(s), layerPtrs(models), true, sorted, diag);
     const auto& el = assembly_.elems;
     const std::size_t K = el.size() - 1;
     const int nf = s.map.size(), nh = 2 * nf;

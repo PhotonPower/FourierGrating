@@ -2,6 +2,7 @@
 // V21b: guided modes of a step-index fiber are eigenvalues +-i beta of Plan eq:cyl_M.
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <functional>
@@ -9,6 +10,8 @@
 #include "fg/cyl/galerkin.hpp"
 #include "fg/cyl/propagation.hpp"
 #include "fg/cyl/spectrum.hpp"
+#include "fg/io/config.hpp"
+#include "fg/solvers/solver.hpp"
 
 using fg::cplx;
 using fg::MatC;
@@ -106,4 +109,136 @@ TEST(V21b, TE01IndependentOfFactorization) {
   const double la = betaError(0, 16, cyl::CylFactorization::Laurent, b);
   EXPECT_LT(li, 1e-4);  // truncation at k_max = 16 (4e-5)
   EXPECT_LT(std::abs(li - la), 1e-10);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// V21a: beam through a layer stack (Plan "Tests und Abnahme (M20)"); the stack is laterally
+// invariant, so every spectral node is an independent thin-film problem: reference by the Cartesian
+// solver (N = 0) at sin(phi) = k_j, weighted with the incident power per node and polarization
+// (Plan eq:cyl_flux_closed).
+namespace {
+
+std::string beamConfig(const std::string& film2, const std::string& layers, const std::string& pol,
+                       const std::string& fac = "li_r", int kappa = 2) {
+  return R"({
+    "cylindrical": {"spectrum": {"kappa_max": )" +
+         std::to_string(kappa) + R"(}, "factorization": ")" + fac + R"("},
+    "materials": {"air": {"n": 1.0}, "glass": {"n": 1.5}, "film": {"n": 1.45}, "film2": )" +
+         film2 + R"(},
+    "superstrate": "air", "substrate": "glass",
+    "incidence": {"type": "gaussian_beam", "lambda_um": 1.0, "waist_um": 0.5, "focus_y_um": 0.8,
+                  "polarization": ")" +
+         pol + R"("},
+    "layers": [)" +
+         layers + R"(]})";
+}
+const std::string kFilms = R"({"type": "homogeneous", "thickness_um": 0.3, "material": "film"},
+                              {"type": "homogeneous", "thickness_um": 0.2, "material": "film2"})";
+
+fg::Result solveConfig(const std::string& json, fg::SolverKind kind = fg::SolverKind::RCWA) {
+  fg::io::RunConfig cfg = fg::io::parseConfig(json);
+  cfg.solver.kind = kind;
+  return fg::makeSolver(cfg.solver)->solve(cfg.stack, cfg.scan.front());
+}
+
+/// Thin-film power coefficients (R_s, R_p, T_s, T_p) at transverse wave number k (superstrate n =
+/// 1).
+std::array<double, 4> thinFilm(const std::string& film2, double k) {
+  fg::io::RunConfig cfg = fg::io::parseConfig(R"({"dimension": "1D", "truncation": {"Nx": 0},
+    "period_um": {"x": 1.0},
+    "materials": {"air": {"n": 1.0}, "glass": {"n": 1.5}, "film": {"n": 1.45}, "film2": )" +
+                                              film2 + R"(},
+    "superstrate": "air", "substrate": "glass", "incidence": {"lambda_um": 1.0},
+    "layers": [)" + kFilms + "]}");
+  std::array<double, 4> out{};
+  for (double delta : {0.0, 90.0}) {
+    const fg::Result r = fg::makeSolver(cfg.solver)
+                             ->solve(cfg.stack, {1.0, std::asin(k), 0.0, delta * fg::PI / 180});
+    for (const auto& o : r.reflected)
+      if (o.n == 0) out[0] += o.eff_s, out[1] += o.eff_p;
+    for (const auto& o : r.transmitted)
+      if (o.n == 0) out[2] += o.eff_s, out[3] += o.eff_p;
+  }
+  return out;
+}
+
+/// Reference R, T of an on-axis beam: same spectral grid as the solver (no rings: R_s = 2 w0, k_max
+/// = 2 * 1.5).
+std::pair<double, double> beamReference(const std::string& film2, const std::string& pol) {
+  const double k0 = 2 * fg::PI, w0 = 0.5 * k0;
+  cyl::SpectrumOptions o;
+  o.kmax = 2 * 1.5;
+  o.Rs = 2 * 0.5 * k0;
+  o.branchPoints = {1.5, 1.0};
+  const auto grid = cyl::spectralGrid(o);
+  double pTE = 0, pTM = 0, r = 0, t = 0;
+  for (Eigen::Index j = 0; j < grid.k.size(); ++j) {
+    const double k = grid.k(j).real(), w = grid.w(j).real();
+    if (k >= 1.0) continue;
+    const double beta = std::sqrt(1 - k * k), g = std::exp(-k * k * w0 * w0 / 4);
+    // spectra: x -> |s| = |p| = g0 / 2 per harmonic; radial (TM) / azimuthal (TE): order-1 spectrum
+    // k g
+    double s2 = 0, p2 = 0;
+    if (pol == "x") s2 = p2 = 0.25 * g * g;
+    if (pol == "radial") p2 = k * k * g * g;
+    if (pol == "azimuthal") s2 = k * k * g * g;
+    const double te = w * k * beta * s2, tm = w * k * p2 / beta;
+    const auto c = thinFilm(film2, k);
+    pTE += te;
+    pTM += tm;
+    r += te * c[0] + tm * c[1];
+    t += te * c[2] + tm * c[3];
+  }
+  return {r / (pTE + pTM), t / (pTE + pTM)};
+}
+
+}  // namespace
+
+TEST(V21a, BeamThroughLayerStackEqualsThinFilmPerNode) {
+  for (const std::string film2 :
+       {std::string(R"({"n": 1.38})"), std::string(R"({"n": [1.38, 0.05]})")})
+    for (const std::string pol : {"x", "radial", "azimuthal"}) {
+      const fg::Result res = solveConfig(beamConfig(film2, kFilms, pol));
+      ASSERT_TRUE(res.cylindrical.present);
+      const auto [R, T] = beamReference(film2, pol);
+      std::printf("V21a %-9s %s: R = %.15f (ref %.15f)  T = %.15f (ref %.15f)  N_k = %d\n",
+                  pol.c_str(), film2.c_str(), res.cylindrical.reflected, R,
+                  res.cylindrical.transmitted, T, res.cylindrical.nodes);
+      EXPECT_NEAR(res.cylindrical.reflected, R, 1e-12) << pol << film2;
+      EXPECT_NEAR(res.cylindrical.transmitted, T, 1e-12) << pol << film2;
+      if (film2 == R"({"n": 1.38})")
+        EXPECT_NEAR(res.cylindrical.reflected + res.cylindrical.transmitted, 1.0, 1e-12);
+    }
+}
+
+TEST(V21a, RingsSolverIntegration) {
+  // rings with one material = homogeneous layer (Li in r: frak A = 1 exactly)
+  const std::string film2 = R"({"n": 1.38})";
+  const std::string same = R"({"type": "homogeneous", "thickness_um": 0.3, "material": "film"},
+    {"type": "rings", "thickness_um": 0.2, "radii_um": [0.3, 0.6], "materials": ["film2", "film2", "film2"]})";
+  const fg::Result a = solveConfig(beamConfig(film2, kFilms, "x")),
+                   b = solveConfig(beamConfig(film2, same, "x"));
+  EXPECT_NEAR(a.cylindrical.reflected, b.cylindrical.reflected, 1e-12);
+  EXPECT_NEAR(a.cylindrical.transmitted, b.cylindrical.transmitted, 1e-12);
+  // a dielectric pillar: m = -1 and m = +1 carry the same power (mirror symmetry, Plan sec:cylexc);
+  // Laurent conserves energy exactly (diag(wk) [[g]] symmetric), Li in r only to its truncation
+  // error (7e-4 at kappa_max = 2, 1.7e-5 at 4, 1.5e-5 at 8); RK = RCWA (y-invariant layer)
+  const std::string pillar =
+      R"({"type": "rings", "thickness_um": 0.3, "radii_um": [0.4], "materials": ["film", "air"]})";
+  for (const std::string fac : {"laurent", "li_r"}) {
+    const fg::Result p = solveConfig(beamConfig(film2, pillar, "x", fac, fac == "li_r" ? 4 : 2));
+    const auto& c = p.cylindrical;
+    ASSERT_EQ(c.harmonics.size(), 2u);
+    std::printf("V21a pillar %-7s: R = %.12f T = %.12f R+T-1 = %.1e\n", fac.c_str(), c.reflected,
+                c.transmitted, c.reflected + c.transmitted - 1);
+    EXPECT_NEAR(c.reflectedPerHarmonic[0], c.reflectedPerHarmonic[1], 1e-12);
+    EXPECT_NEAR(c.transmittedPerHarmonic[0], c.transmittedPerHarmonic[1], 1e-12);
+    EXPECT_NEAR(c.reflected + c.transmitted, 1.0, fac == "laurent" ? 1e-12 : 5e-5);
+    EXPECT_GT(std::abs(c.reflected - a.cylindrical.reflected), 1e-4);  // the pillar does something
+    if (fac == "laurent") {
+      const fg::Result q = solveConfig(beamConfig(film2, pillar, "x", fac), fg::SolverKind::RK);
+      EXPECT_NEAR(q.cylindrical.reflected, c.reflected, 1e-8);
+      EXPECT_NEAR(q.cylindrical.transmitted, c.transmitted, 1e-8);
+    }
+  }
 }

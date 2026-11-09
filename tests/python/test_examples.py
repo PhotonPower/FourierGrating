@@ -70,3 +70,24 @@ def test_example_script():
     r = subprocess.run([sys.executable, str(ROOT / "examples" / "python" / "scan_lamellar.py")],
                        capture_output=True, text=True, check=True)
     assert "model builds: 4" in r.stdout
+
+
+def test_cylindrical_beam():
+    # M20: beam on the axis through a ring pillar (examples/cyl_pillar_beam.json, first wavelength)
+    cfg = fg.load_config(ROOT / "examples" / "cyl_pillar_beam.json")
+    cfg["incidence"]["lambda_um"] = 1.0
+    cy = fg.solve(cfg).cylindrical
+    assert cy is not None and cy["harmonics"] == [-1, 1]
+    assert abs(cy["reflected_per_harmonic"][0] - cy["reflected_per_harmonic"][1]) < 1e-12
+    assert abs(cy["reflected"] + cy["transmitted"] + cy["absorbed"] - 1) < 1e-14
+    assert abs(cy["absorbed"]) < 1e-4  # lossless; Li in r conserves energy only to its truncation error
+
+
+def test_cylindrical_simulation_and_gradient_guard():
+    cfg = fg.load_config(ROOT / "examples" / "cyl_pillar_beam.json")
+    cfg["incidence"]["lambda_um"] = 1.0
+    sim = fg.Simulation(cfg)
+    assert sim.model_builds == 0
+    assert sim.solve().cylindrical["reflected"] == fg.solve(cfg).cylindrical["reflected"]
+    with pytest.raises(fg.FourierGratingError, match="V21i"):
+        sim.value_and_grad({("R", 0, 0): 1.0}, ["/layers/0/thickness_um"])

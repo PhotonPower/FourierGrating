@@ -1,0 +1,18 @@
+{
+  "cylindrical": {
+    "symmetry": "axial",
+    "harmonics": "auto",
+    "spectrum": {"kappa_max": 4, "dk_factor": 1.0, "deform": "auto"},
+    "factorization": "li_r"
+  },
+  "solver": "rcwa",
+  "materials": {"air": {"n": 1.0}, "glass": {"n": 1.5}, "sin": {"n": 1.45}},
+  "superstrate": "air",
+  "substrate": "glass",
+  "incidence": {"type": "gaussian_beam", "lambda_um": [0.9, 1.0, 1.1], "waist_um": 0.5, "focus_y_um": 0.8,
+                "polarization": "x"},
+  "layers": [
+    {"type": "rings", "thickness_um": 0.3, "radii_um": [0.4], "materials": ["sin", "air"]}
+  ],
+  "output": {"dir": "out_cyl_pillar_beam"}
+}

@@ -287,3 +287,18 @@ Eigenwerts von M (Panelbreite π/(2a), 8 Knoten):
 
 Die Werte bei k_max = 16 stimmen mit dem Prototyp (Plan, Befund) überein; Laurent ist erster Ordnung, TE01 ist für
 beide Faktorisierungen gleich (4e-5).
+
+**V21a (Strahl durch Schichtstapel).** Luft / Film n = 1,45 (0,3 µm) / Film n = 1,38 bzw. 1,38 + 0,05i (0,2 µm) / Glas,
+λ = 1 µm, Taille 0,5 µm bei y = 0,8 µm, κ_max = 2: R, T gegen die Dünnschichtlösung je Knoten (kartesischer Löser,
+N = 0, sin φ = k_j, s und p gewichtet mit der einfallenden Leistung) für x-, radiale und azimutale Polarisation:
+Abweichung ≤ 2e-15, verlustfrei R + T = 1 auf 1e-15. Ringschicht mit einem Material = homogene Schicht (1e-12).
+
+Dielektrische Säule (n = 1,45, r = 0,4 µm, h = 0,3 µm, Luft, auf Glas), x-Polarisation, RCWA:
+
+| Faktorisierung | κ_max = 2 (N_k = 96) | 4 (192) | 8 (384) | R + T − 1 (2 / 4 / 8) |
+|---|---|---|---|---|
+| Laurent | R = 0,049599 | 0,048994 | 0,048749 | 7e-15 / 9e-14 / −2e-13 |
+| Li in r | R = 0,048787 | 0,048511 | 0,048496 | 7,3e-4 / −1,7e-5 / −1,5e-5 |
+
+dk_factor = 2 ändert R nicht in den ersten 8 Stellen. m = −1 und m = +1 tragen gleiche Leistung (1e-12); RK = RCWA
+(1e-8).
