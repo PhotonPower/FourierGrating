@@ -178,3 +178,18 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
     Einfall, alle Parameterarten (≤ 1,4e-7)
   - Offen (Phase 2): GPU-Rückwärtsfunktionen; aperiodisch: seitlicher Fluss/Absorption (Stufe C, optional),
     Profilschichten mit PML
+
+## Zylinderkoordinaten (Plan v2.14, Teil 7: M20–M21)
+
+Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version 2.14“, „M20“, „M21“; Prototyp
+`scripts/proto_cylindrical.py` (Fasermoden, exzentrischer Kern).
+
+- [ ] **M20** Rotationssymmetrische Strukturen: Fourier–Bessel-Spektrum (zirkulare Komponenten E±, gemeinsames
+  k-Gitter), Galerkin-Matrizen mit analytischem Hintergrund, Laurent und Li in r (stetige Hilfsgrößen G±),
+  komplexer Integrationsweg bei gebundenen Moden, Gauß-Strahlen und ebene Wellen (Streufeld, Jacobi–Anger),
+  Flüsse, Fernfeld, Nahfeld, Schichttypen `rings`/`rings_profile`, CAD-Rotationskörper, Gradienten nach Radien
+  - Abnahme: V21a–i (Plan), Golden Files bitgleich
+- [ ] **M21** P-zählige Drehsymmetrie: gekoppelte Harmonische m0 + lP, Winkelkoeffizienten aus `polygon2d`/
+  `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)
+  - Abnahme: V22a–g (Plan)
+
