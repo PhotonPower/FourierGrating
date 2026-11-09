@@ -189,6 +189,12 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
   komplexer Integrationsweg bei gebundenen Moden, Gauß-Strahlen und ebene Wellen (Streufeld, Jacobi–Anger),
   Flüsse, Fernfeld, Nahfeld, Schichttypen `rings`/`rings_profile`, CAD-Rotationskörper, Gradienten nach Radien
   - Abnahme: V21a–i (Plan), Golden Files bitgleich
+  - Erledigt (Bausteine, Plan v2.15): Modul `fg::cyl` (`include/fg/cyl`, `src/cyl`): Bessel J_n komplexen Arguments
+    (Miller, 1e-13 gegen scipy/mpmath), `spectralGrid` (Panels, Wurzelsubstitution an Verzweigungspunkten, komplexer
+    Weg), Galerkin-Matrizen (Lommel 5e-14 gegen Quadratur, gemischte Ordnungen per Quadratur, Hintergrund analytisch),
+    Laurent und Li in r (`cylQ`), `propagationMatrix` (eq:cyl_M), `homogeneousModes` (eq:cyl_Psi), `flux` (eq:cyl_flux)
+    – `tests/unit/test_cyl.cpp`; V21b (Fasermoden) – `tests/validation/test_v21_cyl.cpp`
+  - Als Nächstes: Schnittstelle `ModalBasis` im `StackSolver` (kartesischer Pfad bitgleich), Strahlanregung, V21a
 - [ ] **M21** P-zählige Drehsymmetrie: gekoppelte Harmonische m0 + lP, Winkelkoeffizienten aus `polygon2d`/
   `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)
   - Abnahme: V22a–g (Plan)

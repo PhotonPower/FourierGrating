@@ -34,6 +34,10 @@ add_library(fg_core
   solvers/rk.cpp
   solvers/simulation.cpp
   field/nearfield.cpp
+  cyl/bessel.cpp
+  cyl/spectrum.cpp
+  cyl/galerkin.cpp
+  cyl/propagation.cpp
   linalg/cpu_backend.cpp
   io/config.cpp
 )

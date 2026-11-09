@@ -262,3 +262,28 @@ das stehenbleibende Feld eine Scheinableitung. Formparameter mit FFF bewegen das
 (Differenzenquotient der NF-Koeffizienten bzw. der FFF_B-Gitter über eine Rasterzelle, zwei NF-Rechnungen je
 Parameter); der Indikatoranteil bleibt exakt. Anisotrope FFF_B-Querschnitte: Materialparameter als
 Richtungsableitung der Gitter (zwei Auswertungen je Parameter).
+
+## Zylinderkoordinaten (M20)
+
+`tests/unit/test_cyl.cpp` (Bausteine), `tests/validation/test_v21_cyl.cpp` (`test_validation_v21`).
+
+| Prüfung | Ergebnis | Toleranz |
+|---|---|---|
+| Bessel J_n(z), reell (n ≤ 40, x ≤ 120) gegen `std::cyl_bessel_j`; komplex und \|z\| ≈ 500 gegen scipy/mpmath | ≤ 1e-12 relativ / ≤ 1e-13 bezogen auf max(\|J\|, √(2/π\|z\|)) | 1e-13 |
+| Lommel-Integrale (ν = 0, 1, 3, −2; ν = −ν′) gegen Gauß-Quadratur, reeller und deformierter Weg | ≤ 2,2e-14 | 5e-14 |
+| Hankel-Paar r^ν e^(−r²) (ν = 0, 1, 3), diskrete Rücktransformation | ≤ 1e-12 | 1e-12 |
+| Galerkin-Matrix wirkt als Multiplikation (Hintergrund analytisch, gleiche und gemischte Ordnungen) | ≤ 1e-12 | 1e-12 |
+| Li in r mit ε ≡ ε∞; homogenes Medium: M² = k² − ε, Ψ Eigenvektoren; Fluss geschlossen = eq:cyl_flux | 1e-15 / 1e-13 / 1e-15 | – |
+| Wurzelsubstitution ∫₀^{k_h} √(k_h² − k²) dk; deformierter Weg = reeller Weg (analytischer Integrand), 16 Knoten | ≤ 1e-13 | 1e-13 |
+
+**V21b (Fasermoden).** Kern ε = 4, Radius k₀a = 2, Mantel ε = 1; Fehler \|β − β_exakt\| des nächstgelegenen
+Eigenwerts von M (Panelbreite π/(2a), 8 Knoten):
+
+| Mode | β exakt | Li in r, k_max = 8 / 16 | Laurent, k_max = 8 / 16 |
+|---|---|---|---|
+| TM01 (m = 0) | 1,197891848750 | 5,6e-4 / 7,7e-5 | 1,6e-2 / 8,1e-3 |
+| HE11 (m = 1) | 1,711581418489 | 3,6e-4 / 1,9e-5 | 3,1e-3 / 1,6e-3 |
+| m = 2 | 1,152981421773 | 4,9e-4 / 1,1e-4 | 1,1e-2 / 5,4e-3 |
+
+Die Werte bei k_max = 16 stimmen mit dem Prototyp (Plan, Befund) überein; Laurent ist erster Ordnung, TE01 ist für
+beide Faktorisierungen gleich (4e-5).

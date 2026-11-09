@@ -25,6 +25,7 @@ set(FG_UNIT_TESTS
   test_precision
   test_coordinate_transform
   test_adjoint
+  test_cyl
 )
 foreach(t ${FG_UNIT_TESTS})
   add_executable(${t} unit/${t}.cpp)
@@ -117,3 +118,6 @@ add_executable(test_precision_study validation/test_precision_study.cpp)
 target_link_libraries(test_precision_study PRIVATE fg_core GTest::gtest_main)
 target_compile_definitions(test_precision_study PRIVATE FG_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 gtest_discover_tests(test_precision_study PROPERTIES LABELS "validation" TIMEOUT 3600 DISCOVERY_TIMEOUT 60)
+add_executable(test_validation_v21 validation/test_v21_cyl.cpp)
+target_link_libraries(test_validation_v21 PRIVATE fg_core GTest::gtest_main)
+gtest_discover_tests(test_validation_v21 PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)
