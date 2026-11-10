@@ -546,12 +546,20 @@ class CudaBackend final : public Backend {
         W.raw(), n, Cu<T>::type, w.raw(), Cu<T>::type, nullptr, n, Cu<T>::type, VR.raw(), n,
         Cu<T>::type, &dBytes, &hBytes));
     work_.resize(dBytes > 0 ? dBytes : 1);
-    FG_CUSOLVER(cusolverDnXgeev(solver_, params_, CUSOLVER_EIG_MODE_NOVECTOR,
-                                CUSOLVER_EIG_MODE_VECTOR, n, Cu<T>::type, W.raw(), n, Cu<T>::type,
-                                w.raw(), Cu<T>::type, nullptr, n, Cu<T>::type, VR.raw(), n,
-                                Cu<T>::type, work_.get(), dBytes,
-                                pinned_.get(hBytes > 0 ? hBytes : 1), hBytes, info_.get()));
-    checkInfo("cusolverDnXgeev");
+    {
+      // cusolverDnXgeev fails with CUSOLVER_STATUS_INTERNAL_ERROR (7) when two threads call it at
+      // once, although each has its own handle, stream and workspaces (CUDA 12.9, RTX 6000 Ada;
+      // reproduced with FG_NUM_THREADS >= 2 and FG_GPU_STREAMS >= 2). The lock covers the call
+      // and checkInfo (which waits for the stream); the rest of the pipeline stays concurrent.
+      static std::mutex xgeevMu;
+      const std::lock_guard<std::mutex> lock(xgeevMu);
+      FG_CUSOLVER(cusolverDnXgeev(solver_, params_, CUSOLVER_EIG_MODE_NOVECTOR,
+                                  CUSOLVER_EIG_MODE_VECTOR, n, Cu<T>::type, W.raw(), n,
+                                  Cu<T>::type, w.raw(), Cu<T>::type, nullptr, n, Cu<T>::type,
+                                  VR.raw(), n, Cu<T>::type, work_.get(), dBytes,
+                                  pinned_.get(hBytes > 0 ? hBytes : 1), hBytes, info_.get()));
+      checkInfo("cusolverDnXgeev");
+    }
     const MatC vals = download(w);
     r.values = vals.col(0);
     // unit-norm columns as Eigen: norms on the device, scaling with dgmm

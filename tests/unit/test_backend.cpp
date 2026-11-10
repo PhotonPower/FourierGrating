@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <atomic>
 #include <cstdlib>
+#include <thread>
 
 #include "fg/core/error.hpp"
 #include "fg/linalg/backend.hpp"
@@ -100,6 +102,35 @@ TEST(Backend, CudaEqualsCpu) {
     EXPECT_LT(std::abs(vg[static_cast<std::size_t>(k)] - vc[static_cast<std::size_t>(k)]), 1e-10 * A.norm());
     EXPECT_LT((A * eg.vectors.col(k) - eg.values(k) * eg.vectors.col(k)).norm(), 1e-10 * A.norm());
   }
+}
+
+// cusolverDnXgeev from several threads at once (one backend, i.e. handle and stream, per thread):
+// regression for CUSOLVER_STATUS_INTERNAL_ERROR (7) found on the RTX 6000 Ada (CUDA 12.9), fixed by
+// serializing the call in CudaBackend::eigT.
+TEST(Backend, CudaConcurrentEigenSolves) {
+  if (!fg::linalg::cudaAvailable()) GTEST_SKIP() << "no CUDA device";
+  constexpr int nThreads = 4, nCalls = 25;
+  const Eigen::Index n = 164;
+  std::vector<MatC> mats;
+  for (int k = 0; k < nThreads; ++k) mats.push_back(randomMatrix(n, n, 20 + static_cast<unsigned>(k)));
+  std::atomic<int> failures{0}, wrong{0};
+  std::vector<std::thread> pool;
+  for (int t = 0; t < nThreads; ++t)
+    pool.emplace_back([&, t] {
+      try {
+        auto gpu = fg::linalg::makeCudaBackend(0);
+        const MatC& A = mats[static_cast<std::size_t>(t)];
+        for (int c = 0; c < nCalls; ++c) {
+          const auto e = gpu->eig(A);
+          if ((A * e.vectors.col(0) - e.values(0) * e.vectors.col(0)).norm() > 1e-10 * A.norm()) ++wrong;
+        }
+      } catch (const std::exception&) {
+        ++failures;
+      }
+    });
+  for (auto& th : pool) th.join();
+  EXPECT_EQ(failures.load(), 0);
+  EXPECT_EQ(wrong.load(), 0);
 }
 
 // Full 2D RCWA (Ag hole array, N = 4: matrices up to 4 n_f = 324) on the device = CPU on 1e-10.

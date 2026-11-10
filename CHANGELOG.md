@@ -49,6 +49,11 @@
 - V20f: Reziprozität der Streuamplituden (Winkelspektrum des Streufeldes, 5e-2 bei L = 8 µm).
 - Python-CI mit PyTorch, JAX und scipy; NURBS-Beispiel als Test.
 
+### Behoben
+- CUDA: `cusolverDnXgeev` lieferte bei gleichzeitigem Aufruf aus mehreren Threads `CUSOLVER_STATUS_INTERNAL_ERROR` (7)
+  (RTX 6000 Ada, CUDA 12.9, `FG_NUM_THREADS` >= 2, `FG_GPU_STREAMS` >= 2). Der Aufruf ist jetzt mit einem Mutex
+  serialisiert (`CudaBackend::eigT`); Test `Backend.CudaConcurrentEigenSolves`.
+
 ### Geändert
 - Gradienten nach Formparametern mit FFF in 2D: das Rasterfeld von Algorithmus NF bewegt sich mit der Geometrie
   (Differenzenquotient über eine Rasterzelle). Eingefroren war z. B. die Verschiebung eines Kreises um 30–150 %
