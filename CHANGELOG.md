@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M20 (ebene Wellen): Einfall `plane_wave` für Zylinderstapel in der Streufeldformulierung (Hintergrund wie M18,
+  Quellen nach Jacobi–Anger, `fg::cyl::besselProjection`/`planeWaveSource`), Harmonische `auto` nach m_cut,
+  Streuquerschnitte `C_Sup`/`C_Sdown`/`C_Ssca` (µm²) und je Harmonischer; V21c (Mie-Kugel −5,7e-4 nach
+  Extrapolation), Symmetrie- und RK-Tests ebener Wellen.
+- Plan v2.16: konsistente Quelle ebener Wellen bei Li in r, p = b̂ − Q â (der Plan hielt sie wegen des Deltaspektrums
+  für unmöglich; mit ε_bg = ε∞ heben sich die Deltaanteile auf). Mit der exakten Quelle konvergiert σ_sca der
+  Mie-Kugel nur erster Ordnung in k_max (+1,5 % bei κ = 8), mit der konsistenten bleibt der Treppenfehler.
 - M20 (Löser): Schnittstelle `detail::ModalBasis` der Stapelassemblierung (kartesisch bitgleich), zylindrische Basis
   je Harmonischer, Schichttyp `rings`, Konfigurationsblock `"cylindrical"` mit Strahlanregung (`gaussian_beam`),
   Ausgabe `Result::cylindrical` und CSV-Seiten `C_R`, `C_T`, `C_A`, `C_Rm`, `C_Tm`; V21a; Beispiel

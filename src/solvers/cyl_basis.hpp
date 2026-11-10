@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 
+#include "fg/cyl/excitation.hpp"
 #include "fg/cyl/galerkin.hpp"
 #include "fg/cyl/spectrum.hpp"
 #include "fg/geometry/stack.hpp"
@@ -41,11 +42,24 @@ class CylBasis final : public ModalBasis {
   LayerModes homogeneousModes(const StackLayer& layer) const override;
   double rhoEstimate(const StackLayer& layer) const override;
 
+  /// Plane-wave background with lateral wave number kpar along the azimuth Psi (Plan eq:cyl_jacobi):
+  /// prepares the source spectra of the ring layers.
+  void setPlaneWave(double kpar, double Psi);
+  /// sigma of Plan eq:cyl_scat in a ring layer for the background (c_+, c_-, e_y) on the axis;
+  /// zero vector for homogeneous layers (their material is the background).
+  VecC source(const StackLayer& layer, cplx cp, cplx cm, cplx ey) const;
+
  private:
+  std::size_t index(const StackLayer& layer) const;
   const cyl::SpectralGrid& grid_;
   ModeBasis ref_, sub_;
   std::vector<const StackLayer*> layers_;
+  int m_;
+  cyl::CylFactorization f_;
+  std::vector<cyl::CylQ> Q_;
   std::vector<MatC> M_;
+  std::vector<Eigen::PartialPivLU<MatC>> Qyy_;
+  std::vector<cyl::PlaneWaveSource> src_;
 };
 
 }  // namespace fg::detail

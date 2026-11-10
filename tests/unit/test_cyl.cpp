@@ -6,6 +6,7 @@
 
 #include "fg/core/quadrature.hpp"
 #include "fg/cyl/bessel.hpp"
+#include "fg/cyl/excitation.hpp"
 #include "fg/cyl/galerkin.hpp"
 #include "fg/cyl/propagation.hpp"
 #include "fg/cyl/spectrum.hpp"
@@ -260,4 +261,91 @@ TEST(CylFlux, ClosedFormPartialWave) {
     }
   }
   EXPECT_GT(checked, 10);
+}
+
+TEST(CylExcitation, BesselProjectionEqualsQuadrature) {
+  // column of Plan eq:cyl_gal at an extra node k' without weight (Lommel; mixed orders by quadrature)
+  // against quadrature; k'
+  // = 0, generic, and on a node (near-coincident pairs by quadrature)
+  const cyl::RadialSteps steps{{0.4, 1.1, 2.0}, {cplx(3.0, 0.1), 0.5, cplx(-2.0, 0.3)}};
+  auto step = [&](double r) {
+    for (std::size_t i = 0; i < steps.radii.size(); ++i)
+      if (r < steps.radii[i]) return steps.value[i];
+    return cplx(0.0);
+  };
+  for (const auto& grid : {realGrid(6.0, 2.0, {1.0, 1.5}), deformedGrid()})
+    for (auto [nu, nup] : {std::pair{0, 0}, {1, 1}, {-2, -2}, {3, 3}, {1, -1}, {2, 0}, {-1, 1}, {0, -2}})
+      for (const double kp : {0.0, 0.83, grid.k(5).real()}) {
+        const VecC P = cyl::besselProjection(grid, nu, nup, steps, kp);
+        double worst = 0, scale = 0;
+        for (Eigen::Index j = 0; j < grid.k.size(); ++j) {
+          cplx ref = 0.0;
+          for (std::size_t i = 0; i < steps.radii.size(); ++i)
+            ref += integrate([&](double r) { return step(r) * cyl::besselJ(nu, grid.k(j) * r) * cyl::besselJ(nup, kp * r) * r; },
+                             i ? steps.radii[i - 1] : 0.0, steps.radii[i]);
+          worst = std::max(worst, std::abs(P(j) - ref));
+          scale = std::max(scale, std::abs(ref));
+        }
+        // k' = 0, nu' != 0: J_nu'(0) = 0, the column vanishes exactly
+        EXPECT_LT(worst / std::max(scale, 1.0), 5e-14) << nu << " " << nup << " " << kp;
+      }
+}
+
+TEST(CylExcitation, JacobiAngerSource) {
+  // Plan eq:cyl_jacobi: the spectra of P_+- = (eps - eps_inf) E_+-,m of a plane wave, with the
+  // harmonic E_+,m(r) = 1/(2 pi) int e^{-i phi} (E_x + i E_z) e^{-i m phi} dphi taken numerically
+  const cyl::Rings rings{{0.6, 1.3}, {cplx(2.25, 0.1), 3.0}, 1.2};
+  const auto grid = realGrid(5.0, 1.3, {1.0});
+  const double kpar = 0.7, Psi = 0.4;
+  for (const int m : {-2, 0, 1, 3}) {
+    const cyl::CylQ Q = cyl::cylQ(grid, m, rings, cyl::CylFactorization::Laurent);
+    const cyl::PlaneWaveSource B = cyl::planeWaveSource(grid, m, rings, kpar, Psi, cyl::CylFactorization::Laurent, Q);
+    const Eigen::Index n = grid.k.size();
+    auto harmonic = [&](int shift, double r) {  // E_x + i E_z = e^{i k r cos(phi - Psi)}; shift = +-1 (E_pm) or 0 (E_y)
+      const int K = 64;
+      cplx s = 0.0;
+      for (int q = 0; q < K; ++q) {
+        const double phi = 2 * fg::PI * q / K;
+        s += std::exp(cplx(0, kpar * r * std::cos(phi - Psi) - (m + shift) * phi));
+      }
+      return s / double(K);
+    };
+    double worst = 0;
+    for (Eigen::Index j = 0; j < grid.k.size(); j += 7)
+      for (const int shift : {1, -1, 0}) {
+        cplx ref = 0.0;
+        for (std::size_t i = 0; i < rings.radii.size(); ++i)
+          ref += (rings.eps[i] - rings.epsInf) *
+                 integrate([&](double r) { return harmonic(shift, r) * cyl::besselJ(m + shift, grid.k(j) * r) * r; },
+                           i ? rings.radii[i - 1] : 0.0, rings.radii[i]);
+        const cplx got = shift == 1 ? B.Bpm(j, 0) : shift == -1 ? B.Bpm(n + j, 1) : B.By(j);
+        worst = std::max(worst, std::abs(got - ref));
+      }
+    EXPECT_LT(worst, 1e-13) << m;
+  }
+  EXPECT_EQ(cyl::harmonicCutoff(0.0), 2);
+  EXPECT_EQ(cyl::harmonicCutoff(8.0), 18);
+}
+
+TEST(CylExcitation, LiConsistentSourceOnNode) {
+  // Li in r: P = b^ - Q a^ is (Q - eps_inf) E_bg (Plan eq:cyl_scat, consistency). With kpar on a
+  // node l, E_bg = e J(k_l r) lies on the grid (spectrum e / (w_l k_l) at node l), so the identity
+  // can be checked against the matrices.
+  const cyl::Rings rings{{0.6, 1.3}, {cplx(2.25, 0.1), 3.0}, 1.2};
+  const auto grid = realGrid(5.0, 1.3, {1.0});
+  const Eigen::Index n = grid.k.size(), l = 9;
+  const double kpar = grid.k(l).real(), Psi = 0.3;
+  for (const int m : {0, 2, -1}) {
+    const cyl::CylQ Q = cyl::cylQ(grid, m, rings, cyl::CylFactorization::LiR);
+    const cyl::PlaneWaveSource B = cyl::planeWaveSource(grid, m, rings, kpar, Psi, cyl::CylFactorization::LiR, Q);
+    MatC Qf(2 * n, 2 * n);
+    Qf << Q.Qpp, Q.Qpm, Q.Qmp, Q.Qmm;
+    const cplx cp(0.4, -1.1), cm(-0.7, 0.2);
+    auto phase = [Psi](int nu) { return std::polar(1.0, nu * (0.5 * fg::PI - Psi)); };
+    VecC E = VecC::Zero(2 * n);
+    E(l) = cp * phase(m + 1) / (grid.w(l) * grid.k(l));
+    E(n + l) = cm * phase(m - 1) / (grid.w(l) * grid.k(l));
+    const VecC ref = Qf * E - rings.epsInf * E, got = B.Bpm * Eigen::Vector2cd(cp, cm);
+    EXPECT_LT((got - ref).cwiseAbs().maxCoeff() / ref.cwiseAbs().maxCoeff(), 1e-12) << m;
+  }
 }

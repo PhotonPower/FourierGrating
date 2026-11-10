@@ -111,6 +111,12 @@ py::dict toDict(const fg::Result& r, double seconds, const std::vector<fg::prof:
     cy["reflected_per_harmonic"] = r.cylindrical.reflectedPerHarmonic;
     cy["transmitted_per_harmonic"] = r.cylindrical.transmittedPerHarmonic;
     cy["nodes"] = r.cylindrical.nodes;
+    cy["plane_wave"] = r.cylindrical.planeWave;
+    if (r.cylindrical.planeWave) {  // cross sections in um^2 (per harmonic: the *_per_harmonic lists)
+      cy["scattered_up_um2"] = r.cylindrical.scatteredUp_um2;
+      cy["scattered_down_um2"] = r.cylindrical.scatteredDown_um2;
+      cy["scattering_um2"] = r.cylindrical.scattering_um2;
+    }
     d["cylindrical"] = cy;
   }
   py::dict diag;

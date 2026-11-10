@@ -53,18 +53,48 @@ CylBasis::CylBasis(const cyl::SpectralGrid& grid, int m, cplx epsSup, cplx epsSu
                    const std::vector<std::unique_ptr<CylLayer>>& layers, cyl::CylFactorization f)
     : grid_(grid),
       ref_(cyl::homogeneousModes(epsSup, grid.k)),
-      sub_(cyl::homogeneousModes(epsSub, grid.k)) {
+      sub_(cyl::homogeneousModes(epsSub, grid.k)),
+      m_(m),
+      f_(f) {
   for (const auto& L : layers) {
     layers_.push_back(L.get());
-    M_.push_back(L->homogeneous()
-                     ? MatC()
-                     : cyl::propagationMatrix(grid.k, cyl::cylQ(grid, m, L->rings, f)));
+    if (L->homogeneous()) {
+      M_.emplace_back();
+      Q_.emplace_back();
+      Qyy_.emplace_back();
+      continue;
+    }
+    Q_.push_back(cyl::cylQ(grid, m, L->rings, f));
+    M_.push_back(cyl::propagationMatrix(grid.k, Q_.back()));
+    Qyy_.emplace_back(Q_.back().Qyy);
   }
 }
 
-MatC CylBasis::M(const StackLayer& layer, double /*y_um*/) const {
+std::size_t CylBasis::index(const StackLayer& layer) const {
   const auto it = std::find(layers_.begin(), layers_.end(), &layer);
   FG_REQUIRE(it != layers_.end(), "CylBasis: unknown layer");
+  return static_cast<std::size_t>(it - layers_.begin());
+}
+
+void CylBasis::setPlaneWave(double kpar, double Psi) {
+  src_.clear();
+  for (const StackLayer* l : layers_) {
+    const auto& L = static_cast<const CylLayer&>(*l);
+    const std::size_t i = src_.size();
+    src_.push_back(L.homogeneous() ? cyl::PlaneWaveSource{}
+                                   : cyl::planeWaveSource(grid_, m_, L.rings, kpar, Psi, f_, Q_[i]));
+  }
+}
+
+VecC CylBasis::source(const StackLayer& layer, cplx cp, cplx cm, cplx ey) const {
+  const std::size_t i = index(layer);
+  FG_REQUIRE(i < src_.size(), "CylBasis: setPlaneWave first");
+  if (layer.homogeneous()) return VecC::Zero(4 * grid_.k.size());
+  return cyl::scatteredSource(grid_.k, Qyy_[i], src_[i], cp, cm, ey);
+}
+
+MatC CylBasis::M(const StackLayer& layer, double /*y_um*/) const {
+  const std::size_t i = index(layer);
   const auto& L = static_cast<const CylLayer&>(layer);
   // homogeneous layers: only for RK (the assembly uses the analytic modes)
   if (L.homogeneous()) {
@@ -73,7 +103,7 @@ MatC CylBasis::M(const StackLayer& layer, double /*y_um*/) const {
     return cyl::propagationMatrix(
         grid_.k, {L.eps * Id, MatC::Zero(n, n), MatC::Zero(n, n), L.eps * Id, L.eps * Id});
   }
-  return M_[static_cast<std::size_t>(it - layers_.begin())];
+  return M_[i];
 }
 
 // M is block anti-diagonal: reduced path (Plan eq:rcwa_reduced)

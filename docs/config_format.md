@@ -165,7 +165,7 @@ efficiency = Leistung) und `Mrad`; Python `result.modal`. Nahfeld: `"nearfield":
 Streufeld statt des Totalfeldes aus. PML und `coordinate_transform` (ASR) schließen sich aus.
 
 **Rotationssymmetrische Strukturen (M20, in Arbeit).** Strukturen um die Achse y (x = z = 0) auf einem Schichtstapel,
-angeregt durch einen Strahl auf der Achse; `period_um`, `truncation` und `dimension` entfallen:
+angeregt durch einen Strahl auf der Achse oder eine ebene Welle; `period_um`, `truncation` und `dimension` entfallen:
 
 ```jsonc
 "cylindrical": {
@@ -183,7 +183,20 @@ angeregt durch einen Strahl auf der Achse; `period_um`, `truncation` und `dimens
 `rings`: n Radien und n + 1 Materialien von innen nach außen (das letzte gilt außerhalb). Erlaubt sind `homogeneous`
 und `rings`, isotrope Materialien, homogene Halbräume. Ausgabe in `efficiencies.csv`: Seiten `C_R`, `C_T`, `C_A`
 (Leistungen bezogen auf den einfallenden Strahl; `C_A` = 1 − R − T enthält auch den seitlichen Abfluss geführter
-Moden) und je Harmonischer `C_Rm`, `C_Tm` (n = m). Ebene Wellen, Nahfeld, `rings_profile` und CAD folgen.
+Moden) und je Harmonischer `C_Rm`, `C_Tm` (n = m).
+
+Ebene Welle (Streufeldformulierung, Hintergrund = Stapel mit dem äußersten Ringmaterial): Winkel wie beim
+kartesischen Einfall, Polarisation über `delta_deg`; Strahlparameter entfallen.
+
+```jsonc
+"incidence": {"type": "plane_wave", "lambda_um": 1.0, "phi_deg": 30, "psi_deg": 0, "delta_deg": 0}
+```
+
+Harmonische `"auto"`: bei Normaleinfall m = ±1, sonst |m| ≤ m_cut = ⌈x + 4x^{1/3} + 2⌉ mit x = k₀ n_sup sin φ R_s
+(R_s: größter Ringradius; darüber verschwindet die Quelle). Ausgabe: Streuquerschnitte in µm² `C_Sup` (ins
+Superstrat), `C_Sdown` (ins Substrat), `C_Ssca` (Summe), je Harmonischer `C_Supm`, `C_Sdownm` (n = m); Python
+`result.cylindrical["scattering_um2"]` usw. Absorptions- und Extinktionsquerschnitt, Nahfeld, `rings_profile` und CAD
+folgen.
 
 Bei einem Sweep beginnen die CSV-Zeilen mit `sweep_parameter, sweep_value`; das Nahfeld wird für den ersten
 Scanpunkt des ersten Sweep-Werts berechnet. Darstellung: `scripts/plot_efficiencies.py`.

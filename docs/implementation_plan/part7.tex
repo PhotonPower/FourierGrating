@@ -351,9 +351,20 @@ $\mathbf D_s=\varepsilon\mathbf E_s+\mathbf P$ folgt aus \eqref{eq:cyl_spec} die
 \end{equation}
 Erweiterte Sternprodukte, RK mit Quellterm und partikuläre RCWA-Lösungen sind die von M18.
 \textbf{Konsistenz:} Liegt das Hintergrundfeld auf dem Gitter (Strahlen), wird wie in M18 $\sigma=(M-M_{\text{bg}})F_{\text{bg}}$
-gebildet (dieselbe Faktorisierung wie das Totalfeld; V21e auf Rundung). Bei ebenen Wellen ist das nicht möglich
-(Deltaspektrum); mit Li in $r$ ist die exakte Quelle dann mit der Faktorisierung des Streufeldes nur bis auf den
-Abschneidefehler konsistent (Grenzwerttest V21c).
+gebildet (dieselbe Faktorisierung wie das Totalfeld; V21e auf Rundung). \textbf{Ebene Wellen (v2.16):} Auch hier gibt es
+die konsistente Quelle, obwohl das Spektrum ein Delta ist: mit $\varepsilon_{\text{bg}}=\varepsilon_\infty$ (äußerstes
+Ringmaterial) und $\mathfrak A=\mathbb 1+\hk{a}$, $\mathfrak B=\varepsilon_\infty\mathbb 1+\hk{b}$ aus \eqref{eq:cyl_li}
+ist $\mathfrak A E_{\text{bg}}=E_{\text{bg}}+\hat a$, also $\mathfrak A^{-1}E_{\text{bg}}=E_{\text{bg}}-\mathfrak A^{-1}\hat a$ und
+\[
+  (p_+;p_-)=(Q-\varepsilon_\infty)E_{\text{bg}}=\hat b-Q\,\hat a ,
+\]
+$\hat a,\hat b$ die Spalten von $\hk{a}$, $\hk{b}$ (mit den Vorzeichen von $\mathfrak A$, $\mathfrak B$, gemischte Ordnungen
+$m\pm1$) am Zusatzknoten $k'=k_\parallel$ ohne Gewicht, angewandt auf $(c_+i^{m+1}e^{-i(m+1)\Psi},\,c_-i^{m-1}e^{-i(m-1)\Psi})$;
+die Deltaanteile heben sich auf. Laurent: $(p_+;p_-)$ wie oben (dort ohnehin konsistent), $p_y$ immer Laurent.
+Unit-Test: liegt $k_\parallel$ auf einem Knoten, ist $E_{\text{bg}}$ ein Gittervektor und die Identität gilt auf $10^{-12}$.
+\textbf{Befund (V21c):} Mit der exakten Quelle konvergiert $\sigma_{\text{sca}}$ der Mie-Kugel nur erster Ordnung in
+$k_{\max}$ (20 Scheiben: $+2{,}5\,\%$, $+1{,}5\,\%$ bei $\kappa_{\max}=4,8$; 40 Scheiben, $\kappa_{\max}=12$: $+0{,}7\,\%$), mit der
+konsistenten Quelle bleibt im Wesentlichen der Treppenfehler ($+0{,}03\,\%$, $+0{,}3\,\%$).
 \textbf{Harmonische:} $|m|\le m_{\text{cut}}=\lceil x+4x^{1/3}+2\rceil$, $x=k_\parallel R_s$ für die Quelle bzw.\
 $\max_j\operatorname{Re}\sqrt{\varepsilon_j}\,R_s$ für die Feldauflösung (Wiscombe-Kriterium; Konvergenz in $m_{\text{cut}}$
 prüfen). Normaleinfall: nur $m=\pm1$. Die Harmonischen sind unabhängig und laufen parallel über \verb|solveScan|.
@@ -454,6 +465,14 @@ $y$-invariant). Kartesisch bleiben vorerst die Quellen der Streufeldformulierung
         unnötige Deformation ist unschädlich, V21f). $\delta$ relativ: \verb|{"delta": 0.05}| bedeutet $0{,}05(k_b-k_a)$.
   \item Lineare Polarisation: beide Harmonischen $m=\pm1$ werden gerechnet (die Spiegelung ist noch nicht genutzt; ihre
         Gleichheit ist Testkriterium).
+  \item \textbf{Ebene Wellen (v2.16):} Hintergrund $=$ Stapel mit dem äußersten Ringmaterial je Ringschicht, gelöst wie
+        M18 mit dem kartesischen Löser bei einer Ordnung (Airy); Quelle je Ringschicht nach \eqref{eq:cyl_scat} mit der
+        konsistenten Quelle (oben) als \verb|ModalBasis|-unabhängiger Hook der Streufeld-Assemblierung
+        (partikuläre RCWA-Lösungen, RK mit Quellterm, erweiterte Sternprodukte unverändert). Harmonische \verb|"auto"|:
+        Normaleinfall $m=\pm1$, sonst $|m|\le m_{\text{cut}}(k_\parallel R_s)$ (darüber verschwindet die Quelle).
+        Ausgabe vorerst $\sigma_{\text{sca}}$ oben/unten je Harmonischer aus \eqref{eq:cyl_flux} des Streufeldes,
+        bezogen auf die Intensität der einfallenden Welle; $\sigma_{\text{abs}}$, $\sigma_{\text{ext}}$ und das optische
+        Theorem folgen mit dem Nahfeld.
   \item \textbf{Befund (V21a, dielektrische Säule):} Laurent erhält die Energie exakt ($|R+T-1|\le7\cdot10^{-13}$), denn
         $\operatorname{diag}(wk)\hk{g}$ ist symmetrisch; Li in $r$ ($\mathfrak B\mathfrak A^{-1}$ nicht selbstadjungiert)
         nur bis auf den Abschneidefehler: $7\cdot10^{-4}$, $1{,}7\cdot10^{-5}$, $1{,}5\cdot10^{-5}$ bei
@@ -482,6 +501,9 @@ dazu Materialableitungen (linear in $g$) und Ableitungen der Quelle \eqref{eq:cy
   \item \textbf{V21c} (Mie-Kugel): dielektrische Kugel ($n=1{,}5$, $k_0a=3$) im homogenen Medium, ebene Welle über
         Streufeld, Treppe mit Li in $r$: $\sigma_{\text{sca}}$, $\sigma_{\text{ext}}$ gegen Mie (Bohren--Huffman, eigene
         Referenzimplementierung im Test) nach Extrapolation in Scheibenzahl und $k_{\max}$ auf $10^{-3}$; Goldkugel qualitativ.
+        \textbf{Umsetzung (v2.16):} Ordnung $p$ in $N$ aus $\kappa_{\max}=4$ ($N=10,20,40$; $p\approx1{,}84$), Richardson bei
+        $\kappa_{\max}=8$ ($N=20,40$), Rest in $\kappa_{\max}$ als $\kappa^{-2}$: $-5{,}7\cdot10^{-4}$ ($\sigma_{\text{ext}}$ und
+        Goldkugel mit dem Nahfeld).
   \item \textbf{V21d} (gegen kartesisch): runde Säule und rundes Kontaktloch (wie V20g) bei Normaleinfall: Streu- bzw.\
         Transmissionsleistung $=$ M18-Ergebnis innerhalb dessen Konvergenz ($10^{-3}$).
   \item \textbf{V21e} (Streufeld $=$ Totalfeld): Gauß-Strahl, Streufeld $+$ Hintergrund $=$ Totalfeld (RCWA $10^{-10}$,

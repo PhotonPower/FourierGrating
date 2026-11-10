@@ -83,6 +83,18 @@ def test_cylindrical_beam():
     assert abs(cy["absorbed"]) < 1e-4  # lossless; Li in r conserves energy only to its truncation error
 
 
+def test_cylindrical_plane_wave():
+    # M20: plane wave on the ring pillar (scattered field): cross sections in um^2, m = +-1 equal
+    cfg = fg.load_config(ROOT / "examples" / "cyl_pillar_beam.json")
+    cfg["cylindrical"]["spectrum"]["kappa_max"] = 2
+    cfg["incidence"] = {"type": "plane_wave", "lambda_um": 1.0, "phi_deg": 0}
+    cy = fg.solve(cfg).cylindrical
+    assert cy["plane_wave"] and cy["harmonics"] == [-1, 1]
+    assert cy["scattering_um2"] > 0
+    assert abs(cy["scattered_up_um2"] + cy["scattered_down_um2"] - cy["scattering_um2"]) < 1e-14
+    assert abs(cy["reflected_per_harmonic"][0] - cy["reflected_per_harmonic"][1]) < 1e-12
+
+
 def test_cylindrical_simulation_and_gradient_guard():
     cfg = fg.load_config(ROOT / "examples" / "cyl_pillar_beam.json")
     cfg["incidence"]["lambda_um"] = 1.0

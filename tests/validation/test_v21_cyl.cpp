@@ -242,3 +242,119 @@ TEST(V21a, RingsSolverIntegration) {
     }
   }
 }
+
+// Plane waves (Plan sec:cylexc, "Ebene Welle (Streufeld)"): scattered field with the sources of Plan
+// eq:cyl_scat; rotational symmetry of the cross sections, RK = RCWA, V21c (Mie sphere).
+namespace {
+
+std::string planeWaveConfig(const std::string& layers, double phi, double psi, double delta,
+                            const std::string& fac = "li_r", double kappa = 2, const std::string& harmonics = "\"auto\"",
+                            const std::string& sub = "glass") {
+  char inc[160];
+  std::snprintf(inc, sizeof inc, R"("phi_deg": %.17g, "psi_deg": %.17g, "delta_deg": %.17g)", phi, psi, delta);
+  return R"({
+    "cylindrical": {"spectrum": {"kappa_max": )" +
+         std::to_string(kappa) + R"(}, "factorization": ")" + fac + R"(", "harmonics": )" + harmonics + R"(},
+    "materials": {"air": {"n": 1.0}, "glass": {"n": 1.5}, "film": {"n": 1.45}, "sph": {"n": 1.5}},
+    "superstrate": "air", "substrate": ")" + sub + R"(",
+    "incidence": {"type": "plane_wave", "lambda_um": 1.0, )" + inc + R"(},
+    "layers": [)" + layers + R"(]})";
+}
+const std::string kPillar =
+    R"({"type": "rings", "thickness_um": 0.3, "radii_um": [0.4], "materials": ["film", "air"]})";
+
+}  // namespace
+
+TEST(V21PlaneWave, RotationalSymmetryAndRkEqualsRcwa) {
+  // normal incidence: m = +-1, any polarization gives the same cross section
+  const fg::Result a = solveConfig(planeWaveConfig(kPillar, 0, 0, 0)), b = solveConfig(planeWaveConfig(kPillar, 0, 0, 90));
+  const auto& ca = a.cylindrical;
+  ASSERT_TRUE(ca.present && ca.planeWave);
+  ASSERT_EQ(ca.harmonics, (std::vector<int>{-1, 1}));
+  std::printf("pillar, normal incidence: sigma_up = %.12f sigma_down = %.12f um^2\n", ca.scatteredUp_um2,
+              ca.scatteredDown_um2);
+  EXPECT_GT(ca.scattering_um2, 1e-3);
+  EXPECT_NEAR(b.cylindrical.scattering_um2 / ca.scattering_um2, 1.0, 1e-12);
+  EXPECT_NEAR(ca.reflectedPerHarmonic[0], ca.reflectedPerHarmonic[1], 1e-12 * ca.scattering_um2);
+  EXPECT_NEAR(ca.transmittedPerHarmonic[0], ca.transmittedPerHarmonic[1], 1e-12 * ca.scattering_um2);
+  // oblique: the azimuth of the plane of incidence only rotates the field (each harmonic by a phase);
+  // "auto" would take |m| <= 8 here
+  const std::string some = "[-2, -1, 0, 1, 2]";
+  const fg::Result c = solveConfig(planeWaveConfig(kPillar, 30, 0, 20, "li_r", 2, some)),
+                   d = solveConfig(planeWaveConfig(kPillar, 30, 40, 20, "li_r", 2, some));
+  const auto& cc = c.cylindrical;
+  const auto& cd = d.cylindrical;
+  ASSERT_EQ(cc.harmonics, cd.harmonics);
+  EXPECT_GT(cc.reflectedPerHarmonic[2], 1e-6 * cc.scattering_um2);  // m = 0 is excited
+  for (std::size_t i = 0; i < cc.harmonics.size(); ++i) {
+    EXPECT_NEAR(cc.reflectedPerHarmonic[i], cd.reflectedPerHarmonic[i], 1e-10 * cc.scattering_um2) << cc.harmonics[i];
+    EXPECT_NEAR(cc.transmittedPerHarmonic[i], cd.transmittedPerHarmonic[i], 1e-10 * cc.scattering_um2) << cc.harmonics[i];
+  }
+  // rings of the background material scatter nothing
+  const fg::Result z = solveConfig(planeWaveConfig(
+      R"({"type": "rings", "thickness_um": 0.3, "radii_um": [0.4], "materials": ["air", "air"]})", 30, 0, 0, "li_r", 2, some));
+  EXPECT_LT(z.cylindrical.scattering_um2, 1e-28);
+  // RK with the source term (augmented system) = particular RCWA solutions (Laurent, oblique)
+  for (const std::string fac : {"laurent", "li_r"}) {
+    const fg::Result p = solveConfig(planeWaveConfig(kPillar, 30, 0, 20, fac, 2, "[0, 1]")),
+                     q = solveConfig(planeWaveConfig(kPillar, 30, 0, 20, fac, 2, "[0, 1]"), fg::SolverKind::RK);
+    EXPECT_NEAR(q.cylindrical.scattering_um2 / p.cylindrical.scattering_um2, 1.0, 1e-8) << fac;
+    EXPECT_NEAR(q.cylindrical.scatteredUp_um2 / p.cylindrical.scatteredUp_um2, 1.0, 1e-8) << fac;
+  }
+}
+
+namespace {
+
+/// Mie scattering efficiency Q_sca of a sphere (size parameter x, relative index m; Bohren-Huffman,
+/// BHMIE: logarithmic derivative downward, Riccati-Bessel functions upward).
+double mieQsca(double x, double m) {
+  const int nstop = static_cast<int>(x + 4 * std::cbrt(x) + 2);
+  const int nmx = static_cast<int>(std::max<double>(nstop, m * x)) + 16;
+  std::vector<double> D(static_cast<std::size_t>(nmx) + 1, 0.0);
+  for (int n = nmx; n > 0; --n) D[n - 1] = n / (m * x) - 1 / (D[n] + n / (m * x));
+  double psi0 = std::cos(x), psi1 = std::sin(x), chi0 = -std::sin(x), chi1 = std::cos(x), q = 0;
+  cplx xi1(psi1, -chi1);
+  for (int n = 1; n <= nstop; ++n) {
+    const double psi = (2 * n - 1) * psi1 / x - psi0, chi = (2 * n - 1) * chi1 / x - chi0;
+    const cplx xi(psi, -chi);
+    const double da = D[n] / m + n / x, db = m * D[n] + n / x;
+    const cplx an = (da * psi - psi1) / (da * xi - xi1), bn = (db * psi - psi1) / (db * xi - xi1);
+    q += (2 * n + 1) * (std::norm(an) + std::norm(bn));
+    psi0 = psi1, psi1 = psi, chi0 = chi1, chi1 = chi, xi1 = xi;
+  }
+  return 2 * q / (x * x);
+}
+
+/// Sphere of radius a (k0 a = 3, lambda = 1 um) in air as N rings slices (radius at the slice centre).
+double sphereSigma(int N, double kappa) {
+  const double a = 3.0 / (2 * fg::PI), h = 2 * a / N;
+  std::string layers;
+  for (int i = 0; i < N; ++i) {
+    const double yc = (i + 0.5) * h;
+    char buf[200];
+    std::snprintf(buf, sizeof buf, R"(%s{"type": "rings", "thickness_um": %.17g, "radii_um": [%.17g], "materials": ["sph", "air"]})",
+                  i ? ", " : "", h, std::sqrt(a * a - (yc - a) * (yc - a)));
+    layers += buf;
+  }
+  const fg::Result r = solveConfig(planeWaveConfig(layers, 0, 0, 0, "li_r", kappa, "\"auto\"", "air"));
+  return r.cylindrical.scattering_um2;
+}
+
+}  // namespace
+
+TEST(V21c, MieSphere) {
+  // dielectric sphere n = 1.5, k0 a = 3, normal incidence, Li in r with the consistent source;
+  // staircase of N slices: order p in N from kappa_max = 4 (N = 10, 20, 40), Richardson at
+  // kappa_max = 8 (N = 20, 40), the rest in kappa_max as 1/kappa^2 (from N = 20)
+  const double a = 3.0 / (2 * fg::PI), mie = mieQsca(3.0, 1.5) * fg::PI * a * a;
+  const double s10 = sphereSigma(10, 4), s20 = sphereSigma(20, 4), s40 = sphereSigma(40, 4);
+  const double t20 = sphereSigma(20, 8), t40 = sphereSigma(40, 8);
+  const double p = std::log2((s10 - s20) / (s20 - s40));
+  const double nInf = t40 - (t20 - t40) / (std::pow(2.0, p) - 1);
+  const double est = nInf + (t20 - s20) / 3;  // kappa^-2: S(inf) - S(8) = (S(8) - S(4)) / 3
+  std::printf("V21c Mie %.6f | kappa 4: %.6f %.6f %.6f (p = %.2f) | kappa 8: %.6f %.6f | extrapolated %.6f (%.1e)\n",
+              mie, s10, s20, s40, p, t20, t40, est, est / mie - 1);
+  EXPECT_NEAR(mie, 2.448002410791, 1e-9);  // reference implementation
+  EXPECT_GT(p, 1.5);
+  EXPECT_NEAR(est / mie, 1.0, 1e-3);
+}

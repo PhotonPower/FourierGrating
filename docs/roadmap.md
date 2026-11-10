@@ -199,7 +199,11 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
     CSV `C_R`/`C_T`/`C_A`; V21a (Schichtstapel = Dünnschicht je Knoten ≤ 1e-12, R + T = 1; Säule: m ↔ −m 1e-12, Laurent
     energieerhaltend, Li 1,7e-5 bei κ = 4, RK = RCWA) – `tests/validation/test_v21_cyl.cpp`; Beispiel
     `examples/cyl_pillar_beam.json`
-  - Als Nächstes: ebene Wellen (Streufeld, Jacobi–Anger), V21c (Mie), V21e; Nahfeld; `rings_profile`, CAD
+  - Erledigt (ebene Wellen, Plan v2.16): Einfall `plane_wave` (Streufeld, Hintergrund wie M18, Jacobi–Anger,
+    konsistente Quelle bei Li in r), Streuquerschnitte oben/unten je Harmonischer (CSV `C_Sup`/`C_Sdown`/`C_Ssca`);
+    V21c (Mie −5,7e-4), Drehsymmetrie und RK = RCWA mit Quelle – `tests/validation/test_v21_cyl.cpp`
+  - Als Nächstes: Nahfeld (damit σ_abs, σ_ext, optisches Theorem, Goldkugel), V21e (Strahl als Streufeld);
+    `rings_profile`, CAD; V21d/f/g/h/i
 - [ ] **M21** P-zählige Drehsymmetrie: gekoppelte Harmonische m0 + lP, Winkelkoeffizienten aus `polygon2d`/
   `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)
   - Abnahme: V22a–g (Plan)

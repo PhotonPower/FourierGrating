@@ -302,3 +302,22 @@ Dielektrische Säule (n = 1,45, r = 0,4 µm, h = 0,3 µm, Luft, auf Glas), x-Pol
 
 dk_factor = 2 ändert R nicht in den ersten 8 Stellen. m = −1 und m = +1 tragen gleiche Leistung (1e-12); RK = RCWA
 (1e-8).
+
+**Ebene Wellen (Streufeld).** Spalten der Galerkin-Matrizen am Zusatzknoten k′ = k_∥ (Lommel, gemischte Ordnungen per
+Quadratur) gegen Quadratur ≤ 5e-14; Quellspektren nach Jacobi–Anger gegen numerische φ-Integration der ebenen Welle
+≤ 1e-13; konsistente Quelle b̂ − Q â = (Q − ε∞) E_bg für k_∥ auf einem Knoten ≤ 1e-12. Säule wie oben (κ_max = 2):
+Normaleinfall δ = 0 und 90° gleich (1e-12), schräger Einfall (φ = 30°) je Harmonischer unabhängig vom Azimut ψ
+(1e-10), Ringe aus Hintergrundmaterial streuen nicht, RK mit Quellterm = RCWA (1e-8, Laurent und Li).
+
+**V21c (Mie-Kugel).** n = 1,5, k₀a = 3 in Luft, λ = 1 µm, Treppe aus N Ringschichten (Radius in Scheibenmitte),
+Li in r; σ_sca in µm² (Mie: 2,448002):
+
+| N | κ_max = 4 | 8 | 12 | exakte Quelle, κ_max = 4 / 8 |
+|---|---|---|---|---|
+| 10 | 2,475229 | 2,480102 | 2,480778 | 2,536589 / 2,510417 |
+| 20 | 2,448735 | 2,455710 | 2,457501 | 2,509851 / 2,485790 |
+| 40 | 2,441324 | 2,447471 | – | 2,501089 / 2,476878 |
+| 80 | 2,439120 | 2,444564 | – | 2,498970 / 2,473872 |
+
+Extrapolation im Test (Ordnung in N aus κ_max = 4: p = 1,84; Richardson bei κ_max = 8; Rest κ^−2): 2,446596, also
+−5,7e-4 (Toleranz 1e-3). Mit der exakten Quelle (P = (ε − ε∞) E_bg) konvergiert σ_sca nur erster Ordnung in κ_max.

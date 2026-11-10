@@ -356,14 +356,22 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
     const std::string fac = cj.value("factorization", std::string("li_r"));
     FG_REQUIRE(fac == "li_r" || fac == "laurent", "cylindrical.factorization must be \"li_r\" or \"laurent\"");
     c.liR = fac == "li_r";
-    FG_REQUIRE(inc.value("type", std::string()) == "gaussian_beam",
-               "cylindrical: incidence.type must be \"gaussian_beam\" (plane waves follow in M20)");
-    c.waist_um = inc.at("waist_um").get<double>();
-    c.focus_y_um = inc.value("focus_y_um", 0.0);
-    c.polarization = inc.value("polarization", c.polarization);
-    FG_REQUIRE(c.waist_um > 0, "incidence.waist_um must be > 0");
-    for (const char* a : {"phi_deg", "psi_deg", "delta_deg"})
-      FG_REQUIRE(!inc.contains(a), std::string("gaussian_beam: ") + a + " is not used (beam on the axis)");
+    const std::string type = inc.value("type", std::string());
+    FG_REQUIRE(type == "gaussian_beam" || type == "plane_wave",
+               "cylindrical: incidence.type must be \"gaussian_beam\" or \"plane_wave\"");
+    c.planeWave = type == "plane_wave";
+    if (c.planeWave) {
+      // plane wave: angles as in the Cartesian scan, scattered field (Plan sec:cylexc)
+      for (const char* a : {"waist_um", "focus_y_um", "polarization"})
+        FG_REQUIRE(!inc.contains(a), std::string("plane_wave: ") + a + " is not used (polarization: delta_deg)");
+    } else {
+      c.waist_um = inc.at("waist_um").get<double>();
+      c.focus_y_um = inc.value("focus_y_um", 0.0);
+      c.polarization = inc.value("polarization", c.polarization);
+      FG_REQUIRE(c.waist_um > 0, "incidence.waist_um must be > 0");
+      for (const char* a : {"phi_deg", "psi_deg", "delta_deg"})
+        FG_REQUIRE(!inc.contains(a), std::string("gaussian_beam: ") + a + " is not used (beam on the axis)");
+    }
   }
   // scan: cartesian product lambda x phi x psi x delta (each a number, an array or a range)
   for (double lam : parseRange(inc.at("lambda_um")))
@@ -508,7 +516,15 @@ void writeRows(std::ofstream& out, const std::string& prefix, const std::vector<
       row("Mrad", OrderEfficiency{0, 0, mr.radiated, 0, 0});
     }
     const CylindricalResult& cr = results[k].cylindrical;  // M20: R, T, A of the beam; per harmonic n = m
-    if (cr.present) {
+    if (cr.present && cr.planeWave) {  // plane wave: cross sections (um^2) up, down, total; per harmonic
+      for (const auto& [side, v] : {std::pair<const char*, double>{"C_Sup", cr.scatteredUp_um2},
+                                    {"C_Sdown", cr.scatteredDown_um2}, {"C_Ssca", cr.scattering_um2}})
+        row(side, OrderEfficiency{0, 0, v, 0, 0});
+      for (std::size_t i = 0; i < cr.harmonics.size(); ++i) {
+        row("C_Supm", OrderEfficiency{cr.harmonics[i], 0, cr.reflectedPerHarmonic[i], 0, 0});
+        row("C_Sdownm", OrderEfficiency{cr.harmonics[i], 0, cr.transmittedPerHarmonic[i], 0, 0});
+      }
+    } else if (cr.present) {
       for (const auto& [side, v] : {std::pair<const char*, double>{"C_R", cr.reflected}, {"C_T", cr.transmitted},
                                     {"C_A", cr.absorbed}})
         row(side, OrderEfficiency{0, 0, v, 0, 0});

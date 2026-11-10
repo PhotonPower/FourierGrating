@@ -119,9 +119,14 @@ struct ModalResult {
 /// that guided modes carry away laterally.
 struct CylindricalResult {
   bool present = false;
-  double reflected = 0, transmitted = 0, absorbed = 0;
+  bool planeWave = false;  ///< plane wave (scattered field): cross sections instead of R, T, A
+  double reflected = 0, transmitted = 0, absorbed = 0;  ///< beam: relative to the incident power
+  /// Plane wave (Plan "M20: Ausgaben"): scattering cross sections in um^2, up into the superstrate,
+  /// down into the substrate.
+  double scatteredUp_um2 = 0, scatteredDown_um2 = 0, scattering_um2 = 0;
   std::vector<int> harmonics;
-  std::vector<double> reflectedPerHarmonic, transmittedPerHarmonic;  ///< relative to the total incident power
+  /// Per harmonic: beam relative to the total incident power; plane wave the cross sections up/down (um^2).
+  std::vector<double> reflectedPerHarmonic, transmittedPerHarmonic;
   int nodes = 0;  ///< N_k of the spectral grid
 };
 

@@ -212,6 +212,9 @@ struct Setup {
   bool blochSource = false;
   VecC alphaB, gammaB;
   MatC Tsrc;
+  /// Cylindrical plane wave (M20): sigma of a layer for the background (Ex, Ez, Hx, Hz) of the
+  /// incidence order (Plan eq:cyl_scat); replaces (M - M_bg) F_bg.
+  std::function<VecC(const detail::StackLayer&, const BgLayer&, const VecC&)> cylSource;
   const ModeBasis& physRef() const { return transformed ? refPhys : ref; }
   const ModeBasis& physSub() const { return transformed ? subPhys : subModes; }
 };
@@ -537,9 +540,9 @@ class StackSolver final : public Solver {
 
  private:
   // ------------------------------------------------------------------ cylindrical (M20)
-  /// Beam on the axis through a stack with ring layers (Plan sections "M20: Anregung", "M20: S-Matrix,
-  /// Loeser und Nahfeld"): one assembly per azimuthal harmonic with the Hankel basis, powers from Plan
-  /// eq:cyl_flux.
+  /// Beam on the axis or plane wave through a stack with ring layers (Plan sections "M20: Anregung",
+  /// "M20: S-Matrix, Loeser und Nahfeld"): one assembly per azimuthal harmonic with the Hankel basis,
+  /// powers from Plan eq:cyl_flux.
   Result cylindricalSolve(const Stack& stack, const Wavelength& wl) {
     FG_PROF_SCOPE("solve.cylindrical");
     detail::applyThreadSettings(opt_);
@@ -548,7 +551,7 @@ class StackSolver final : public Solver {
     FG_REQUIRE(!stack.aperiodic.enabled && !stack.superstrateStructure && !stack.substrateStructure &&
                    !opt_.scatteredField,
                "cylindrical: aperiodic, structured half spaces and scattered_field are not available (M20)");
-    FG_REQUIRE(c.waist_um > 0, "cylindrical: incidence gaussian_beam with waist_um > 0");
+    FG_REQUIRE(c.planeWave || c.waist_um > 0, "cylindrical: incidence gaussian_beam with waist_um > 0");
     Result res;
     res.diag.precision = linalg::precisionName(linalg::precision());
     Setup s;
@@ -593,6 +596,12 @@ class StackSolver final : public Solver {
     }
     const cyl::SpectralGrid grid = cyl::spectralGrid(o);
     const Eigen::Index n = grid.k.size();
+    const cyl::CylFactorization fac = c.liR ? cyl::CylFactorization::LiR : cyl::CylFactorization::Laurent;
+    if (c.planeWave) {
+      FG_REQUIRE(Rs_um > 0, "cylindrical plane wave: the stack needs a rings layer");
+      cylindricalPlaneWave(stack, wl, s, layers, ptrs, grid, fac, res);
+      return res;
+    }
 
     // incident beam (Plan sec:cylexc): spectra of order 0 (w0^2/2 e^{-k^2 w0^2/4}) and order 1
     // (k w0^4/4 e^{-k^2 w0^2/4}, of r e^{-r^2/w0^2}); phase referenced at the top, aperture <= 1
@@ -636,7 +645,6 @@ class StackSolver final : public Solver {
            : p == "circular_minus"             ? std::vector<int>{-1}
                                                : std::vector<int>{-1, 1};
     }
-    const cyl::CylFactorization fac = c.liR ? cyl::CylFactorization::LiR : cyl::CylFactorization::Laurent;
     double pInc = 0, pR = 0, pT = 0;
     std::vector<double> rm, tm;
     for (const int m : ms) {
@@ -679,6 +687,70 @@ class StackSolver final : public Solver {
     res.absorption = cr.absorbed;
     res.diag.energyBalance = cr.reflected + cr.transmitted;
     return res;
+  }
+
+  /// Plane wave on a cylindrical stack (Plan sec:cylexc, "Ebene Welle (Streufeld)"): the background
+  /// stack (rings -> outer material) at the incidence order (Airy), the sources of the ring layers from
+  /// Jacobi-Anger (Plan eq:cyl_jacobi, eq:cyl_scat), scattered powers up and down per harmonic.
+  void cylindricalPlaneWave(const Stack& stack, const Wavelength& wl, Setup& s,
+                            const std::vector<std::unique_ptr<detail::CylLayer>>& layers,
+                            const std::vector<const detail::StackLayer*>& ptrs, const cyl::SpectralGrid& grid,
+                            cyl::CylFactorization fac, Result& res) {
+    const CylindricalSpec& c = stack.cylindrical;
+    const Material& sup = stack.material(stack.superstrate);
+    const Material& sub = stack.material(stack.substrate);
+    const Eigen::Index n = grid.k.size();
+    Stack cs = stack;  // Cartesian background problem (one order, the period is not used)
+    cs.cylindrical = {};
+    cs.dx_um = 1.0;
+    cs.dz_um = 0.0;
+    s.map = IndexMap(0, 0);
+    s.epsSup = sup.eps;
+    s.inc = makeIncidence(std::sqrt(sup.eps.real()), wl.phi, wl.psi, wl.delta);
+    s.alpha = VecC::Constant(1, s.inc.alpha0);
+    s.gamma = VecC::Constant(1, s.inc.gamma0);
+    s.sub = &sub;
+    s.scattered = true;
+    background(cs, wl, s);
+    const double kpar = std::hypot(s.inc.alpha0, s.inc.gamma0);
+    const double Psi = kpar > 0 ? std::atan2(s.inc.gamma0, s.inc.alpha0) : 0.0;
+    double Rs = 0;
+    for (const auto& L : layers)
+      if (!L->homogeneous()) Rs = std::max(Rs, L->rings.radii.back());
+    std::vector<int> ms = c.harmonics;
+    if (ms.empty()) {
+      // the source of harmonic m vanishes for |m| > m_cut (Plan eq:cyl_scat); normal incidence: m = +-1
+      const int mc = kpar < 1e-12 ? 1 : cyl::harmonicCutoff(kpar * Rs);
+      for (int m = -mc; m <= mc; ++m)
+        if (kpar >= 1e-12 || m != 0) ms.push_back(m);
+    }
+    CylindricalResult& cr = res.cylindrical;
+    cr.present = true;
+    cr.planeWave = true;
+    cr.harmonics = ms;
+    cr.nodes = static_cast<int>(n);
+    const double toArea = 1.0 / (s.incIntensity * s.k0 * s.k0);  // normalized power -> um^2
+    for (const int m : ms) {
+      detail::CylBasis basis(grid, m, sup.eps, sub.eps, layers, fac);
+      basis.setPlaneWave(kpar, Psi);
+      s.cylSource = [&](const detail::StackLayer& l, const Setup::BgLayer& L, const VecC& w) {
+        const cplx ey = computeEy(L.Q1, s.alpha, s.gamma, w)(0);
+        return basis.source(l, w(0) + I * w(1), w(0) - I * w(1), ey);
+      };
+      const Assembly as = assemble(s, basis, ptrs, false, {}, res.diag);
+      VecC V = VecC::Zero(4 * n);
+      V.tail(2 * n) = as.totalSrc.u;  // scattered field, nothing comes in
+      const double up = cyl::flux(grid, basis.ref().Psi * V);
+      V.setZero();
+      V.head(2 * n) = as.totalSrc.v;
+      const double down = -cyl::flux(grid, basis.sub().Psi * V);
+      cr.reflectedPerHarmonic.push_back(up * toArea);
+      cr.transmittedPerHarmonic.push_back(down * toArea);
+      cr.scatteredUp_um2 += up * toArea;
+      cr.scatteredDown_um2 += down * toArea;
+    }
+    s.cylSource = nullptr;
+    cr.scattering_um2 = cr.scatteredUp_um2 + cr.scatteredDown_um2;
   }
 
   detail::LayerModels buildModels(const Stack& stack, const Setup& s) const {
@@ -849,7 +921,9 @@ class StackSolver final : public Solver {
   }
   /// sigma = (M - M_bg) F_bg for a single-order background field w (Plan eq:scat_ode in the form
   /// F_s' = M F_s + (M - M_bg) F_bg); oblique PML: in the Bloch basis (MB), then re-expanded.
-  static VecC sourceOf(const Setup& s, const MatC& M, const MatC* MB, const Setup::BgLayer& L, const VecC& w) {
+  static VecC sourceOf(const Setup& s, const detail::StackLayer& layer, const MatC& M, const MatC* MB,
+                       const Setup::BgLayer& L, const VecC& w) {
+    if (s.cylSource) return s.cylSource(layer, L, w);
     const int nf = s.map.size(), c = s.map.center();
     VecC sig = VecC::Zero(4 * nf);
     for (int k = 0; k < 4; ++k)
@@ -870,7 +944,7 @@ class StackSolver final : public Solver {
   /// F_p = sum (kappa - M)^-1 sigma_kappa e^{kappa y}; with g = Psi_ref^-1 F_p at both ends,
   /// u = g1_b - S11 g0_b - S12 g1_a, v = g0_a - S21 g0_b - S22 g1_a. False if kappa is within 1e-8 max|lambda|
   /// of an eigenvalue of M (then the slice is integrated with RK).
-  static bool modalSources(const Setup& s, const MatC& M, const MatC* MB, const LayerModes& modes, const SMatrix& S,
+  static bool modalSources(const Setup& s, const detail::StackLayer& layer, const MatC& M, const MatC* MB, const LayerModes& modes, const SMatrix& S,
                            double y0, double y1, const ModeBasis& ref, VecC& u, VecC& v, Element* rec = nullptr) {
     const Setup::BgLayer& L = bgLayer(s, 0.5 * (y0 + y1));
     const double lmax = std::max(modes.lu.cwiseAbs().maxCoeff(), modes.ld.cwiseAbs().maxCoeff());
@@ -883,7 +957,7 @@ class StackSolver final : public Solver {
       for (Eigen::Index j = 0; j < modes.lu.size(); ++j)
         dist = std::min({dist, std::abs(kap - modes.lu(j)), std::abs(kap - modes.ld(j))});
       if (dist < 1e-8 * lmax) return false;
-      const VecC p = (kap * MatC::Identity(N, N) - M).partialPivLu().solve(sourceOf(s, M, MB, L, L.Psi.col(k))) * L.amp(k);
+      const VecC p = (kap * MatC::Identity(N, N) - M).partialPivLu().solve(sourceOf(s, layer, M, MB, L, L.Psi.col(k))) * L.amp(k);
       const double yr = k < 2 ? L.y1 : L.y0;
       F0 += p * std::exp(kap * (y0 - yr));
       F1 += p * std::exp(kap * (y1 - yr));
@@ -1034,7 +1108,7 @@ class StackSolver final : public Solver {
             const double yq = (k + 0.5) * m.thickness_um() / K;  // staircase: Q at slice centre
             const MatC M = sys.M(m, yq);
             if (s.scattered) {
-              scatteredSlices(s, sys, cartesian(m), M, y0, y0 + H * k / K, y0 + H * (k + 1) / K, yq, record, out, dg);
+              scatteredSlices(s, sys, m, M, y0, y0 + H * k / K, y0 + H * (k + 1) / K, yq, record, out, dg);
               return;
             }
             Element e;
@@ -1189,7 +1263,7 @@ class StackSolver final : public Solver {
       auto sigma = [&](double yl, const MatC& Mm) {
         const Setup::BgLayer& L = bgLayer(s, 0.5 * (ya + yb) + y0);
         const MatC MB = bloch ? buildPropagationMatrix(cartesian(m).Q(yl / s.k0), s.alphaB, s.gammaB) : MatC();
-        return sourceOf(s, Mm, bloch ? &MB : nullptr, L, bgField(L, y0 + yl));
+        return sourceOf(s, m, Mm, bloch ? &MB : nullptr, L, bgField(L, y0 + yl));
       };
       Element e;
       const Eigen::Index n = sys.ref().Psi.rows();
@@ -1274,24 +1348,24 @@ class StackSolver final : public Solver {
   /// Modal slice [ya, yb] of a structured layer in the scattered-field formulation: cut at the
   /// background layer boundaries, S and the source amplitudes per piece; a piece whose background
   /// exponent resonates with a mode of M is integrated with RK (warning).
-  void scatteredSlices(const Setup& s, const detail::ModalBasis& sys, const LayerModel& m, const MatC& M, double y0,
+  void scatteredSlices(const Setup& s, const detail::ModalBasis& sys, const detail::StackLayer& m, const MatC& M, double y0,
                        double ya, double yb, double yq, bool record, std::vector<Element>& out, Diagnostics& diag) const {
     const LayerModes modes = sys.modes(M);
-    const MatC MB = s.blochSource ? buildPropagationMatrix(m.Q(yq), s.alphaB, s.gammaB) : MatC();
+    const MatC MB = s.blochSource ? buildPropagationMatrix(cartesian(m).Q(yq), s.alphaB, s.gammaB) : MatC();
     const std::vector<double> cut = bgCuts(s, ya, yb);
     for (std::size_t c = 0; c + 1 < cut.size(); ++c) {
       Element e;
       e.kind = Element::Kind::Modes;
       e.y0 = cut[c];
       e.y1 = cut[c + 1];
-      e.model = &m;
+      e.model = dynamic_cast<const LayerModel*>(&m);
       e.layerY0 = y0;
       e.qHeight_um = yq;
       RCWASliceRecord rec;
       e.S = stableLayerSMatrix(modes, e.y1 - e.y0, sys.ref(), record ? &rec : nullptr);
       e.modes = std::move(rec.modes);
       e.G = std::move(rec.G);
-      if (!modalSources(s, M, s.blochSource ? &MB : nullptr, modes, e.S, e.y0, e.y1, sys.ref(), e.su, e.sv,
+      if (!modalSources(s, m, M, s.blochSource ? &MB : nullptr, modes, e.S, e.y0, e.y1, sys.ref(), e.su, e.sv,
                         record ? &e : nullptr)) {
         FG_REQUIRE(!record, "scattered field: resonant slice (RK fallback) in a near-field computation");
         diag.warnings.push_back("scattered field: background exponent resonates with a slice mode, slice integrated with RK");
@@ -1301,7 +1375,7 @@ class StackSolver final : public Solver {
         VecC f;
         const double rho = std::max(modes.lu.cwiseAbs().maxCoeff(), modes.ld.cwiseAbs().maxCoeff());
         affineTransfer([&M](double) { return M; },
-                       [&](double y, const MatC& Mm) { return sourceOf(s, Mm, s.blochSource ? &MB : nullptr, L, bgField(L, y)); },
+                       [&](double y, const MatC& Mm) { return sourceOf(s, m, Mm, s.blochSource ? &MB : nullptr, L, bgField(L, y)); },
                        e.y0, e.y1, tab, rho, T, f, diag);
         e.kind = Element::Kind::RK;
         e.S = rkSliceSMatrix(T, sys.ref());

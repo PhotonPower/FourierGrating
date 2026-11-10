@@ -143,6 +143,8 @@ Stack backgroundStack(const Stack& st) {
       homogeneous(c->thickness_um, c->background);
     } else if (const auto* s = std::get_if<SectionedLayer>(&spec)) {
       homogeneous(s->provider->thickness_um(), s->background);
+    } else if (const auto* r = std::get_if<RingsLayer>(&spec)) {
+      homogeneous(r->thickness_um, r->materials.back());  // M20: outside the rings
     } else {
       throw Error("background stack: profile2d layers are not supported with PML");
     }

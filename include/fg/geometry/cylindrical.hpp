@@ -18,6 +18,8 @@ struct CylindricalSpec {
   enum class Deform { Auto, Off, On } deform = Deform::Auto;
   double deltaRel = 0.05;  ///< depth delta = delta_rel (k_b - k_a)
   bool liR = true;         ///< factorization: Li in r (true) or Laurent
+  /// Plane wave (scattered field, angles of the scan) instead of the beam (Plan sec:cylexc).
+  bool planeWave = false;
   // incidence: beam on the axis, waist in the superstrate (Plan sec:cylexc)
   double waist_um = 0.0;
   double focus_y_um = 0.0;  ///< height of the waist (y = 0 at the substrate interface)

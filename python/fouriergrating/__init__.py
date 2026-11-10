@@ -118,7 +118,9 @@ class Result:
     #: modal excitation (M18): ``{"incident", "reflected", "transmitted", "radiated"}`` guided-mode powers
     modal: Optional[dict] = None
     #: rotationally symmetric structures (M20): ``{"reflected", "transmitted", "absorbed", "harmonics",
-    #: "reflected_per_harmonic", "transmitted_per_harmonic", "nodes"}`` powers relative to the incident beam
+    #: "reflected_per_harmonic", "transmitted_per_harmonic", "nodes", "plane_wave"}`` powers relative to the
+    #: incident beam; plane wave: additionally ``"scattered_up_um2", "scattered_down_um2", "scattering_um2"``
+    #: (cross sections, the per-harmonic lists then hold the cross sections up/down)
     cylindrical: Optional[dict] = None
 
     def efficiency(self, side: str, n: int, m: int = 0) -> float:
