@@ -122,7 +122,7 @@ bool cudaAvailable();
 /// preference: "cpu" | "cuda" | "auto" (CUDA from matrix size `threshold` on, if available).
 /// The environment variables FG_BACKEND and FG_BACKEND_THRESHOLD override both arguments
 /// (e.g. the whole validation suite on the GPU: FG_BACKEND=cuda FG_BACKEND_THRESHOLD=0 ctest).
-void setPreference(const std::string& preference, Eigen::Index threshold = 1000);
+void setPreference(const std::string& preference, Eigen::Index threshold = 160);
 /// Working precision of this thread (M16; FP64 by default). With FP32/Mixed every O(n^3) operation
 /// goes through a backend (the GPU above the threshold, else the CPU backend in that precision).
 void setPrecision(Precision p);

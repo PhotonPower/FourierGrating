@@ -59,7 +59,7 @@ Eine Einführung mit Beispielen steht im Anwenderhandbuch `docs/user_guide.md`.
   "rk":   { "tableau": "gauss2", "tol": 1e-8 },
   "rcwa": { "slices": 60 },
   "backend": "auto",                     // "auto" | "cpu" | "cuda" (auto: CUDA ab backend_threshold, falls vorhanden)
-  "backend_threshold": 1000,             // Matrixgröße, ab der auto die GPU nutzt
+  "backend_threshold": 160,              // Matrixgröße, ab der auto die GPU nutzt
   "split_polarizations": false,          // 1D, psi = 0, isotrop: TE/TM getrennt mit 2 n_f (schneller); false = 4 n_f
   "fft_sampling": false,                 // abgetastete Koeffizienten per FFT jeder Länge; false = v0.10 (DFT)
   "threads": { "scan": "auto", "slices": "auto", "blas": 1 },  // Threadmodell (M15), siehe unten

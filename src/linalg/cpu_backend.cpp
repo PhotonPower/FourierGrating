@@ -210,7 +210,7 @@ std::unique_ptr<Backend> makeBackend(const std::string& preference, Eigen::Index
 namespace {
 struct DispatchState {
   std::string preference = "auto";
-  Eigen::Index threshold = 1000;
+  Eigen::Index threshold = 160;
   Precision precision = Precision::FP64;
   std::unique_ptr<Backend> dev;  ///< GPU
   std::unique_ptr<Backend> cpu;  ///< CPU backend in FP32/Mixed (M16)

@@ -55,7 +55,7 @@ sim.solve(lambda_um=0.6328, phi_deg=30.0)       # fehlende Werte: erster Scanpun
 sim.set_parameter("/layers/0/thickness_um", 0.25)   # JSON-Pointer wie bei Sweeps
 sim.model_builds, sim.config
 
-fg.set_backend("auto", threshold=1000)   # Standard für Konfigurationen ohne "backend"
+fg.set_backend("auto", threshold=160)   # Standard für Konfigurationen ohne "backend"
 fg.cuda_available(); fg.core_variant(); fg.__version__
 ```
 

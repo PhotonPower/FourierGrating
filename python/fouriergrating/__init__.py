@@ -73,7 +73,7 @@ def load_config(path: Union[str, "os.PathLike[str]"]) -> dict:
     return cfg
 
 
-def set_backend(preference: str = "auto", threshold: int = 1000) -> None:
+def set_backend(preference: str = "auto", threshold: int = 160) -> None:
     """Default for configurations without ``"backend"``: ``"auto"`` | ``"cpu"`` | ``"cuda"``."""
     if preference not in ("auto", "cpu", "cuda"):
         raise ValueError('backend must be "auto", "cpu" or "cuda"')
@@ -81,7 +81,7 @@ def set_backend(preference: str = "auto", threshold: int = 1000) -> None:
 
 
 def get_backend() -> dict:
-    return {"backend": "auto", "backend_threshold": 1000, **_backend}
+    return {"backend": "auto", "backend_threshold": 160, **_backend}
 
 
 def cuda_available() -> bool:

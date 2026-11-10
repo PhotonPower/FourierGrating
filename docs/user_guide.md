@@ -135,7 +135,7 @@ Hinweise:
 * Parallel: Scans und auch einzelne Rechnungen nutzen alle Kerne (`FG_NUM_THREADS=<n>` begrenzt). Bei vielen
   Scheiben hilft zusätzlich `"reduction": "tree"` (Sternprodukte parallel). Wo die Zeit bleibt, zeigt
   `fgsolve --profile config.json` (`<output.dir>/profile.json`, Python `fg.solve(cfg, profile=True)`).
-* GPU: `"backend": "auto"` nutzt die GPU ab `backend_threshold` (Standard n = 1000), `"cuda"` immer,
+* GPU: `"backend": "auto"` nutzt die GPU ab `backend_threshold` (Standard n = 160), `"cuda"` immer,
   `"cpu"` nie. Lohnt sich vor allem in 2D ab N ≈ 8. Die Umgebungsvariablen `FG_BACKEND` und
   `FG_BACKEND_THRESHOLD` überschreiben die Konfiguration (z. B. `FG_BACKEND=cpu` zum Vergleich).
 * 1D, ψ = 0 und nur isotrope Medien: `"split_polarizations": true` rechnet TE und TM getrennt mit 2 n_f
