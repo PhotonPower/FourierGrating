@@ -41,7 +41,7 @@ Abnahme = alle genannten Tests grün (`ctest`), Details im Plan, Abschnitt „Me
   - FFF-konsistente Rekonstruktion in 2D: isotrope Polygone mit dem Tensorfeld (E = e_t + d_n/ε gilt für
     jedes P), Variante B/anisotrop mit dem Rang-1-Feld; Felder aus dem NF-Raster (bilinear)
   - Abnahme: V12 (2D)
-- [~] **M10** CUDA-Backend (cuBLAS, cuSOLVER Xgetrf/Xgeev, cuFFT), Batching, Benchmarks
+- [x] **M10** CUDA-Backend (cuBLAS, cuSOLVER Xgetrf/Xgeev, cuFFT), Batching, Benchmarks
   - Abnahme: GPU = CPU auf 1e-10, Benchmark-Bericht in `docs/benchmarks.md`
   - Stand v0.9: `CudaBackend` (Host-API Zgemm, Xgetrf/Xgetrs, Xgeev), Dispatch der O(n³)-Stellen
     (`SolverOptions::backend`, Schwelle), paralleler Scan `solveScan` (OpenMP, ein Stream je Thread),
@@ -49,9 +49,9 @@ Abnahme = alle genannten Tests grün (`ctest`), Details im Plan, Abschnitt „Me
     `Backend.*`, GPU-Tests übersprungen)
   - Windows/MinGW + CUDA 13.4, RTX 3090: Build-Pfad `win-cuda` (experimentell), Backend-Tests laufen dort auf der GPU
   - Umgebungsvariablen `FG_BACKEND`, `FG_BACKEND_THRESHOLD` (ganze Testsuite auf der GPU)
-  - **Offen:** Protokoll der GPU-Tests und `fgbench`-Tabelle in `docs/benchmarks.md`; Lauf der gesamten Suite mit
-    `FG_BACKEND=cuda FG_BACKEND_THRESHOLD=0`; Schwelle festlegen; Abnahme auf dem Zielsystem (RTX 6000 Ada);
-    cuFFT/eigene Kernel nur bei Bedarf
+  - Stand v0.18 (RTX 6000 Ada, CUDA 12.9): Backend-Tests und Scan GPU = CPU auf 1e-15, `fgbench`-Tabelle, Kreuzungspunkte
+    und Scan-Skalierung in `docs/benchmarks.md`; Schwelle `backend_threshold` = 160; Xgeev-Race behoben; ganze Suite auf der
+    GPU grün bis auf `Backend.DispatchSettings` (kollidiert mit den Umgebungsvariablen, ohne sie grün)
 - [x] **M11** Parameter-Scans, Performance, Anwenderdoku
   - Scans: kartesisches Produkt λ × φ × ψ × δ (Zahl/Liste/Bereich), parallel (`solveScan`);
     Sweeps über beliebige Zahlenwerte per JSON-Pointer (`"sweep"`), CSV-Spalten `sweep_parameter`, `sweep_value`

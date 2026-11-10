@@ -61,6 +61,14 @@ target_include_directories(fg_core PUBLIC
 target_link_libraries(fg_core PUBLIC Eigen3::Eigen PRIVATE nlohmann_json::nlohmann_json fg_warnings)
 target_compile_features(fg_core PUBLIC cxx_std_20)
 
+# The two copies of Algorithm NF (Polygon2DLayer and boundary samples) must agree bit for bit
+# ("identical arithmetic", tests NormalFieldSamples.PolygonsBitIdentical*). With FMA contraction
+# (GCC default -ffp-contract=fast; x86-64-v3 is the baseline of AlmaLinux 10) the compiler fuses a*b+c
+# differently in the two copies: differences of a few ulp. No contraction in this file.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  set_source_files_properties(geometry/normal_field.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+endif()
+
 # parallelFor falls back to std::thread without OpenMP (M15)
 find_package(Threads REQUIRED)
 target_link_libraries(fg_core PUBLIC Threads::Threads)

@@ -56,6 +56,10 @@
 - CUDA: `cusolverDnXgeev` lieferte bei gleichzeitigem Aufruf aus mehreren Threads `CUSOLVER_STATUS_INTERNAL_ERROR` (7)
   (RTX 6000 Ada, CUDA 12.9, `FG_NUM_THREADS` >= 2, `FG_GPU_STREAMS` >= 2). Der Aufruf ist jetzt mit einem Mutex
   serialisiert (`CudaBackend::eigT`); Test `Backend.CudaConcurrentEigenSolves`.
+- `NormalFieldSamples.PolygonsBitIdentical*` auf GCC mit FMA (x86-64-v3, AlmaLinux 10): `-ffp-contract=off` für
+  `geometry/normal_field.cpp`; dadurch liegt `V8_2D.ZInvariantAnisotropicEquals1D` (1D- gegen z-invarianten 2D-Code) bei
+  1,6e-12 statt unter 1e-12 (Rundung), Schranke dort 5e-12.
+- M10-Abnahme auf der RTX 6000 Ada: Messwerte in `docs/benchmarks.md`.
 
 ### Geändert
 - Gradienten nach Formparametern mit FFF in 2D: das Rasterfeld von Algorithmus NF bewegt sich mit der Geometrie

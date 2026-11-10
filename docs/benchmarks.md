@@ -38,7 +38,7 @@ Mit dem Preset `win-cuda` gebaut (`docs/build_windows.md`); laut Commit laufen `
 1. Ausgabe von `ctest --preset win-cuda -R Backend -V` (bestanden/übersprungen, Laufzeiten).
 2. **Gesamte Validierung auf der GPU:** `FG_BACKEND=cuda FG_BACKEND_THRESHOLD=0 ctest --preset win-cuda`
    (PowerShell: `$env:FG_BACKEND="cuda"; $env:FG_BACKEND_THRESHOLD="0"`). Damit laufen alle O(n³)-Operationen
-   aller Tests auf der GPU, nicht nur die beiden Vergleichstests (mit der Standardschwelle 1000 erreicht kaum ein
+   aller Tests auf der GPU, nicht nur die beiden Vergleichstests (mit der früheren Standardschwelle 1000 erreichte kaum ein
    Test die GPU). Erwartung: alle Tests grün.
 3. `fgbench --sizes 256,512,1024,1764,2500 --orders 4,6,8,10,12 --repeat 2` (Tabelle unten einfügen).
 
@@ -49,24 +49,66 @@ Hinweis: Die RTX 3090 hat wie die RTX 6000 Ada nur 1/64 der FP32-Rate in FP64 (�
 |---|---|---|---|---|---|
 | | | | | | |
 
-## Zielsystem: AlmaLinux 10, RTX 6000 Ada (sm_89) – **offen**
+## Zielsystem: AlmaLinux 10, RTX 6000 Ada (sm_89, 48 GB), CUDA 12.9 – Abnahme (v0.18.0)
 
-Auf dem Zielsystem auszuführen und hier einzutragen:
+Rechner: 32 logische CPU-Kerne, GCC 14, Preset `cuda-release`. CPU-Werte: Eigen, ein Thread (Eigen parallelisiert
+Eigenwertproblem und LU nicht); GPU-Zeiten einschließlich Host↔Device-Transfers.
 
-1. `cmake --preset cuda-release && cmake --build --preset cuda-release`
-2. `ctest --preset cuda-release -R Backend` – `CudaEqualsCpu`, `CudaSolverEqualsCpu` müssen laufen (nicht
-   übersprungen) und bestehen (GPU = CPU auf 1e-10); danach die gesamte Suite mit
-   `FG_BACKEND=cuda FG_BACKEND_THRESHOLD=0 ctest --preset cuda-release`.
-3. `build/cuda-release/apps/fgbench --sizes 256,512,1024,1764,2500 --orders 4,6,8,10,12 --repeat 2`
-4. Schwelle `backend_threshold` (Standard 1000) anhand der Kreuzungspunkte CPU/GPU festlegen.
-5. Parallelen Scan prüfen: `OMP_NUM_THREADS=1,2,4,8` mit `examples/v10_hole_array.json` (Scan über λ).
+**Tests.** `ctest --preset cuda-release -R Backend`: 6/6 bestanden, `CudaEqualsCpu` und `CudaSolverEqualsCpu` laufen
+(nicht übersprungen). Gesamte Suite mit `FG_BACKEND=cuda FG_BACKEND_THRESHOLD=0` (280 Tests, 95 min): im ersten Lauf
+20 Fehler, davon 17 durch `cusolverDnXgeev` (Status 7, `CUSOLVER_STATUS_INTERNAL_ERROR`) bei gleichzeitigem Aufruf aus
+mehreren Threads (nur mit `FG_NUM_THREADS` ≥ 2 und `FG_GPU_STREAMS` ≥ 2; jeder Thread hat eigenes Handle, eigenen
+Stream und eigene Workspaces). Behoben durch einen Mutex um Xgeev (`CudaBackend::eigT`); Regressionstest
+`Backend.CudaConcurrentEigenSolves` (schlägt ohne Fix fehl). Wiederholung der 20 Tests: 18 bestanden. Übrig:
+* `Backend.DispatchSettings`: setzt die Einstellungen selbst und kollidiert mit den Umgebungsvariablen; ohne sie bestanden.
+* `NormalFieldSamples.PolygonsBitIdenticalTensor/Vector`: kein GPU-Thema (reine Rasterrechnung). Ursache: GCC 14 auf
+  AlmaLinux 10 zielt auf x86-64-v3 (FMA) und fusst mit `-ffp-contract=fast` a*b+c in den beiden Kopien von Algorithmus NF
+  verschieden (156 FMA-Instruktionen in `normal_field.cpp.o`, Abweichungen ≤ 5e-15 in ca. 20 % der Punkte, Regionen gleich).
+  Behoben durch `-ffp-contract=off` für `geometry/normal_field.cpp` (`src/CMakeLists.txt`).
+* Übersprungen: `cad_pillar_array` (Nurbforge nicht gebaut).
 
-| n | backend | ZGEMM n³ (s) | GFLOP/s | LU solve (s) | eig (s) |
+**Mikrobenchmark** (`fgbench --sizes 256,512,1024,1764,2500 --orders 4,6,8,10,12 --repeat 2`):
+
+| n | backend | ZGEMM n^3 (s) | GFLOP/s | LU solve, n rhs (s) | eig (s) |
 |---|---|---|---|---|---|
-| | | | | | |
+| 256 | cpu | 0.010 | 13.6 | 0.055 | 1.217 |
+| 256 | cuda | 0.002 | 88.0 | 0.008 | 0.476 |
+| 512 | cpu | 0.056 | 19.2 | 0.513 | 21.192 |
+| 512 | cuda | 0.006 | 184.3 | 0.028 | 1.161 |
+| 1024 | cpu | 0.210 | 40.9 | 3.067 | 193.360 |
+| 1024 | cuda | 0.037 | 229.1 | 0.087 | 3.661 |
+| 1764 | cpu | 1.740 | 25.2 | 10.121 | 360.237 |
+| 1764 | cuda | 0.187 | 234.3 | 0.334 | 9.208 |
+| 2500 | cpu | 3.376 | 37.0 | 26.697 | 1026.417 |
+| 2500 | cuda | 0.503 | 248.4 | 1.044 | 22.103 |
 
-Hinweis zur FP64-Rate der RTX 6000 Ada (Plan: Größenordnung 1/64 der FP32-Rate): ZGEMM-GFLOP/s der GPU
-mit dem CPU-Wert (alle Kerne) vergleichen, bevor die Schwelle gesenkt wird.
+RCWA, Ag hole array (V10), lambda = 1.388 um, one solve:
+
+| N | 4 n_f | backend | time (s) |
+|---|---|---|---|
+| 4 | 324 | cpu | 0.89 |
+| 4 | 324 | cuda | 0.58 |
+| 6 | 676 | cpu | 5.90 |
+| 6 | 676 | cuda | 2.31 |
+| 8 | 1156 | cpu | 22.52 |
+| 8 | 1156 | cuda | 3.32 |
+| 10 | 1764 | cpu | 77.29 |
+| 10 | 1764 | cuda | 8.43 |
+| 12 | 2500 | cpu | 216.73 |
+| 12 | 2500 | cuda | 21.46 |
+
+ZGEMM erreicht ≈ 250 GFLOP/s (FP64; Ada hat 1/64 der FP32-Rate). Die Eigenwerte dominieren: GPU 17–46× schneller
+als Eigen (n = 1764: 9,2 s gegen 360 s). Gesamte V10-Rechnung je Wellenlänge bei N = 10: 8,4 s gegen 77 s (9×), N = 12: 21 s gegen 217 s.
+
+**Kreuzungspunkte** (`fgbench --sizes 32,64,96,128,192 --repeat 5`): ZGEMM und LU ab n ≈ 64–96, Eigenwertproblem ab
+n ≈ 128–192 (n = 128: 0,167 s CPU, 0,178 s GPU; n = 192: 0,54 s gegen 0,36 s). Daraus folgt die Standardschwelle
+`backend_threshold` = 160 (vorher 1000; gilt für `"backend": "auto"`, Matrixgröße n der jeweiligen Operation). Rechnungen
+mit Matrizen zwischen 160 und 1000 laufen damit auf der GPU und weichen von der CPU nur im Rundungsbereich ab.
+
+**Paralleler Scan** (V10, N = 10, 8 Wellenlängen, `backend = cuda`, Schwelle 0): 1 Thread 88 s, 2 Threads 50 s,
+4 Threads 35 s, 8 Threads 36 s (Spitzenspeicher des Prozesses 1,2 / 1,8 / 2,9 / 5,3 GB). Mehr als 4 Threads bringen
+nichts: die Eigenwertprobleme sind serialisiert (Mutex) und die GPU ist ausgelastet. Zum Vergleich CPU mit 24 Threads: 82 s.
+Effizienzen GPU gegen CPU: max. Abweichung 1·10⁻¹⁵ (24 Werte).
 
 ## Option `split_polarizations` (2n_f-Systeme, 1D in-plane isotrop), Plan v2.2
 
