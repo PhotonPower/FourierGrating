@@ -3,6 +3,8 @@
 // materials with a cavity, Chebyshev interpolation, faulty files with their codes.
 #include <gtest/gtest.h>
 
+#include "../support/std_bessel.hpp"
+
 #include <cmath>
 #include <nlohmann/json.hpp>
 #include <numbers>
@@ -190,6 +192,7 @@ TEST(CAD_V16b, LPrismIsPolygon2D) {
 
 // ------------------------------------------------------------------ V17
 TEST(CAD_V17, CylinderIsExactCircle) {
+  FG_SKIP_WITHOUT_STD_BESSEL();
   const std::string s = step({cylinder(0.25, 0.25, 0.15, 0.0, 0.2)}, {"Pillar"});
   const auto c = fg::io::parseConfig(
       base(json::array({cadLayer(s, json::array({{{"name", "Pillar"}, {"material", "pillar"}}}))}))
@@ -206,7 +209,7 @@ TEST(CAD_V17, CylinderIsExactCircle) {
       const double kx = 4 * pi * p, kz = 4 * pi * q, k = std::hypot(kx, kz), R = 0.15;
       const fg::cplx ref = (p == 0 && q == 0)
                                ? fg::cplx(pi * R * R / 0.25)
-                               : 2 * pi * R * std::cyl_bessel_j(1.0, k * R) / (k * 0.25) *
+                               : 2 * pi * R * fgtest::cyl_bessel_j(1.0, k * R) / (k * 0.25) *
                                      std::exp(-fg::I * (kx * 0.25 + kz * 0.25));  // Plan eq:circle
       d = std::max(d, std::abs(g(p, q) - ref));
     }

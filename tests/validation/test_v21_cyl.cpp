@@ -2,6 +2,8 @@
 // V21b: guided modes of a step-index fiber are eigenvalues +-i beta of Plan eq:cyl_M.
 #include <gtest/gtest.h>
 
+#include "../support/std_bessel.hpp"
+
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -25,9 +27,9 @@ namespace {
 double fiberEquation(int m, int kind, double eps1, double eps2, double a, double b) {
   const double U = a * std::sqrt(eps1 - b * b), W = a * std::sqrt(b * b - eps2);
   auto J = [](int n, double x) {
-    return std::cyl_bessel_j(double(std::abs(n)), x) * ((n < 0 && n % 2) ? -1 : 1);
+    return fgtest::cyl_bessel_j(double(std::abs(n)), x) * ((n < 0 && n % 2) ? -1 : 1);
   };
-  auto K = [](int n, double x) { return std::cyl_bessel_k(double(std::abs(n)), x); };
+  auto K = [](int n, double x) { return fgtest::cyl_bessel_k(double(std::abs(n)), x); };
   const double jj = 0.5 * (J(m - 1, U) - J(m + 1, U)) / (U * J(m, U));
   const double kk = -0.5 * (K(m - 1, W) + K(m + 1, W)) / (W * K(m, W));
   if (kind == 0) return jj + kk;
@@ -80,6 +82,7 @@ double betaError(int m, double kmax, cyl::CylFactorization f, double betaExact) 
 }  // namespace
 
 TEST(V21b, FiberModesLiRAndLaurent) {
+  FG_SKIP_WITHOUT_STD_BESSEL();
   // Plan: Li in r <= 2e-4 at k_max = 8 n_core for TM01, HE11, m = 2; Laurent first order in
   // 1/k_max.
   struct Case {
@@ -103,6 +106,7 @@ TEST(V21b, FiberModesLiRAndLaurent) {
 }
 
 TEST(V21b, TE01IndependentOfFactorization) {
+  FG_SKIP_WITHOUT_STD_BESSEL();
   // TE01 has only E_phi (continuous at r = a): all factorizations agree (Plan, Befund)
   const double b = fiberBeta(0, 0, 4, 1, 2);
   const double li = betaError(0, 16, cyl::CylFactorization::LiR, b);

@@ -53,6 +53,11 @@
 - `backend_threshold` (`backend = auto`): 160 statt 1000 (Messung auf der RTX 6000 Ada, `docs/benchmarks.md`); GPU = CPU im Rundungsbereich.
 
 ### Behoben
+- Build mit Apple clang 21 (macOS, libc++): Die Skalarprodukte `ph.transpose() * X` im Nahfeldschnitt
+  (`solvers/solver.cpp`) werden jetzt mit `.value()` ausgewertet; Eigen 3.4 liefert dort `operator const Scalar()`,
+  das clang nicht an `push_back(T&&)` bzw. eine Zuweisung an `std::complex` bindet. Ergebnisse unverändert.
+  Die Tests, die `std::cyl_bessel_j`/`std::cyl_bessel_k` als unabhängige Referenz nutzen (fehlen in libc++), werden
+  dort mit Begründung übersprungen (`tests/support/std_bessel.hpp`); mit libstdc++ und MSVC laufen sie wie bisher.
 - CUDA: `cusolverDnXgeev` lieferte bei gleichzeitigem Aufruf aus mehreren Threads `CUSOLVER_STATUS_INTERNAL_ERROR` (7)
   (RTX 6000 Ada, CUDA 12.9, `FG_NUM_THREADS` >= 2, `FG_GPU_STREAMS` >= 2). Der Aufruf ist jetzt mit einem Mutex
   serialisiert (`CudaBackend::eigT`); Test `Backend.CudaConcurrentEigenSolves`.
