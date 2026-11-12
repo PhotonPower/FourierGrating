@@ -2,6 +2,8 @@
 // r, propagation matrix, mode basis and flux (Plan sections sec:cylgrid, sec:cylgal, sec:cylfact).
 #include <gtest/gtest.h>
 
+#include "../support/std_bessel.hpp"
+
 #include <cmath>
 
 #include "fg/core/quadrature.hpp"
@@ -58,16 +60,17 @@ cyl::SpectralGrid deformedGrid(int nodes = 8) {
 }  // namespace
 
 TEST(CylBessel, RealArgumentMatchesStd) {
+  FG_SKIP_WITHOUT_STD_BESSEL();
   double worst = 0;
   for (int n = 0; n <= 40; ++n)
     for (double x : {0.01, 0.3, 1.0, 4.7, 13.0, 39.5, 41.0, 120.3}) {
-      const double ref = std::cyl_bessel_j(double(n), x);
+      const double ref = fgtest::cyl_bessel_j(double(n), x);
       const cplx v = cyl::besselJ(n, cplx(x, 0.0));
       worst = std::max(worst, std::abs(v - ref) / std::max(std::abs(ref), 1e-300));
       EXPECT_LT(std::abs(v.imag()), 1e-300);
     }
   // relative accuracy, including the deeply decaying region n >> x (large x: scipy table below;
-  // std::cyl_bessel_j of libstdc++ is only ~1e-11 there)
+  // fgtest::cyl_bessel_j of libstdc++ is only ~1e-11 there)
   EXPECT_LT(worst, 1e-12);
 }
 

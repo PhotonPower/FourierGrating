@@ -1988,15 +1988,15 @@ class StackSolver final : public Solver {
         for (std::size_t ix = 0; ix < xs.size(); ++ix) {
           const VecC ph = px[ix].cwiseProduct(pz[iz]);
           const double x_um = xs[ix], z_um = zs[iz];
-          for (int c = 0; c < 3; ++c) cut.H[c].push_back(ph.transpose() * Hc[c]);
+          for (int c = 0; c < 3; ++c) cut.H[c].push_back((ph.transpose() * Hc[c]).value());
           const cplx bph = bgSign == 0.0 ? cplx(0.0) : bgSign * std::exp(I * (s.k0 * (fs.alpha0 * x_um + fs.gamma0 * z_um)));
           if (bgSign != 0.0)
             for (int c = 0; c < 3; ++c) cut.H[c].back() += bph * f.bg(3 + c);
           if (fff) {
             Vec3C etx, dnx;
             for (int a = 0; a < 3; ++a) {
-              etx(a) = ph.transpose() * et[a];
-              dnx(a) = ph.transpose() * dn[a];
+              etx(a) = (ph.transpose() * et[a]).value();
+              dnx(a) = (ph.transpose() * dn[a]).value();
             }
             const Mat3C eps = e->model->epsAt(x_um, yq, z_um);
             Vec3C Ex;
@@ -2009,7 +2009,7 @@ class StackSolver final : public Solver {
             }
             for (int c = 0; c < 3; ++c) cut.E[c].push_back(Ex(c));
           } else {
-            for (int c = 0; c < 3; ++c) cut.E[c].push_back(ph.transpose() * E[c]);
+            for (int c = 0; c < 3; ++c) cut.E[c].push_back((ph.transpose() * E[c]).value());
           }
           if (bgSign != 0.0)
             for (int c = 0; c < 3; ++c) cut.E[c].back() += bph * f.bg(c);

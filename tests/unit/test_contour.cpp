@@ -1,6 +1,8 @@
 // Contours and contour-integral coefficients (Plan section "M13", eq:contour, eq:circle).
 #include <gtest/gtest.h>
 
+#include "../support/std_bessel.hpp"
+
 #include <cmath>
 
 #include "fg/core/error.hpp"
@@ -28,7 +30,7 @@ cplx ellipseExact(Point2 c, double a, double b, double angle, double dx, double 
   const double ca = std::cos(angle), sa = std::sin(angle);
   if (p == 0 && q == 0) return fg::PI * a * b / (dx * dz);
   const double u = a * (ca * kx + sa * kz), v = b * (-sa * kx + ca * kz), kap = std::hypot(u, v);
-  return 2 * fg::PI * a * b * std::cyl_bessel_j(1.0, kap) / (kap * dx * dz) * std::exp(-fg::I * (kx * c[0] + kz * c[1]));
+  return 2 * fg::PI * a * b * fgtest::cyl_bessel_j(1.0, kap) / (kap * dx * dz) * std::exp(-fg::I * (kx * c[0] + kz * c[1]));
 }
 
 double maxDiff(const fg::fourier::CoefficientGrid& a, const fg::fourier::CoefficientGrid& b) {
@@ -52,6 +54,7 @@ TEST(Contour, DegreeOneEqualsPolygonFormula) {
 }
 
 TEST(Contour, CircleEqualsBessel) {
+  FG_SKIP_WITHOUT_STD_BESSEL();
   const Point2 c{0.4, 0.45};
   const Region r = region(Contour2D::circle(c, 0.3));
   const auto g = fg::fourier::regionCoefficients(r, 1.0, 1.0, 60, 60);
@@ -63,6 +66,7 @@ TEST(Contour, CircleEqualsBessel) {
 }
 
 TEST(Contour, EllipseIsStretchedCircle) {
+  FG_SKIP_WITHOUT_STD_BESSEL();
   const Point2 c{0.3, 0.2};
   const double dx = 0.8, dz = 0.6, a = 0.2, b = 0.11, ang = 0.5236;
   const auto g = fg::fourier::regionCoefficients(region(Contour2D::ellipse(c, a, b, ang)), dx, dz, 20, 20);
