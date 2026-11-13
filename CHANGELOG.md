@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- S-Matrix des Stapels in der s/p-Basis der Ordnungen (Plan v2.17, Abschnitt „S-Matrix in der s/p-Basis der
+  Ordnungen“, eq:Ssp): `Solver::orderSMatrix`, `Simulation::orderSMatrix`, Python `Simulation.smatrix` mit
+  `R_top`, `T_down`, `T_up`, `R_bottom`. Ein Eigenproblem liefert beide Polarisationen und Licht von oben und von
+  unten; andere Spalten beschreiben die Bloch-Familie bis auf den Trunkierungsfehler (das Ordnungsfenster liegt um die
+  Einfallsordnung); im 1D-in-plane-Fall beide Polarisationsblöcke. Nur periodisch, homogenes isotropes
+  Superstrat und Substrat, ohne Koordinatentransformation. Tests `test_order_smatrix` (zentrale Spalte = `solve`
+  auf 1e-12, Spiegelsymmetrie für Licht von unten, Simulation = Löser) und
+  `test_smatrix_central_column_equals_solve`. Für RTT-Fusion L4 (#3).
 - M20 (ebene Wellen): Einfall `plane_wave` für Zylinderstapel in der Streufeldformulierung (Hintergrund wie M18,
   Quellen nach Jacobi–Anger, `fg::cyl::besselProjection`/`planeWaveSource`), Harmonische `auto` nach m_cut,
   Streuquerschnitte `C_Sup`/`C_Sdown`/`C_Ssca` (µm²) und je Harmonischer; V21c (Mie-Kugel −5,7e-4 nach

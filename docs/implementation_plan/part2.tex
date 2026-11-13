@@ -367,6 +367,44 @@ Mit Einfall nur von oben ($\mathbf b_{\text{Substrat,in}}=0$) und $\mathbf a_{\t
 Die Spalte der Ordnung $(0,0)$ genügt (\enquote{zentrale Spalte}); für Einfall aus mehreren Richtungen
 (z.\,B.\ Reziprozitätstest) beliebige Spalten.
 
+\subsection{S-Matrix in der s/p-Basis der Ordnungen (Ausgabe für gekoppelte Rechnungen)}\label{sec:Ssp}
+Für die Kopplung mit anderen Lösern (Operatoren, RTT-Fusion L4) wird $S_{\text{tot}}$ selbst ausgegeben, in
+der physikalischen s/p-Basis jeder Ordnung statt der tangentialen E-Komponenten \eqref{eq:Psi_iso}. Je
+Ordnung $r$, Medium $\varepsilon$ und Richtung ($k_y=+\beta_r$ auf, $-\beta_r$ ab) bildet die
+$2\times2$-Matrix
+\begin{equation}
+  C_r=\begin{pmatrix}\hat{\mathbf s}^{\mathsf T}\\\hat{\mathbf p}^{\mathsf T}\end{pmatrix}L_r,\qquad
+  L_r=\begin{pmatrix}1&0\\-\alpha_r/k_y&-\gamma_r/k_y\\0&1\end{pmatrix},\qquad
+  \begin{pmatrix}A_s\\A_p\end{pmatrix}=C_r\begin{pmatrix}E_x\\E_z\end{pmatrix}
+\end{equation}
+die tangentialen Komponenten auf die Amplituden $\mathbf E\cdot\hat{\mathbf s}$, $\mathbf E\cdot\hat{\mathbf p}$ ab
+($\hat{\mathbf s}$, $\hat{\mathbf p}$ und $E_y$ wie bei der s/p-Zerlegung der Effizienzen). $C^{\uparrow}$, $C^{\downarrow}$
+seien die blockdiagonalen Matrizen aller Ordnungen (s-Komponenten zuerst, dann p) für auf- bzw.\ ablaufende
+Wellen im Superstrat (Index sup) bzw.\ Substrat (Index sub). Dann gilt mit \eqref{eq:Sdef}
+\begin{equation}
+\begin{aligned}
+  R_{\text{oben}}&=C^{\uparrow}_{\text{sup}}\,S_{12}\,(C^{\downarrow}_{\text{sup}})^{-1}, &
+  T_{\text{ab}}&=C^{\downarrow}_{\text{sub}}\,S_{22}\,(C^{\downarrow}_{\text{sup}})^{-1},\\
+  T_{\text{auf}}&=C^{\uparrow}_{\text{sup}}\,S_{11}\,(C^{\uparrow}_{\text{sub}})^{-1}, &
+  R_{\text{unten}}&=C^{\downarrow}_{\text{sub}}\,S_{21}\,(C^{\uparrow}_{\text{sub}})^{-1}.
+\end{aligned}
+\label{eq:Ssp}
+\end{equation}
+Bezugsebenen wie in \eqref{eq:solution}: Oberkante des Stapels im Superstrat, $y=0$ im Substrat.
+$(C)^{-1}$ nur als LU-Lösung, nicht explizit. Voraussetzungen: periodischer Stapel mit Einfall ebener Wellen,
+homogenes isotropes Superstrat und Substrat (sonst keine s/p-Basis), keine Koordinatentransformation
+(dort ist die Referenzbasis numerisch, Abschnitt M17). Im 1D-in-plane-Fall werden beide Polarisationsblöcke
+assembliert (die Effizienzrechnung assembliert nur den angeregten). Die Spalte $r$ beschreibt Einfall in der
+Ordnung $r$, also aus der Richtung $\alpha_0+n_r\lambda/\Lambda_x$ derselben Bloch-Familie. Die Trunkierung
+liegt aber um die Einfallsordnung $(0,0)$: Für $r\neq(0,0)$ ist das Ordnungsfenster von der Einfallsrichtung aus
+verschoben, das Ergebnis weicht von einer eigenen Rechnung mit dieser Richtung um den Trunkierungsfehler ab
+(RTT-Fusion-Test: etwa $7\cdot10^{-3}$ relativ bei $N=6$). Exakt gleich einer eigenen Rechnung ist nur die
+zentrale Spalte.
+\textbf{Tests:} zentrale Spalte = Amplituden der Effizienzrechnung für jede Polarisation (konisch und
+in-plane, $10^{-12}$); spiegelsymmetrischer Stapel zwischen gleichen Medien: $R_{\text{unten}}=DR_{\text{oben}}D$,
+$T_{\text{auf}}=DT_{\text{ab}}D$ mit $D=\operatorname{diag}(\mathbb 1,-\mathbb 1)$ (die Spiegelung $y\to-y$ erhält
+$\hat{\mathbf s}$ und kehrt $\hat{\mathbf p}$ um).
+
 \subsection{Interne Amplituden (für das Nahfeld)}
 Gespeichert werden für jede innere Grenzfläche $q$ die kumulierte S-Matrix des Teilstapels darunter,
 $S_L^{(q)}$, und darüber, $S_U^{(q)}$. Mit den bekannten Eingängen $\mathbf b_{\text{in}}$ (unten, meist 0)

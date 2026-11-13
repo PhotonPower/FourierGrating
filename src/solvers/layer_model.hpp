@@ -108,6 +108,9 @@ GradientResult gradientWithModels(const std::string& configJson, const io::RunCo
                                   const std::vector<std::string>& params);
 /// Identical to makeSolver(opt)->solve(stack, wl) with the models of buildLayerModels.
 Result solveWithModels(const SolverOptions& opt, const Stack& stack, const Wavelength& wl, const LayerModels& models);
+/// orderSMatrix() with prebuilt layer models (Simulation).
+OrderSMatrix orderSMatrixWithModels(const SolverOptions& opt, const Stack& stack, const Wavelength& wl,
+                                    const LayerModels& models);
 
 /// Transformed coordinates (Plan section "M17", eq:ct_deriv): A = [[1/f']] alpha, G = [[1/g']] gamma (PML zones:
 /// Plan eq:pml) and the conversions of eq:ct_rayleigh (toPhys) and eq:ct_inc (fromPhys) per field component.

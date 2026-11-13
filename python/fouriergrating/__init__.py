@@ -32,6 +32,7 @@ __version__: str = _core.version()
 __all__ = [
     "FourierGratingError",
     "ORDER_DTYPE",
+    "OrderSMatrix",
     "Result",
     "ScanResult",
     "Simulation",
@@ -217,6 +218,39 @@ def _weights(objective: "Objective") -> list:
     return out
 
 
+@dataclass
+class OrderSMatrix:
+    """S-matrix of the stack in the s/p basis of the plane-wave orders (Plan eq:Ssp) for one incidence
+    direction. Column r is incidence in order r (another direction alpha0 + n lambda/period of the Bloch
+    family); the truncation is centred on the incident order, so only the central column equals a
+    ``solve`` of its own direction exactly, the others to the truncation error. ``orders``: (n, m) per index
+    r; a vector of amplitudes holds the s component at r and the p component at n_f + r (s, p as in
+    ``amp_s``/``amp_p`` of the results). ``alpha``, ``gamma``, ``beta_sup``, ``beta_sub``: normalized
+    wave numbers (multiply by ``k0`` = 2 pi / lambda for 1/um); Im beta > 0: evanescent. Amplitudes
+    are referenced at the top of the stack (superstrate) and at y = 0 (substrate). ``R_top``: from
+    above back up, ``T_down``: from above into the substrate, ``T_up``: from below into the
+    superstrate, ``R_bottom``: from below back down."""
+
+    orders: np.ndarray
+    alpha: np.ndarray
+    gamma: np.ndarray
+    beta_sup: np.ndarray
+    beta_sub: np.ndarray
+    R_top: np.ndarray
+    T_down: np.ndarray
+    T_up: np.ndarray
+    R_bottom: np.ndarray
+    k0: float
+    incidence: dict = field(default_factory=dict)
+
+    def index(self, n: int, m: int = 0) -> int:
+        """Index r of the order (n, m)."""
+        hit = np.flatnonzero((self.orders[:, 0] == n) & (self.orders[:, 1] == m))
+        if hit.size == 0:
+            raise KeyError(f"order ({n}, {m}) is not in the truncation")
+        return int(hit[0])
+
+
 class Simulation:
     """Prepared computation: the layer models are built once and kept between ``solve`` calls;
     ``set_parameter`` rebuilds only what depends on the changed value. One object per thread."""
@@ -228,6 +262,19 @@ class Simulation:
               psi_deg: Optional[float] = None, delta_deg: Optional[float] = None) -> Result:
         """Efficiencies; omitted incidence values come from the first scan point of the configuration."""
         return _result(self._sim.solve(lambda_um, phi_deg, psi_deg, delta_deg))
+
+    def smatrix(self, lambda_um: Optional[float] = None, phi_deg: Optional[float] = None,
+                psi_deg: Optional[float] = None) -> OrderSMatrix:
+        """S-matrix in the s/p basis of the orders for one incidence direction (the polarization does not
+        matter): one eigen-solve gives both polarizations and light from above and from below (and,
+        to the truncation error, the other directions of the Bloch family). Periodic stacks with homogeneous isotropic superstrate and
+        substrate, without transformed coordinates."""
+        d = self._sim.smatrix(lambda_um, phi_deg, psi_deg)
+        k0 = 2.0 * np.pi / float(d["incidence"]["lambda_um"])
+        return OrderSMatrix(np.asarray(d["orders"]), np.asarray(d["alpha"]), np.asarray(d["gamma"]),
+                            np.asarray(d["beta_sup"]), np.asarray(d["beta_sub"]), np.asarray(d["R_top"]),
+                            np.asarray(d["T_down"]), np.asarray(d["T_up"]), np.asarray(d["R_bottom"]), k0,
+                            dict(d["incidence"]))
 
     def set_parameter(self, pointer: str, value: float) -> None:
         """Sets a number of the configuration by JSON pointer (as in sweeps), e.g. "/layers/0/thickness_um"."""

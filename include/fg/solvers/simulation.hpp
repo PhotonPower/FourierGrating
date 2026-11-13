@@ -26,6 +26,9 @@ class Simulation {
   Result solve(const Wavelength& wl);
   /// First scan point of the configuration.
   Result solve();
+  /// S-matrix of the stack in the s/p basis of the orders (Plan eq:Ssp) for one incidence direction
+  /// (delta does not matter); the kept layer models are reused.
+  OrderSMatrix orderSMatrix(const Wavelength& wl);
   /// Sets the number at a JSON pointer (e.g. "/layers/0/thickness_um") and rebuilds what depends
   /// on it: only the changed layers if nothing outside "/layers" (except the incidence) changed,
   /// otherwise all layer models.
