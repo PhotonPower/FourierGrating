@@ -145,6 +145,22 @@ py::dict wavelength(const fg::Wavelength& w) {
   return d;
 }
 
+/// Copy of a complex matrix (Eigen, column-major) as a row-major NumPy array.
+py::array_t<std::complex<double>> matrix(const fg::MatC& M) {
+  py::array_t<std::complex<double>> a({static_cast<py::ssize_t>(M.rows()), static_cast<py::ssize_t>(M.cols())});
+  auto v = a.mutable_unchecked<2>();
+  for (Eigen::Index i = 0; i < M.rows(); ++i)
+    for (Eigen::Index j = 0; j < M.cols(); ++j) v(i, j) = M(i, j);
+  return a;
+}
+
+py::array_t<std::complex<double>> vector(const fg::VecC& x) {
+  py::array_t<std::complex<double>> a(static_cast<py::ssize_t>(x.size()));
+  auto v = a.mutable_unchecked<1>();
+  for (Eigen::Index i = 0; i < x.size(); ++i) v(i) = x(i);
+  return a;
+}
+
 template <typename T>
 py::array_t<T> array(const std::vector<T>& v, const fg::FieldCut& c) {
   const std::size_t n1 = c.axis1_um.size(), n2 = c.axis2_um.size();
@@ -364,6 +380,37 @@ PYBIND11_MODULE(_core, m) {
           },
           py::arg("lambda_um") = py::none(), py::arg("phi_deg") = py::none(),
           py::arg("psi_deg") = py::none(), py::arg("delta_deg") = py::none())
+      .def(
+          "smatrix",
+          [](fg::Simulation& s, std::optional<double> lambda_um, std::optional<double> phi_deg,
+             std::optional<double> psi_deg) {
+            const fg::Wavelength w = incidence(s, lambda_um, phi_deg, psi_deg, std::nullopt);
+            fg::OrderSMatrix S;
+            {
+              py::gil_scoped_release nogil;
+              S = s.orderSMatrix(w);
+            }
+            py::array_t<int> orders({static_cast<py::ssize_t>(S.orders.size()), py::ssize_t{2}});
+            auto o = orders.mutable_unchecked<2>();
+            for (std::size_t r = 0; r < S.orders.size(); ++r) {
+              o(static_cast<py::ssize_t>(r), 0) = S.orders[r].first;
+              o(static_cast<py::ssize_t>(r), 1) = S.orders[r].second;
+            }
+            py::dict d;
+            d["orders"] = orders;
+            d["alpha"] = vector(S.alpha);
+            d["gamma"] = vector(S.gamma);
+            d["beta_sup"] = vector(S.betaSup);
+            d["beta_sub"] = vector(S.betaSub);
+            d["R_top"] = matrix(S.R_top);
+            d["T_down"] = matrix(S.T_down);
+            d["T_up"] = matrix(S.T_up);
+            d["R_bottom"] = matrix(S.R_bottom);
+            d["incidence"] = wavelength(w);
+            return d;
+          },
+          py::arg("lambda_um") = py::none(), py::arg("phi_deg") = py::none(),
+          py::arg("psi_deg") = py::none())
       .def(
           "set_parameter",
           [](fg::Simulation& s, const std::string& pointer, double value) {

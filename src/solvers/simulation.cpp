@@ -57,6 +57,10 @@ Result Simulation::solve(const Wavelength& wl) {
   return detail::solveWithModels(impl_->cfg.solver, impl_->cfg.stack, wl, impl_->models);
 }
 
+OrderSMatrix Simulation::orderSMatrix(const Wavelength& wl) {
+  return detail::orderSMatrixWithModels(impl_->cfg.solver, impl_->cfg.stack, wl, impl_->models);
+}
+
 Result Simulation::solve() {
   FG_REQUIRE(!impl_->cfg.scan.empty(), "configuration has no incidence");
   return solve(impl_->cfg.scan.front());

@@ -22,6 +22,12 @@ class Simulation:
         psi_deg: Optional[float] = None,
         delta_deg: Optional[float] = None,
     ) -> dict[str, Any]: ...
+    def smatrix(
+        self,
+        lambda_um: Optional[float] = None,
+        phi_deg: Optional[float] = None,
+        psi_deg: Optional[float] = None,
+    ) -> dict[str, Any]: ...
     def set_parameter(self, pointer: str, value: float) -> None: ...
     def value_and_grad(
         self,

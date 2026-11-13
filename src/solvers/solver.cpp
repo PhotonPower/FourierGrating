@@ -377,6 +377,82 @@ class StackSolver final : public Solver {
     return solveModels(stack, s, buildModels(stack, s));
   }
 
+  // ------------------------------------------------------------------ S-matrix in the s/p basis
+  OrderSMatrix orderSMatrix(const Stack& stack, const Wavelength& wl) override {
+    FG_REQUIRE(!stack.cylindrical.enabled, "orderSMatrix: cylindrical stacks have no plane-wave orders");
+    const Setup s = setup(stack, wl);
+    return orderSMatrixModels(stack, s, buildModels(stack, s));
+  }
+
+  /// orderSMatrix() with prebuilt layer models (Simulation).
+  OrderSMatrix orderSMatrixWithModels(const Stack& stack, const Wavelength& wl, const detail::LayerModels& models) {
+    FG_REQUIRE(!stack.cylindrical.enabled, "orderSMatrix: cylindrical stacks have no plane-wave orders");
+    return orderSMatrixModels(stack, setup(stack, wl), models);
+  }
+
+  /// S_tot (Plan eq:Stot) turned into the s/p basis of the orders (Plan eq:Ssp).
+  OrderSMatrix orderSMatrixModels(const Stack& stack, const Setup& s, const detail::LayerModels& models) {
+    FG_PROF_SCOPE("smatrix");
+    FG_REQUIRE(!stack.aperiodic.modeExcitation && !s.scattered && !s.aperiodic,
+               "orderSMatrix: periodic stacks with plane-wave incidence only (not aperiodic, scattered field or modal)");
+    FG_REQUIRE(!s.transformed, "orderSMatrix: not with transformed coordinates (M17)");
+    FG_REQUIRE(!s.supQ && !s.subQ, "orderSMatrix: homogeneous superstrate and substrate only");
+    FG_REQUIRE(s.sub->isotropic, "orderSMatrix: the s/p basis needs an isotropic substrate");
+    Diagnostics diag;
+    const int nf = s.map.size(), nh = 2 * nf;
+    SMatrix S;
+    if (decoupled(stack, s)) {
+      // 1D in-plane isotropic: both polarizations (solve() assembles only the excited one)
+      for (MatC* B : {&S.S11, &S.S12, &S.S21, &S.S22}) *B = MatC::Zero(nh, nh);
+      for (const Polarization p : {Polarization::TE, Polarization::TM}) {
+        const int k = polarizationBlocks(p).amp[0];
+        const SMatrix Sp = assemble(s, CartesianBasis(s, p), layerPtrs(models), false, {}, diag).total;
+        S.S11.block(k * nf, k * nf, nf, nf) = Sp.S11;
+        S.S12.block(k * nf, k * nf, nf, nf) = Sp.S12;
+        S.S21.block(k * nf, k * nf, nf, nf) = Sp.S21;
+        S.S22.block(k * nf, k * nf, nf, nf) = Sp.S22;
+      }
+    } else {
+      S = assemble(s, CartesianBasis(s), layerPtrs(models), false, {}, diag).total;
+    }
+    const ModeBasis& rp = s.physRef();
+    const ModeBasis& sp = s.physSub();
+    // C: (E_x, E_z) of each order -> (E.s, E.p), linear (Plan eq:Ssp); columns from unit tangential fields
+    auto basis = [&](cplx eps, const ModeBasis& m, int dir) {
+      MatC Cb = MatC::Zero(nh, nh);
+      for (int r = 0; r < nf; ++r) {
+        const PlaneWaveOrder x = planeWaveOrder(eps, s.alpha(r), s.gamma(r), m.beta(r), dir, 1.0, 0.0);
+        const PlaneWaveOrder z = planeWaveOrder(eps, s.alpha(r), s.gamma(r), m.beta(r), dir, 0.0, 1.0);
+        Cb(r, r) = x.amp_s;
+        Cb(r, nf + r) = z.amp_s;
+        Cb(nf + r, r) = x.amp_p;
+        Cb(nf + r, nf + r) = z.amp_p;
+      }
+      return Cb;
+    };
+    // A C^-1 without an explicit inverse: (C^-T A^T)^T
+    auto rightSolve = [](const MatC& A, const MatC& Cb) -> MatC {
+      return Cb.transpose().partialPivLu().solve(A.transpose()).transpose();
+    };
+    const MatC supUp = basis(s.epsSup, rp, +1), supDown = basis(s.epsSup, rp, -1);
+    const MatC subUp = basis(s.sub->eps, sp, +1), subDown = basis(s.sub->eps, sp, -1);
+    OrderSMatrix out;
+    for (int r = 0; r < nf; ++r) out.orders.push_back(s.map.orders(r));
+    out.alpha = s.alpha;
+    out.gamma = s.gamma;
+    out.betaSup = VecC(nf);
+    out.betaSub = VecC(nf);
+    for (int r = 0; r < nf; ++r) {
+      out.betaSup(r) = rp.beta(r);
+      out.betaSub(r) = sp.beta(r);
+    }
+    out.R_top = rightSolve(supUp * S.S12, supDown);
+    out.T_down = rightSolve(subDown * S.S22, supDown);
+    out.T_up = rightSolve(supUp * S.S11, subUp);
+    out.R_bottom = rightSolve(subDown * S.S21, subUp);
+    return out;
+  }
+
   /// solve() with prebuilt layer models (wavelength independent; Simulation, M12).
   Result solveWithModels(const Stack& stack, const Wavelength& wl, const detail::LayerModels& models) {
     FG_REQUIRE(!stack.cylindrical.enabled, "cylindrical: prebuilt layer models are not available (M20)");
@@ -2053,6 +2129,11 @@ void applyThreadSettings(const SolverOptions& opt) {
 
 Result solveWithModels(const SolverOptions& opt, const Stack& stack, const Wavelength& wl, const LayerModels& models) {
   return StackSolver(opt).solveWithModels(stack, wl, models);
+}
+
+OrderSMatrix orderSMatrixWithModels(const SolverOptions& opt, const Stack& stack, const Wavelength& wl,
+                                    const LayerModels& models) {
+  return StackSolver(opt).orderSMatrixWithModels(stack, wl, models);
 }
 
 }  // namespace detail

@@ -5,8 +5,10 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "fg/core/error.hpp"
 #include "fg/core/index_map.hpp"
 #include "fg/field/nearfield.hpp"
 #include "fg/geometry/stack.hpp"
@@ -161,6 +163,22 @@ struct FieldSampleSet {
   std::vector<FieldSample> samples;
 };
 
+/// S-matrix of the whole stack in the s/p basis of the plane-wave orders (Plan eq:Ssp), for one
+/// wavelength and incidence direction. Column r is incidence in order r (another direction of the
+/// Bloch family), but the truncation is centred on the incident order: only the central column
+/// equals a solve() of its own direction exactly, the others to the truncation error. Index r = order
+/// orders[r], s component at r, p component at n_f + r (s, p as in the efficiency output, Plan
+/// section "Leistungsfluss und Effizienzen"); amplitudes referenced at the top of the stack
+/// (superstrate) and at y = 0 (substrate). R_top: from above back up (S12), T_down: from above into
+/// the substrate (S22), T_up: from below into the superstrate (S11), R_bottom: from below back
+/// down (S21), Plan eq:Sdef.
+struct OrderSMatrix {
+  std::vector<std::pair<int, int>> orders;  ///< (n, m) per index r
+  VecC alpha, gamma;                        ///< normalized tangential wave numbers (k0 = 1)
+  VecC betaSup, betaSub;                    ///< normalized normal wave numbers (Im > 0: evanescent)
+  MatC R_top, T_down, T_up, R_bottom;       ///< 2 n_f x 2 n_f each
+};
+
 class Solver {
  public:
   virtual ~Solver() = default;
@@ -171,6 +189,13 @@ class Solver {
                                            const std::vector<double>& y_um) = 0;
   /// Horizontal (y = const) and vertical (z = const) cuts in real space.
   virtual NearFieldResult nearField(const Stack& stack, const Wavelength& wl, const NearFieldRequest& req) = 0;
+  /// S-matrix in the s/p basis of the orders (Plan eq:Ssp): periodic stacks with homogeneous isotropic
+  /// superstrate and substrate, without transformed coordinates.
+  virtual OrderSMatrix orderSMatrix(const Stack& stack, const Wavelength& wl) {
+    (void)stack;
+    (void)wl;
+    throw NotImplemented("orderSMatrix for this solver");
+  }
 };
 
 std::unique_ptr<Solver> makeSolver(const SolverOptions& opt);

@@ -71,6 +71,25 @@ fg.cuda_available(); fg.core_variant(); fg.__version__
 Beispiel: [`examples/python/scan_lamellar.py`](../examples/python/scan_lamellar.py) (Wellenlängen-Scan und
 Tiefen-Sweep mit `Simulation`).
 
+### S-Matrix in der s/p-Basis (Plan Abschnitt „S-Matrix in der s/p-Basis der Ordnungen“)
+
+```python
+S = sim.smatrix(lambda_um=0.6, phi_deg=17, psi_deg=10)   # ein Eigenproblem je Richtung
+r = S.index(-1, 0)                                         # Index der Ordnung (n, m)
+nf = len(S.orders)
+amp_in = np.zeros(2 * nf, complex); amp_in[S.index(0, 0)] = 1.0   # s-polarisiert, Ordnung (0, 0)
+reflected = S.R_top @ amp_in                               # s bei r, p bei nf + r
+```
+
+`smatrix` gibt die S-Matrix des ganzen Stapels in der s/p-Basis der Ordnungen zurück (Plan eq:Ssp): `R_top`
+(von oben zurück nach oben), `T_down` (von oben ins Substrat), `T_up` (von unten ins Superstrat), `R_bottom`
+(von unten zurück nach unten), dazu `orders`, `alpha`, `gamma`, `beta_sup`, `beta_sub` (normiert, mal `k0` in
+1/µm). Ein Aufruf liefert beide Polarisationen und Licht von oben und von unten. Die Spalte einer anderen Ordnung
+beschreibt Einfall aus einer anderen Richtung der Bloch-Familie α₀ + nλ/Λ, aber mit einem um die Einfallsordnung
+zentrierten Ordnungsfenster: Sie weicht von einer eigenen Rechnung dieser Richtung um den Trunkierungsfehler ab. Die Spalte der Ordnung (0, 0) ergibt dieselben `amp_s`/`amp_p` wie `solve` (Test
+`test_smatrix_central_column_equals_solve`). Nur für periodische Stapel mit homogenem isotropem Superstrat und
+Substrat ohne Koordinatentransformation; sonst `FourierGratingError`.
+
 ### Gradienten (M19)
 
 ```python

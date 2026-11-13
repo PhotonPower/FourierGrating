@@ -154,3 +154,29 @@ def test_precision_modes():
     c["precision"] = "half"
     with pytest.raises(fg.FourierGratingError):
         fg.solve(c)
+
+
+def test_smatrix_central_column_equals_solve():
+    """S-matrix in the s/p basis (Plan eq:Ssp): the column of the incident order applied to the s/p
+    amplitudes of the incident wave gives the amplitudes of solve() for every polarization."""
+    sim = fg.Simulation(CFG)
+    S = sim.smatrix()
+    nf = len(S.orders)
+    c = S.index(0, 0)
+    for delta in (0.0, 90.0):
+        r = sim.solve(delta_deg=delta)
+        col = c if delta == 0.0 else nf + c  # delta 0: s, delta 90: p (Plan eq:polarization)
+        sign = None
+        for row in r.reflected:
+            k = S.index(int(row["n"]), int(row["m"]))
+            got = (S.R_top[k, col], S.R_top[nf + k, col])
+            want = (row["amp_s"], row["amp_p"])
+            if sign is None:  # the incident unit vector may be -s or -p in FG's convention
+                big = int(np.argmax(np.abs(want)))
+                sign = want[big] / got[big]
+                assert abs(abs(sign) - 1) < 1e-12
+            assert np.allclose(np.multiply(sign, got), want, rtol=0, atol=1e-12)
+    assert S.R_top.shape == S.T_down.shape == S.T_up.shape == S.R_bottom.shape == (2 * nf, 2 * nf)
+    assert S.k0 == pytest.approx(2 * np.pi / 0.63)
+    with pytest.raises(KeyError):
+        S.index(99)
