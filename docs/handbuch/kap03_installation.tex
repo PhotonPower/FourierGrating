@@ -1,0 +1,172 @@
+\chapter{Installation}\label{ch:installation}
+
+\FG{} gibt es in drei Formen. Welche Sie brauchen, hängt davon ab, wie Sie arbeiten möchten:
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lYl}
+\toprule
+Form & geeignet für & Abschnitt \\
+\midrule
+Python-Paket \texttt{fouriergrating} & Skripte, Jupyter, Optimierung, die meisten Anwender & \ref{sec:inst-python} \\
+Kommandozeile \cmd{fgsolve} (C++-Build) & Rechnungen aus JSON-Dateien, Server, Batchbetrieb & \ref{sec:inst-linux}, \ref{sec:inst-windows} \\
+GUI im Browser & Arbeiten ohne Programmierung, gemeinsamer Rechenserver & \ref{sec:inst-gui}, Kapitel~\ref{ch:gui} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Systemvoraussetzungen}
+\begin{itemize}
+  \item \textbf{Zielsystem}: AlmaLinux 10 (x86\_64) mit GCC 14, optional NVIDIA RTX 6000 Ada (sm\_89, 48\,GB).
+  \item \textbf{Anwenderinstallation}: Windows 11, optional mit NVIDIA RTX 3090 (sm\_86, 24\,GB).
+  \item Mindestversionen für den Quellbuild: CMake 3.24, GCC 13 (C++20), für CUDA das Toolkit 12.6 Update~2
+        (wegen \texttt{cusolverDnXgeev}).
+  \item Abhängigkeiten: Eigen 3.4, nlohmann/json, GoogleTest (nur Tests), optional OpenMP, CUDA, HDF5, Nurbforge
+        (CAD). Fehlende Bibliotheken lädt CMake beim ersten Konfigurieren über \texttt{FetchContent} nach; dafür ist
+        Internetzugang nötig.
+  \item Arbeitsspeicher: Eine 2D-Rechnung mit $N_x=N_z=10$ hat Matrizen der Größe $n = 4\cdot441=1764$; je komplexer
+        Matrix sind das rund 50\,MB, gleichzeitig werden etwa zwölf davon je Scanpunkt gebraucht.
+\end{itemize}
+
+\section{Python-Paket}\label{sec:inst-python}
+\index{Installation!Python-Paket}%
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Umgebung & Befehl \\
+\midrule
+Windows 11, CPU & \cmd{pip install fouriergrating} \\
+Windows 11 mit RTX 3090 & zusätzlich \cmd{pip install fouriergrating-cuda12} (zieht die \texttt{nvidia-*-cu12}-Pakete) \\
+Linux (manylinux\_2\_28), CPU & \cmd{pip install fouriergrating} \\
+Server mit CUDA & aus den Quellen, siehe unten \\
+Entwicklung & \cmd{pip install .} im Repository \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Aus den Quellen mit CUDA (Server, RTX 6000 Ada):
+\begin{lstlisting}[style=shell]
+pip install . -C cmake.define.FG_ENABLE_CUDA=ON \
+              -C cmake.define.CMAKE_CUDA_ARCHITECTURES="89"
+\end{lstlisting}
+Unter Windows braucht der Quellbuild MSVC 2022, weil Python mit MSVC gebaut ist:
+\begin{lstlisting}[style=shell]
+scripts\msvc.cmd python -m pip install .
+scripts\msvc.cmd python -m pip install python/cuda12     # CUDA-Variante
+\end{lstlisting}
+
+\textbf{Installation prüfen.}
+\begin{lstlisting}[style=shell]
+python -c "import fouriergrating as fg; print(fg.__version__, fg.core_variant(), fg.cuda_available())"
+\end{lstlisting}
+\texttt{core\_variant()} meldet \val{"cpu"} oder \val{"cuda12"}. Ist das CUDA-Paket installiert und eine GPU
+nutzbar, lädt \texttt{import fouriergrating} automatisch den CUDA-Kern. Mit der Umgebungsvariablen
+\texttt{FG\_CORE=cpu} erzwingen Sie den CPU-Kern. Unter Windows sucht das Paket die CUDA-Bibliotheken in den
+\texttt{nvidia-*-cu12}-Paketen und, falls gesetzt, unter \texttt{CUDA\_PATH}; sie werden nicht mitgeliefert.
+
+\paragraph{Optionale Pakete.} \texttt{pandas} für \texttt{ScanResult.to\_pandas()}, \texttt{torch} bzw.\
+\texttt{jax} für die Gradienten-Adapter, \texttt{scipy} für die Optimierungsbeispiele, \texttt{matplotlib} und
+\texttt{numpy} für die Plot-Skripte.
+
+\section{Quellbuild unter Linux (AlmaLinux 10)}\label{sec:inst-linux}
+\index{Installation!Linux}\index{AlmaLinux}%
+\subsection{Pakete}
+\begin{lstlisting}[style=shell]
+sudo ./scripts/setup_almalinux10.sh              # Compiler, CMake, Eigen, JSON, GTest, Python, LaTeX
+sudo ./scripts/setup_almalinux10.sh --with-cuda  # zusätzlich CUDA-Toolkit (NVIDIA-Repo rhel10)
+\end{lstlisting}
+Das Skript aktiviert EPEL und CRB. Den Grafiktreiber installiert es \emph{nicht}; folgen Sie dafür dem NVIDIA Driver
+Installation Guide (Abschnitt RHEL/Alma 10) und prüfen Sie mit \cmd{nvidia-smi}.
+
+\subsection{Konfigurieren, bauen, testen}
+\begin{lstlisting}[style=shell]
+cmake --preset cpu-release && cmake --build --preset cpu-release
+ctest --preset cpu-release                      # ca. 15-20 min auf einem Kern
+./build/cpu-release/apps/fgsolve --info
+
+# mit GPU
+cmake --preset cuda-release && cmake --build --preset cuda-release
+./build/cuda-release/apps/fgsolve --info        # "cuda backend: NVIDIA RTX 6000 Ada ..."
+\end{lstlisting}
+
+\subsection{Presets und Optionen}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Preset & Zweck \\
+\midrule
+\texttt{cpu-release} & Standard: CPU, optimiert, mit OpenMP \\
+\texttt{cpu-debug} & Fehlersuche \\
+\texttt{cpu-tsan} & ThreadSanitizer (Entwicklung) \\
+\texttt{cuda-release} & mit CUDA-Backend, Architektur 89 voreingestellt \\
+\texttt{cpu-cad} & mit CAD-Slicer (Nurbforge) \\
+\texttt{win-release}, \texttt{win-cuda}, \texttt{win-cad} & Windows mit MSYS2/MinGW-w64 \\
+\texttt{win-msvc}, \texttt{win-msvc-cuda} & Windows mit MSVC 2022 \\
+\bottomrule
+\end{tabularx}
+\end{center}
+CMake-Optionen: \texttt{FG\_ENABLE\_CUDA}, \texttt{FG\_ENABLE\_OPENMP} (Standard an), \texttt{FG\_ENABLE\_HDF5},
+\texttt{FG\_ENABLE\_NURBFORGE}, \texttt{FG\_BUILD\_TESTS}, \texttt{FG\_WARNINGS\_AS\_ERRORS}. Für eine andere
+GPU setzen Sie \texttt{CMAKE\_CUDA\_ARCHITECTURES} (RTX 3090: \val{86}).
+
+\section{Quellbuild unter Windows}\label{sec:inst-windows}
+\index{Installation!Windows}%
+Für Entwickler gibt es einen Weg über MSYS2/MinGW-w64 (UCRT64):
+\begin{lstlisting}[style=shell]
+.\scripts\setup_windows.ps1                 # installiert MSYS2 (falls nötig) und die Werkzeuge
+cmake --preset win-release
+cmake --build --preset win-release
+ctest --preset win-release
+$env:PATH = "C:\msys64\ucrt64\bin;" + $env:PATH
+.\build\win-release\apps\fgsolve.exe examples\v3_lamellar_dielectric.json
+\end{lstlisting}
+Das CUDA-Preset \texttt{win-cuda} ist experimentell. Für Python-Wheels und CUDA unter Windows ist MSVC der
+empfohlene Weg (\texttt{win-msvc}, \texttt{win-msvc-cuda}). Einzelheiten: \file{docs/build\_windows.md}.
+
+\section{CAD-Slicer}\label{sec:inst-cad}
+\index{Installation!CAD-Slicer}\index{Nurbforge}%
+STEP-Dateien liest \FG{} mit der Bibliothek Nurbforge. Sie wird nur mit \texttt{FG\_ENABLE\_NURBFORGE=ON}
+eingebunden (Tag \texttt{FG\_NURBFORGE\_TAG}, Standard \texttt{v0.6.0}):
+\begin{lstlisting}[style=shell]
+cmake --preset cpu-cad && cmake --build --preset cpu-cad
+# lokale Nurbforge-Kopie statt Download:
+cmake --preset cpu-cad -DFETCHCONTENT_SOURCE_DIR_NURBFORGE=/pfad/zu/Nurbforge
+\end{lstlisting}
+Die Python-Wheels enthalten den Slicer bereits. Ohne ihn meldet eine \val{"cad"}-Schicht \texttt{NotImplemented};
+\cmd{fgsolve -{}-info} zeigt, ob er eingebaut ist.
+
+\section{Grafische Oberfläche}\label{sec:inst-gui}
+Die GUI ist ein eigenes Repository (\file{PhotonPower/GUI-FourierGrating}) und läuft als Webanwendung
+(Streamlit) auf einem Server. Für Anwender genügt ein Browser und die Adresse, die der Betreiber nennt.
+Die Server-Installation beschreibt Abschnitt~\ref{sec:gui-betrieb}; zum lokalen Ausprobieren:
+\begin{lstlisting}[style=shell]
+git clone https://github.com/PhotonPower/GUI-FourierGrating.git && cd GUI-FourierGrating
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+pip install fouriergrating
+FG_GUI_EXAMPLES_DIR=../FourierGrating/examples ./scripts/run_dev.sh
+\end{lstlisting}
+
+\section{Prüfen, ob alles funktioniert}
+\begin{lstlisting}[style=shell]
+$ fgsolve --version
+FourierGrating 0.18.0
+$ fgsolve --info
+FourierGrating 0.18.0
+...
+cuda backend: not built                 # oder: Name der GPU
+cad slicer  : not built (FG_ENABLE_NURBFORGE=OFF)   # oder: Nurbforge
+\end{lstlisting}
+Ein kurzer Funktionstest ist die Fresnel-Grenzfläche:
+\begin{lstlisting}[style=shell]
+fgsolve examples/v1_fresnel_interface.json
+\end{lstlisting}
+Die Reflexion muss mit den Fresnelformeln übereinstimmen und \texttt{sum R+T} gleich 1 sein.
+
+\section{Dokumentation neu erzeugen}
+\index{Dokumentation erzeugen}%
+\begin{lstlisting}[style=shell]
+./scripts/build_docs.sh      # Implementierungsplan (main.pdf)
+cd docs/handbuch && latexmk -pdf handbuch.tex   # dieses Handbuch
+\end{lstlisting}

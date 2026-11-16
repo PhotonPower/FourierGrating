@@ -1,0 +1,122 @@
+\chapter{Gradienten und Optimierung}\label{ch:optimierung}
+\index{Gradient}\index{Optimierung}\index{Adjungierte}%
+
+\FG{} berechnet exakte Gradienten einer Zielfunktion nach beliebig vielen Parametern mit der
+\textbf{diskreten Adjungierten}. Der Aufwand beträgt etwa 1,3 bis 2,5 Vorwärtsrechnungen -- \emph{unabhängig von der
+Zahl der Parameter}. Damit lassen sich Gitter mit Gradientenverfahren (L-BFGS-B, Adam) optimieren.
+
+\section{Zielfunktion}
+Die Zielfunktion ist eine gewichtete Summe von Effizienzen:
+\begin{equation}
+  L=\sum_i w_i\,e_i .
+\end{equation}
+In Python als Abbildung \texttt{\{(Seite, n, m): Gewicht\}} oder Liste von \texttt{(Seite, n, m, Gewicht)}:
+\begin{lstlisting}[style=py]
+objective = {("R", -1, 0): 1.0, ("T", 0, 0): -0.5}    # maximiere R(-1), bestrafe T(0)
+\end{lstlisting}
+Bei isolierten Strukturen sind die Streuflüsse Ziele: \texttt{\{("scattering", "up"): 1.0\}}; bei Modenanregung
+die Modenleistungen: \texttt{\{("mode", "T", 0): 1.0\}}.
+
+\section{Gradient berechnen}
+\begin{lstlisting}[style=py]
+sim = fg.Simulation(cfg)
+params = ["/layers/0/thickness_um", "/layers/0/breakpoints_um/1", "/materials/bar/n/1"]
+value, grad = sim.value_and_grad({("R", -1, 0): 1.0}, params)
+sim.last_result       # Effizienzen der Rechnung
+v = sim.vjp([("R", -1, 0, 1.0)], params)    # Vektor-Jacobi-Produkt
+\end{lstlisting}
+\texttt{value\_and\_grad} nimmt optional \texttt{lambda\_um}, \texttt{phi\_deg}, \texttt{psi\_deg},
+\texttt{delta\_deg} (sonst erster Scanpunkt).
+
+\section{Zulässige Parameter}
+Parameter sind Zahlen der Konfiguration, adressiert durch JSON-Pointer wie beim Sweep:
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Art & Beispiele \\
+\midrule
+Schichtdicken & \val{/layers/k/thickness\_um} \\
+Lamellenkanten & \val{/layers/k/breakpoints\_um/j} \\
+Sinusprofil & \val{/layers/k/depth\_um}, \val{/layers/k/x0\_um} \\
+2D-Querschnitte & alle Zahlen einer \val{polygon2d}- oder \val{contour2d}-Geometrie: Ecken, Kreisradien und -mittelpunkte,
+NURBS-Kontrollpunkte und -Gewichte \\
+\val{profile2d} & \val{depth\_um}, \val{x0\_um}, \val{z0\_um}, Materialien \\
+isotrope Materialien & \val{/materials/name/n}, \val{.../n/0}, \val{.../n/1}, \val{.../eps}; im Superstrat nur der Realteil \\
+anisotrope Materialien & \val{.../eps\_tensor/i/j/0|1}, \val{.../eps\_principal/k}, \val{.../euler\_deg/k} \\
+dispersive Modelle & jede Zahl eines Modells, z.\,B.\ \val{.../n/sellmeier/B/0},
+\val{.../eps/drude\_lorentz/omega\_p\_eV}, \val{.../eps/drude\_lorentz/oscillators/1/f}; Tabellenwerte nur mit
+\key{data} (\val{.../table/data/i/1}), nicht die Wellenlängenspalte \\
+Einfall & \val{/incidence/lambda\_um}, \val{phi\_deg}, \val{psi\_deg}, \val{delta\_deg} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Unterstützt sind RCWA und RK, periodische Gitter, auch mit ASR (Geometrieparameter dann nur mit expliziten
+\key{breakpoints\_um}). Bei isolierten Strukturen: Streuflüsse oben/unten (alle Parameterarten), Modenleistungen;
+noch nicht: Profilschichten mit PML, seitlicher Fluss und Absorption.
+
+Bei dispersiven Materialien enthält die Ableitung nach \val{/incidence/lambda\_um} die Kettenregel über
+$d\varepsilon/d\lambda$. Bei einer linearen Tabelle ist sie an einer Stützstelle einseitig (rechte Ableitung); das
+Ergebnis enthält dann einen Hinweis.
+
+\begin{hinweis}[Was als fest gilt]
+Abgeleitet wird die tatsächlich berechnete diskrete Abbildung. Scheibenzerlegung und RK-Schrittfolge gelten als
+fest. Das Normalenfeld der Profile wird mitdifferenziert; das Rasterfeld der 2D-Querschnitte bei Formparametern über
+eine Rasterzelle. Unterhalb einer Rasterzelle ist die Vorwärtsrechnung nicht glatt; zu kleine Schrittweiten eines
+Optimierers sehen dann „Treppen“. Das Normalenfeld der CAD-Schnitte bleibt eingefroren.
+\end{hinweis}
+
+\section{Optimierung mit SciPy}
+\index{SciPy}%
+\begin{lstlisting}[style=py]
+import numpy as np, fouriergrating as fg
+from scipy.optimize import minimize
+
+cfg = fg.load_config("littrow.json")
+sim = fg.Simulation(cfg)
+params = ["/layers/0/thickness_um", "/layers/0/breakpoints_um/1"]
+target = {("R", -1, 0): 1.0}
+
+def f(x):
+    for p, v in zip(params, x):
+        sim.set_parameter(p, v)
+    val, g = sim.value_and_grad(target, params)
+    return -val, -g                       # maximieren = -L minimieren
+
+res = minimize(f, x0=[0.12, 0.22], jac=True, method="L-BFGS-B",
+               bounds=[(0.02, 0.5), (0.05, 0.45)])
+print(res.x, -res.fun)
+\end{lstlisting}
+Das vollständige Beispiel \file{examples/python/optimize\_littrow.py} optimiert Tiefe und Stegbreite eines
+Aluminiumgitters für die Ordnung $-1$ in Littrow-Anordnung und vergleicht mit einem Rasterscan.
+
+\section{PyTorch und JAX}
+\index{PyTorch}\index{JAX}%
+\begin{lstlisting}[style=py]
+import torch
+from fouriergrating.torch import efficiencies          # torch.autograd.Function
+x = torch.tensor([0.12, 0.22], dtype=torch.float64, requires_grad=True)
+e = efficiencies(sim, params, x, [("R", -1, 0)])
+(-e[0]).backward()
+print(x.grad)
+
+import jax
+from fouriergrating.jax import efficiency_function    # jax.custom_vjp + pure_callback
+f = efficiency_function(sim, params, [("R", -1, 0)])
+g = jax.grad(lambda x: f(x)[0])(jax.numpy.array([0.12, 0.22]))
+\end{lstlisting}
+Die Adapter decken Effizienzen ab (nicht Streuflüsse und Moden). \file{examples/python/optimize\_nurbs\_pillar.py}
+optimiert die Kontrollpunkte eines NURBS-Säulenquerschnitts mit Adam.
+
+\section{CAD-Körper}
+Gradienten nach Parametern von STEP-Geometrien gibt es über die C++-Schnittstelle
+\texttt{fg::gradient(opt, stack, wl, objective, \{StackParameter\{...\}\})}: Der Körper wird bei $\theta\pm\delta$
+neu geschnitten (seitliche Bewegungen von Kontrollpunkten).
+
+\section{Speicher sparen}
+Die Adjungierte speichert Zwischenergebnisse jeder Scheibe. Bei vielen Scheiben in 2D wird das groß;
+\key{checkpoint\_every} $=k$ speichert nur jedes $k$-te Produkt und rechnet den Rest im Rückwärtsschritt neu
+(gleiches Ergebnis, mehr Zeit).
+
+\section{Optimierung in der GUI}
+Die Seite \gui{Optimierung} der GUI bietet L-BFGS-B mit Grenzen ohne Programmierung (Abschnitt~\ref{sec:gui-opt}).

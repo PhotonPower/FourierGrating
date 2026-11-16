@@ -1,0 +1,184 @@
+\chapter{Python-Schnittstelle}\label{ch:python}
+\index{Python}%
+
+Das Paket \texttt{fouriergrating} kann alles, was \cmd{fgsolve} kann, ohne Umweg über Dateien. Die Konfiguration ist
+dasselbe JSON-Schema als Python-\texttt{dict}; Einheiten wie in JSON (\textmu m, Grad). Die Bindungen enthalten keine
+eigene Physik: Ergebnisse sind identisch mit \cmd{fgsolve}.
+
+\section{Überblick}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Funktion / Klasse & Zweck \\
+\midrule
+\texttt{fg.load\_config(pfad)} & JSON-Datei lesen; \key{output.dir}, \key{cad.file} und Tabellendateien
+(\key{table.file}) relativ zur Datei auflösen \\
+\texttt{fg.solve(cfg, profile=False)} & erster Scanpunkt $\to$ \texttt{Result} (\key{sweep} wird ignoriert) \\
+\texttt{fg.solve\_scan(cfg, profile=False)} & alle Sweep-Werte und Scanpunkte (parallel) $\to$ \texttt{ScanResult} \\
+\texttt{fg.near\_field(cfg)} & Nahfeldschnitte des ersten Scanpunkts \\
+\texttt{fg.Simulation(cfg)} & vorbereitete Rechnung für viele Auswertungen, Parameteränderungen, Gradienten \\
+\texttt{fg.set\_backend(pref, threshold)} & Standard-Backend für Konfigurationen ohne \key{backend} \\
+\texttt{fg.get\_backend()}, \texttt{fg.cuda\_available()}, \texttt{fg.core\_variant()} & Abfragen \\
+\texttt{fg.material\_eps(cfg, name, lambda\_um)} & $\varepsilon$ eines Materials bei einer oder vielen Wellenlängen \\
+\texttt{fg.materials.from\_refractiveindex} & Materialobjekt aus einer YAML-Datei von refractiveindex.info \\
+\texttt{fg.cad.check}, \texttt{fg.cad.preview}, \texttt{fg.cad.llm\_tool\_spec} & CAD (Kapitel~\ref{ch:cad}) \\
+\texttt{fouriergrating.torch}, \texttt{fouriergrating.jax} & Gradienten-Adapter (Kapitel~\ref{ch:optimierung}) \\
+\texttt{fg.FourierGratingError} & Ausnahme für Konfigurations- und Rechenfehler (Unterklasse von \texttt{RuntimeError}) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Ergebnisse: \texttt{Result}}
+\begin{lstlisting}[style=py]
+res = fg.solve(cfg)
+res.reflected        # numpy structured array, Felder: n, m, eff, eff_s, eff_p, amp_s, amp_p
+res.transmitted
+res.efficiency("T", -1)        # Effizienz einer Ordnung (0, falls nicht propagierend)
+res.efficiency("R", 0, 1)      # 2D: Ordnung (0, 1)
+res.absorption
+res.diagnostics      # energy_balance, max_condition_t11, rk_steps, warnings, precision, timings, ...
+res.incidence        # {"lambda_um", "phi_deg", "psi_deg", "delta_deg"}
+res.scattering       # isolierte Strukturen: {"up", "down", "lateral", "absorbed"}
+res.modal            # Modenanregung: {"incident", "reflected", "transmitted", "radiated"}
+res.cylindrical      # Zylinder: {"reflected", "transmitted", "absorbed", "harmonics", ...}
+res.diagnostics["materials"]   # dispersive Materialien: [{"name", "component", "n", "eps"}, ...]
+\end{lstlisting}
+Die Felder \texttt{amp\_s}, \texttt{amp\_p} sind komplex. Beispiel: alle reflektierten Ordnungen ausgeben
+\begin{lstlisting}[style=py]
+for o in res.reflected:
+    print(f"R({o['n']:+d},{o['m']:+d})  e = {o['eff']:.5f}  s = {o['eff_s']:.5f}  p = {o['eff_p']:.5f}")
+\end{lstlisting}
+
+\section{Scans: \texttt{ScanResult}}
+\begin{lstlisting}[style=py]
+scan = fg.solve_scan(cfg)
+scan.points           # Liste von Result (mit .incidence)
+scan.sweep_parameter  # Pointer des Sweeps oder ""
+scan.columns          # dict von numpy-Arrays wie efficiencies.csv:
+                      # sweep_value, lambda_um, phi_deg, psi_deg, delta_deg, side, n, m,
+                      # efficiency, eff_s, eff_p, amp_s, amp_p
+df = scan.to_pandas() # benötigt pandas
+\end{lstlisting}
+Spektrum der Ordnung $T_{-1}$ zeichnen:
+\begin{lstlisting}[style=py]
+import matplotlib.pyplot as plt
+c = scan.columns
+sel = (c["side"] == "T") & (c["n"] == -1)
+plt.plot(c["lambda_um"][sel], c["efficiency"][sel])
+\end{lstlisting}
+
+\section{\texttt{Simulation}: wiederholte Rechnungen}\label{sec:simulation}
+\texttt{fg.Simulation} baut die Schichtmodelle (Fourierkoeffizienten, Normalenfelder) einmal auf und behält sie.
+Danach sind Rechnungen mit anderem Einfall deutlich schneller, und einzelne Parameter lassen sich ändern.
+\begin{lstlisting}[style=py]
+sim = fg.Simulation(cfg)
+r1 = sim.solve(lambda_um=0.6328, phi_deg=30.0)   # fehlende Werte: erster Scanpunkt
+r2 = sim.solve(lambda_um=0.55)
+sim.set_parameter("/layers/0/thickness_um", 0.25) # JSON-Pointer wie beim Sweep
+r3 = sim.solve()
+sim.model_builds      # wie oft Schichtmodelle gebaut wurden
+sim.config            # aktuelle Konfiguration als dict
+\end{lstlisting}
+\begin{itemize}
+  \item \texttt{set\_parameter} baut nur die geänderten Schichten neu, wenn sich außerhalb von \key{layers} nichts
+        ändert; sonst alle. Das Ergebnis ist bitgleich zu einer neuen \texttt{Simulation}.
+  \item Ein \texttt{Simulation}-Objekt ist \textbf{nicht threadsicher}. Mehrere Python-Threads dürfen parallel
+        rechnen, jeder mit eigenem Objekt; während der Rechnung ist der GIL freigegeben.
+\end{itemize}
+
+\section{Schleifen in Python}\label{sec:py-schleifen}
+\subsection{Zweidimensionale Parameterstudie}
+\begin{lstlisting}[style=py]
+import numpy as np, fouriergrating as fg
+cfg = fg.load_config("examples/v3_lamellar_dielectric.json")
+sim = fg.Simulation(cfg)
+depths = np.linspace(0.1, 0.8, 15)
+widths = np.linspace(0.2, 0.8, 13)
+E = np.zeros((len(depths), len(widths)))
+for i, h in enumerate(depths):
+    sim.set_parameter("/layers/0/thickness_um", h)
+    for j, w in enumerate(widths):
+        sim.set_parameter("/layers/0/breakpoints_um/1", w)
+        E[i, j] = sim.solve().efficiency("T", -1)
+\end{lstlisting}
+
+\subsection{Littrow-Kurve}
+\begin{lstlisting}[style=py]
+d = cfg["period_um"]["x"]
+for lam in np.linspace(0.5, 0.9, 41):
+    phi = np.degrees(np.arcsin(lam / (2 * d)))
+    print(lam, sim.solve(lambda_um=lam, phi_deg=phi).efficiency("R", -1))
+\end{lstlisting}
+
+\section{Dispersive Materialien}\label{sec:py-dispersion}
+\index{Dispersion!Python}\index{refractiveindex.info}%
+Die Modelle stehen in der Konfiguration (Abschnitt~\ref{sec:conf-dispersion}); Python wertet nichts selbst aus. Ein
+Scan rechnet jeden Punkt mit den Werten seiner Wellenlänge, \texttt{Simulation} baut bei einem Wechsel von
+$\lambda$ nur die Schichten neu, die ein dispersives Material enthalten (\texttt{model\_builds}).
+\begin{lstlisting}[style=py]
+import numpy as np, fouriergrating as fg
+cfg = fg.load_config("examples/dispersive_metal_grating.json")   # Silbergitter
+scan = fg.solve_scan(cfg)                                       # 0,4 .. 1,0 µm
+eps = fg.material_eps(cfg, "ag", [0.4, 0.7, 1.0])               # complex-Array
+fg.material_eps(cfg, "ag", 0.6)                                 # eine Zahl -> complex
+scan.points[0].diagnostics["materials"]                         # n, eps am Scanpunkt
+\end{lstlisting}
+\texttt{material\_eps} wertet auch feste Materialien aus; bei \key{eps\_principal} hat das Ergebnis eine letzte
+Achse der Länge 3. Ein vollständiges Beispiel ist \file{examples/python/dispersive\_scan.py}.
+
+\paragraph{Import aus refractiveindex.info.} \texttt{fg.materials.from\_refractiveindex(pfad\_oder\_text)} liest eine
+YAML-Datei der Datenbank refractiveindex.info \ref{lit:rii} und gibt ein Materialobjekt der Konfiguration zurück.
+Die Daten der Datenbank stehen unter CC0~1.0; zitiert werden sollen der Datenbankartikel und die Originalquelle
+des Datensatzes.
+\begin{lstlisting}[style=py]
+cfg["materials"]["au"] = fg.materials.from_refractiveindex(
+    "refractiveindex.info-database/database/data/main/Au/nk/Johnson.yml")
+\end{lstlisting}
+Unterstützt sind \val{tabulated nk}, \val{tabulated n}, \val{tabulated n} mit \val{tabulated k} (Stützstellen beider
+Listen im Überlappbereich, linear interpoliert) als Tabelle unter \key{n} sowie \val{formula 1} und \val{formula 2}
+als Sellmeier mit dem Gültigkeitsbereich als \key{range\_um}. Andere Formeln lösen \texttt{NotImplementedError} aus.
+PyYAML ist optional: \texttt{pip install fouriergrating[materials]}.
+
+\section{S-Matrix in der s/p-Basis}\label{sec:smatrix}
+\index{S-Matrix}%
+\begin{lstlisting}[style=py]
+S = sim.smatrix(lambda_um=0.6, phi_deg=17, psi_deg=10)   # ein Eigenproblem je Richtung
+S.orders, S.alpha, S.gamma, S.beta_sup, S.beta_sub         # Ordnungen und Wellenzahlen
+r = S.index(-1, 0)                                          # Index der Ordnung (n, m)
+nf = len(S.orders)
+a_in = np.zeros(2 * nf, complex); a_in[S.index(0, 0)] = 1.0  # s-polarisiert, Ordnung (0, 0)
+refl = S.R_top @ a_in                                       # s bei r, p bei nf + r
+\end{lstlisting}
+Die vier Blöcke \texttt{R\_top} (von oben zurück nach oben), \texttt{T\_down} (von oben ins Substrat),
+\texttt{T\_up} (von unten ins Superstrat) und \texttt{R\_bottom} beschreiben beide Polarisationen und Licht von
+oben und unten in einem Aufruf. Die Spalte der Ordnung $(0,0)$ ergibt dieselben Amplituden wie \texttt{solve}.
+Andere Spalten beschreiben Einfall aus anderen Richtungen der Bloch-Familie, mit einem um die Einfallsordnung
+zentrierten Ordnungsfenster (Abweichung im Rahmen des Trunkierungsfehlers). Voraussetzungen: periodisch,
+homogenes isotropes Superstrat und Substrat, keine Koordinatentransformation.
+
+\section{Backend und Kern}
+\begin{lstlisting}[style=py]
+fg.set_backend("auto", threshold=160)    # Standard für Konfigurationen ohne "backend"
+fg.get_backend()
+fg.core_variant()                        # "cpu" oder "cuda12"
+\end{lstlisting}
+\texttt{FG\_CORE=cpu} erzwingt den CPU-Kern beim Import.
+
+\section{Fehlerbehandlung}
+\index{Fehlerbehandlung (Python)}%
+\begin{lstlisting}[style=py]
+try:
+    res = fg.solve(cfg)
+except fg.FourierGratingError as e:      # Konfigurations- oder Rechenfehler
+    print("Fehler:", e)
+except NotImplementedError as e:         # spezifiziert, aber noch nicht umgesetzt
+    print("Noch nicht verfügbar:", e)
+\end{lstlisting}
+
+\section{Tests}
+\begin{lstlisting}[style=shell]
+pip install .[test]
+pytest tests/python
+FG_FGSOLVE=build/cpu-release/apps/fgsolve pytest tests/python   # zusätzlich Nahfeld = fgsolve
+\end{lstlisting}

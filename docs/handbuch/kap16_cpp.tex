@@ -1,0 +1,82 @@
+\chapter{C++-Schnittstelle}\label{ch:cpp}
+\index{C++-Schnittstelle}%
+
+Für eigene Programme, eigene Profilfunktionen und die Einbettung in andere Software steht die C++-Bibliothek
+\texttt{fg\_core} zur Verfügung (Namensraum \texttt{fg}, Header unter \file{include/fg/}).
+
+\section{Eine Rechnung}
+\begin{lstlisting}[style=cpp]
+#include "fg/solvers/solver.hpp"
+
+fg::Stack st;
+st.dx_um = 0.5;                                     // Periode in x (dz_um > 0 für 2D)
+st.materials["air"]   = fg::Material::fromIndex("air", 1.0);
+st.materials["glass"] = fg::Material::fromIndex("glass", 1.5);
+st.superstrate = "air";
+st.substrate   = "glass";
+
+fg::LayerEntry le;
+le.spec = fg::Lamellar1DLayer{0.3, {0.0, 0.25, 0.5}, {"glass", "air"}};
+st.layers.push_back(le);
+
+fg::SolverOptions o;
+o.Nx = 15;                                          // o.kind = fg::SolverKind::RK für Runge-Kutta
+const fg::Result r = fg::makeSolver(o)->solve(st, {0.6328, 0.3, 0.0, 0.0});  // λ, φ, ψ, δ in rad
+for (const auto& ord : r.reflected) std::printf("R %d %d %.6f\n", ord.n, ord.m, ord.efficiency);
+\end{lstlisting}
+Winkel stehen in der C++-Schnittstelle in \textbf{Radiant}, Längen in \textmu m.
+
+\section{Wichtige Typen}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{5.6cm}Y}
+\toprule
+Typ & Inhalt \\
+\midrule
+\texttt{fg::Stack} & Perioden, Materialien, Superstrat/Substrat, Schichten, ASR, PML, Zylinder \\
+\texttt{fg::Material} & \texttt{fromIndex(name, n)}, \texttt{fromTensor(name, eps)} \\
+\texttt{fg::LayerEntry} & \texttt{spec} (Variante der Schichttypen) und \texttt{factorization} \\
+\texttt{fg::HomogeneousLayer}, \texttt{fg::Lamellar1DLayer}, \texttt{fg::Profile1DLayer}, \texttt{fg::Polygon2DLayer},
+\texttt{fg::Contour2DLayer}, \texttt{fg::Profile2DLayer} & Schichttypen wie im JSON \\
+\texttt{fg::SolverOptions} & \texttt{kind}, \texttt{Nx}, \texttt{Nz}, \texttt{rkTableau}, \texttt{rkTol},
+\texttt{rcwaSlices}, \texttt{backend}, \texttt{precision}, Threads \ldots \\
+\texttt{fg::Wavelength} & \texttt{\{lambda\_um, phi, psi, delta\}} (Radiant) \\
+\texttt{fg::Result} & \texttt{reflected}, \texttt{transmitted} (je \texttt{OrderEfficiency}: \texttt{n}, \texttt{m},
+\texttt{efficiency}, \texttt{amp\_s}, \texttt{amp\_p}, \texttt{eff\_s}, \texttt{eff\_p}), \texttt{absorption},
+\texttt{diag} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Weitere Einstiegspunkte}
+\begin{itemize}
+  \item \texttt{fg::solveScan(opt, stack, scan)}: parallele Scans.
+  \item \texttt{Solver::fieldCoefficients}, \texttt{Solver::nearField}: Nahfeld.
+  \item \texttt{Solver::orderSMatrix}: S-Matrix in der s/p-Basis.
+  \item \texttt{fg::io::loadConfig}, \texttt{fg::io::loadSweep}: Konfigurationsdateien lesen.
+  \item \texttt{fg::Simulation} (\file{fg/solvers/simulation.hpp}): Schichtmodelle behalten, \texttt{setParameter}
+        per JSON-Pointer, Gradienten.
+  \item \texttt{fg::gradient(opt, stack, wl, objective, params)}: Gradienten, auch nach CAD-Parametern.
+  \item \texttt{fg::cad::check}, \texttt{fg::cad::slice}, \texttt{fg::cad::previewSvg} (\file{fg/cad/cad.hpp}).
+\end{itemize}
+
+\section{Eigene Profilfunktionen}
+\texttt{Profile1DLayer} mit \texttt{shape = Function} nimmt eine Funktion $g(x)$ mit Werten in $[0,a]$ und optional
+ihre Ableitung; \texttt{Profile2DLayer} entsprechend $g(x,z)$. Sie werden parallel aufgerufen und müssen
+\textbf{threadsicher} sein. Ohne Ableitung verwendet \FG{} finite Differenzen.
+\begin{lstlisting}[style=cpp]
+fg::Profile1DLayer p;
+p.depth_um = 0.2;
+p.shape = fg::Profile1DLayer::Shape::Function;
+p.g  = [](double x) { return 0.1 * (1.0 + std::cos(2 * M_PI * x / 0.5)) ; };
+p.dg = [](double x) { return -0.1 * 2 * M_PI / 0.5 * std::sin(2 * M_PI * x / 0.5); };
+p.below = "al"; p.above = "air";
+\end{lstlisting}
+
+\section{Einbinden}
+\begin{lstlisting}[style=shell]
+# im eigenen CMake-Projekt
+add_subdirectory(FourierGrating)
+target_link_libraries(meinprogramm PRIVATE fg_core)
+\end{lstlisting}
+Beispiele für alle Funktionen stehen in \file{tests/validation/}.

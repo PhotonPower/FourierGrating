@@ -1,0 +1,116 @@
+\chapter{Fehlersuche}\label{ch:probleme}
+\index{Fehlersuche}%
+
+\section{Fehlermeldungen}
+\index{Fehlermeldungen}%
+\cmd{fgsolve} meldet Fehler als \texttt{fgsolve: error: <Quelldatei>:<Zeile>: <Meldung>} und endet mit Code 3; Python
+wirft \texttt{fg.FourierGratingError}. Die häufigsten Meldungen:
+\begin{center}
+\small
+\begin{longtable}{>{\raggedright\arraybackslash}p{6.2cm}>{\raggedright\arraybackslash}p{8.4cm}}
+\toprule
+Meldung & Ursache und Abhilfe \\
+\midrule
+\endhead
+\texttt{cannot open configuration file \ldots} & Pfad falsch oder Datei nicht lesbar \\
+\texttt{[json.exception.parse\_error\ldots]} & Kein gültiges JSON: Komma zu viel, Kommentar \texttt{//} in der Datei,
+fehlende Anführungszeichen \\
+\texttt{[json.exception.out\_of\_range.403] key 'x' not found} & Pflichtschlüssel fehlt oder ist falsch geschrieben
+(z.\,B.\ \key{thickness\_um}) \\
+\texttt{material 'x' needs 'n', 'eps', \ldots} & Materialangabe fehlt \\
+\texttt{unknown material 'x'} & Name in einer Schicht nicht in \key{materials} \\
+\texttt{superstrate must be isotropic and lossless} & Superstrat absorbiert oder ist anisotrop -- reelles $n$ verwenden;
+Verluste gehören in Schichten oder das Substrat \\
+\texttt{lamellar: breakpoints/materials} & Zahl der Stellen $\neq$ Zahl der Materialien $+1$ \\
+\texttt{unknown profile shape 'x'} & \key{shape} nicht \val{sinus}, \val{triangle} oder \val{points} \\
+\texttt{unknown factorization 'x'} & Schreibweise prüfen (Tabelle~\ref{tab:faktorisierung}) \\
+\texttt{factorization not applicable \ldots} & Variante passt nicht zum Schichttyp $\to$ \val{auto} \\
+\texttt{polygon2d: inclusion needs 'vertices\_um' or 'rectangle\_um'} & Einschluss ohne Geometrie \\
+\texttt{sweep: parameter '\ldots' not found} & JSON-Pointer zeigt ins Leere; optionalen Block anlegen \\
+\texttt{sweep: parameter '\ldots' is not a number} & Pointer zeigt auf eine Liste oder ein Objekt (z.\,B.\
+\val{/materials/au/n} bei \val{[Re, Im]}; richtig: \val{/materials/au/n/0}) \\
+\texttt{/materials/x/n/table: lambda \ldots{} um outside [\ldots] um} & Scanpunkt außerhalb der Tabelle: Tabelle
+erweitern, Scan einschränken oder \val{"extrapolate": "constant"} \\
+\texttt{\ldots/sellmeier: lambda \ldots{} at the pole \ldots} & Wellenlänge auf einem Pol $\sqrt{C_k}$ der
+Sellmeier-Formel \\
+\texttt{\ldots/sellmeier: lambda \ldots{} um outside [\ldots] um (range\_um)} & außerhalb des
+Gültigkeitsbereichs der Formel \\
+\texttt{\ldots: the superstrate must be lossless at every scan point} & dispersives Superstrat mit Verlusten an einem
+Scanpunkt \\
+\texttt{\ldots dispersive eps\_tensor entries} (Code 2) & Modell in \key{eps\_tensor}; \key{eps\_principal} mit
+\key{euler\_deg} verwenden \\
+\texttt{no material jumps found along the axis, give breakpoints\_um} & ASR mit \val{auto} ohne Lamellen/Polygone \\
+\texttt{CUDA backend requested but not available} & \val{"backend": "cuda"} ohne GPU-Build oder Gerät $\to$ \val{auto} \\
+\texttt{\ldots NotImplemented \ldots M\textit{x}} (Code 2) & Funktion spezifiziert, aber noch nicht umgesetzt; z.\,B.\
+\val{cad} ohne Slicer \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\section{Verdächtige Ergebnisse}
+\begin{center}
+\small
+\begin{longtable}{>{\raggedright\arraybackslash}p{5.2cm}>{\raggedright\arraybackslash}p{9.4cm}}
+\toprule
+Symptom & Ursache und Abhilfe \\
+\midrule
+\endhead
+\texttt{sum R+T} $\neq1$ bei verlustfreien Materialien & $N$ zu klein, ungeeignete Faktorisierung, oder Geometriefehler
+(z.\,B.\ letzte Lamellenstelle $\neq$ Periode) \\
+$R+T>1$ bei Metallen & \val{FFF\_iso} gewählt $\to$ \val{auto}; oder $N$ erhöhen \\
+negative Absorption & wie oben; bei \val{fp32} \key{precision} auf \val{fp64} \\
+Ergebnis springt mit $N$ & Resonanz in der Nähe -- Spektrum statt Einzelwert vergleichen; bei Metall-TM ASR verwenden \\
+Ergebnis hängt stark von \key{slices} ab & Profil mit RCWA: Scheibenzahl erhöhen oder RK verwenden \\
+TE und TM vertauscht & \key{delta\_deg}: 0 = s (TE), 90 = p (TM) \\
+Ordnung fehlt in der Tabelle & sie propagiert nicht (evaneszent) -- Gittergleichung prüfen \\
+keine T-Ordnungen & Substrat absorbiert ($\operatorname{Im}n>0$); Transmission ist dann Absorption \\
+Spiegelbild der Erwartung & Vorzeichen von $\varphi$ oder $\psi$; Ordnung $-1$ läuft bei $\varphi>0$ zurück zur Einfallsseite \\
+Einschlüsse verschiedener Materialien berühren sich (\val{polygon2d}) & mit \val{FFF\_B} unzuverlässig (Normalenfeld dort
+undefiniert, nicht geprüft) $\to$ Einschlüsse trennen oder \val{laurent} \\
+Absorption bei \val{"n": [3.88, -0.02]} negativ & Vorzeichen: Verluste haben $\operatorname{Im}n>0$ \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\section{Rechenzeit und Speicher}
+\begin{center}
+\small
+\begin{longtable}{>{\raggedright\arraybackslash}p{5.2cm}>{\raggedright\arraybackslash}p{9.4cm}}
+\toprule
+Symptom & Abhilfe \\
+\midrule
+\endhead
+RK sehr langsam & 2D oder großes $N$ $\to$ RCWA mit Treppe; \key{rk.tol} lockern ($10^{-5}$) \\
+2D-Rechnung dauert Stunden & $N$ zu groß (Zeit $\propto n^3$); GPU verwenden; mit kleinem $N$ beginnen \\
+Speicher reicht nicht & \key{threads.scan} verringern (jeder parallele Scanpunkt braucht eigenen Speicher); $N$ senken \\
+nur ein Kern ausgelastet & \texttt{FG\_NUM\_THREADS}/\texttt{OMP\_NUM\_THREADS} prüfen; viele Scheiben:
+\val{"reduction": "tree"} \\
+GPU wird nicht benutzt & Matrix kleiner als \key{backend\_threshold}; \cmd{fgsolve -{}-info} prüfen; Python:
+\texttt{fg.core\_variant()} \\
+GPU-Ergebnis weicht ab & \val{fp32} aktiv (RTX 3090: Standard) -- \key{precision} \val{fp64} für Endergebnisse \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\section{GUI}
+\begin{center}
+\small
+\begin{longtable}{>{\raggedright\arraybackslash}p{5.2cm}>{\raggedright\arraybackslash}p{9.4cm}}
+\toprule
+Symptom & Abhilfe \\
+\midrule
+\endhead
+Rechnungen sind weg & Adresse ohne \texttt{?s=}-Kennung geöffnet $\to$ Lesezeichen mit Kennung verwenden \\
+Rechnung steht als „Server wurde neu gestartet“ & neu einreichen \\
+Rechnung wartet lange & Platz in der Warteschlange unter \gui{Rechnungen}; nur eine Rechnung läuft gleichzeitig \\
+Fehler am falschen Reiter angezeigt & die GUI rät den Reiter aus dem Meldungstext; Meldung selbst lesen \\
+Seite \gui{CAD} meldet fehlenden Slicer & Server ohne CAD-Slicer gebaut (Seite \gui{System}) \\
+Seite bleibt leer (hinter nginx) & WebSocket-Header fehlen (Betreiber) \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\section{Fehler melden}
+Ein guter Fehlerbericht enthält die Konfiguration (JSON), die Ausgabe von \cmd{fgsolve -{}-info} bzw.\
+\texttt{fg.\_\_version\_\_} und \texttt{fg.core\_variant()}, die vollständige Meldung und -- bei falschen Ergebnissen
+-- die Erwartung mit Quelle. Issues im Repository \file{PhotonPower/FourierGrating}.

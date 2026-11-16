@@ -1,5 +1,9 @@
 # Anwenderhandbuch
 
+> Ausführliches Benutzerhandbuch (LaTeX, ca. 100 Seiten, mit Beispielen, GUI,
+> Fehlersuche, Befehlsreferenz und Stichwortverzeichnis):
+> [`handbuch/handbuch.tex`](handbuch/handbuch.tex), PDF mit `scripts/build_docs.sh` erzeugen.
+
 FourierGrating berechnet Beugungseffizienzen und Nahfelder periodischer Strukturen (1D- und 2D-Gitter,
 isotrope und anisotrope Materialien) mit der Fourier-Modal-Methode. Dieses Handbuch beschreibt die
 Benutzung; Formeln und Algorithmen stehen im Plan (`docs/implementation_plan/main.pdf`), das
@@ -55,7 +59,7 @@ isotropen Medien zusätzlich ausgegeben.
 |---|---|---|---|
 | `homogeneous` | homogene Schicht | ✓ | ✓ |
 | `lamellar1d` | Lamellen (Breakpoints in x, Material je Intervall), z-invariant | ✓ | ✓ |
-| `profile1d` | Oberfläche y = g(x): `sinus`, `triangle` (Echelette), `points` (Spline) | ✓ | ✓ (z-invariant) |
+| `profile1d` | Oberfläche y = g(x): `sinus`, `triangle` (Echelette), `points` (periodisches Polygon) | ✓ | ✓ (z-invariant) |
 | `polygon2d` | y-invarianter Querschnitt: Hintergrund + Polygone/Rechtecke | – | ✓ |
 | `profile2d` | Oberfläche y = g(x, z): `egg_crate`, `sinus_x` | – | ✓ |
 
@@ -112,9 +116,9 @@ scripts/plot_efficiencies.py out/dispersive_metal_grating/efficiencies.csv --ord
   Wellenvektor). Das Superstrat muss an jedem Scanpunkt verlustfrei sein (Prüfung beim Laden).
 * Ohne dispersives Material ändert sich nichts (Golden Files bitgleich); ein Modell mit konstantem Wert ergibt
   bitgleich dasselbe wie die Zahl.
-* Die Drude–Lorentz-Parameter in den Beispielen (Ag, Al nach Rakić et al. 1998) vor der Verwendung für
-  Ergebnisse prüfen; Tabellen lassen sich aus refractiveindex.info übernehmen (Python,
-  `fouriergrating.materials.from_refractiveindex`, `docs/python.md`; Lizenz der Daten beachten).
+* Die Drude–Lorentz-Parameter in den Beispielen (Ag, Al nach Rakić et al. 1998) sind gegen die Tabellen von
+  refractiveindex.info geprüft (Plan v2.20). Tabellen lassen sich aus refractiveindex.info übernehmen (Python,
+  `fouriergrating.materials.from_refractiveindex`, `docs/python.md`; Daten unter CC0 1.0, Quelle zitieren).
 * `Simulation`/Python `fg.Simulation`: bei einem Wechsel von λ werden nur Schichten mit dispersivem Material neu
   aufgebaut (`model_builds`).
 * Gradienten nach λ enthalten die Kettenregel über dε/dλ (Plan eq:disp_grad_lambda); bei linearer Tabelle ist

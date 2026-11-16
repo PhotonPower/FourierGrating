@@ -27,6 +27,7 @@ dokumentierten Korrekturen.
 
 | Dokument | Inhalt |
 |---|---|
+| [`docs/handbuch/`](docs/handbuch/) | **Benutzerhandbuch** (LaTeX, ausführlich): Grundlagen, Konfiguration, alle Schichttypen, Löserwahl, Konvergenz, Nahfeld, Python, GUI, Rezepte, Fehlersuche; PDF mit `scripts/build_docs.sh` |
 | [`docs/user_guide.md`](docs/user_guide.md) | **Anwenderhandbuch**: Installation, Konfiguration, Löserwahl, Scans, Nahfeld, Laufzeiten |
 | [`docs/cad.md`](docs/cad.md) | CAD-Slicer: STEP → Schichten, Konfiguration, Geometrieprüfung |
 | [`docs/python.md`](docs/python.md) | Python-Anbindung: Installation (Wheels, CUDA), API, Tests |

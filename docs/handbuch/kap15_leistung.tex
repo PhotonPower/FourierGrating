@@ -1,0 +1,138 @@
+\chapter{Rechenzeit, Parallelisierung, GPU und Genauigkeit}\label{ch:leistung}
+\index{Rechenzeit}%
+
+\section{Wovon die Rechenzeit abhängt}
+Die teuren Operationen sind Matrixoperationen der Größe $n=4n_f$ mit $n_f=(2N_x+1)(2N_z+1)$: Eigenwertprobleme
+(RCWA), LU-Zerlegungen und Matrixprodukte (S-Matrizen, RK). Sie wachsen mit $n^3$.
+\begin{center}
+\small
+\begin{tabular}{lrrr}
+\toprule
+Fall & $N$ & $n=4n_f$ & relative Zeit \\
+\midrule
+1D & 15 & 124 & 1 \\
+1D & 40 & 324 & 18 \\
+2D & 4 & 324 & 18 \\
+2D & 6 & 676 & 160 \\
+2D & 8 & 1156 & 800 \\
+2D & 10 & 1764 & 2800 \\
+\bottomrule
+\end{tabular}
+\end{center}
+Daraus folgt: In 2D kostet jede zusätzliche Ordnung sehr viel. Wählen Sie $N$ so klein wie die Konvergenz erlaubt.
+
+\paragraph{Gemessene Richtwerte} (ein CPU-Kern, eine Wellenlänge):
+\begin{center}
+\small
+\begin{tabular}{llr}
+\toprule
+Fall & Größe & Zeit \\
+\midrule
+1D-Lamellen (V3), RCWA, $N=15$ & $n=124$ & 0,03\,s \\
+1D-Al-Sinus (V4), RK, $N=20$, tol $10^{-5}$ & $n=164$ & 37\,s \\
+Gold-Echelette, RK, $N=12$, tol $10^{-5}$, 4 Winkel & $n=100$ & 28\,s (zwei Kerne) \\
+2D-Ag-Lochgitter, RCWA, $N=4/6/8$ & $n=324/676/1156$ & 0,8 / 3,0 / 13,5\,s \\
+2D-Eierkarton, RCWA, 20 Scheiben, $N=5$ & $n=484$ & 55\,s \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Threads}\label{sec:threads}
+\index{Threads}\index{OpenMP}%
+\FG{} parallelisiert auf drei Ebenen:
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{llY}
+\toprule
+Schlüssel & Standard & Ebene \\
+\midrule
+\key{threads.scan} & \val{auto} & Scanpunkte (Wellenlängen, Winkel, Polarisationen) \\
+\key{threads.slices} & \val{auto} & Schichten und Scheiben einer Rechnung, Normalenfeld-Raster, Konturkoeffizienten \\
+\key{threads.blas} & 1 & Threads innerhalb einer Matrixoperation (Eigen) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Das Produkt bleibt höchstens gleich der Threadzahl \texttt{FG\_NUM\_THREADS} (sonst \texttt{OMP\_NUM\_THREADS}, sonst
+alle Kerne). \val{auto} gibt der Scanebene $\min(\text{Scanpunkte},\text{Kerne})$ Threads und den Scheiben den Rest;
+eine einzelne Wellenlänge nutzt also alle Kerne für ihre Scheiben. Die Ergebnisse sind \emph{bitgleich} für jede
+Threadzahl. Sweep-Werte laufen nacheinander.
+
+\paragraph{Baumreduktion.} Bei vielen Scheiben ist die Verkettung der S-Matrizen ein serieller Engpass.
+\val{"reduction": "tree"} verkettet als balancierten Binärbaum fester Form (parallel, bitgleich für jede
+Threadzahl, $\le10^{-12}$ Abweichung von \val{sequential}).
+
+\section{GPU}\label{sec:gpu}
+\index{GPU}\index{CUDA}%
+Mit einem CUDA-Build (\texttt{cuda-release} bzw.\ \texttt{fouriergrating-cuda12}) laufen die $O(n^3)$-Operationen
+auf der GPU.
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Einstellung & Wirkung \\
+\midrule
+\val{"backend": "auto"} & GPU ab Matrixgröße \key{backend\_threshold} (Standard 160), sonst CPU \\
+\val{"backend": "cuda"} & immer GPU; Fehler, wenn keine vorhanden \\
+\val{"backend": "cpu"} & nie GPU \\
+\texttt{FG\_BACKEND}, \texttt{FG\_BACKEND\_THRESHOLD} & Umgebungsvariablen, überschreiben die Konfiguration \\
+\texttt{FG\_GPU\_STREAMS} & höchstens so viele Scheiben gleichzeitig auf der GPU (Standard 4) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Mit der GPU bleiben Scheiben-S-Matrizen und Verkettung auf dem Gerät. Die GPU lohnt sich vor allem in 2D ab
+$N\approx8$. Die RTX 6000 Ada und die RTX 3090 haben nur 1/64 der FP32-Leistung in FP64; deshalb ist die Wahl der
+Genauigkeit wichtig.
+
+\section{Genauigkeit fp64, mixed, fp32}\label{sec:genauigkeit}
+\index{Genauigkeit (fp64, mixed, fp32)}%
+\key{precision} wählt die Genauigkeit der $O(n^3)$-Operationen; alles andere (Koeffizienten, Exponentiale, stabile
+S-Formeln, Effizienzen) bleibt doppelt genau.
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Wert & Bedeutung \\
+\midrule
+\val{fp64} & doppelte Genauigkeit überall (Referenz) \\
+\val{mixed} & Matrixprodukte und Eigenwerte einfach genau, LU einfach genau mit fp64-Nachiteration \\
+\val{fp32} & alles einfach genau; \key{rk.tol} mindestens $10^{-5}$ \\
+\val{auto} & CPU: immer \val{fp64}; GPU: \val{fp32} auf einer GeForce RTX 3090, sonst \val{fp64} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+\begin{itemize}
+  \item \texttt{FG\_PRECISION} überschreibt die Konfiguration.
+  \item Bei \val{fp32} (bzw.\ \val{"precision\_fallback": true}) wird eine verlustfreie Struktur mit
+        $|\sum e-1|>10^{-3}$ automatisch in fp64 wiederholt (Warnung, \texttt{precision\_fallback} in der Diagnose).
+  \item Zielgenauigkeit: \val{mixed} und \val{fp32} $\le10^{-4}$ auf den Referenzfällen. Für Übersichten und
+        Optimierungen meist ausreichend; für Endergebnisse fp64.
+  \item TF32 wird nie benutzt; zur Sicherheit \texttt{NVIDIA\_TF32\_OVERRIDE=0} setzen.
+\end{itemize}
+
+\section{Weitere Beschleunigungen}
+\begin{itemize}
+  \item \textbf{\key{split\_polarizations}}: Bei 1D-Gittern mit $\psi=0$ und nur isotropen Materialien entkoppeln TE
+        und TM. \val{true} rechnet beide getrennt mit halber Matrixgröße (Faktor 2--5 bei RCWA); reines TE oder TM ist
+        nochmals schneller. Nahfelder nutzen immer das volle System.
+  \item \textbf{\texttt{Simulation} statt \texttt{solve}}: bei vielen Rechnungen an derselben Struktur
+        (Abschnitt~\ref{sec:simulation}).
+  \item \textbf{RCWA statt RK} in 2D; RK nur für Profile und Referenzen.
+  \item \textbf{Weniger Scheiben}: Für Profile mit RCWA genügen oft 20--40; Konvergenz prüfen.
+  \item \textbf{Lockere RK-Toleranz} ($10^{-5}$) für Übersichten.
+  \item \textbf{CAD}: \val{"y\_interpolation": "chebyshev"} bei vielen Scheiben.
+\end{itemize}
+
+\section{Speicherbedarf}
+\index{Speicherbedarf}%
+Eine komplexe Matrix der Größe $n$ braucht $16n^2$ Byte. Gleichzeitig werden je Scanpunkt grob zwölf solche
+Matrizen gehalten, bei parallelen Scanpunkten entsprechend mehr. Beispiel: 2D, $N=10$, $n=1764$: $16\cdot1764^2
+\approx50$\,MB je Matrix, rund 600\,MB je Scanpunkt; mit 16 parallelen Scanpunkten 10\,GB. Reduzieren Sie bei
+Speichermangel \key{threads.scan}. Die GUI zeigt vor dem Rechnen eine Schätzung an.
+
+\section{Benchmarks}
+\index{Benchmark}%
+\begin{lstlisting}[style=shell]
+fgbench --sizes 256,512,1024,1764 --orders 4,6,8,10,12 --repeat 2 > bench.md
+\end{lstlisting}
+\cmd{fgbench} misst Matrixprodukt, LU, Eigenwertproblem und eine vollständige RCWA-Rechnung des Ag-Lochgitters mit
+CPU und GPU. Messwerte für das Zielsystem stehen in \file{docs/benchmarks.md}.

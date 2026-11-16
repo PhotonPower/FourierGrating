@@ -1,0 +1,156 @@
+\chapter{Löser, Faktorisierung und Konvergenz}\label{ch:loeser}
+
+\section{RCWA oder Runge--Kutta?}
+\index{RCWA}\index{Runge--Kutta}%
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.7cm}>{\raggedright\arraybackslash}p{2.6cm}>{\raggedright\arraybackslash}p{3.0cm}Y}
+\toprule
+Struktur & Empfehlung & Alternative & Begründung \\
+\midrule
+homogene Schichten, Lamellen, Polygone, Konturen & RCWA & RK & exakt $y$-invariant, ein Eigenproblem je Schicht \\
+1D-Profile (Sinus, Dreieck) & RK & RCWA, 40--150 Scheiben & keine Treppe; RK konvergiert mit \key{rk.tol} \\
+2D-Profile & RCWA, 20--40 Scheiben & RK für Referenz & RK in 2D sehr teuer \\
+CAD-Körper mit schrägen Wänden & RCWA (\key{slicing.rcwa\_slices}) & RK & Bänder je nach Typ \\
+Referenzrechnungen & beide & & Übereinstimmung RK $=$ RCWA ist ein starker Test \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{RCWA-Optionen}
+\begin{itemize}
+  \item \key{rcwa.slices} (Standard 40): Treppenstufen je Profilschicht; je Schicht mit \key{slices} überschreibbar.
+        $y$-invariante Schichten brauchen keine Scheiben.
+  \item Der Fehler der Treppe fällt etwa wie $1/\text{slices}$. Beim Al-Sinus V4 (TM) ergeben 60, 150 und 300
+        Scheiben 0,853, 0,865 und 0,869 -- der Grenzwert ist 0,8696. Für Metallprofile in TM sind also viele Scheiben
+        nötig; dort ist RK meist schneller.
+\end{itemize}
+
+\subsection{RK-Optionen}
+\begin{itemize}
+  \item \key{rk.tableau}: \val{gauss2} (Standard, Ordnung 4), \val{gauss3} (Ordnung 6, weniger Schritte bei hoher
+        Genauigkeit), \val{radau3} (L-stabil, für steife Fälle).
+  \item \key{rk.tol} (Standard $10^{-8}$): lokale Toleranz der Schrittweitensteuerung durch Schrittverdopplung. Für
+        Übersichtsrechnungen genügt $10^{-5}$; die Laufzeit sinkt dann deutlich.
+  \item \key{growth\_limit}: wann eine neue Stabilitätsscheibe beginnt (0 = automatisch, in fp64 $10^8$). Nur bei
+        numerischen Problemen ändern.
+\end{itemize}
+Die Diagnose (\texttt{rk\_steps}) zeigt, wie viele Schritte gebraucht wurden.
+
+\section{Faktorisierung}\label{sec:faktorisierung}
+\index{Faktorisierung}\index{Li-Regeln}\index{FFF}\index{Laurent-Regel}%
+Die Faktorisierung legt fest, wie das Produkt aus Permittivität und Feld in Fourierreihen gebildet wird. Sie ist der
+entscheidende Faktor für die Konvergenzgeschwindigkeit bei TM und bei Metallen.
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.3cm}>{\raggedright\arraybackslash}p{3.0cm}X}
+\toprule
+Schichttyp & \val{auto} wählt & zulässig \\
+\midrule
+\val{lamellar1d} isotrop & \val{li\_lamellar} & \val{laurent}, \val{li\_lamellar} (die FFF-Namen wirken hier wie \val{li\_lamellar}) \\
+\val{lamellar1d} anisotrop & \val{FFF\_A} & \val{FFF\_A}, \val{FFF\_B}, \val{laurent} \\
+\val{profile1d} isotrop & \val{FFF\_rig} (Sinus), \val{FFF\_sym} (Dreieck, Polygon) & \val{laurent}, \val{li\_lamellar},
+\val{FFF\_iso}, \val{FFF\_sym}, \val{FFF\_rig} \\
+\val{profile1d} anisotrop & \val{FFF\_A} & \val{FFF\_A}, \val{FFF\_B}, \val{laurent} \\
+\val{polygon2d} & \val{FFF\_sym} / \val{FFF\_B} (aniso.) & \val{FFF\_sym}, \val{FFF\_iso}, \val{FFF\_B}, \val{laurent} \\
+\val{contour2d} & \val{FFF\_sym} / \val{FFF\_B} (aniso.) & \val{FFF\_sym}, \val{FFF\_iso}, \val{FFF\_B}, \val{laurent} \\
+\val{profile2d} & \val{FFF\_rig} / \val{FFF\_A} (aniso.) & isotrop: \val{laurent}, \val{FFF\_iso}, \val{FFF\_sym}, \val{FFF\_rig}, \val{FFF\_A}, \val{FFF\_B}; anisotrop: \val{laurent}, \val{FFF\_A}, \val{FFF\_B} \\
+\bottomrule
+\end{tabularx}
+\caption{Faktorisierungen je Schichttyp. Groß- und Kleinschreibung der FFF-Namen ist egal.}
+\label{tab:faktorisierung}
+\end{table}
+
+\begin{description}
+  \item[\val{laurent}] Naive Produktregel. Korrekt im Grenzwert, aber bei TM und Metallen sehr langsam. Nur für
+        Vergleiche. Bei RCWA-Lamellen ist sie dafür exakt energieerhaltend.
+  \item[\val{li\_lamellar}] Li-Regeln für Sprünge in $x$: Inverse Regel für die Normalkomponente. Standard für
+        Lamellen.
+  \item[\val{FFF\_rig}] FFF mit glattem Normalenfeld; beste Wahl für glatte Profile (Sinus).
+  \item[\val{FFF\_sym}] symmetrisierte FFF; robust bei Profilen mit Ecken und bei 2D-Querschnitten.
+  \item[\val{FFF\_iso}] Formel aus dem Buch von Nevière/Popov. \textbf{Versagt bei schwach absorbierenden Metallen}
+        (Energiebilanz $>1$); \FG{} gibt dann eine Warnung aus.
+  \item[\val{FFF\_A}, \val{FFF\_B}] Varianten für anisotrope Materialien (Profile bzw.\ Querschnitte).
+\end{description}
+\textbf{Faustregel:} Lassen Sie \val{auto} stehen. Ändern Sie die Faktorisierung nur für Vergleiche oder wenn die
+Fehlersuche (Kapitel~\ref{ch:probleme}) es nahelegt.
+
+\section{Konvergenz prüfen}\label{sec:konvergenz}
+\index{Konvergenz!prüfen}\index{Trunkierung}%
+\subsection{Vorgehen}
+\begin{enumerate}
+  \item Rechnen Sie mit einem Startwert von $N$ (Richtwerte unten).
+  \item Verdoppeln Sie $N$ (in 2D: erhöhen Sie $N_x$ und $N_z$ um 50\,\%) und rechnen Sie erneut.
+  \item Ändern sich die Effizienzen, die Sie interessieren, um weniger als Ihre Genauigkeitsanforderung, ist das
+        Ergebnis brauchbar. Sonst weiter erhöhen.
+  \item Bei RCWA-Profilen ebenso die Scheibenzahl, bei RK die Toleranz prüfen.
+\end{enumerate}
+Am bequemsten geht das mit einem Sweep über \val{/truncation/Nx}:
+\begin{lstlisting}[language=json]
+"sweep": { "parameter": "/truncation/Nx", "values": [10, 20, 40, 80] }
+\end{lstlisting}
+
+\subsection{Richtwerte für $N$}
+\begin{center}
+\small
+\begin{tabular}{lll}
+\toprule
+Struktur & Start & typisch ausreichend \\
+\midrule
+1D-Dielektrikum & 10 & 15--20 \\
+1D-Metall, TE & 15 & 20--30 \\
+1D-Metall, TM & 20 & 30--40 (mit ASR 20) \\
+2D-Dielektrikum & 4 & 5--8 je Richtung \\
+2D-Metall (Lochgitter) & 5 & 8--12 je Richtung \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Ein Beispiel: Goldlamellen in TM}
+Goldlamellen ($\nu=0{,}2+3{,}4i$, Periode 1\um, Breite 0,5\um, Höhe 0,3\um) auf Gold, $\lambda=0{,}6328$\um,
+$\varphi=20^\circ$, TM. Das ist der Referenzfall V19; der Grenzwert aus einer Extrapolation bis $N=800$ ist
+$e_{-1}=0{,}013591$, $e_0=0{,}79435$. Gerechnet mit \FG{} 0.18:
+\begin{center}
+\small
+\begin{tabular}{rcccccc}
+\toprule
+& \multicolumn{2}{c}{\val{laurent}} & \multicolumn{2}{c}{\val{li\_lamellar} (= \val{auto})} & \multicolumn{2}{c}{\val{li\_lamellar} + ASR $\eta=0{,}95$} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+$N$ & $e_{-1}$ & $e_0$ & $e_{-1}$ & $e_0$ & $e_{-1}$ & $e_0$ \\
+\midrule
+10 & 0,01770 & 0,7314 & 0,01282 & 0,7938 & 0,01374 & 0,79422 \\
+20 & 0,02392 & 0,6804 & 0,01313 & 0,7922 & 0,01358 & 0,79421 \\
+40 & 0,01405 & 0,7007 & 0,01334 & 0,7930 & 0,01358 & 0,79427 \\
+80 & 0,00983 & 0,6829 & 0,01346 & 0,7936 & 0,01358 & 0,79429 \\
+\midrule
+Grenzwert & 0,013591 & 0,79435 & 0,013591 & 0,79435 & 0,013591 & 0,79435 \\
+\bottomrule
+\end{tabular}
+\end{center}
+Was man daran sieht:
+\begin{itemize}
+  \item Mit \val{laurent} springt das Ergebnis auch bei $N=80$ noch um 30\,\% -- unbrauchbar.
+  \item Mit den Li-Regeln (Standard) stimmt $e_0$ schon bei $N=10$ auf 0,1\,\%; $e_{-1}$ konvergiert langsamer.
+  \item Mit der adaptiven räumlichen Auflösung (ASR, Abschnitt~\ref{sec:asr}) ist $e_{-1}$ ab $N=20$ auf vier Stellen
+        richtig.
+\end{itemize}
+
+\subsection{Resonanzen}
+In der Nähe von Resonanzen (Oberflächenplasmonen, geführte Moden, Rayleigh-Anomalien) verschiebt sich die
+\emph{Lage} eines Peaks mit $N$. Ein Vergleich bei einer festen Wellenlänge kann dann große Unterschiede zeigen,
+obwohl die Rechnung im Wesentlichen stimmt. Vergleichen Sie in solchen Fällen ganze Spektren: Lage und Höhe des
+Peaks müssen konvergieren (Referenzfall V10, Silber-Lochgitter).
+
+\section{Gütekriterien einer Rechnung}\label{sec:guete}
+\index{Gütekriterien}%
+\begin{itemize}
+  \item \textbf{Energiebilanz}: Bei verlustfreien Strukturen muss \texttt{sum R+T} $=1$ sein -- RCWA mit Laurent
+        exakt, FFF-Varianten auf $10^{-5}$ bis $5\cdot10^{-4}$. Größere Abweichungen zeigen ein zu kleines $N$ oder eine
+        ungeeignete Faktorisierung.
+  \item \textbf{Absorption $\ge0$}: Negative Absorption bei verlustbehafteten Strukturen ist ein Warnsignal.
+  \item \textbf{RK $=$ RCWA}: Für Lamellen und Polygone müssen beide Löser übereinstimmen (Toleranz der RK-Rechnung).
+  \item \textbf{Reziprozität}: Vertauschen von Einfall und Beugungsrichtung muss dieselbe Effizienz liefern (mit $N$
+        konvergierend).
+  \item \textbf{Grenzfälle}: Struktur mit Tiefe 0 $=$ Fresnel; $z$-invariante 2D-Struktur $=$ 1D-Rechnung.
+\end{itemize}

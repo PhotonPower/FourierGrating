@@ -1,0 +1,176 @@
+\chapter{Physikalische Grundlagen und Konventionen}\label{ch:grundlagen}
+
+Dieses Kapitel legt fest, wie \FG{} Geometrie, Einfall und Ergebnisse beschreibt. Wer die Konventionen kennt,
+liest jede Konfigurationsdatei und jede Ergebnistabelle ohne Rätselraten.
+
+\section{Koordinatensystem und Schichtstapel}
+\index{Koordinatensystem}\index{Schichtstapel}%
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[scale=1.05,>=Latex]
+  % Substrat
+  \fill[gray!25] (0,-1.6) rectangle (9,0);
+  \node at (7.6,-0.8) {\small Substrat (Medium 1), $y<0$};
+  % Schicht 1: homogen
+  \fill[blue!12] (0,0) rectangle (9,0.5);
+  \node[anchor=west] at (9.1,0.25) {\small Schicht 1};
+  % Schicht 2: Lamellen
+  \foreach \x in {0,3,6} \fill[blue!45] (\x,0.5) rectangle (\x+1.4,1.3);
+  \node[anchor=west] at (9.1,0.9) {\small Schicht 2};
+  % Schicht 3: Profil
+  \fill[blue!25] (0,1.3) -- plot[domain=0:9,samples=60] (\x,{1.3+0.25*(1+cos(120*\x))}) -- (9,1.3) -- cycle;
+  \node[anchor=west] at (9.1,1.6) {\small Schicht 3};
+  \node at (7.6,2.9) {\small Superstrat (Medium $M$)};
+  \draw[thick] (0,0) -- (9,0);
+  % Periode
+  \draw[decorate,decoration={brace,amplitude=4pt,mirror}] (0,-1.75) -- (3,-1.75)
+     node[midway,below=4pt] {\small Periode $d_x$};
+  % Achsen
+  \draw[->,thick] (-1.9,-1.5) -- (-0.9,-1.5) node[right] {$x$};
+  \draw[->,thick] (-1.9,-1.5) -- (-1.9,-0.5) node[above] {$y$};
+  \draw[->,thick] (-1.9,-1.5) -- (-2.45,-1.9) node[below left] {$z$};
+  \fill (-1.9,-1.5) circle (1.2pt);
+  % Einfall
+  \draw[->,very thick,red!70!black] (3.0,3.9) -- (4.2,2.4) node[midway,left] {\small $\mathbf k_{\text{inc}}$};
+  \draw[dashed] (4.2,2.4) -- (4.2,3.9);
+  \draw (4.2,3.3) arc (90:128:0.9);
+  \node at (3.85,3.45) {\small$\varphi$};
+  % y=0
+  \node[anchor=east] at (-0.05,0) {\small $y=0$};
+\end{tikzpicture}
+\caption{Koordinaten und Schichtstapel. Licht fällt von oben aus dem Superstrat ein. Schichten werden von unten
+(Substratseite) nach oben gezählt.}
+\label{fig:koordinaten}
+\end{figure}
+
+\begin{itemize}
+  \item Die \textbf{Schichtnormale ist $y$}. Die Grenze zum Substrat liegt bei $y=0$, $y$ wächst nach oben.
+  \item Die Struktur ist periodisch in $x$ mit der Periode $d_x$ (\key{period\_um.x}) und bei 2D-Gittern zusätzlich
+        in $z$ mit $d_z$ (\key{period\_um.z}). Bei 1D-Gittern hängt nichts von $z$ ab.
+  \item Unten liegt das \textbf{Substrat} (Medium 1, \key{substrate}), oben das \textbf{Superstrat} (Medium $M$,
+        \key{superstrate}). Beide sind Halbräume.
+  \item Die \textbf{Schichten} (\key{layers}) werden \emph{von unten nach oben} aufgezählt. Die erste Schicht liegt
+        direkt auf dem Substrat.
+  \item Das Licht fällt \textbf{von oben} aus dem Superstrat ein. Das Superstrat muss deshalb verlustfrei sein
+        (reelle Brechzahl $\nu_M$).
+\end{itemize}
+
+\section{Zeitkonvention und Materialangaben}
+\index{Zeitkonvention}\index{Vorzeichenkonvention|see{Zeitkonvention}}%
+\FG{} verwendet die Zeitabhängigkeit $e^{-i\omega t}$. Daraus folgt:
+\begin{itemize}
+  \item Eine komplexe Brechzahl $\nu = n + ik$ beschreibt Absorption, wenn $k>0$ ist. Gold bei 633\,nm ist etwa
+        $\nu = 0{,}2+3{,}4i$, in der Konfiguration \val{[0.2, 3.4]}.
+  \item Die relative Permittivität ist $\varepsilon=\nu^2$; verlustbehaftete Medien haben
+        $\operatorname{Im}\varepsilon>0$.
+  \item Magnetische Materialien gibt es nicht: $\mu_r = 1$ überall.
+\end{itemize}
+Intern rechnet \FG{} in normierten Einheiten ($k_0 = 2\pi/\lambda = 1$, $\tilde{\mathbf H} = Z_0\mathbf H$). Davon
+merkt man als Anwender nur, dass ausgegebene Magnetfelder mit $Z_0$ multipliziert sind (Abschnitt~\ref{sec:nf-dateien}).
+
+\section{Einfallsrichtung und Polarisation}\label{sec:einfall}
+\index{Polarisation}\index{Einfallswinkel}\index{konischer Einfall}%
+Eine ebene Welle im Superstrat mit Brechzahl $\nu=\nu_M$ wird durch vier Größen beschrieben:
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Größe & Schlüssel & Bedeutung \\
+\midrule
+$\lambda$ & \key{lambda\_um} & Vakuumwellenlänge in \textmu m \\
+$\varphi$ & \key{phi\_deg} & Polarwinkel gegen die Normale $y$ ($0^\circ$ = senkrechter Einfall) \\
+$\psi$ & \key{psi\_deg} & Azimut der Einfallsebene gegen die $x$-Achse ($0^\circ$: Einfallsebene $= xy$-Ebene) \\
+$\delta$ & \key{delta\_deg} & Polarisationswinkel: $0^\circ$ = s (TE), $90^\circ$ = p (TM) \\
+\bottomrule
+\end{tabular}
+\end{center}
+Der Wellenvektor ist (normiert auf $k_0$)
+\begin{equation}
+  \mathbf k_{\text{inc}} = (\alpha_0,\,-\beta_0,\,\gamma_0),\qquad
+  \alpha_0 = \nu\sin\varphi\cos\psi,\quad \beta_0 = \nu\cos\varphi,\quad \gamma_0=\nu\sin\varphi\sin\psi .
+\end{equation}
+\begin{itemize}
+  \item \textbf{Klassischer Einfall}: $\psi=0$. Bei 1D-Gittern liegen dann alle Beugungsordnungen in der Einfallsebene,
+        und TE und TM entkoppeln (bei isotropen Materialien).
+  \item \textbf{Konischer Einfall}: $\psi\neq0$. Die Ordnungen verlassen die Einfallsebene, s und p koppeln.
+  \item \textbf{Polarisation}: $\delta=0^\circ$ heißt, $\mathbf E$ steht senkrecht auf der Einfallsebene
+        (s, bei $\psi=0$: TE, $\mathbf E\parallel z$). $\delta=90^\circ$ heißt p (TM). Zwischenwerte ergeben linear
+        polarisiertes Licht mit Anteilen beider.
+  \item Bei senkrechtem Einfall ($\varphi=0$) ist die Einfallsebene nicht eindeutig; sie wird dann durch $\psi$
+        festgelegt.
+\end{itemize}
+
+\section{Beugungsordnungen und Gittergleichung}
+\index{Beugungsordnung}\index{Gittergleichung}\index{Rayleigh-Anomalie}%
+Wegen der Periodizität enthält das Feld nur die Tangentialkomponenten
+\begin{equation}
+  \alpha_n = \alpha_0 + n\,\frac{\lambda}{d_x},\qquad \gamma_m = \gamma_0 + m\,\frac{\lambda}{d_z}
+  \qquad (n,m\in\mathbb Z),
+\end{equation}
+also die \textbf{Beugungsordnungen} $(n,m)$. In 1D ist stets $m=0$. In einem homogenen Medium mit Brechzahl $\nu_j$
+gehört dazu die Normalkomponente
+\begin{equation}
+  \beta_{nm}^{(j)}=\sqrt{\nu_j^2-\alpha_n^2-\gamma_m^2},\qquad \operatorname{Im}\beta\ge0 .
+\end{equation}
+Ist $\beta$ reell, \textbf{propagiert} die Ordnung und trägt Leistung ab; sonst ist sie evaneszent. In der Ausgabe
+erscheinen nur propagierende Ordnungen. Für den klassischen Einfall auf ein 1D-Gitter ist das die bekannte
+Gittergleichung $\nu_j\sin\theta_n = \nu_M\sin\varphi + n\lambda/d_x$.
+
+\begin{tipp}[Littrow-Anordnung]
+Fällt die Ordnung $-1$ genau in sich zurück, gilt $2\,d_x\,\nu_M\sin\varphi = \lambda$. Beispiel: $d_x=0{,}5$\um,
+$\lambda=0{,}6328$\um{} ergibt $\varphi\approx 39{,}3^\circ$.
+\end{tipp}
+
+\section{Effizienzen und Energiebilanz}
+\index{Effizienz}\index{Energiebilanz}%
+Die \textbf{Beugungseffizienz} einer Ordnung ist der Anteil des einfallenden Leistungsflusses (Poynting-Vektor in
+$y$-Richtung), den diese Ordnung abführt:
+\begin{equation}
+  e^{R}_{nm} = \frac{P^{\uparrow}_{nm}}{P_{\text{inc}}},\qquad e^{T}_{nm} = \frac{P^{\downarrow}_{nm}}{P_{\text{inc}}} .
+\end{equation}
+Die Summe über alle propagierenden Ordnungen ergibt mit der \textbf{Absorption} $A$:
+\begin{equation}
+  \sum e^R + \sum e^T + A = 1 .
+\end{equation}
+\begin{itemize}
+  \item Sind alle Materialien verlustfrei, muss $A=0$ sein. Die Größe \texttt{sum R+T} in der Ausgabe ist dann ein
+        guter Gütetest der Rechnung (Abschnitt~\ref{sec:diagnose}).
+  \item Ist das Substrat absorbierend, gibt es keine transmittierten Ordnungen; dann ist $A = 1-\sum e^R$.
+  \item In isotropen Halbräumen zerlegt \FG{} jede Ordnung zusätzlich in s- und p-Anteil (\texttt{eff\_s},
+        \texttt{eff\_p}) und gibt die komplexen Amplituden aus (\texttt{amp\_s}, \texttt{amp\_p}).
+\end{itemize}
+
+\section{Wie die Fourier-Modal-Methode rechnet}
+\index{Fourier-Modal-Methode}%
+\subsection{Fourierreihen und Trunkierung}
+In jeder Schicht werden $\varepsilon(x,z)$ und die Felder in Fourierreihen entwickelt und bei den Ordnungen
+$-N_x\ldots N_x$ (und $-N_z\ldots N_z$) abgeschnitten. Die Zahl der Fourierordnungen ist
+\begin{equation}
+  n_f = (2N_x+1)(2N_z+1),
+\end{equation}
+und die Systemmatrizen haben die Größe $n=4n_f$ (je zwei tangentiale Komponenten von $\mathbf E$ und $\mathbf H$).
+Die Rechenzeit wächst ungefähr mit $n^3$, der Speicher mit $n^2$. $N_x$ und $N_z$ werden mit \key{truncation}
+festgelegt und sind der wichtigste Genauigkeitsparameter (Kapitel~\ref{ch:loeser}).
+
+\subsection{RCWA}
+In einer Schicht, deren Querschnitt nicht von $y$ abhängt, ist $M$ konstant. Die Lösung ist eine Summe von
+Eigenmoden. \FG{} löst das Eigenwertproblem je Schicht und verkettet die Schichten über S-Matrizen
+(Sternprodukt), was auch bei dicken Metallschichten stabil ist. Profile werden für die RCWA in
+\key{slices} waagerechte Scheiben zerlegt (Treppennäherung).
+
+\subsection{Differentialmethode (Runge--Kutta)}
+Bei Profilen hängt $M$ stetig von $y$ ab. Das Runge--Kutta-Verfahren integriert $\mathrm dF/\mathrm dy=M(y)F$ mit
+Schrittweitensteuerung (Toleranz \key{rk.tol}) und ohne Treppe. Instabilitäten durch exponentiell wachsende Moden
+fängt eine automatische Zerlegung in Stabilitätsscheiben ab, die wieder über S-Matrizen verkettet werden.
+
+\subsection{Faktorisierung}
+Das Produkt $\varepsilon\cdot E$ an einer Materialgrenze ist das Kernproblem jeder FMM: $E_\perp$ springt dort,
+$D_\perp=\varepsilon E_\perp$ ist stetig. Die naive Fourierfaktorisierung (Laurent) konvergiert deshalb in TM sehr
+langsam. Die korrekten Regeln (Li) bzw.\ ihre Verallgemeinerung auf beliebige Formen mit einem Normalenvektorfeld
+(FFF) beheben das. \FG{} wählt mit \val{"auto"} je Schichttyp die passende Variante (Tabelle~\ref{tab:faktorisierung}).
+
+\section{Was „konvergiert“ heißt}
+\index{Konvergenz}%
+Jede FMM-Rechnung ist eine Näherung, die mit wachsendem $N$ (und bei RCWA-Profilen mit wachsender Scheibenzahl,
+bei RK mit kleinerer Toleranz) gegen das exakte Ergebnis strebt. Ein einzelnes Ergebnis sagt daher nichts über seine
+Genauigkeit aus. \textbf{Prüfen Sie Konvergenz immer}, indem Sie dieselbe Rechnung mit zwei bis drei Werten von $N$
+wiederholen (Abschnitt~\ref{sec:konvergenz}).

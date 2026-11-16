@@ -1,0 +1,438 @@
+\chapter{Befehlsreferenz}\label{anh:cli}
+Dieser Anhang führt alle Programme, Skripte, Python-Funktionen, Umgebungsvariablen und Build-Optionen vollständig
+auf. Er ist aus dem Quellcode erstellt; der Test \file{tests/python/test\_handbook\_reference.py} prüft, dass jeder
+öffentliche Python-Name, jede Option von \cmd{fgsolve} und \cmd{fgbench}, jede Umgebungsvariable des Kerns und jede
+CMake-Option hier vorkommt. Die Konfigurationsschlüssel stehen in Anhang~\ref{anh:schluessel}.
+
+% ============================================================================================
+\section{\texttt{fgsolve}}\label{sec:ref-fgsolve}
+\index{fgsolve@\texttt{fgsolve}}
+\begin{lstlisting}[style=shell]
+fgsolve <config.json>
+fgsolve --profile <config.json>
+fgsolve --cad-report <config.json>
+fgsolve --info | --version | --help
+\end{lstlisting}
+Ausgewertet wird nur das erste Argument; Optionen lassen sich nicht kombinieren (außer \texttt{-{}-profile} mit
+der Datei).
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{4.4cm}Y}
+\toprule
+Aufruf & Wirkung \\
+\midrule
+\texttt{fgsolve <config.json>}\index{fgsolve@\texttt{fgsolve}!Rechnung} & Rechnet alle Sweep-Werte und Scanpunkte
+(Scanpunkte parallel), gibt je Scanpunkt einen Block auf dem Terminal aus (Abschnitt~\ref{ch:ausgabe}) und schreibt
+\file{<output.dir>/<output.efficiencies>}, mit \key{output.materials} zusätzlich \file{materials.csv}. Mit
+\val{"nearfield": \{"enabled": true\}} folgen \file{nearfield\_horizontal/} und \file{nearfield\_vertical/} für den
+ersten Scanpunkt des ersten Sweep-Werts. \key{output.dir} gilt relativ zum Arbeitsverzeichnis. \\
+\texttt{-{}-profile <config.json>}\index{--profile@\texttt{-{}-profile}} & wie oben, dazu die Rechenzeit je Abschnitt
+(über alle Threads summiert) auf dem Terminal und in \file{<output.dir>/profile.json} \\
+\texttt{-{}-cad-report <config.json>}\index{--cad-report@\texttt{-{}-cad-report}} & Geometrieprüfung und Bandzerlegung
+der \val{cad}-Schichten als JSON auf der Standardausgabe; STEP-Pfade relativ zur Konfiguration
+(Abschnitt~\ref{ch:cad}). Rechnet nicht. \\
+\texttt{-{}-info}\index{--info@\texttt{-{}-info}} & Version, CPU-Backend, CUDA-Backend (nicht gebaut, gebaut ohne Gerät
+oder Name der GPU) und CAD-Slicer (Nurbforge oder nicht gebaut) \\
+\texttt{-{}-version}\index{--version@\texttt{-{}-version}} & \texttt{FourierGrating 0.18.0} \\
+\texttt{-{}-help}\index{--help@\texttt{-{}-help}} & Kurzhilfe \\
+\bottomrule
+\end{tabularx}
+\end{center}
+\paragraph{Rückgabecodes.}\index{Rückgabecode}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{cY}
+\toprule
+Code & Bedeutung \\
+\midrule
+0 & Erfolg; bei \texttt{-{}-cad-report}: keine Fehler gefunden \\
+1 & ohne Argument aufgerufen (Kurzhilfe) \\
+2 & Funktion spezifiziert, aber nicht umgesetzt; Meldung \texttt{fgsolve: <Text>} auf der Fehlerausgabe \\
+3 & Fehler in Konfiguration oder Rechnung; Meldung \texttt{fgsolve: error: <Text>} \\
+4 & \texttt{-{}-cad-report}: der Bericht enthält Fehler \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% ============================================================================================
+\section{\texttt{fgbench}}\label{sec:ref-fgbench}
+\index{fgbench@\texttt{fgbench}}
+\begin{lstlisting}[style=shell]
+fgbench [--sizes 256,512,1024] [--orders 4,6,8] [--repeat 1]
+\end{lstlisting}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{llY}
+\toprule
+Option & Standard & Wirkung \\
+\midrule
+\texttt{-{}-sizes}\index{--sizes@\texttt{-{}-sizes}} & \val{256,512,1024} & Matrixgrößen $n$ für ZGEMM, LU-Lösung mit $n$
+rechten Seiten und allgemeines Eigenproblem (komplexe Zufallsmatrizen) \\
+\texttt{-{}-orders}\index{--orders@\texttt{-{}-orders}} & \val{4,6,8} & Trunkierungen $N=N_x=N_z$ für eine RCWA-Rechnung
+des Silber-Lochgitters V10 bei $\lambda=1{,}388$\um \\
+\texttt{-{}-repeat}\index{--repeat@\texttt{-{}-repeat}} & \val{1} & Wiederholungen; gemeldet wird die kürzeste Zeit \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Die Ausgabe sind Markdown-Tabellen je Backend (\val{cpu}, mit GPU zusätzlich \val{cuda}). Optionen stehen paarweise
+mit ihrem Wert; unbekannte Optionen werden ohne Meldung übergangen. Messwerte stehen in \file{docs/benchmarks.md}.
+
+% ============================================================================================
+\section{Skripte}\label{sec:ref-skripte}
+\subsection*{\texttt{scripts/plot\_efficiencies.py}}\index{plot_efficiencies.py@\texttt{plot\_efficiencies.py}}
+\begin{lstlisting}[style=shell]
+plot_efficiencies.py <efficiencies.csv> [--x SPALTE] [--orders SEITE:n[:m] ...]
+                     [--quantity efficiency|eff_s|eff_p]
+                     [--lambda W] [--phi W] [--psi W] [--delta W] [--out DATEI]
+\end{lstlisting}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Argument & Wirkung \\
+\midrule
+\texttt{csv} & \file{efficiencies.csv} von \cmd{fgsolve} \\
+\texttt{-{}-x} & $x$-Achse: \val{sweep\_value}, \val{lambda\_um}, \val{phi\_deg}, \val{psi\_deg}, \val{delta\_deg};
+Standard: die erste dieser Spalten, die sich ändert \\
+\texttt{-{}-orders} & Ordnungen als \val{R:0}, \val{T:-1} oder \val{T:1:0} (2D); Standard: alle \\
+\texttt{-{}-quantity} & \val{efficiency} (Standard), \val{eff\_s} oder \val{eff\_p} \\
+\texttt{-{}-lambda}, \texttt{-{}-phi}, \texttt{-{}-psi}, \texttt{-{}-delta} & nur Zeilen mit diesem Wert der übrigen
+Scanspalten \\
+\texttt{-{}-out} & Abbildung in eine Datei schreiben statt anzeigen \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection*{\texttt{scripts/plot\_nearfield.py}}\index{plot_nearfield.py@\texttt{plot\_nearfield.py}}
+\begin{lstlisting}[style=shell]
+plot_nearfield.py <schnittverzeichnis> [--quantity absE2] [--part abs|re|im|phase] [--out DATEI]
+plot_nearfield.py --demo <verzeichnis>
+\end{lstlisting}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Argument & Wirkung \\
+\midrule
+\texttt{cut\_dir} & Verzeichnis eines Schnitts, z.\,B.\ \file{out/x/nearfield\_vertical} \\
+\texttt{-{}-quantity} & Name einer \file{.npy}-Datei: \val{Ex} \ldots{} \val{Hz}, \val{absE2} (Standard), \val{absH2},
+\val{Sy} \\
+\texttt{-{}-part} & \val{abs} (Standard), \val{re}, \val{im}, \val{phase} \\
+\texttt{-{}-out} & Abbildung in eine Datei schreiben \\
+\texttt{-{}-demo DIR} & schreibt synthetische Testdaten nach \texttt{DIR} und zeichnet sie \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection*{Weitere Skripte}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{5.6cm}Y}
+\toprule
+Aufruf & Wirkung \\
+\midrule
+\texttt{scripts/build\_docs.sh}\index{build_docs.sh@\texttt{build\_docs.sh}} & erzeugt
+\file{docs/implementation\_plan/main.pdf} und \file{docs/handbuch/handbuch.pdf} (mit Stichwortverzeichnis) \\
+\texttt{scripts/setup\_almalinux10.sh [-{}-with-cuda]}\index{setup_almalinux10.sh@\texttt{setup\_almalinux10.sh}} &
+installiert Compiler, Bibliotheken, Python und \LaTeX{} unter AlmaLinux~10 (als root); \texttt{-{}-with-cuda}
+zusätzlich das CUDA-Toolkit; \texttt{-h} Hilfe \\
+\texttt{scripts\textbackslash setup\_windows.ps1 [-SkipMsys2Install]}\index{setup_windows.ps1@\texttt{setup\_windows.ps1}}
+& installiert MSYS2 (falls nötig) und die UCRT64-Werkzeuge; nur CPU \\
+\texttt{scripts\textbackslash msvc.cmd <befehl>}\index{msvc.cmd@\texttt{msvc.cmd}} & führt einen Befehl in der
+Umgebung von MSVC 2022 x64 aus, z.\,B.\ \texttt{scripts\textbackslash msvc.cmd cmake -{}-preset win-msvc} \\
+\texttt{python scripts/make\_cad\_examples.py}\index{make_cad_examples.py@\texttt{make\_cad\_examples.py}} & schreibt
+die STEP-Dateien \file{examples/cad/*.step} und \file{tests/data/cad/*.step} (braucht \texttt{nurbforge>=0.6.0}) \\
+\texttt{python3 scripts/proto\_cylindrical.py [fiber|offaxis]}\index{proto_cylindrical.py@\texttt{proto\_cylindrical.py}}
+& Prototyp zu den Zylinderkoordinaten (Fasermoden, exzentrischer Kern); kein Teil des Lösers \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% ============================================================================================
+\section{Python-API}\label{sec:ref-python}
+\index{Python-API}
+Pakete: \texttt{fouriergrating} (CPU) und \texttt{fouriergrating-cuda12} (zusätzlich, mit CUDA-Kern); importiert wird
+immer \texttt{import fouriergrating as fg}. Zusätze für \texttt{pip install fouriergrating[...]}: \val{pandas}
+(\texttt{ScanResult.to\_pandas}), \val{materials} (PyYAML für den Import aus refractiveindex.info), \val{test}
+(pytest, pandas, PyYAML).
+
+Eine \emph{Konfiguration} \texttt{cfg} ist ein \texttt{dict} im JSON-Schema von Kapitel~\ref{ch:konfiguration} oder
+der Pfad einer JSON-Datei (dann wie mit \texttt{load\_config} gelesen). Längen in \textmu m, Winkel in Grad.
+
+\subsection{Funktionen des Moduls \texttt{fouriergrating}}
+\begin{center}
+\small
+\begin{longtable}{>{\raggedright\arraybackslash}p{6.2cm}>{\raggedright\arraybackslash}p{8.4cm}}
+\toprule
+Aufruf $\to$ Rückgabe & Wirkung \\
+\midrule
+\endhead
+\texttt{load\_config(path)} $\to$ \texttt{dict}\index{load_config@\texttt{load\_config}} & liest eine JSON-Datei;
+\key{output.dir}, \key{file} von \val{cad}-Schichten und Tabellendateien gelten danach absolut \\
+\texttt{solve(cfg, profile=False)} $\to$ \texttt{Result}\index{solve@\texttt{solve}} & erster Scanpunkt;
+\key{sweep} wird übergangen. \texttt{profile=True}: Zeiten je Abschnitt in
+\texttt{diagnostics["timings"]["scopes"]} \\
+\texttt{solve\_scan(cfg, profile=False)} $\to$ \texttt{ScanResult}\index{solve_scan@\texttt{solve\_scan}} & alle
+Sweep-Werte und Scanpunkte wie \cmd{fgsolve} (parallel) \\
+\texttt{near\_field(cfg)} $\to$ \texttt{dict}\index{near_field@\texttt{near\_field}} & Nahfeldschnitte des ersten
+Scanpunkts: \texttt{\{"horizontal", "vertical"\}}, je mit Achsen, \texttt{Ex} \ldots{} \texttt{Hz} (komplex),
+\texttt{absE2}, \texttt{absH2}, \texttt{Sy}, \texttt{material} und \texttt{meta} \\
+\texttt{material\_eps(cfg, name, lambda\_um)} $\to$ \texttt{complex} | \texttt{ndarray}%
+\index{material_eps@\texttt{material\_eps}} & $\varepsilon$ des Materials \texttt{name}; eine Zahl ergibt
+\texttt{complex}, ein Array ein Array derselben Form; \key{eps\_principal}: letzte Achse der Länge 3 \\
+\texttt{set\_backend(preference="auto", threshold=160)}\index{set_backend@\texttt{set\_backend}} & Standard für
+Konfigurationen ohne \key{backend}: \val{auto}, \val{cpu} oder \val{cuda} (sonst \texttt{ValueError}) \\
+\texttt{get\_backend()} $\to$ \texttt{dict}\index{get_backend@\texttt{get\_backend}} &
+\texttt{\{"backend", "backend\_threshold"\}} \\
+\texttt{cuda\_available()} $\to$ \texttt{bool}\index{cuda_available@\texttt{cuda\_available}} & Kern mit
+CUDA-Backend geladen und GPU nutzbar \\
+\texttt{core\_variant()} $\to$ \texttt{str}\index{core_variant@\texttt{core\_variant}} & \val{"cpu"} oder
+\val{"cuda12"} \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\subsection{Konstanten und Ausnahmen}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{4.2cm}Y}
+\toprule
+Name & Bedeutung \\
+\midrule
+\texttt{\_\_version\_\_}\index{__version__@\texttt{\_\_version\_\_}} & Version des Kerns, z.\,B.\ \val{"0.18.0"} \\
+\texttt{ORDER\_DTYPE}\index{ORDER_DTYPE@\texttt{ORDER\_DTYPE}} & NumPy-dtype der Ordnungen:
+\texttt{n}, \texttt{m} (int32), \texttt{eff}, \texttt{eff\_s}, \texttt{eff\_p} (float64), \texttt{amp\_s},
+\texttt{amp\_p} (complex128) \\
+\texttt{FourierGratingError}\index{FourierGratingError@\texttt{FourierGratingError}} & Konfigurations- und
+Rechenfehler; Unterklasse von \texttt{RuntimeError} \\
+\texttt{NotImplementedError} & spezifiziert, aber nicht umgesetzt \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Klasse \texttt{Result}}\index{Result@\texttt{Result}}
+Ergebnis eines Scanpunkts (Datenklasse).
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{4.2cm}Y}
+\toprule
+Feld / Methode & Inhalt \\
+\midrule
+\texttt{reflected}, \texttt{transmitted} & Ordnungen als Array mit \texttt{ORDER\_DTYPE}, nur ausbreitungsfähige \\
+\texttt{absorption} & absorbierter Anteil der einfallenden Leistung \\
+\texttt{diagnostics} & \texttt{dict}, Abschnitt~\ref{sec:diagnose} \\
+\texttt{incidence} & \texttt{\{"lambda\_um", "phi\_deg", "psi\_deg", "delta\_deg"\}} \\
+\texttt{scattering} & isolierte Strukturen: \texttt{\{"up", "down", "lateral", "absorbed"\}} in \textmu m (2D:
+\textmu m$^2$), sonst \texttt{None} \\
+\texttt{modal} & Modenanregung: \texttt{\{"incident", "reflected", "transmitted", "radiated"\}}, sonst \texttt{None} \\
+\texttt{cylindrical} & Zylinder: \texttt{\{"reflected", "transmitted", "absorbed", "harmonics", \ldots\}}, sonst
+\texttt{None} \\
+\texttt{efficiency(side, n, m=0)} $\to$ \texttt{float}\index{efficiency@\texttt{efficiency}} & Effizienz der Ordnung
+$(n,m)$ auf \val{"R"} oder \val{"T"}; 0, wenn sie nicht ausbreitungsfähig ist \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Klasse \texttt{ScanResult}}\index{ScanResult@\texttt{ScanResult}}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{4.2cm}Y}
+\toprule
+Feld / Methode & Inhalt \\
+\midrule
+\texttt{points} & Liste der \texttt{Result}, alle Sweep-Werte nacheinander \\
+\texttt{sweep\_parameter} & JSON-Pointer des Sweeps oder \val{""} \\
+\texttt{columns} & \texttt{dict} von Arrays wie \file{efficiencies.csv}: \texttt{sweep\_value}, \texttt{lambda\_um},
+\texttt{phi\_deg}, \texttt{psi\_deg}, \texttt{delta\_deg}, \texttt{side}, \texttt{n}, \texttt{m},
+\texttt{efficiency}, \texttt{eff\_s}, \texttt{eff\_p}, \texttt{amp\_s}, \texttt{amp\_p} \\
+\texttt{to\_pandas()}\index{to_pandas@\texttt{to\_pandas}} & \texttt{columns} als \texttt{pandas.DataFrame} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Klasse \texttt{Simulation}}\index{Simulation@\texttt{Simulation}}
+\texttt{Simulation(cfg)} baut die Schichtmodelle einmal. Ein Objekt ist nicht threadsicher; während einer Rechnung
+ist der GIL freigegeben. Fehlende Einfallswerte kommen vom ersten Scanpunkt der Konfiguration.
+\begin{center}
+\small
+\begin{longtable}{>{\raggedright\arraybackslash}p{6.4cm}>{\raggedright\arraybackslash}p{8.2cm}}
+\toprule
+Methode / Eigenschaft & Wirkung \\
+\midrule
+\endhead
+\texttt{solve(lambda\_um=None, phi\_deg=None, psi\_deg=None, delta\_deg=None)} $\to$ \texttt{Result} & Rechnung mit
+den vorhandenen Schichtmodellen \\
+\texttt{smatrix(lambda\_um=None, phi\_deg=None, psi\_deg=None)} $\to$ \texttt{OrderSMatrix}%
+\index{smatrix@\texttt{smatrix}} & S-Matrix in der s/p-Basis (Abschnitt~\ref{sec:smatrix}) \\
+\texttt{set\_parameter(pointer, value)}\index{set_parameter@\texttt{set\_parameter}} & setzt eine Zahl der
+Konfiguration; baut nur abhängige Schichten neu \\
+\texttt{value\_and\_grad(objective, params, lambda\_um=None, phi\_deg=None, psi\_deg=None, delta\_deg=None)}
+$\to$ \texttt{(float, ndarray)}\index{value_and_grad@\texttt{value\_and\_grad}} & Zielfunktion und Gradient nach den
+Pointern \texttt{params} (diskrete Adjungierte, Kapitel~\ref{ch:optimierung}); setzt \texttt{last\_result} \\
+\texttt{vjp(cotangents, params)} $\to$ \texttt{ndarray}\index{vjp@\texttt{vjp}} & Vektor-Jacobi-Produkt;
+\texttt{cotangents} in der Form einer Zielfunktion \\
+\texttt{last\_result}\index{last_result@\texttt{last\_result}} & \texttt{Result} der letzten
+\texttt{value\_and\_grad}-Rechnung \\
+\texttt{config}\index{config@\texttt{config}} & aktuelle Konfiguration als \texttt{dict} (Eigenschaft) \\
+\texttt{model\_builds}\index{model_builds@\texttt{model\_builds}} & Zahl der bisher gebauten Schichtmodelle
+(Eigenschaft) \\
+\bottomrule
+\end{longtable}
+\end{center}
+\paragraph{Zielfunktion.}\index{Zielfunktion} \texttt{objective} ist ein Mapping \texttt{\{("R", -1, 0): 1.0, ...\}}
+oder eine Folge von \texttt{(side, n, m, weight)}; $L=\sum w\,e$. Isolierte Strukturen:
+\texttt{\{("scattering", "up"): w, ("scattering", "down"): w, ("mode", "R", j): w, ("mode", "T", j): w\}}.
+
+\subsection{Klasse \texttt{OrderSMatrix}}\index{OrderSMatrix@\texttt{OrderSMatrix}}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{4.4cm}Y}
+\toprule
+Feld / Methode & Inhalt \\
+\midrule
+\texttt{orders} & Array $(n_f, 2)$ der Ordnungen $(n, m)$ \\
+\texttt{alpha}, \texttt{gamma}, \texttt{beta\_sup}, \texttt{beta\_sub} & normierte Wellenzahlen je Ordnung (mal
+\texttt{k0} ergibt 1/\textmu m); $\operatorname{Im}\beta>0$: evaneszent \\
+\texttt{R\_top}, \texttt{T\_down}, \texttt{T\_up}, \texttt{R\_bottom} & Blöcke $2n_f\times2n_f$; Index $r$ ist die
+s-, $n_f+r$ die p-Komponente der Ordnung $r$ \\
+\texttt{k0} & $2\pi/\lambda$ in 1/\textmu m \\
+\texttt{incidence} & Einfallsrichtung der Rechnung \\
+\texttt{index(n, m=0)} $\to$ \texttt{int} & Index $r$ der Ordnung; \texttt{KeyError}, wenn sie nicht in der
+Trunkierung liegt \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Modul \texttt{fouriergrating.cad}}\index{fouriergrating.cad@\texttt{fouriergrating.cad}}
+\texttt{step} ist STEP-Text, der Pfad einer STEP-Datei oder \texttt{None} (dann die Datei der \val{cad}-Schicht).
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{5.6cm}Y}
+\toprule
+Aufruf $\to$ Rückgabe & Wirkung \\
+\midrule
+\texttt{cad.available()} $\to$ \texttt{bool}\index{available@\texttt{available}} & Kern mit CAD-Slicer gebaut \\
+\texttt{cad.check(step, cfg)} $\to$ \texttt{dict}\index{check@\texttt{check}} & Geometrieprüfung und
+Bandzerlegung: \texttt{ok}, \texttt{errors}, \texttt{warnings} (\texttt{code}, \texttt{message},
+\texttt{where\_um}), \texttt{bands} \\
+\texttt{cad.preview(step, cfg, y\_um)} $\to$ \texttt{str}\index{preview@\texttt{preview}} & SVG des Schnitts in der
+Höhe \texttt{y\_um} (eine Zelle, Materialien farbig) \\
+\texttt{cad.llm\_tool\_spec()} $\to$ \texttt{dict}\index{llm_tool_spec@\texttt{llm\_tool\_spec}} & Beschreibung von
+\texttt{check} als Werkzeug für ein Sprachmodell (Name, Beschreibung, JSON-Schema) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Modul \texttt{fouriergrating.materials}}\index{fouriergrating.materials@\texttt{fouriergrating.materials}}
+\texttt{materials.from\_refractiveindex(path\_or\_text)} $\to$ \texttt{dict}%
+\index{from_refractiveindex@\texttt{from\_refractiveindex}}: Materialobjekt aus einer YAML-Datei (Pfad oder Text)
+der Datenbank refractiveindex.info (Abschnitt~\ref{sec:py-dispersion}); braucht PyYAML.
+
+\subsection{Module \texttt{fouriergrating.torch} und \texttt{fouriergrating.jax}}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{6.4cm}Y}
+\toprule
+Aufruf $\to$ Rückgabe & Wirkung \\
+\midrule
+\texttt{torch.efficiencies(sim, params, values, orders)} $\to$ \texttt{torch.Tensor}%
+\index{efficiencies@\texttt{efficiencies}} & Effizienzen der \texttt{orders} (\texttt{(side, n, m)}) für die Werte
+\texttt{values} (1D-Tensor, ein Eintrag je Pointer), differenzierbar \\
+\texttt{jax.efficiency\_function(sim, params, orders)} $\to$ Funktion%
+\index{efficiency_function@\texttt{efficiency\_function}} & \texttt{f(values)} mit eigener VJP; float64 einschalten
+(\texttt{jax\_enable\_x64}) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% ============================================================================================
+\section{Umgebungsvariablen}\label{sec:ref-env}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Variable & Wirkung \\
+\midrule
+\texttt{FG\_NUM\_THREADS}\index{FG_NUM_THREADS@\texttt{FG\_NUM\_THREADS}} & Gesamtzahl der Threads (sonst
+\texttt{OMP\_NUM\_THREADS}, sonst alle Kerne) \\
+\texttt{FG\_BACKEND}\index{FG_BACKEND@\texttt{FG\_BACKEND}} & \val{cpu}, \val{cuda}, \val{auto}; überschreibt
+\key{backend} \\
+\texttt{FG\_BACKEND\_THRESHOLD}\index{FG_BACKEND_THRESHOLD@\texttt{FG\_BACKEND\_THRESHOLD}} & überschreibt
+\key{backend\_threshold} \\
+\texttt{FG\_PRECISION}\index{FG_PRECISION@\texttt{FG\_PRECISION}} & überschreibt \key{precision} \\
+\texttt{FG\_GPU\_STREAMS}\index{FG_GPU_STREAMS@\texttt{FG\_GPU\_STREAMS}} & Scheiben gleichzeitig auf der GPU
+(Standard 4) \\
+\texttt{FG\_CORE}\index{FG_CORE@\texttt{FG\_CORE}} & Python: \val{cpu} erzwingt den CPU-Kern, \val{cuda12} den
+CUDA-Kern auch ohne nutzbare GPU; Standard: CUDA-Kern, wenn installiert und eine GPU nutzbar ist \\
+\texttt{CUDA\_PATH}\index{CUDA_PATH@\texttt{CUDA\_PATH}} & Windows: Ort der CUDA-Bibliotheken \\
+\texttt{NVIDIA\_TF32\_OVERRIDE}\index{NVIDIA_TF32_OVERRIDE@\texttt{NVIDIA\_TF32\_OVERRIDE}} & \val{0} schließt TF32
+aus \\
+\texttt{FG\_FGSOLVE}\index{FG_FGSOLVE@\texttt{FG\_FGSOLVE}} & Python-Tests: Pfad zu \cmd{fgsolve} für Vergleiche \\
+\texttt{FG\_REGRESSION\_EXACT}\index{FG_REGRESSION_EXACT@\texttt{FG\_REGRESSION\_EXACT}} & Regressionstests:
+\val{1} verlangt Bitgleichheit mit den Golden Files (gleiche Maschine und gleicher Compiler) \\
+\texttt{FG\_REGRESSION\_UPDATE}\index{FG_REGRESSION_UPDATE@\texttt{FG\_REGRESSION\_UPDATE}} & Regressionstests:
+\val{1} schreibt die Golden Files neu (nur mit Begründung im \file{CHANGELOG.md}) \\
+\texttt{FG\_GUI\_*} & GUI, siehe Abschnitt~\ref{sec:gui-betrieb} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% ============================================================================================
+\section{Build: CMake-Optionen, Presets und Tests}\label{sec:ref-cmake}
+\index{CMake}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{5.0cm}lY}
+\toprule
+Option & Standard & Wirkung \\
+\midrule
+\texttt{FG\_ENABLE\_CUDA}\index{FG_ENABLE_CUDA@\texttt{FG\_ENABLE\_CUDA}} & \val{OFF} & CUDA-Backend bauen \\
+\texttt{FG\_ENABLE\_OPENMP}\index{FG_ENABLE_OPENMP@\texttt{FG\_ENABLE\_OPENMP}} & \val{ON} & OpenMP für Scans und
+Scheiben \\
+\texttt{FG\_ENABLE\_HDF5}\index{FG_ENABLE_HDF5@\texttt{FG\_ENABLE\_HDF5}} & \val{OFF} & bindet HDF5 ein; die
+Nahfeldausgabe ist derzeit \file{.npy} \\
+\texttt{FG\_ENABLE\_NURBFORGE}\index{FG_ENABLE_NURBFORGE@\texttt{FG\_ENABLE\_NURBFORGE}} & \val{OFF} & CAD-Slicer
+(Schichttyp \val{cad}); lädt Nurbforge per FetchContent \\
+\texttt{FG\_NURBFORGE\_TAG}\index{FG_NURBFORGE_TAG@\texttt{FG\_NURBFORGE\_TAG}} & \val{v0.6.0} & Version von
+Nurbforge \\
+\texttt{FG\_BUILD\_TESTS}\index{FG_BUILD_TESTS@\texttt{FG\_BUILD\_TESTS}} & \val{ON} & Unit-, Validierungs- und
+Regressionstests \\
+\texttt{FG\_BUILD\_APPS}\index{FG_BUILD_APPS@\texttt{FG\_BUILD\_APPS}} & \val{ON} & \cmd{fgsolve} und \cmd{fgbench} \\
+\texttt{FG\_BUILD\_PYTHON}\index{FG_BUILD_PYTHON@\texttt{FG\_BUILD\_PYTHON}} & \val{OFF} & Python-Modul
+(\texttt{pip install} über scikit-build setzt \val{ON}) \\
+\texttt{FG\_PYTHON\_PACKAGE}\index{FG_PYTHON_PACKAGE@\texttt{FG\_PYTHON\_PACKAGE}} & \val{fouriergrating} & Paket, in
+das \texttt{\_core} kommt (\val{fouriergrating} oder \val{fouriergrating\_cuda12}) \\
+\texttt{FG\_WARNINGS\_AS\_ERRORS}\index{FG_WARNINGS_AS_ERRORS@\texttt{FG\_WARNINGS\_AS\_ERRORS}} & \val{OFF} &
+Warnungen als Fehler (CI) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\paragraph{Presets.}\index{Preset} Jedes Preset gibt es für \texttt{cmake -{}-preset}, \texttt{cmake -{}-build -{}-preset}
+und \texttt{ctest -{}-preset}; gebaut wird nach \file{build/<preset>}.
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Preset & Zweck \\
+\midrule
+\val{cpu-release} & Linux/macOS, Release, nur CPU (Standard) \\
+\val{cpu-debug} & Debug mit AddressSanitizer und UBSan \\
+\val{cpu-tsan} & ThreadSanitizer, ohne OpenMP \\
+\val{cpu-cad} & wie \val{cpu-release}, mit CAD-Slicer \\
+\val{cuda-release} & mit CUDA-Backend (Architekturen 86, 89) \\
+\val{win-release}, \val{win-cad} & Windows mit MSYS2/UCRT64-GCC, ohne bzw.\ mit CAD-Slicer \\
+\val{win-cuda} & Windows mit MSYS2-GCC und CUDA (Architektur 86) \\
+\val{win-msvc}, \val{win-msvc-cuda} & Windows mit MSVC (über \texttt{scripts\textbackslash msvc.cmd}), ohne bzw.\ mit
+CUDA \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\paragraph{Tests.}\index{ctest@\texttt{ctest}}
+\begin{lstlisting}[style=shell]
+ctest --preset cpu-release                 # alle Tests
+ctest --preset cpu-release -L unit         # nur eine Gruppe: unit | validation | regression
+ctest --preset cpu-release -R V23c         # Tests, deren Name den regulären Ausdruck enthält
+pytest tests/python                        # Python-Tests (pip install .[test])
+\end{lstlisting}

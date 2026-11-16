@@ -1,0 +1,143 @@
+\chapter{Schnellstart: die erste Rechnung}\label{ch:schnellstart}
+
+Dieses Kapitel rechnet ein dielektrisches Lamellengitter vollständig durch, einmal mit der Kommandozeile und einmal
+mit Python. Alle Ausgaben sind echte Ausgaben von \FG{} 0.18.
+
+\section{Die Aufgabe}
+Ein Lamellengitter aus einem Material mit $n=2{,}0$ (Stege der Breite 0,45\um, Höhe 0,4\um, Periode 1\um) liegt auf
+Glas ($n=1{,}5$). Von oben fällt p-polarisiertes HeNe-Licht ($\lambda=0{,}6328$\um) unter $20^\circ$ ein.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[scale=1.6,>=Latex]
+  \fill[gray!25] (0,-0.6) rectangle (3,0);
+  \foreach \x in {0,1,2} \fill[blue!45] (\x,0) rectangle (\x+0.45,0.4);
+  \draw (0,0) -- (3,0);
+  \node at (2.5,-0.3) {\small Glas, $n=1{,}5$};
+  \node at (2.6,0.75) {\small Luft};
+  \node[white] at (0.225,0.2) {\scriptsize $n{=}2$};
+  \draw[<->] (0,-0.75) -- (1,-0.75) node[midway,below] {\small 1\,\textmu m};
+  \draw[<->] (-0.1,0) -- (-0.1,0.4) node[midway,left] {\small 0,4};
+  \draw[<->] (0,0.5) -- (0.45,0.5) node[midway,above] {\small 0,45};
+  \draw[->,very thick,red!70!black] (1.0,1.4) -- (1.35,0.45);
+  \node[red!70!black] at (1.5,1.2) {\small $20^\circ$, p};
+\end{tikzpicture}
+\caption{Das Beispiel \file{examples/v3\_lamellar\_dielectric.json}.}
+\end{figure}
+
+\section{Die Konfigurationsdatei}
+\begin{lstlisting}[language=json]
+{
+  "dimension": "1D",
+  "solver": "rcwa",
+  "truncation": { "Nx": 15, "Nz": 0 },
+  "period_um": { "x": 1.0, "z": 0.0 },
+  "incidence": { "lambda_um": 0.6328, "phi_deg": 20, "psi_deg": 0, "delta_deg": 90 },
+  "materials": {
+    "air":   { "n": 1.0 },
+    "glass": { "n": 1.5 },
+    "bar":   { "n": 2.0 }
+  },
+  "superstrate": "air",
+  "substrate": "glass",
+  "layers": [
+    { "type": "lamellar1d", "thickness_um": 0.4,
+      "breakpoints_um": [0.0, 0.45, 1.0], "materials": ["bar", "air"] }
+  ],
+  "output": { "dir": "out/v3" }
+}
+\end{lstlisting}
+Zeile für Zeile:
+\begin{itemize}
+  \item \key{dimension} \val{"1D"}: periodisch nur in $x$.
+  \item \key{solver} \val{"rcwa"}: Die Lamellen haben senkrechte Wände, also ist RCWA die richtige Wahl.
+  \item \key{truncation}: Fourierordnungen $-15\ldots15$, also $n_f=31$ und Matrizen der Größe $124$.
+  \item \key{incidence}: $\delta=90^\circ$ heißt p-Polarisation (TM).
+  \item \key{materials}: drei Materialien mit reeller Brechzahl. Die Namen sind frei wählbar.
+  \item \key{layers}: eine Lamellenschicht. \key{breakpoints\_um} teilt die Periode in die Intervalle
+        $[0;\,0{,}45]$ und $[0{,}45;\,1{,}0]$; \key{materials} nennt das Material je Intervall.
+  \item \key{output.dir}: Ausgabeverzeichnis.
+\end{itemize}
+
+\section{Rechnen mit fgsolve}
+\begin{lstlisting}[style=shell]
+$ fgsolve examples/v3_lamellar_dielectric.json
+lambda = 0.6328 um, phi = 20 deg, psi = 0 deg, delta = 90 deg
+  side   n    m   efficiency
+  R     -2    0   0.0058900031
+  R     -1    0   0.0157099044
+  R      0    0   0.0503935710
+  R      1    0   0.0038507142
+  T     -2    0   0.0888616058
+  T     -1    0   0.3042385908
+  T      0    0   0.0191032255
+  T      1    0   0.5119523852
+  sum R+T = 1.000000000000   absorption = 6.661e-16
+
+written: out/v3/efficiencies.csv
+\end{lstlisting}
+Die Rechnung dauert wenige Hundertstelsekunden.
+
+\paragraph{So lesen Sie die Ausgabe.}
+\begin{itemize}
+  \item Jede Zeile ist eine \emph{propagierende} Ordnung. \texttt{R} sind reflektierte Ordnungen (ins Superstrat), \texttt{T}
+        transmittierte (ins Substrat). In Luft propagieren vier Ordnungen ($n=-2\ldots1$), in Glas wegen der höheren
+        Brechzahl ebenfalls vier.
+  \item Die stärkste Ordnung ist hier die transmittierte Ordnung $+1$ mit 51\,\%.
+  \item \texttt{sum R+T = 1.000000000000}: Alle Materialien sind verlustfrei, die Energie bleibt bis auf
+        Rundungsfehler erhalten. Bei RCWA mit Lamellen ist das ein strenger Test.
+\end{itemize}
+
+\paragraph{Die CSV-Datei.} \file{out/v3/efficiencies.csv} enthält dieselben Zahlen mit s/p-Anteilen und komplexen
+Amplituden (gekürzt):
+\begin{lstlisting}
+lambda_um,phi_deg,psi_deg,delta_deg,side,n,m,efficiency,eff_s,eff_p,amp_s_re,amp_s_im,amp_p_re,amp_p_im
+0.6328,20,0,90,R,-2,0,0.00589000305141,1.53e-35,0.00589000305141,-5.79e-18,-2.00e-18,0.12014896,-0.00027437
+0.6328,20,0,90,R,-1,0,0.0157099043512,1.82e-34,0.0157099043512,7.28e-18,1.12e-17,-0.03773523,-0.11834369
+...
+\end{lstlisting}
+Weil das Licht p-polarisiert ist und $\psi=0$, ist der s-Anteil nur Rundungsrauschen ($10^{-35}$).
+
+\begin{hinweis}[Wohin schreibt fgsolve?]
+Ein relatives \key{output.dir} gilt relativ zum \emph{aktuellen Arbeitsverzeichnis}, aus dem \cmd{fgsolve} gestartet
+wird, nicht relativ zur Konfigurationsdatei. Python (\texttt{fg.load\_config}) löst es dagegen relativ zur Datei auf.
+\end{hinweis}
+
+\section{Rechnen mit Python}
+\begin{lstlisting}[style=py]
+import fouriergrating as fg
+
+cfg = fg.load_config("examples/v3_lamellar_dielectric.json")
+res = fg.solve(cfg)
+
+for o in res.reflected:
+    print("R", o["n"], o["m"], o["eff"])
+print("T(+1) =", res.efficiency("T", 1))
+print("Absorption:", res.absorption)
+print("Energiebilanz:", res.diagnostics["energy_balance"])
+\end{lstlisting}
+Die Konfiguration ist ein gewöhnliches Python-\texttt{dict}. Sie können sie also im Skript verändern:
+\begin{lstlisting}[style=py]
+cfg["incidence"]["delta_deg"] = 0          # jetzt s-polarisiert
+cfg["truncation"]["Nx"] = 25
+print(fg.solve(cfg).efficiency("T", 1))
+\end{lstlisting}
+
+\section{Ein Spektrum}
+Statt einer Zahl darf jeder Einfallsparameter eine Liste oder ein Bereich sein. Ersetzen Sie in der Datei
+\begin{lstlisting}[language=json]
+"lambda_um": { "from": 0.5, "to": 0.8, "steps": 61 }
+\end{lstlisting}
+und rechnen Sie erneut. \cmd{fgsolve} rechnet dann 61 Wellenlängen (parallel auf allen Kernen) und schreibt eine
+Zeile je Ordnung und Wellenlänge in die CSV-Datei. Darstellen lässt sie sich mit dem mitgelieferten Skript:
+\begin{lstlisting}[style=shell]
+scripts/plot_efficiencies.py out/v3/efficiencies.csv --orders T:-1 T:0 T:1 --out spektrum.png
+\end{lstlisting}
+
+\section{Nächste Schritte}
+\begin{itemize}
+  \item Weitere Schichttypen (Profile, 2D-Säulen, Löcher): Kapitel~\ref{ch:schichten}.
+  \item Ist das Ergebnis genau genug? Konvergenz prüfen: Abschnitt~\ref{sec:konvergenz}.
+  \item Felder in der Struktur ansehen: Kapitel~\ref{ch:nahfeld}.
+  \item Parameter optimieren: Kapitel~\ref{ch:optimierung}.
+\end{itemize}

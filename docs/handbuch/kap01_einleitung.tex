@@ -1,0 +1,110 @@
+\chapter{Einleitung}\label{ch:einleitung}
+
+\section{Was ist FourierGrating?}
+\FG{} berechnet, wie eine elektromagnetische Welle an einer \emph{periodisch strukturierten} Oberfläche oder
+einem Schichtstapel gebeugt wird. Typische Ergebnisse sind
+\begin{itemize}
+  \item die \textbf{Beugungseffizienzen} aller reflektierten und transmittierten Ordnungen, getrennt nach s- und
+        p-Anteil, mit komplexen Amplituden,
+  \item die \textbf{Absorption} und die Energiebilanz,
+  \item \textbf{Nahfelder} ($\mathbf E$, $\mathbf H$, $|\mathbf E|^2$, Poynting-Vektor) in Schnitten durch die Struktur,
+  \item bei isolierten Strukturen \textbf{Streubreiten und Streuquerschnitte}, bei Wellenleitern die Leistung
+        geführter \textbf{Moden},
+  \item \textbf{Gradienten} beliebiger Zielfunktionen der Effizienzen nach Geometrie-, Material- und
+        Einfallsparametern, für die Optimierung.
+\end{itemize}
+
+Das Programm löst die Maxwellgleichungen mit der \textbf{Fourier-Modal-Methode (FMM)}. Die Felder werden in den
+periodischen Richtungen in Fourierreihen entwickelt; in der Schichtrichtung $y$ entsteht ein System gewöhnlicher
+Differentialgleichungen $\mathrm dF/\mathrm dy = M(y)\,F$. \FG{} bietet zwei Wege, es zu lösen:
+
+\begin{description}
+  \item[RCWA] (\emph{Rigorous Coupled-Wave Analysis}): Die Struktur wird in Scheiben zerlegt, in denen $M$ nicht von
+        $y$ abhängt. In jeder Scheibe wird ein Eigenwertproblem gelöst. Das ist ideal für Strukturen mit senkrechten
+        Wänden (Lamellen, Säulen, Löcher).
+  \item[Differentialmethode] mit \textbf{implizitem Runge--Kutta-Verfahren} (Gauß--Legendre, Radau~IIA): $M(y)$ wird
+        direkt integriert. Das ist ideal für Profile mit schrägen oder gekrümmten Flanken (Sinus- und
+        Echelettegitter), weil keine Treppenstufen entstehen.
+\end{description}
+Beide Wege verwenden die \textbf{schnelle Fourierfaktorisierung} (\emph{Fast Fourier Factorization}, FFF) nach
+Nevière und Popov mit Normalenvektorfeldern. Sie sorgt dafür, dass auch Metallgitter in TM-Polarisation schnell
+konvergieren.
+
+\section{Funktionsumfang im Überblick}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{4.1cm}X}
+\toprule
+Bereich & Möglichkeiten \\
+\midrule
+Geometrie & 1D-Gitter (periodisch in $x$), 2D-Gitter (periodisch in $x$ und $z$), isolierte Strukturen mit PML,
+rotationssymmetrische Strukturen (in Arbeit) \\
+Schichttypen & homogen, Lamellen, Profile $y=g(x)$ (Sinus, Dreieck, Punktliste), Polygone, gekrümmte Konturen (Kreis,
+Ellipse, NURBS), Profile $y=g(x,z)$, STEP-Körper aus CAD, Ringe \\
+Materialien & isotrop (reell oder komplex), anisotrop mit vollem $\varepsilon$-Tensor oder Hauptwerten und
+Euler-Winkeln; Metalle, Dielektrika, Halbleiter; dispersiv als Sellmeier-, Cauchy- oder Drude--Lorentz-Modell
+oder als Tabelle $n,k$ bzw.\ $\varepsilon(\lambda)$ \\
+Einfall & ebene Welle beliebiger Richtung und Polarisation (auch konisch), Gauß-Strahl (Zylinderpfad), geführte Mode
+eines strukturierten Halbraums \\
+Löser & RCWA und Runge--Kutta; Faktorisierungen Laurent, Li, FFF in mehreren Varianten; adaptive räumliche Auflösung
+(ASR) \\
+Auswertung & Effizienzen, s/p-Anteile, Amplituden, S-Matrix in der s/p-Basis, Nahfelder, Streuquerschnitte,
+Modenleistungen \\
+Scans & Wellenlänge, Winkel und Polarisation als Liste oder Bereich (kartesisches Produkt); Sweep über beliebige Zahlen
+der Konfiguration \\
+Optimierung & exakte Gradienten über die diskrete Adjungierte; Adapter für PyTorch und JAX \\
+Leistung & OpenMP-Parallelisierung auf drei Ebenen, CUDA-Backend für NVIDIA-GPUs, wählbare Genauigkeit
+(fp64/mixed/fp32) \\
+Schnittstellen & Kommandozeile \cmd{fgsolve}, Python-Paket \texttt{fouriergrating}, C++-Bibliothek, grafische
+Oberfläche im Browser (\GUI) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Was FourierGrating (noch) nicht kann}
+\begin{itemize}
+  \item Nichtlineare Optik, magnetische Materialien ($\mu_r\neq1$), zeitabhängige Felder.
+  \item Kurvenförmige Schichtgrenzen in $y$-Richtung außerhalb der unterstützten Profil- und CAD-Typen.
+  \item Rotationssymmetrische Strukturen (Meilenstein M20) sind teilweise umgesetzt; Nahfeld, Profile in Ringform
+        und CAD-Rotationskörper folgen. $P$-zählige Drehsymmetrie (M21) ist spezifiziert, aber noch nicht umgesetzt.
+\end{itemize}
+
+\section{Aufbau dieses Handbuchs}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Kapitel & Inhalt \\
+\midrule
+\ref{ch:grundlagen} & Physikalische Grundlagen, Koordinaten, Definitionen -- \emph{einmal lesen} \\
+\ref{ch:installation}, \ref{ch:schnellstart} & Installation und erste Rechnung \\
+\ref{ch:konfiguration}--\ref{ch:ausgabe} & Konfigurationsdatei, Schichttypen, Löserwahl, Scans, Nahfeld, Ausgaben
+-- \emph{das Nachschlagewerk} \\
+\ref{ch:erweitert}, \ref{ch:cad} & Isolierte Strukturen, ASR, Zylinderkoordinaten, CAD-Import \\
+\ref{ch:python}, \ref{ch:optimierung}, \ref{ch:cpp} & Programmierschnittstellen und Optimierung \\
+\ref{ch:leistung} & Rechenzeit, Parallelisierung, GPU, Genauigkeit \\
+\ref{ch:gui} & Grafische Oberfläche im Browser \\
+\ref{ch:rezepte} & Durchgerechnete Beispiele \\
+\ref{ch:probleme} & Fehlermeldungen und Fehlersuche \\
+Anhang & Schlüsselreferenz, Befehlsreferenz (Programme, Skripte, Python-API, Umgebungsvariablen, CMake), Beispiele
+und Referenzfälle, Glossar, Literatur, Stichwortverzeichnis \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Darstellung}
+\begin{itemize}
+  \item Schlüssel der Konfigurationsdatei erscheinen als \key{lambda\_um}, Werte als \val{"rcwa"}, Dateien als
+        \file{examples/v3\_lamellar\_dielectric.json}, Befehle als \cmd{fgsolve}.
+  \item Pfade sind relativ zum Wurzelverzeichnis des Repositorys \file{FourierGrating}, sofern nicht anders gesagt.
+  \item Einheiten: Längen immer in Mikrometern (\textmu m), Winkel in Grad. Das gilt für die Konfiguration, die
+        Python-Schnittstelle und die GUI gleichermaßen.
+  \item Kommentare mit \texttt{//} in JSON-Beispielen dienen nur der Erklärung. Echte Konfigurationsdateien sind
+        reines JSON ohne Kommentare.
+\end{itemize}
+
+\begin{hinweis}[Verbindliche Quelle]
+Alle Formeln, Algorithmen und Abnahmekriterien stehen im \textbf{Implementierungsplan}
+(\file{docs/implementation\_plan/main.pdf}). Dieses Handbuch erklärt die \emph{Benutzung}. Wo es Formeln nennt,
+verweist es auf den Plan; bei einem Widerspruch gilt der Plan bzw.\ das tatsächliche Verhalten des Programms.
+\end{hinweis}

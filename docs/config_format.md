@@ -76,7 +76,7 @@ Eine Einführung mit Beispielen steht im Anwenderhandbuch `docs/user_guide.md`.
     "vertical_z_um": 0.0,                // vertikaler Schnitt (x-y-Ebene)
     "y_range_um": [-0.2, 0.5],
     "nx": 400, "ny": 300, "nz": 200, "periods": 2,
-    "quantities": ["E", "H", "absE2", "poynting"],
+    "quantities": ["E", "H", "absE2"],     // derzeit ohne Wirkung: es werden stets alle Größen geschrieben
     "reconstruction": "fff"              // "direct" | "fff"
   },
   "output": { "dir": "out/example", "efficiencies": "efficiencies.csv",
@@ -84,8 +84,11 @@ Eine Einführung mit Beispielen steht im Anwenderhandbuch `docs/user_guide.md`.
 }
 ```
 
-Formen für `profile1d.shape`: `sinus` (g = a/2 (1 + cos Kx)), `triangle` (Parameter
-`blaze_deg`, `apex_deg`), `points` (Stützstellen `x_um`, `y_um`, periodischer kubischer Spline).
+Formen für `profile1d.shape`: `sinus` (g = a/2 (1 + cos K(x − x0)), optional `x0_um`), `triangle` (Parameter
+`apex_x_um`: Flanke von (0, 0) zur Spitze (`apex_x_um`, a) und zurück nach (d, 0)), `points` (Stützstellen `x_um`,
+`y_um`, x aufsteigend in [0, d), periodisches Polygon, stückweise linear).
+`lamellar1d`: `breakpoints_um` beginnt bei 0 und endet bei der Periode d; das wird derzeit **nicht geprüft** (eine
+falsche letzte Stelle, z. B. nach einer Änderung von `period_um.x`, liefert ohne Meldung ein falsches Ergebnis).
 Formen für `profile2d.shape`: `egg_crate` (g = a/4 (1 + cos Kx(x−x0)) (1 + cos Kz(z−z0))), `sinus_x`
 (g = a/2 (1 + cos Kx(x−x0)), z-invariant). Polygone dürfen über den Zellrand hinausragen (periodische Bilder
 dürfen sich nicht überlappen); Einschlüsse dürfen sich nicht überlappen. Bei `"dimension": "2D"` ist
@@ -244,6 +247,9 @@ folgen.
 Bei einem Sweep beginnen die CSV-Zeilen mit `sweep_parameter, sweep_value`; das Nahfeld wird für den ersten
 Scanpunkt des ersten Sweep-Werts berechnet. Darstellung: `scripts/plot_efficiencies.py`.
 
-Ausgabe: `efficiencies.csv` (Spalten: lambda_um, phi, psi, delta, side, n, m, efficiency,
-eff_s, eff_p, amp_s_re, amp_s_im, amp_p_re, amp_p_im; s/p nur in isotropen Medien), `diagnostics.json`, Nahfeld je Schnitt in
-`nearfield_<schnitt>/` (`*.npy`, `meta.json`).
+Ausgabe: `efficiencies.csv` (Spalten: lambda_um, phi_deg, psi_deg, delta_deg, side, n, m, efficiency,
+eff_s, eff_p, amp_s_re, amp_s_im, amp_p_re, amp_p_im; s/p nur in isotropen Medien), Nahfeld je Schnitt in
+`nearfield_<schnitt>/` (`Ex…Hz.npy`, `absE2.npy`, `absH2.npy`, `Sy.npy`, `material.npy`, `meta.json`), mit
+`fgsolve --profile` zusätzlich `profile.json`, mit `output.materials` die Materialwerte (M22, siehe oben). Eine Datei `diagnostics.json` wird nicht geschrieben; die Diagnose steht
+auf dem Terminal bzw. in Python in `Result.diagnostics`. Relative `output.dir` gelten bei `fgsolve` gegen das
+Arbeitsverzeichnis, in Python (`load_config`) gegen die Konfigurationsdatei.
