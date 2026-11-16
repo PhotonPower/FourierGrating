@@ -229,6 +229,7 @@ Abschnitt „Dispersive Materialien (M22)“.
     Substrat ±1e-10 µm; V23e Gradienten gegen Differenzen ≤ 4e-6 relativ, RCWA/RK, Tabellen linear/kubisch,
     Hauptachsen, `Simulation` = `gradient` bitgleich; V23f `model_builds`); Python `test_materials.py` (V23h,
     `material_eps`, Scan = feste Werte, Gradient); Beispiel `examples/dispersive_metal_grating.json` mit Golden File
-  - Offen: V23c für CAD nur im CI-Job `cad` (lokal ohne Nurbforge übersprungen); Drude–Lorentz-Werte (Ag, Al nach
-    Rakić) und Literaturangaben [D1]–[D4] bibliographisch prüfen
+  - Offen: der CAD-Fall von V23c läuft noch nirgends (lokal ohne Nurbforge übersprungen; der CI-Job `cad` wählt ihn
+    mit `-L "unit|regression"` und `-R "CAD|cad_pillar"` nicht aus); Drude–Lorentz-Werte (Ag, Al nach Rakić) und
+    Literaturangaben [D1]–[D4] bibliographisch prüfen
 
