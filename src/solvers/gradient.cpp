@@ -25,6 +25,7 @@
 #include "fg/geometry/normal_field.hpp"
 #include "fg/io/config.hpp"
 #include "fg/physics/efficiency.hpp"
+#include "fg/geometry/dispersion.hpp"
 #include "fg/physics/incidence.hpp"
 #include "fg/physics/modes.hpp"
 #include "fg/solvers/butcher.hpp"
@@ -406,8 +407,14 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
                             const AmpObjective* ampObj = nullptr, const IncidentHook* incident = nullptr);
 }  // namespace
 
-GradientResult gradient(const SolverOptions& opt, const Stack& stack, const Wavelength& wl, const Objective& objective,
-                        const std::vector<StackParameter>& params) {
+GradientResult gradient(const SolverOptions& opt, const Stack& stack0, const Wavelength& wl, const Objective& objective,
+                        const std::vector<StackParameter>& params0) {
+  // M22: geometric parameters at fixed material values of this wavelength
+  const Stack stack = stack0.at(wl.lambda_um);
+  std::vector<StackParameter> params = params0;
+  if (stack0.dispersive())
+    for (auto& sp : params)
+      sp.at = [f = sp.at, lam = wl.lambda_um](double d) { return f(d).at(lam); };
   std::vector<Param> ps;
   for (const auto& sp : params) {
     Param p;
@@ -432,10 +439,115 @@ GradientResult gradient(const SolverOptions& opt, const Stack& stack, const Wave
 
 namespace detail {
 
+namespace {
+
+/// Gradients with dispersive materials (Plan section "Dispersive Materialien: Differenzierbarkeit"): the
+/// configuration with every model replaced by its value q at lambda (a number pair [Re, Im] at the pointer
+/// R) is differentiated with respect to Re q and Im q; a model number p then gets
+/// dL/dp = dL/dRe q Re(dq/dp) + dL/dIm q Im(dq/dp) (Plan eq:disp_grad_p), the wavelength additionally the
+/// sum over all models with dq/dlambda (Plan eq:disp_grad_lambda).
+GradientResult dispersiveGradient(const std::string& configJson, const io::RunConfig& cfg, const Wavelength& wl,
+                                  const LayerModels* prebuilt, const Objective& objective,
+                                  const std::vector<std::string>& params) {
+  const double lam = wl.lambda_um;
+  json j = json::parse(configJson);
+  struct Value {
+    const Dispersion* d;
+    std::string model;     ///< pointer of the model value in the configuration
+    std::string resolved;  ///< pointer of [Re q, Im q] in the resolved configuration
+    bool squared;          ///< q = (natural value)^2 (n model as a principal value)
+    bool superstrate;
+    cplx v;
+    cplx dq(cplx dv) const { return squared ? 2.0 * v * dv : dv; }
+  };
+  std::vector<Value> vals;
+  auto pair = [](cplx z) { return json::array({z.real(), z.imag()}); };
+  for (const auto& [name, m] : cfg.stack.materials) {
+    if (!m.dispersive()) continue;
+    const bool sup = name == cfg.stack.superstrate;
+    if (m.model) {
+      const bool isN = m.model->quantity() == Dispersion::Quantity::N;
+      const cplx v = m.model->value(lam);
+      json& mj = j["materials"][name];
+      mj.erase("n");
+      mj.erase("eps");
+      mj[isN ? "n" : "eps"] = pair(v);
+      vals.push_back({m.model.get(), m.model->pointer(), "/materials/" + name + (isN ? "/n" : "/eps"), false, sup, v});
+    }
+    for (const auto& d : m.principalModels) {
+      if (!d) continue;
+      const cplx v = d->value(lam);
+      const bool sq = d->quantity() == Dispersion::Quantity::N;
+      j[json::json_pointer(d->pointer())] = pair(sq ? v * v : v);
+      vals.push_back({d.get(), d->pointer(), d->pointer(), sq, sup, v});
+    }
+  }
+  // internal parameters (numbers of the resolved configuration) and the weights that combine them
+  std::vector<std::string> inner;
+  std::vector<std::vector<std::pair<std::size_t, double>>> comb(params.size());
+  auto use = [&](const std::string& ptr) {
+    const auto it = std::find(inner.begin(), inner.end(), ptr);
+    if (it != inner.end()) return static_cast<std::size_t>(it - inner.begin());
+    inner.push_back(ptr);
+    return inner.size() - 1;
+  };
+  auto addValue = [&](std::size_t q, const Value& v, cplx dq, const std::string& what) {
+    if (v.superstrate) {
+      FG_REQUIRE(dq.imag() == 0.0, "gradient: the superstrate stays lossless (the model value would get an imaginary part): '" +
+                                       what + "'");
+    } else if (dq.imag() != 0.0) {
+      comb[q].push_back({use(v.resolved + "/1"), dq.imag()});
+    }
+    if (dq.real() != 0.0 || v.superstrate) comb[q].push_back({use(v.resolved + "/0"), dq.real()});
+  };
+  std::vector<std::string> notes;
+  for (std::size_t q = 0; q < params.size(); ++q) {
+    const std::string& ptr = params[q];
+    if (ptr == "/incidence/lambda_um") {
+      comb[q].push_back({use(ptr), 1.0});
+      for (const auto& v : vals) {
+        addValue(q, v, v.dq(v.d->dValueDLambda(lam)), ptr);
+        if (v.d->atLinearNode(lam))
+          notes.push_back(v.model + "/table: lambda " + std::to_string(lam) +
+                          " um is a node of a linear table; dL/dlambda is the right-sided derivative");
+      }
+      continue;
+    }
+    const Value* hit = nullptr;
+    for (const auto& v : vals)
+      if (ptr == v.model || ptr.rfind(v.model + "/", 0) == 0) hit = &v;
+    if (!hit) {
+      comb[q].push_back({use(ptr), 1.0});
+      continue;
+    }
+    FG_REQUIRE(ptr != hit->model, "gradient: '" + ptr + "' is a model, not a number of the configuration");
+    std::vector<std::string> t;
+    std::stringstream ss(ptr.substr(hit->model.size() + 1));
+    for (std::string tok; std::getline(ss, tok, '/');) t.push_back(tok);
+    addValue(q, *hit, hit->dq(hit->d->dValueDParam(t, lam)), ptr);
+  }
+  io::RunConfig rc = cfg;
+  rc.stack = cfg.stack.at(lam);
+  GradientResult in = gradientWithModels(j.dump(), rc, wl, prebuilt, objective, inner);
+  GradientResult out;
+  out.value = in.value;
+  out.result = std::move(in.result);
+  out.notes = std::move(in.notes);
+  out.notes.insert(out.notes.end(), notes.begin(), notes.end());
+  materialDiagnostics(cfg.stack, lam, out.result.diag);
+  out.grad.assign(params.size(), 0.0);
+  for (std::size_t q = 0; q < params.size(); ++q)
+    for (const auto& [i, w] : comb[q]) out.grad[q] += w * in.grad[i];
+  return out;
+}
+
+}  // namespace
+
 GradientResult gradientWithModels(const std::string& configJson, const io::RunConfig& cfg, const Wavelength& wl,
                                   const LayerModels* prebuilt, const Objective& objective,
                                   const std::vector<std::string>& params) {
   FG_REQUIRE(!cfg.stack.cylindrical.enabled, "gradients of cylindrical structures follow in M20 (V21i)");
+  if (cfg.stack.dispersive()) return dispersiveGradient(configJson, cfg, wl, prebuilt, objective, params);
   const json j = json::parse(configJson);
   std::vector<Param> ps;
   const IndexMap map(cfg.solver.Nx, cfg.stack.is2D() ? cfg.solver.Nz : 0);

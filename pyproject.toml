@@ -18,7 +18,8 @@ classifiers = [
 
 [project.optional-dependencies]
 pandas = ["pandas>=1.5"]
-test = ["pytest>=7", "pandas>=1.5"]
+materials = ["pyyaml>=6"]
+test = ["pytest>=7", "pandas>=1.5", "pyyaml>=6"]
 
 [project.urls]
 Repository = "https://github.com/PhotonPower/FourierGrating"

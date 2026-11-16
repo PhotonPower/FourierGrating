@@ -1,14 +1,17 @@
 #include "fg/io/config.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include <sstream>
 
 #include "fg/cad/cad.hpp"
 #include "fg/core/error.hpp"
+#include "fg/geometry/dispersion.hpp"
 #include "fg/linalg/backend.hpp"
 #include "fg/physics/anisotropic.hpp"
 
@@ -26,11 +29,164 @@ cplx toComplex(const json& v) {
   return {v[0].get<double>(), v[1].get<double>()};
 }
 
-Material parseMaterial(const std::string& name, const json& j) {
-  if (j.contains("n")) return Material::fromIndex(name, toComplex(j["n"]));
-  if (j.contains("eps")) {
+/// Table rows from a CSV file (Plan sec:disp_config): separators comma, semicolon or white space; lines
+/// with '#' and a header line without numbers are skipped.
+std::vector<std::vector<double>> readTableFile(const std::string& file, const std::string& where) {
+  std::ifstream in(file);
+  FG_REQUIRE(in.good(), where + ": cannot open table file " + file);
+  std::vector<std::vector<double>> rows;
+  std::string line;
+  bool header = true;
+  while (std::getline(in, line)) {
+    if (const auto c = line.find('#'); c != std::string::npos) line.erase(c);
+    for (char& ch : line)
+      if (ch == ',' || ch == ';' || ch == '\t' || ch == '\r') ch = ' ';
+    std::istringstream ls(line);
+    std::vector<double> row;
+    std::string tok;
+    bool numeric = true;
+    while (ls >> tok) {
+      std::size_t pos = 0;
+      double v = 0;
+      try {
+        v = std::stod(tok, &pos);
+      } catch (const std::exception&) {
+        pos = 0;
+      }
+      if (pos != tok.size()) {
+        numeric = false;
+        break;
+      }
+      row.push_back(v);
+    }
+    if (row.empty() && numeric) continue;  // empty line
+    if (!numeric) {
+      FG_REQUIRE(header && rows.empty(), where + ": non-numeric line in " + file + ": '" + line + "'");
+      header = false;
+      continue;
+    }
+    rows.push_back(std::move(row));
+  }
+  return rows;
+}
+
+/// A dispersion model (Plan sec:disp_models); `table` is the quantity of a table under this key.
+std::shared_ptr<const Dispersion> parseDispersion(const json& v, const std::string& ptr, Dispersion::Quantity table,
+                                                  const std::string& baseDir) {
+  FG_REQUIRE(v.is_object() && v.size() == 1,
+             ptr + ": a model is {\"sellmeier\" | \"cauchy\" | \"drude_lorentz\" | \"table\": {...}}");
+  const std::string key = v.begin().key();
+  const json& m = v.at(key);
+  const std::string where = ptr + "/" + key;
+  FG_REQUIRE(m.is_object(), where + " must be an object");
+  auto known = [&](std::initializer_list<const char*> keys) {
+    for (const auto& [k, x] : m.items()) {
+      (void)x;
+      bool ok = false;
+      for (const char* a : keys) ok = ok || k == a;
+      FG_REQUIRE(ok, where + ": unknown entry '" + k + "'");
+    }
+  };
+  using Q = Dispersion::Quantity;
+  if (key == "sellmeier") {
+    known({"A", "B", "C_um2", "range_um"});
+    Dispersion::Sellmeier s;
+    s.A = m.value("A", 1.0);
+    s.B = m.at("B").get<std::vector<double>>();
+    s.C_um2 = m.at("C_um2").get<std::vector<double>>();
+    if (m.contains("range_um")) {
+      const auto r = m["range_um"].get<std::vector<double>>();
+      FG_REQUIRE(r.size() == 2 && 0 <= r[0] && r[0] < r[1], where + ": range_um must be [lo, hi] with 0 <= lo < hi");
+      s.rangeLo_um = r[0];
+      s.rangeHi_um = r[1];
+    }
+    return std::make_shared<Dispersion>(ptr, Q::Eps, s);
+  }
+  if (key == "cauchy") {
+    known({"A", "B_um2", "C_um4", "k"});
+    Dispersion::Cauchy c;
+    c.A = m.at("A").get<double>();
+    c.B_um2 = m.value("B_um2", 0.0);
+    c.C_um4 = m.value("C_um4", 0.0);
+    c.k = m.value("k", 0.0);
+    FG_REQUIRE(c.k >= 0, where + ": k must be >= 0 (losses, time dependence exp(-i omega t))");
+    return std::make_shared<Dispersion>(ptr, Q::N, c);
+  }
+  if (key == "drude_lorentz") {
+    known({"eps_inf", "omega_p_eV", "f0", "gamma0_eV", "oscillators"});
+    Dispersion::DrudeLorentz d;
+    d.epsInf = m.value("eps_inf", 1.0);
+    d.omegaP_eV = m.at("omega_p_eV").get<double>();
+    d.f0 = m.value("f0", 0.0);
+    d.gamma0_eV = m.value("gamma0_eV", 0.0);
+    FG_REQUIRE(d.gamma0_eV >= 0, where + ": gamma0_eV must be >= 0");
+    for (const auto& o : m.value("oscillators", json::array())) {
+      d.oscillators.push_back({o.at("f").get<double>(), o.at("omega_eV").get<double>(), o.at("gamma_eV").get<double>()});
+      FG_REQUIRE(d.oscillators.back().gamma_eV >= 0, where + ": gamma_eV must be >= 0");
+    }
+    return std::make_shared<Dispersion>(ptr, Q::Eps, d);
+  }
+  FG_REQUIRE(key == "table", ptr + ": unknown model '" + key + "' (sellmeier | cauchy | drude_lorentz | table)");
+  known({"file", "data", "unit", "interpolation", "extrapolate"});
+  FG_REQUIRE(m.contains("file") != m.contains("data"), where + ": exactly one of 'file' and 'data'");
+  Dispersion::Table t;
+  std::vector<std::vector<double>> rows;
+  if (m.contains("data")) {
+    t.inlineData = true;
+    rows = m["data"].get<std::vector<std::vector<double>>>();
+  } else {
+    std::string file = m["file"].get<std::string>();
+    if (std::filesystem::path(file).is_relative() && !baseDir.empty())
+      file = (std::filesystem::path(baseDir) / file).string();
+    rows = readTableFile(file, where);
+  }
+  const std::string unit = m.value("unit", std::string("um"));
+  FG_REQUIRE(unit == "um" || unit == "nm" || unit == "eV", where + ": unit must be \"um\", \"nm\" or \"eV\"");
+  const std::string interp = m.value("interpolation", std::string("linear"));
+  FG_REQUIRE(interp == "linear" || interp == "cubic", where + ": interpolation must be \"linear\" or \"cubic\"");
+  t.cubic = interp == "cubic";
+  const std::string ex = m.value("extrapolate", std::string("error"));
+  FG_REQUIRE(ex == "error" || ex == "constant", where + ": extrapolate must be \"error\" or \"constant\"");
+  t.extrapolateConstant = ex == "constant";
+  FG_REQUIRE(!rows.empty(), where + ": no rows");
+  const std::size_t cols = rows.front().size();
+  FG_REQUIRE(cols == 2 || cols == 3, where + ": rows need 2 or 3 columns (lambda, a[, b])");
+  std::vector<std::size_t> order(rows.size());
+  for (std::size_t i = 0; i < rows.size(); ++i) {
+    FG_REQUIRE(rows[i].size() == cols, where + ": row " + std::to_string(i) + " has a different number of columns");
+    FG_REQUIRE(rows[i][0] > 0, where + ": row " + std::to_string(i) + ": the first column must be positive");
+    order[i] = i;
+  }
+  auto lam = [&](std::size_t i) {
+    const double x = rows[i][0];
+    return unit == "um" ? x : unit == "nm" ? x * 1e-3 : HC_EV_UM / x;
+  };
+  std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) { return lam(a) < lam(b); });
+  for (std::size_t i : order) {
+    t.lambda_um.push_back(lam(i));
+    t.a.push_back(rows[i][1]);
+    t.b.push_back(cols == 3 ? rows[i][2] : 0.0);
+    t.row.push_back(static_cast<int>(i));
+  }
+  return std::make_shared<Dispersion>(ptr, table, std::move(t));
+}
+
+Material parseMaterial(const std::string& name, const json& j, const std::string& baseDir) {
+  using Q = Dispersion::Quantity;
+  const std::string base = "/materials/" + name;
+  if (j.contains("n") || j.contains("eps")) {
+    const bool isN = j.contains("n");
+    const json& v = isN ? j["n"] : j["eps"];
+    if (v.is_object()) {  // M22: dispersive value
+      Material m = Material::fromIndex(name, 1.0);
+      m.model = parseDispersion(v, base + (isN ? "/n" : "/eps"), isN ? Q::N : Q::Eps, baseDir);
+      m.eps = cplx(std::numeric_limits<double>::quiet_NaN(), 0.0);
+      m.epsTensor = m.eps * Mat3C::Identity();
+      return m;
+    }
+    if (isN) return Material::fromIndex(name, toComplex(v));
     Material m = Material::fromIndex(name, 1.0);
-    m.eps = toComplex(j["eps"]);
+    m.eps = toComplex(v);
     m.epsTensor = m.eps * Mat3C::Identity();
     return m;
   }
@@ -39,7 +195,13 @@ Material parseMaterial(const std::string& name, const json& j) {
     FG_REQUIRE(t.is_array() && t.size() == 3, "eps_tensor must be 3x3");
     Mat3C e;
     for (int i = 0; i < 3; ++i)
-      for (int k = 0; k < 3; ++k) e(i, k) = toComplex(t[static_cast<std::size_t>(i)][static_cast<std::size_t>(k)]);
+      for (int k = 0; k < 3; ++k) {
+        const json& v = t[static_cast<std::size_t>(i)][static_cast<std::size_t>(k)];
+        if (v.is_object())
+          throw NotImplemented(base + "/eps_tensor/" + std::to_string(i) + "/" + std::to_string(k) +
+                               ": dispersive eps_tensor entries (M22: use eps_principal with euler_deg)");
+        e(i, k) = toComplex(v);
+      }
     return Material::fromTensor(name, e);
   }
   if (j.contains("eps_principal")) {
@@ -48,10 +210,51 @@ Material parseMaterial(const std::string& name, const json& j) {
     std::vector<double> eu{0.0, 0.0, 0.0};
     if (j.contains("euler_deg")) eu = j["euler_deg"].get<std::vector<double>>();
     FG_REQUIRE(eu.size() == 3, "euler_deg needs three angles (z-x-z)");
-    return Material::fromTensor(name, rotatedTensor(toComplex(p[0]), toComplex(p[1]), toComplex(p[2]),
-                                                    eu[0] * DEG, eu[1] * DEG, eu[2] * DEG));
+    std::array<std::shared_ptr<const Dispersion>, 3> models;
+    std::array<cplx, 3> fixed{};
+    for (std::size_t i = 0; i < 3; ++i) {
+      if (p[i].is_object())
+        models[i] = parseDispersion(p[i], base + "/eps_principal/" + std::to_string(i), Q::Eps, baseDir);
+      else
+        fixed[i] = toComplex(p[i]);
+    }
+    const std::array<double, 3> euler{eu[0] * DEG, eu[1] * DEG, eu[2] * DEG};
+    if (models[0] || models[1] || models[2]) {
+      Material m = Material::fromTensor(name, Mat3C::Constant(cplx(std::numeric_limits<double>::quiet_NaN(), 0.0)));
+      m.principalModels = models;
+      m.principalAxes = true;
+      m.principal = fixed;
+      m.euler = euler;
+      return m;
+    }
+    Material m = Material::fromTensor(name, rotatedTensor(fixed[0], fixed[1], fixed[2], euler[0], euler[1], euler[2]));
+    m.principalAxes = true;
+    m.principal = fixed;
+    m.euler = euler;
+    return m;
   }
   throw Error("material '" + name + "' needs 'n', 'eps', 'eps_tensor' or 'eps_principal'");
+}
+
+/// Early check of dispersive materials at every scan wavelength (Plan sec:disp_config, "Fruehe Pruefung"):
+/// valid range, Sellmeier poles and the lossless superstrate, before anything is computed.
+void checkDispersion(const RunConfig& cfg) {
+  for (const auto& [name, m] : cfg.stack.materials) {
+    if (!m.dispersive()) continue;
+    for (const auto& w : cfg.scan) {
+      const Material r = m.at(w.lambda_um);  // throws with the pointer
+      if (name == cfg.stack.superstrate) {
+        const cplx e = r.isotropic ? r.eps : r.epsTensor(0, 0);
+        if (!(r.isotropic && e.imag() == 0.0 && e.real() > 0.0)) {
+          std::ostringstream msg;
+          msg << (m.model ? m.model->pointer() : "/materials/" + name) << ": the superstrate must be lossless at every "
+              << "scan point (lambda " << w.lambda_um << " um: eps = " << e.real() << (e.imag() < 0 ? " - " : " + ")
+              << std::abs(e.imag()) << "i)";
+          throw Error(msg.str());
+        }
+      }
+    }
+  }
 }
 
 Factorization parseFactorization(const json& j) {
@@ -325,7 +528,7 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
     cfg.stack.dz_um = dim == "2D" ? j.at("period_um").at("z").get<double>() : 0.0;
   }
   FG_REQUIRE(dim == "1D" || cfg.stack.dz_um > 0, "2D gratings need period_um.z > 0");
-  for (const auto& [name, mj] : j.at("materials").items()) cfg.stack.materials[name] = parseMaterial(name, mj);
+  for (const auto& [name, mj] : j.at("materials").items()) cfg.stack.materials[name] = parseMaterial(name, mj, baseDir);
   cfg.stack.superstrate = j.at("superstrate").get<std::string>();
   cfg.stack.substrate = j.at("substrate").get<std::string>();
   (void)cfg.stack.material(cfg.stack.superstrate);
@@ -379,6 +582,7 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
       for (double psi : parseRange(inc.value("psi_deg", json(0.0))))
         for (double delta : parseRange(inc.value("delta_deg", json(0.0))))
           cfg.scan.push_back({lam, phi * DEG, psi * DEG, delta * DEG});
+  checkDispersion(cfg);  // M22: before anything is built or computed
 
   // layers; a cad block expands into its bands (M14), relative STEP paths against baseDir
   for (const auto& lj : j.value("layers", json::array())) {
@@ -475,6 +679,7 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
   if (j.contains("output")) {
     cfg.outputDir = j["output"].value("dir", cfg.outputDir);
     cfg.efficiencyFile = j["output"].value("efficiencies", cfg.efficiencyFile);
+    cfg.materialsFile = j["output"].value("materials", cfg.materialsFile);
   }
   return cfg;
 }
@@ -563,6 +768,41 @@ void writeEfficiencies(const std::string& file, const std::vector<RunConfig>& ru
     if (sweep) pre << runs[r].sweepParameter << ',' << runs[r].sweepValue << ',';
     writeRows(out, pre.str(), runs[r].scan, results[r]);
   }
+}
+
+std::vector<MaterialValue> materialAt(const Stack& stack, const std::string& name, double lambda_um) {
+  const Material& m = stack.material(name);
+  const Material r = m.at(lambda_um);
+  auto nOf = [](cplx e) {  // branch Im n >= 0
+    const cplx n = std::sqrt(e);
+    return n.imag() < 0 ? -n : n;
+  };
+  if (r.isotropic) {
+    const bool isN = m.model && m.model->quantity() == Dispersion::Quantity::N;
+    return {{name, 0, isN ? m.model->value(lambda_um) : nOf(r.eps), r.eps}};
+  }
+  FG_REQUIRE(r.principalAxes, "material '" + name + "' is given as eps_tensor (no principal values)");
+  std::vector<MaterialValue> out;
+  for (int i = 0; i < 3; ++i) {
+    const cplx e = r.principal[static_cast<std::size_t>(i)];
+    out.push_back({name, i + 1, nOf(e), e});
+  }
+  return out;
+}
+
+void writeMaterials(const std::string& file, const RunConfig& cfg) {
+  std::ofstream out = openCsv(file);
+  out << "lambda_um,material,component,n_re,n_im,eps_re,eps_im\n" << std::setprecision(12);
+  std::vector<double> lams;
+  for (const auto& w : cfg.scan)
+    if (std::find(lams.begin(), lams.end(), w.lambda_um) == lams.end()) lams.push_back(w.lambda_um);
+  for (double lam : lams)
+    for (const auto& [name, m] : cfg.stack.materials) {
+      if (!m.isotropic && !m.principalAxes) continue;  // full tensors have no principal values
+      for (const auto& v : materialAt(cfg.stack, name, lam))
+        out << lam << ',' << name << ',' << (v.component == 0 ? std::string("iso") : std::to_string(v.component)) << ','
+            << v.n.real() << ',' << v.n.imag() << ',' << v.eps.real() << ',' << v.eps.imag() << '\n';
+    }
 }
 
 std::vector<RunConfig> parseSweep(const std::string& text, const std::string& baseDir) {

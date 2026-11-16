@@ -76,6 +76,14 @@ struct OrderEfficiency {
   double eff_s = 0, eff_p = 0;        ///< s/p parts of the efficiency (isotropic media)
 };
 
+/// n and eps of a dispersive material at the scan wavelength (M22, Plan "Ausgaben"); component 0 for
+/// isotropic materials, 1..3 for the principal values.
+struct MaterialValue {
+  std::string name;
+  int component = 0;
+  cplx n = 1.0, eps = 1.0;
+};
+
 struct Diagnostics {
   double energyBalance = 0;           ///< sum R + sum T (lossless media: 1)
   double maxConditionT11 = 0;
@@ -85,6 +93,7 @@ struct Diagnostics {
   long refinementSteps = 0;           ///< iterative-refinement steps (mixed)
   long refinementFallbacks = 0;       ///< mixed solves that fell back to an FP64 LU
   std::vector<std::string> warnings;
+  std::vector<MaterialValue> materials;  ///< dispersive materials at the wavelength (M22)
 };
 
 /// Aperiodic structures (Plan section "M18: Ausgaben"): power of the scattered field E_s = E - E_bg

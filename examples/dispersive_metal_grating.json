@@ -1,0 +1,30 @@
+{
+  "dimension": "1D",
+  "solver": "rcwa",
+  "truncation": { "Nx": 15 },
+  "period_um": { "x": 0.6 },
+  "incidence": { "lambda_um": { "from": 0.4, "to": 1.0, "steps": 31 }, "phi_deg": 10, "psi_deg": 0, "delta_deg": 90 },
+  "materials": {
+    "air": { "n": 1.0 },
+    "ag": {
+      "eps": {
+        "drude_lorentz": {
+          "eps_inf": 1.0, "omega_p_eV": 9.01, "f0": 0.845, "gamma0_eV": 0.048,
+          "oscillators": [
+            { "f": 0.065, "omega_eV": 0.816, "gamma_eV": 3.886 },
+            { "f": 0.124, "omega_eV": 4.481, "gamma_eV": 0.452 },
+            { "f": 0.011, "omega_eV": 8.185, "gamma_eV": 0.065 },
+            { "f": 0.840, "omega_eV": 9.083, "gamma_eV": 0.916 },
+            { "f": 5.646, "omega_eV": 20.29, "gamma_eV": 2.419 }
+          ]
+        }
+      }
+    }
+  },
+  "superstrate": "air",
+  "substrate": "ag",
+  "layers": [
+    { "type": "lamellar1d", "thickness_um": 0.04, "breakpoints_um": [0.0, 0.3, 0.6], "materials": ["ag", "air"] }
+  ],
+  "output": { "dir": "out/dispersive_metal_grating", "materials": "materials.csv" }
+}

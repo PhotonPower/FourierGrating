@@ -43,6 +43,10 @@ void printResult(const fg::Wavelength& w, const fg::Result& r) {
     std::printf("  sum R+T = %.12f   absorption = %.3e\n", r.diag.energyBalance, r.absorption);
   if (r.diag.precision != "fp64" || r.diag.precisionFallback)  // M16
     std::printf("  precision %s%s\n", r.diag.precision.c_str(), r.diag.precisionFallback ? " (repeated in fp64)" : "");
+  for (const auto& v : r.diag.materials)  // M22: dispersive materials at this wavelength
+    std::printf("  material %s%s: n = %.8g%+.8gi   eps = %.8g%+.8gi\n", v.name.c_str(),
+                v.component ? (" [" + std::to_string(v.component) + "]").c_str() : "", v.n.real(), v.n.imag(),
+                v.eps.real(), v.eps.imag());
   for (const auto& msg : r.diag.warnings) std::printf("  warning: %s\n", msg.c_str());
   std::printf("\n");
 }
@@ -101,6 +105,11 @@ int main(int argc, char** argv) {
     const auto file = (std::filesystem::path(cfg.outputDir) / cfg.efficiencyFile).string();
     fg::io::writeEfficiencies(file, runs, all);
     std::cout << "written: " << file << "\n";
+    if (!cfg.materialsFile.empty()) {  // M22: n and eps per scan wavelength
+      const auto mf = (std::filesystem::path(cfg.outputDir) / cfg.materialsFile).string();
+      fg::io::writeMaterials(mf, cfg);
+      std::cout << "written: " << mf << "\n";
+    }
     if (cfg.nearField && !cfg.scan.empty()) {
       const auto nf = solver->nearField(cfg.stack, cfg.scan.front(), cfg.field);
       const auto base = std::filesystem::path(cfg.outputDir);

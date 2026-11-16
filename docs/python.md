@@ -55,6 +55,11 @@ sim.solve(lambda_um=0.6328, phi_deg=30.0)       # fehlende Werte: erster Scanpun
 sim.set_parameter("/layers/0/thickness_um", 0.25)   # JSON-Pointer wie bei Sweeps
 sim.model_builds, sim.config
 
+fg.material_eps(cfg, "ag", [0.4, 0.7, 1.0])   # ε eines Materials (M22), auch fester Werte;
+                                     # eps_principal: letzte Achse der Länge 3
+res.diagnostics["materials"]         # dispersive Materialien am Scanpunkt: name, component, n, eps
+cfg["materials"]["au"] = fg.materials.from_refractiveindex("database/data/main/Au/nk/Johnson.yml")   # M22, braucht PyYAML
+
 fg.set_backend("auto", threshold=160)   # Standard für Konfigurationen ohne "backend"
 fg.cuda_available(); fg.core_variant(); fg.__version__
 ```
@@ -70,6 +75,18 @@ fg.cuda_available(); fg.core_variant(); fg.__version__
 
 Beispiel: [`examples/python/scan_lamellar.py`](../examples/python/scan_lamellar.py) (Wellenlängen-Scan und
 Tiefen-Sweep mit `Simulation`).
+
+### Dispersive Materialien (M22)
+
+Modelle stehen in der Konfiguration (`docs/config_format.md`); Python wertet nichts selbst aus.
+`fg.material_eps(cfg, name, lambda_um)` ruft `fg::io::materialAt` des Kerns auf (Zahl → `complex`, Array → Array
+derselben Form). `load_config` löst relative Tabellendateien (`"table": {"file": ...}`) gegen das Verzeichnis
+der Konfiguration auf. `fouriergrating.materials.from_refractiveindex(pfad_oder_text)` wandelt eine YAML-Datei
+der Datenbank refractiveindex.info in ein Materialobjekt um: `tabulated nk`, `tabulated n`, `tabulated n` +
+`tabulated k` (Vereinigung der Stützstellen im Überlappbereich, linear interpoliert) als Tabelle unter `"n"`,
+`formula 1`/`formula 2` als Sellmeier mit dem Gültigkeitsbereich als `range_um`; andere Formeln
+`NotImplementedError`. PyYAML ist optional: `pip install fouriergrating[materials]`. Beispiel:
+[`examples/python/dispersive_scan.py`](../examples/python/dispersive_scan.py).
 
 ### S-Matrix in der s/p-Basis (Plan Abschnitt „S-Matrix in der s/p-Basis der Ordnungen“)
 

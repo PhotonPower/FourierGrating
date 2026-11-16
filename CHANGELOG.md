@@ -11,6 +11,23 @@
   `points` ist ein stückweise lineares Polygon (kein Spline), CSV-Spalten heißen `phi_deg` usw., `diagnostics.json`
   wird nicht geschrieben, `nearfield.quantities` ist derzeit wirkungslos, `breakpoints_um` wird nicht gegen die
   Periode geprüft.
+- M22 dispersive Materialien (Plan Teil 8, v2.19): Materialwerte unter `n`, `eps` und in `eps_principal` dürfen
+  Modelle sein – `sellmeier` (optional `range_um`), `cauchy`, `drude_lorentz`, `table` (`file`/`data`, Einheit
+  um/nm/eV, `linear`/`cubic` Not-a-knot, `extrapolate`); Modul `fg::Dispersion` (`include/fg/geometry/dispersion.hpp`),
+  `Material::at`/`Stack::at`, `detail::resolveStack` an jedem Einstieg (`solve`, `solveScan`, `fieldCoefficients`,
+  `nearField`, `orderSMatrix`, Gradienten, Zylinderpfad), nicht aufgelöste Materialien werden abgewiesen. Frühe
+  Prüfung beim Laden (Bereich, Sellmeier-Pol, verlustfreies Superstrat, jeder Sweep-Wert) mit JSON-Pointer.
+  `Simulation` baut bei einem Wechsel von λ nur Schichten mit dispersivem Material neu. Ausgaben
+  `Result::diag.materials`, `fgsolve`-Zeilen `material …`, `"output": {"materials": "materials.csv"}`,
+  `fg::io::materialAt`, Python `fg.material_eps`, `diagnostics["materials"]`. Gradienten nach Modellwerten
+  (eq:disp_grad_p) und nach λ mit Kettenregel (eq:disp_grad_lambda). Python
+  `fouriergrating.materials.from_refractiveindex` (YAML, optional PyYAML: `fouriergrating[materials]`),
+  `load_config` löst Tabellendateien relativ auf. Tests `test_dispersion` (V23b, V23g), `test_validation_v23`
+  (V23a, V23c–f), `tests/python/test_materials.py` (V23h); Beispiele `examples/dispersive_metal_grating.json`
+  (neues Golden File, keine bestehenden geändert) und `examples/python/dispersive_scan.py`.
+- Plan v2.19: Umsetzungsdetails zu M22 (Abschnitt „Umsetzung (v2.19)“): Sellmeier `range_um` für den Import aus
+  refractiveindex.info, Gradienten über die Materialgradienten von M19 mit aufgelöster Konfiguration,
+  CAD-Schichten im Zwischenspeicher, Inhalt von `materials.csv`.
 - S-Matrix des Stapels in der s/p-Basis der Ordnungen (Plan v2.17, Abschnitt „S-Matrix in der s/p-Basis der
   Ordnungen“, eq:Ssp): `Solver::orderSMatrix`, `Simulation::orderSMatrix`, Python `Simulation.smatrix` mit
   `R_top`, `T_down`, `T_up`, `R_bottom`. Ein Eigenproblem liefert beide Polarisationen und Licht von oben und von
@@ -35,6 +52,9 @@
   Li in r (`cylQ`), Propagationsmatrix, Modenbasis homogener Medien und Poynting-Fluss je Harmonischer; Unit-Tests
   `test_cyl`, Validierung V21b (Fasermoden: Li in r ≤ 1,1e-4 bei k_max = 16, Laurent erster Ordnung; Werte des
   Prototyps reproduziert).
+- Plan v2.18 (Teil 8): Spezifikation dispersiver Materialien – M22 (Tabellen, Sellmeier, Cauchy, Drude–Lorentz in
+  `n`, `eps`, `eps_principal`; Auswertung je Scanpunkt, frühe Prüfung mit JSON-Pointer, Gradienten nach λ und
+  Modellwerten, Import aus refractiveindex.info); Roadmap und AGENTS.md (M22 darf vor M20/M21) ergänzt.
 - Plan v2.15: Umsetzungsdetails zu M20 – Wurzelsubstitution je Teilpanel (Panel zwischen zwei Verzweigungspunkten
   geteilt, die Sinus-Substitution über das ganze Panel ist mit 8 Knoten 10³-fach ungenauer), Bessel nach Miller mit
   Genauigkeitsmaß relativ zur Amplitude (scipy bei |z| ≈ 500 nur auf ≈ 1e-14), Lommel-Toleranz 5e-14.
@@ -83,6 +103,10 @@
 - M10-Abnahme auf der RTX 6000 Ada: Messwerte in `docs/benchmarks.md`.
 
 ### Geändert
+- Plan v2.20: Literatur zu M22 [D1]–[D4] bibliographisch geprüft (Seitenbereiche ergänzt; refractiveindex.info
+  unter CC0 1.0). Drude–Lorentz-Werte für Ag und Al nach Rakić geprüft: `fg.material_eps` gibt die Rakić-Tabellen
+  von refractiveindex.info auf die 5 Stellen der Tabelle wieder. Al-Beispiel in Plan und `docs/config_format.md` als
+  gekürzt gekennzeichnet, Pfade zu refractiveindex.info an den heutigen Aufbau der Datenbank angepasst.
 - Gradienten nach Formparametern mit FFF in 2D: das Rasterfeld von Algorithmus NF bewegt sich mit der Geometrie
   (Differenzenquotient über eine Rasterzelle). Eingefroren war z. B. die Verschiebung eines Kreises um 30–150 %
   falsch (nur der Radius war geprüft). Kosten: zwei NF-Rechnungen je Formparameter.

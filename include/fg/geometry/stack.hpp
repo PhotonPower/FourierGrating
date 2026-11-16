@@ -30,6 +30,10 @@ struct Stack {
 
   bool is2D() const { return dz_um > 0.0; }
   const Material& material(const std::string& name) const;
+  /// True if a material depends on the wavelength (M22).
+  bool dispersive() const;
+  /// The stack with all materials fixed at lambda (Plan sec:disp_arch); only dispersive materials change.
+  Stack at(double lambda_um) const;
 };
 
 }  // namespace fg
