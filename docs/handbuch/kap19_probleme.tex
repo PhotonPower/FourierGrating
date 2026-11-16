@@ -1,6 +1,8 @@
 \chapter{Fehlersuche}\label{ch:probleme}
+\index{Fehlersuche}%
 
 \section{Fehlermeldungen}
+\index{Fehlermeldungen}%
 \cmd{fgsolve} meldet Fehler als \texttt{fgsolve: error: <Quelldatei>:<Zeile>: <Meldung>} und endet mit Code 3; Python
 wirft \texttt{fg.FourierGratingError}. Die häufigsten Meldungen:
 \begin{center}
@@ -83,7 +85,7 @@ RK sehr langsam & 2D oder großes $N$ $\to$ RCWA mit Treppe; \key{rk.tol} locker
 Speicher reicht nicht & \key{threads.scan} verringern (jeder parallele Scanpunkt braucht eigenen Speicher); $N$ senken \\
 nur ein Kern ausgelastet & \texttt{FG\_NUM\_THREADS}/\texttt{OMP\_NUM\_THREADS} prüfen; viele Scheiben:
 \val{"reduction": "tree"} \\
-GPU wird nicht benutzt & Matrix kleiner als \key{backend\_threshold}; \cmd{fgsolve --info} prüfen; Python:
+GPU wird nicht benutzt & Matrix kleiner als \key{backend\_threshold}; \cmd{fgsolve -{}-info} prüfen; Python:
 \texttt{fg.core\_variant()} \\
 GPU-Ergebnis weicht ab & \val{fp32} aktiv (RTX 3090: Standard) -- \key{precision} \val{fp64} für Endergebnisse \\
 \bottomrule
@@ -109,6 +111,6 @@ Seite bleibt leer (hinter nginx) & WebSocket-Header fehlen (Betreiber) \\
 \end{center}
 
 \section{Fehler melden}
-Ein guter Fehlerbericht enthält die Konfiguration (JSON), die Ausgabe von \cmd{fgsolve --info} bzw.\
+Ein guter Fehlerbericht enthält die Konfiguration (JSON), die Ausgabe von \cmd{fgsolve -{}-info} bzw.\
 \texttt{fg.\_\_version\_\_} und \texttt{fg.core\_variant()}, die vollständige Meldung und -- bei falschen Ergebnissen
 -- die Erwartung mit Quelle. Issues im Repository \file{PhotonPower/FourierGrating}.

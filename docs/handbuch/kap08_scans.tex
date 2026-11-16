@@ -9,6 +9,7 @@
 \end{description}
 
 \section{Scans}
+\index{Scan}%
 \subsection{Werte angeben}
 \begin{lstlisting}[language=json]
 "incidence": {
@@ -48,6 +49,7 @@ Scheiben einer Rechnung entfallen, regelt \key{threads} (Abschnitt~\ref{sec:thre
 von der Threadzahl ab; sie sind bitgleich.
 
 \section{Sweeps}
+\index{Sweep}%
 \subsection{Aufbau}
 \begin{lstlisting}[language=json]
 "sweep": {
@@ -132,9 +134,9 @@ scripts/plot_efficiencies.py CSV [--x SPALTE] [--orders R:0 T:-1 ...] [--quantit
 \end{lstlisting}
 \begin{itemize}
   \item Die $x$-Achse ist die erste veränderliche Spalte aus \texttt{sweep\_value}, \texttt{lambda\_um},
-        \texttt{phi\_deg}, \texttt{psi\_deg}, \texttt{delta\_deg} oder die mit \texttt{--x} gewählte.
-  \item \texttt{--orders} wählt Ordnungen als \texttt{Seite:n} oder \texttt{Seite:n:m}; ohne Angabe alle.
-  \item Die übrigen veränderlichen Spalten halten Sie mit \texttt{--lambda}, \texttt{--phi}, \texttt{--psi},
-        \texttt{--delta} fest.
-  \item Ohne \texttt{--out} öffnet sich ein Fenster.
+        \texttt{phi\_deg}, \texttt{psi\_deg}, \texttt{delta\_deg} oder die mit \texttt{-{}-x} gewählte.
+  \item \texttt{-{}-orders} wählt Ordnungen als \texttt{Seite:n} oder \texttt{Seite:n:m}; ohne Angabe alle.
+  \item Die übrigen veränderlichen Spalten halten Sie mit \texttt{-{}-lambda}, \texttt{-{}-phi}, \texttt{-{}-psi},
+        \texttt{-{}-delta} fest.
+  \item Ohne \texttt{-{}-out} öffnet sich ein Fenster.
 \end{itemize}

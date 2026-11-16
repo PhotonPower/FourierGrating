@@ -28,6 +28,7 @@ GUI im Browser & Arbeiten ohne Programmierung, gemeinsamer Rechenserver & \ref{s
 \end{itemize}
 
 \section{Python-Paket}\label{sec:inst-python}
+\index{Installation!Python-Paket}%
 \begin{center}
 \small
 \begin{tabularx}{\linewidth}{lY}
@@ -68,6 +69,7 @@ nutzbar, lädt \texttt{import fouriergrating} automatisch den CUDA-Kern. Mit der
 \texttt{numpy} für die Plot-Skripte.
 
 \section{Quellbuild unter Linux (AlmaLinux 10)}\label{sec:inst-linux}
+\index{Installation!Linux}\index{AlmaLinux}%
 \subsection{Pakete}
 \begin{lstlisting}[style=shell]
 sudo ./scripts/setup_almalinux10.sh              # Compiler, CMake, Eigen, JSON, GTest, Python, LaTeX
@@ -109,6 +111,7 @@ CMake-Optionen: \texttt{FG\_ENABLE\_CUDA}, \texttt{FG\_ENABLE\_OPENMP} (Standard
 GPU setzen Sie \texttt{CMAKE\_CUDA\_ARCHITECTURES} (RTX 3090: \val{86}).
 
 \section{Quellbuild unter Windows}\label{sec:inst-windows}
+\index{Installation!Windows}%
 Für Entwickler gibt es einen Weg über MSYS2/MinGW-w64 (UCRT64):
 \begin{lstlisting}[style=shell]
 .\scripts\setup_windows.ps1                 # installiert MSYS2 (falls nötig) und die Werkzeuge
@@ -122,6 +125,7 @@ Das CUDA-Preset \texttt{win-cuda} ist experimentell. Für Python-Wheels und CUDA
 empfohlene Weg (\texttt{win-msvc}, \texttt{win-msvc-cuda}). Einzelheiten: \file{docs/build\_windows.md}.
 
 \section{CAD-Slicer}\label{sec:inst-cad}
+\index{Installation!CAD-Slicer}\index{Nurbforge}%
 STEP-Dateien liest \FG{} mit der Bibliothek Nurbforge. Sie wird nur mit \texttt{FG\_ENABLE\_NURBFORGE=ON}
 eingebunden (Tag \texttt{FG\_NURBFORGE\_TAG}, Standard \texttt{v0.6.0}):
 \begin{lstlisting}[style=shell]
@@ -130,7 +134,7 @@ cmake --preset cpu-cad && cmake --build --preset cpu-cad
 cmake --preset cpu-cad -DFETCHCONTENT_SOURCE_DIR_NURBFORGE=/pfad/zu/Nurbforge
 \end{lstlisting}
 Die Python-Wheels enthalten den Slicer bereits. Ohne ihn meldet eine \val{"cad"}-Schicht \texttt{NotImplemented};
-\cmd{fgsolve --info} zeigt, ob er eingebaut ist.
+\cmd{fgsolve -{}-info} zeigt, ob er eingebaut ist.
 
 \section{Grafische Oberfläche}\label{sec:inst-gui}
 Die GUI ist ein eigenes Repository (\file{PhotonPower/GUI-FourierGrating}) und läuft als Webanwendung
@@ -161,6 +165,7 @@ fgsolve examples/v1_fresnel_interface.json
 Die Reflexion muss mit den Fresnelformeln übereinstimmen und \texttt{sum R+T} gleich 1 sein.
 
 \section{Dokumentation neu erzeugen}
+\index{Dokumentation erzeugen}%
 \begin{lstlisting}[style=shell]
 ./scripts/build_docs.sh      # Implementierungsplan (main.pdf)
 cd docs/handbuch && latexmk -pdf handbuch.tex   # dieses Handbuch

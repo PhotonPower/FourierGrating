@@ -31,6 +31,9 @@ docs/handbuch/*.aux
 docs/handbuch/*.log
 docs/handbuch/*.out
 docs/handbuch/*.toc
+docs/handbuch/*.idx
+docs/handbuch/*.ilg
+docs/handbuch/*.ind
 docs/handbuch/*.fls
 docs/handbuch/*.fdb_latexmk
 docs/handbuch/build.log

@@ -1,6 +1,7 @@
 \chapter{Erweiterte Funktionen}\label{ch:erweitert}
 
 \section{Adaptive räumliche Auflösung (ASR)}\label{sec:asr}
+\index{ASR}\index{Koordinatentransformation}%
 Bei Metallstrukturen in TM konzentriert sich das Feld an den Kanten; dort braucht die Fourierreihe die meisten
 Ordnungen. Die adaptive räumliche Auflösung nach Granet verzerrt die Koordinate $x$ (und $z$) so, dass die
 Fourierbasis an den Materialsprüngen feiner auflöst. Die Zahl der Ordnungen bleibt gleich, die Konvergenz wird
@@ -40,6 +41,7 @@ Lamellenschichten und die Eckkoordinaten der Polygone; oder eine Liste \\
 
 %-------------------------------------------------------------------------------------------
 \section{Isolierte Strukturen mit PML}\label{sec:pml}
+\index{PML}\index{isolierte Struktur}\index{Streufeld}%
 Ein einzelner Steg, ein Graben, ein Kontaktloch oder ein Wellenleiterende ist nicht periodisch. \FG{} rechnet ihn in
 einer Rechenzelle mit \textbf{absorbierenden Randzonen} (perfectly matched layers, PML): Am Zellrand wird die
 Koordinate komplex gestreckt, sodass auslaufende Wellen dort ohne Reflexion abklingen. Die Nachbarzellen sehen sich
@@ -142,6 +144,7 @@ dann die von Hintergrund plus Streufeld; das Ergebnis ist dasselbe wie ohne. Ged
 
 %-------------------------------------------------------------------------------------------
 \section{Rotationssymmetrische Strukturen (in Arbeit)}\label{sec:zylinder}
+\index{Zylinderkoordinaten}\index{Gauß-Strahl}%
 Säulen, Scheiben, Löcher, Ringe und Zonenplatten auf einem Schichtstapel sind rotationssymmetrisch um eine Achse
 senkrecht zum Stapel. In Zylinderkoordinaten entkoppeln die azimutalen Harmonischen $e^{im\varphi}$; je Harmonischer
 bleibt ein Problem in $(r,y)$. Das ist viel günstiger, als die isolierte Struktur kartesisch mit PML zu rechnen.

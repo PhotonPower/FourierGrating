@@ -1,4 +1,5 @@
 \chapter{Rechenzeit, Parallelisierung, GPU und Genauigkeit}\label{ch:leistung}
+\index{Rechenzeit}%
 
 \section{Wovon die Rechenzeit abhängt}
 Die teuren Operationen sind Matrixoperationen der Größe $n=4n_f$ mit $n_f=(2N_x+1)(2N_z+1)$: Eigenwertprobleme
@@ -37,6 +38,7 @@ Gold-Echelette, RK, $N=12$, tol $10^{-5}$, 4 Winkel & $n=100$ & 28\,s (zwei Kern
 \end{center}
 
 \section{Threads}\label{sec:threads}
+\index{Threads}\index{OpenMP}%
 \FG{} parallelisiert auf drei Ebenen:
 \begin{center}
 \small
@@ -60,6 +62,7 @@ Threadzahl. Sweep-Werte laufen nacheinander.
 Threadzahl, $\le10^{-12}$ Abweichung von \val{sequential}).
 
 \section{GPU}\label{sec:gpu}
+\index{GPU}\index{CUDA}%
 Mit einem CUDA-Build (\texttt{cuda-release} bzw.\ \texttt{fouriergrating-cuda12}) laufen die $O(n^3)$-Operationen
 auf der GPU.
 \begin{center}
@@ -81,6 +84,7 @@ $N\approx8$. Die RTX 6000 Ada und die RTX 3090 haben nur 1/64 der FP32-Leistung 
 Genauigkeit wichtig.
 
 \section{Genauigkeit fp64, mixed, fp32}\label{sec:genauigkeit}
+\index{Genauigkeit (fp64, mixed, fp32)}%
 \key{precision} wählt die Genauigkeit der $O(n^3)$-Operationen; alles andere (Koeffizienten, Exponentiale, stabile
 S-Formeln, Effizienzen) bleibt doppelt genau.
 \begin{center}
@@ -119,12 +123,14 @@ Wert & Bedeutung \\
 \end{itemize}
 
 \section{Speicherbedarf}
+\index{Speicherbedarf}%
 Eine komplexe Matrix der Größe $n$ braucht $16n^2$ Byte. Gleichzeitig werden je Scanpunkt grob zwölf solche
 Matrizen gehalten, bei parallelen Scanpunkten entsprechend mehr. Beispiel: 2D, $N=10$, $n=1764$: $16\cdot1764^2
 \approx50$\,MB je Matrix, rund 600\,MB je Scanpunkt; mit 16 parallelen Scanpunkten 10\,GB. Reduzieren Sie bei
 Speichermangel \key{threads.scan}. Die GUI zeigt vor dem Rechnen eine Schätzung an.
 
 \section{Benchmarks}
+\index{Benchmark}%
 \begin{lstlisting}[style=shell]
 fgbench --sizes 256,512,1024,1764 --orders 4,6,8,10,12 --repeat 2 > bench.md
 \end{lstlisting}

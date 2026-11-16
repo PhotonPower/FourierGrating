@@ -1,4 +1,5 @@
 \chapter{Grafische Oberfläche im Browser}\label{ch:gui}
+\index{GUI}%
 
 \GUI{} ist eine Weboberfläche für \FG. Sie läuft auf einem Rechenserver (am Institut: Server mit NVIDIA RTX 6000
 Ada) und wird im Browser bedient. Die GUI rechnet nicht selbst: Sie baut Konfigurationen im Format von
@@ -207,7 +208,7 @@ Variable & Bedeutung & Standard \\
 (\texttt{ssh -N -L 8505:server:8505 benutzer@server}, dann \texttt{http://localhost:8505}) oder über nginx mit TLS und
 Anmeldung (Vorlage \file{deploy/nginx-fg-gui.conf}). Den Streamlit-Port \textbf{nicht} nach außen öffnen: Streamlit
 hat keine eigene Anmeldung.
-\paragraph{Überwachung.} \texttt{fg-gui-health --url \ldots} liefert Exit-Code 0, wenn die GUI gesund ist
+\paragraph{Überwachung.} \texttt{fg-gui-health -{}-url \ldots} liefert Exit-Code 0, wenn die GUI gesund ist
 (Nagios/Icinga/cron); das Protokoll steht im Journal (\texttt{journalctl -u fg-gui -f}).
 
 \begin{achtung}[Was die GUI (noch) nicht kann]

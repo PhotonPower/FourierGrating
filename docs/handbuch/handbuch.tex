@@ -15,6 +15,8 @@
 \usepackage[htt]{hyphenat}
 \usepackage[most]{tcolorbox}
 \usepackage{fancyhdr}
+\usepackage{makeidx}
+\makeindex
 \usepackage{titlesec}
 \usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black,citecolor=blue!50!black,
             pdftitle={FourierGrating -- Benutzerhandbuch},pdfauthor={FourierGrating-Projekt}]{hyperref}
@@ -66,7 +68,11 @@
 \lstdefinestyle{cpp}{language=C++}
 
 % ------------------------------------------------------------------ Kurzbefehle
-\newcommand{\key}[1]{\texttt{\textcolor{fgkey}{#1}}}
+% Schlüssel erscheinen im Stichwortverzeichnis (außer Kurzformen wie .z, die mit einem Punkt beginnen)
+\makeatletter
+\def\fg@keyindex#1#2\relax{\ifx.#1\else\index{#1#2@\texttt{#1#2}}\fi}
+\newcommand{\key}[1]{\texttt{\textcolor{fgkey}{#1}}\fg@keyindex#1\relax}
+\makeatother
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 \let\fgus\_
 \renewcommand{\_}{\fgus\allowbreak}
@@ -99,6 +105,8 @@
 \setcounter{tocdepth}{1}
 
 \begin{document}
+% " ist in JSON-Werten ein Anführungszeichen, kein babel-Kürzel (sonst wird "auto" zu äuto")
+\shorthandoff{"}
 
 % ------------------------------------------------------------------ Titelseite
 \begin{titlepage}
@@ -159,5 +167,11 @@ Lizenz:        & MIT
 \input{kap19_probleme}
 \appendix
 \input{anh_referenz}
+
+\clearpage
+\phantomsection
+\addcontentsline{toc}{chapter}{Stichwortverzeichnis}
+\renewcommand{\indexname}{Stichwortverzeichnis}
+\printindex
 
 \end{document}

@@ -1,6 +1,7 @@
 # Anwenderhandbuch
 
-> Ausführliches Benutzerhandbuch (LaTeX, ca. 85 Seiten, mit Beispielen, GUI und Fehlersuche):
+> Ausführliches Benutzerhandbuch (LaTeX, ca. 100 Seiten, mit Beispielen, GUI,
+> Fehlersuche, Befehlsreferenz und Stichwortverzeichnis):
 > [`handbuch/handbuch.tex`](handbuch/handbuch.tex), PDF mit `scripts/build_docs.sh` erzeugen.
 
 FourierGrating berechnet Beugungseffizienzen und Nahfelder periodischer Strukturen (1D- und 2D-Gitter,

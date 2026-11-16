@@ -1,0 +1,9 @@
+% makeindex style of the handbook: letter headings, two columns are set by the document
+headings_flag 1
+heading_prefix "\\par\\medskip{\\sffamily\\bfseries\\color{fgblue} "
+heading_suffix "}\\par\\nopagebreak\\smallskip\n"
+symhead_positive "Symbole"
+delim_0 ", "
+delim_1 ", "
+delim_2 ", "
+numhead_positive "Zahlen"

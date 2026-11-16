@@ -1,6 +1,7 @@
 \chapter{Löser, Faktorisierung und Konvergenz}\label{ch:loeser}
 
 \section{RCWA oder Runge--Kutta?}
+\index{RCWA}\index{Runge--Kutta}%
 \begin{center}
 \small
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.7cm}>{\raggedright\arraybackslash}p{2.6cm}>{\raggedright\arraybackslash}p{3.0cm}Y}
@@ -37,6 +38,7 @@ Referenzrechnungen & beide & & Übereinstimmung RK $=$ RCWA ist ein starker Test
 Die Diagnose (\texttt{rk\_steps}) zeigt, wie viele Schritte gebraucht wurden.
 
 \section{Faktorisierung}\label{sec:faktorisierung}
+\index{Faktorisierung}\index{Li-Regeln}\index{FFF}\index{Laurent-Regel}%
 Die Faktorisierung legt fest, wie das Produkt aus Permittivität und Feld in Fourierreihen gebildet wird. Sie ist der
 entscheidende Faktor für die Konvergenzgeschwindigkeit bei TM und bei Metallen.
 \begin{table}[h]
@@ -75,6 +77,7 @@ Schichttyp & \val{auto} wählt & zulässig \\
 Fehlersuche (Kapitel~\ref{ch:probleme}) es nahelegt.
 
 \section{Konvergenz prüfen}\label{sec:konvergenz}
+\index{Konvergenz!prüfen}\index{Trunkierung}%
 \subsection{Vorgehen}
 \begin{enumerate}
   \item Rechnen Sie mit einem Startwert von $N$ (Richtwerte unten).
@@ -140,6 +143,7 @@ obwohl die Rechnung im Wesentlichen stimmt. Vergleichen Sie in solchen Fällen g
 Peaks müssen konvergieren (Referenzfall V10, Silber-Lochgitter).
 
 \section{Gütekriterien einer Rechnung}\label{sec:guete}
+\index{Gütekriterien}%
 \begin{itemize}
   \item \textbf{Energiebilanz}: Bei verlustfreien Strukturen muss \texttt{sum R+T} $=1$ sein -- RCWA mit Laurent
         exakt, FFF-Varianten auf $10^{-5}$ bis $5\cdot10^{-4}$. Größere Abweichungen zeigen ein zu kleines $N$ oder eine

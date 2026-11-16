@@ -4,6 +4,7 @@ Dieses Kapitel legt fest, wie \FG{} Geometrie, Einfall und Ergebnisse beschreibt
 liest jede Konfigurationsdatei und jede Ergebnistabelle ohne Rätselraten.
 
 \section{Koordinatensystem und Schichtstapel}
+\index{Koordinatensystem}\index{Schichtstapel}%
 \begin{figure}[h]
 \centering
 \begin{tikzpicture}[scale=1.05,>=Latex]
@@ -55,6 +56,7 @@ liest jede Konfigurationsdatei und jede Ergebnistabelle ohne Rätselraten.
 \end{itemize}
 
 \section{Zeitkonvention und Materialangaben}
+\index{Zeitkonvention}\index{Vorzeichenkonvention|see{Zeitkonvention}}%
 \FG{} verwendet die Zeitabhängigkeit $e^{-i\omega t}$. Daraus folgt:
 \begin{itemize}
   \item Eine komplexe Brechzahl $\nu = n + ik$ beschreibt Absorption, wenn $k>0$ ist. Gold bei 633\,nm ist etwa
@@ -67,6 +69,7 @@ Intern rechnet \FG{} in normierten Einheiten ($k_0 = 2\pi/\lambda = 1$, $\tilde{
 merkt man als Anwender nur, dass ausgegebene Magnetfelder mit $Z_0$ multipliziert sind (Abschnitt~\ref{sec:nf-dateien}).
 
 \section{Einfallsrichtung und Polarisation}\label{sec:einfall}
+\index{Polarisation}\index{Einfallswinkel}\index{konischer Einfall}%
 Eine ebene Welle im Superstrat mit Brechzahl $\nu=\nu_M$ wird durch vier Größen beschrieben:
 \begin{center}
 \begin{tabular}{lll}
@@ -97,6 +100,7 @@ Der Wellenvektor ist (normiert auf $k_0$)
 \end{itemize}
 
 \section{Beugungsordnungen und Gittergleichung}
+\index{Beugungsordnung}\index{Gittergleichung}\index{Rayleigh-Anomalie}%
 Wegen der Periodizität enthält das Feld nur die Tangentialkomponenten
 \begin{equation}
   \alpha_n = \alpha_0 + n\,\frac{\lambda}{d_x},\qquad \gamma_m = \gamma_0 + m\,\frac{\lambda}{d_z}
@@ -117,6 +121,7 @@ $\lambda=0{,}6328$\um{} ergibt $\varphi\approx 39{,}3^\circ$.
 \end{tipp}
 
 \section{Effizienzen und Energiebilanz}
+\index{Effizienz}\index{Energiebilanz}%
 Die \textbf{Beugungseffizienz} einer Ordnung ist der Anteil des einfallenden Leistungsflusses (Poynting-Vektor in
 $y$-Richtung), den diese Ordnung abführt:
 \begin{equation}
@@ -135,6 +140,7 @@ Die Summe über alle propagierenden Ordnungen ergibt mit der \textbf{Absorption}
 \end{itemize}
 
 \section{Wie die Fourier-Modal-Methode rechnet}
+\index{Fourier-Modal-Methode}%
 \subsection{Fourierreihen und Trunkierung}
 In jeder Schicht werden $\varepsilon(x,z)$ und die Felder in Fourierreihen entwickelt und bei den Ordnungen
 $-N_x\ldots N_x$ (und $-N_z\ldots N_z$) abgeschnitten. Die Zahl der Fourierordnungen ist
@@ -163,6 +169,7 @@ langsam. Die korrekten Regeln (Li) bzw.\ ihre Verallgemeinerung auf beliebige Fo
 (FFF) beheben das. \FG{} wählt mit \val{"auto"} je Schichttyp die passende Variante (Tabelle~\ref{tab:faktorisierung}).
 
 \section{Was „konvergiert“ heißt}
+\index{Konvergenz}%
 Jede FMM-Rechnung ist eine Näherung, die mit wachsendem $N$ (und bei RCWA-Profilen mit wachsender Scheibenzahl,
 bei RK mit kleinerer Toleranz) gegen das exakte Ergebnis strebt. Ein einzelnes Ergebnis sagt daher nichts über seine
 Genauigkeit aus. \textbf{Prüfen Sie Konvergenz immer}, indem Sie dieselbe Rechnung mit zwei bis drei Werten von $N$

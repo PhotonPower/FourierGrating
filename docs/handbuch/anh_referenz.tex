@@ -54,8 +54,8 @@ alle & \val{auto} & \key{factorization} \\
 \key{growth\_limit} & 0 & Stabilitätsscheiben (0 = auto) \\
 \key{checkpoint\_every} & 1 & Gradienten-Speicher \\
 \multicolumn{3}{l}{\textbf{Erweiterungen}} \\
-\key{coordinate\_transform.x|z} & -- & ASR: \key{type}, \key{eta}, \key{breakpoints\_um} \\
-\key{aperiodic} & -- & PML: \key{pml.x|z} (\key{width\_um}, \key{beta}), \key{formulation}, \key{excitation} \\
+\key{coordinate\_transform.x}, \key{.z} & -- & ASR: \key{type}, \key{eta}, \key{breakpoints\_um} \\
+\key{aperiodic} & -- & PML: \key{pml.x}, \key{.z} (\key{width\_um}, \key{beta}), \key{formulation}, \key{excitation} \\
 \key{superstrate\_structure}, \key{substrate\_structure} & -- & strukturierte Halbräume \\
 \key{scattered\_field} & \val{false} & Streufeld bei periodischen Gittern \\
 \key{cylindrical} & -- & \key{symmetry}, \key{harmonics}, \key{spectrum}, \key{factorization} \\
@@ -71,55 +71,7 @@ alle & \val{auto} & \key{factorization} \\
 \end{longtable}
 \normalsize
 
-\chapter{Kommandozeile und Umgebungsvariablen}\label{anh:cli}
-\section{\texttt{fgsolve}}
-\begin{lstlisting}[style=shell]
-fgsolve <config.json>                 # rechnen
-fgsolve --profile <config.json>       # rechnen und Zeitprofil (profile.json)
-fgsolve --cad-report <config.json>    # Bandzerlegung und Geometrieprüfung der cad-Schichten (JSON)
-fgsolve --info                        # Version, Backends, CAD-Slicer
-fgsolve --version
-fgsolve --help
-\end{lstlisting}
-\section{\texttt{fgbench}}
-\begin{lstlisting}[style=shell]
-fgbench --sizes 256,512,1024 --orders 4,6,8 --repeat 2
-\end{lstlisting}
-\section{Skripte}
-\begin{center}
-\small
-\begin{tabularx}{\linewidth}{lY}
-\toprule
-Skript & Zweck \\
-\midrule
-\file{scripts/plot\_efficiencies.py} & Spektren, Winkelgänge, Sweeps aus \file{efficiencies.csv} \\
-\file{scripts/plot\_nearfield.py} & Nahfeldkarten und -linien \\
-\file{scripts/make\_cad\_examples.py} & STEP-Beispiele mit Nurbforge erzeugen \\
-\file{scripts/setup\_almalinux10.sh}, \file{setup\_windows.ps1} & Abhängigkeiten installieren \\
-\file{scripts/build\_docs.sh} & Implementierungsplan als PDF \\
-\bottomrule
-\end{tabularx}
-\end{center}
-\section{Umgebungsvariablen}
-\begin{center}
-\small
-\begin{tabularx}{\linewidth}{lY}
-\toprule
-Variable & Wirkung \\
-\midrule
-\texttt{FG\_NUM\_THREADS} & Gesamtzahl der Threads (sonst \texttt{OMP\_NUM\_THREADS}, sonst alle Kerne) \\
-\texttt{FG\_BACKEND} & \val{cpu}, \val{cuda}, \val{auto}; überschreibt \key{backend} \\
-\texttt{FG\_BACKEND\_THRESHOLD} & überschreibt \key{backend\_threshold} \\
-\texttt{FG\_PRECISION} & überschreibt \key{precision} \\
-\texttt{FG\_GPU\_STREAMS} & Scheiben gleichzeitig auf der GPU (Standard 4) \\
-\texttt{FG\_CORE} & Python: \val{cpu} erzwingt den CPU-Kern \\
-\texttt{CUDA\_PATH} & Windows: Ort der CUDA-Bibliotheken \\
-\texttt{NVIDIA\_TF32\_OVERRIDE} & \val{0} schließt TF32 aus \\
-\texttt{FG\_FGSOLVE} & Python-Tests: Pfad zu \cmd{fgsolve} für Vergleiche \\
-\texttt{FG\_GUI\_*} & GUI, siehe Abschnitt~\ref{sec:gui-betrieb} \\
-\bottomrule
-\end{tabularx}
-\end{center}
+\input{anh_befehle}
 
 \chapter{Beispieldateien und Referenzfälle}\label{anh:beispiele}
 \section{Beispiele in \file{examples/}}

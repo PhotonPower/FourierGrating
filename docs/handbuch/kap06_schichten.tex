@@ -17,6 +17,7 @@ einem Beispiel.
 
 %-------------------------------------------------------------------------------------------
 \section{\texttt{homogeneous} -- homogene Schicht}
+\index{Schichttyp!homogeneous@\texttt{homogeneous}}%
 \begin{lstlisting}[language=json]
 { "type": "homogeneous", "thickness_um": 0.05, "material": "sio2" }
 \end{lstlisting}
@@ -37,6 +38,7 @@ kosten fast nichts.
 
 %-------------------------------------------------------------------------------------------
 \section{\texttt{lamellar1d} -- Lamellen}
+\index{Schichttyp!lamellar1d@\texttt{lamellar1d}}\index{Lamellengitter}%
 \begin{minipage}{0.55\linewidth}
 \begin{lstlisting}[language=json]
 { "type": "lamellar1d",
@@ -78,6 +80,7 @@ Periode ist, wird dagegen \emph{nicht} geprüft -- achten Sie selbst darauf, bes
 
 %-------------------------------------------------------------------------------------------
 \section{\texttt{profile1d} -- Profil $y=g(x)$}\label{sec:profile1d}
+\index{Schichttyp!profile1d@\texttt{profile1d}}\index{Sinusgitter}\index{Echelette}%
 Eine Profilschicht trennt zwei Materialien durch eine Grenzfläche $y=g(x)$ mit $0\le g\le a$ (\key{depth\_um}).
 Unterhalb liegt \key{below}, oberhalb \key{above}. Die Schicht ist so dick wie das Profil hoch ist.
 \begin{center}
@@ -140,6 +143,7 @@ isotrope \val{profile1d}-Schichten erlaubt und in $z$ invariant.
 
 %-------------------------------------------------------------------------------------------
 \section{\texttt{polygon2d} -- Polygone und Rechtecke (2D)}\label{sec:polygon2d}
+\index{Schichttyp!polygon2d@\texttt{polygon2d}}\index{Polygon}%
 \begin{minipage}{0.58\linewidth}
 \begin{lstlisting}[language=json]
 { "type": "polygon2d", "thickness_um": 0.2,
@@ -203,6 +207,7 @@ sind fast immer richtig.
 
 %-------------------------------------------------------------------------------------------
 \section{\texttt{contour2d} -- gekrümmte Querschnitte (2D)}\label{sec:contour2d}
+\index{Schichttyp!contour2d@\texttt{contour2d}}\index{NURBS}\index{Kreis, Ellipse}%
 \val{contour2d} verallgemeinert \val{polygon2d} auf gekrümmte Ränder mit \emph{exakten} Fourierkoeffizienten:
 Kreise und Ellipsen werden nicht durch Polygone angenähert.
 \begin{lstlisting}[language=json]
@@ -242,6 +247,7 @@ Kreise als \key{circle} statt als Vieleck anzugeben.
 
 %-------------------------------------------------------------------------------------------
 \section{\texttt{profile2d} -- Profil $y=g(x,z)$ (2D)}
+\index{Schichttyp!profile2d@\texttt{profile2d}}%
 \begin{lstlisting}[language=json]
 { "type": "profile2d", "shape": "egg_crate", "depth_um": 0.1,
   "below": "si", "above": "air", "x0_um": 0, "z0_um": 0,
@@ -262,12 +268,14 @@ Größe $4n_f$. Mit RK ist der Aufwand noch höher. Beginnen Sie mit kleinem $N$
 
 %-------------------------------------------------------------------------------------------
 \section{\texttt{cad} -- STEP-Körper}
+\index{Schichttyp!cad@\texttt{cad}}%
 Eine \val{cad}-Schicht liest Körper aus einer STEP-Datei und zerlegt sie beim Laden in Bänder aus homogenen,
 \val{contour2d}- und $y$-variablen Schichten. Sie hat eigene Schlüssel und ein eigenes Kapitel
 (Kapitel~\ref{ch:cad}).
 
 %-------------------------------------------------------------------------------------------
 \section{\texttt{rings} -- konzentrische Ringe (Zylinder)}
+\index{Schichttyp!rings@\texttt{rings}}%
 Nur in rotationssymmetrischen Rechnungen (Block \key{cylindrical}, Abschnitt~\ref{sec:zylinder}):
 \begin{lstlisting}[language=json]
 { "type": "rings", "thickness_um": 0.3, "radii_um": [0.4], "materials": ["sin", "air"] }

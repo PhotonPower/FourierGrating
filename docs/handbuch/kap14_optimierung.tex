@@ -1,4 +1,5 @@
 \chapter{Gradienten und Optimierung}\label{ch:optimierung}
+\index{Gradient}\index{Optimierung}\index{Adjungierte}%
 
 \FG{} berechnet exakte Gradienten einer Zielfunktion nach beliebig vielen Parametern mit der
 \textbf{diskreten Adjungierten}. Der Aufwand beträgt etwa 1,3 bis 2,5 Vorwärtsrechnungen -- \emph{unabhängig von der
@@ -66,6 +67,7 @@ Optimierers sehen dann „Treppen“. Das Normalenfeld der CAD-Schnitte bleibt e
 \end{hinweis}
 
 \section{Optimierung mit SciPy}
+\index{SciPy}%
 \begin{lstlisting}[style=py]
 import numpy as np, fouriergrating as fg
 from scipy.optimize import minimize
@@ -89,6 +91,7 @@ Das vollständige Beispiel \file{examples/python/optimize\_littrow.py} optimiert
 Aluminiumgitters für die Ordnung $-1$ in Littrow-Anordnung und vergleicht mit einem Rasterscan.
 
 \section{PyTorch und JAX}
+\index{PyTorch}\index{JAX}%
 \begin{lstlisting}[style=py]
 import torch
 from fouriergrating.torch import efficiencies          # torch.autograd.Function

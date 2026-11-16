@@ -1,4 +1,5 @@
 \chapter{Python-Schnittstelle}\label{ch:python}
+\index{Python}%
 
 Das Paket \texttt{fouriergrating} kann alles, was \cmd{fgsolve} kann, ohne Umweg über Dateien. Die Konfiguration ist
 dasselbe JSON-Schema als Python-\texttt{dict}; Einheiten wie in JSON (\textmu m, Grad). Die Bindungen enthalten keine
@@ -111,6 +112,7 @@ for lam in np.linspace(0.5, 0.9, 41):
 \end{lstlisting}
 
 \section{Dispersive Materialien}\label{sec:py-dispersion}
+\index{Dispersion!Python}\index{refractiveindex.info}%
 Die Modelle stehen in der Konfiguration (Abschnitt~\ref{sec:conf-dispersion}); Python wertet nichts selbst aus. Ein
 Scan rechnet jeden Punkt mit den Werten seiner Wellenlänge, \texttt{Simulation} baut bei einem Wechsel von
 $\lambda$ nur die Schichten neu, die ein dispersives Material enthalten (\texttt{model\_builds}).
@@ -139,6 +141,7 @@ als Sellmeier mit dem Gültigkeitsbereich als \key{range\_um}. Andere Formeln l�
 PyYAML ist optional: \texttt{pip install fouriergrating[materials]}.
 
 \section{S-Matrix in der s/p-Basis}\label{sec:smatrix}
+\index{S-Matrix}%
 \begin{lstlisting}[style=py]
 S = sim.smatrix(lambda_um=0.6, phi_deg=17, psi_deg=10)   # ein Eigenproblem je Richtung
 S.orders, S.alpha, S.gamma, S.beta_sup, S.beta_sub         # Ordnungen und Wellenzahlen
@@ -163,6 +166,7 @@ fg.core_variant()                        # "cpu" oder "cuda12"
 \texttt{FG\_CORE=cpu} erzwingt den CPU-Kern beim Import.
 
 \section{Fehlerbehandlung}
+\index{Fehlerbehandlung (Python)}%
 \begin{lstlisting}[style=py]
 try:
     res = fg.solve(cfg)

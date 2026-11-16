@@ -28,6 +28,7 @@ Darunter stehen gegebenenfalls
 Am Ende nennt \cmd{fgsolve} die geschriebenen Dateien.
 
 \section{\texttt{efficiencies.csv}}\label{sec:csv}
+\index{efficiencies.csv@\file{efficiencies.csv}}%
 Eine Zeile je Ordnung und Scanpunkt, Komma als Trennzeichen, Punkt als Dezimalzeichen.
 \begin{center}
 \small
@@ -74,6 +75,7 @@ print(t1[["lambda_um", "efficiency"]])
 \end{lstlisting}
 
 \section{\texttt{materials.csv}}\label{sec:materials-csv}
+\index{materials.csv@\file{materials.csv}}%
 Mit \val{"output": \{"materials": "materials.csv"\}} schreibt \cmd{fgsolve} die Materialwerte je
 Scan-Wellenlänge, auch die der festen Materialien (ohne \key{eps\_tensor}):
 \begin{lstlisting}
@@ -85,6 +87,7 @@ lambda_um,material,component,n_re,n_im,eps_re,eps_im
 nachprüfen, mit welchen Werten tatsächlich gerechnet wurde.
 
 \section{Diagnose}\label{sec:diagnose}
+\index{Diagnose}%
 \begin{center}
 \small
 \begin{tabularx}{\linewidth}{lY}
@@ -108,6 +111,7 @@ Größe (Python: \texttt{res.diagnostics[...]}) & Bedeutung, Bewertung \\
 \end{center}
 
 \section{Profil der Rechenzeit}
+\index{Profil der Rechenzeit}%
 \begin{lstlisting}[style=shell]
 $ fgsolve --profile examples/nearfield_pillars_2d.json
 ...
@@ -126,6 +130,7 @@ Die Zeiten sind über alle Threads summiert. Typische Abschnitte: \texttt{linalg
 \texttt{nearfield.*} (Nahfeld). In Python: \texttt{fg.solve(cfg, profile=True).diagnostics["timings"]["scopes"]}.
 
 \section{Rückgabewerte von \texttt{fgsolve}}
+\index{Rückgabecode}%
 \begin{center}
 \small
 \begin{tabular}{cl}
@@ -133,9 +138,10 @@ Die Zeiten sind über alle Threads summiert. Typische Abschnitte: \texttt{linalg
 Code & Bedeutung \\
 \midrule
 0 & Erfolg \\
+1 & ohne Argument aufgerufen (Kurzhilfe) \\
 2 & Funktion noch nicht umgesetzt (\texttt{NotImplemented}) \\
 3 & Fehler in Konfiguration oder Rechnung (\texttt{fgsolve: error: \ldots}) \\
-4 & \texttt{--cad-report}: Befunde mit Fehlern \\
+4 & \texttt{-{}-cad-report}: Befunde mit Fehlern \\
 \bottomrule
 \end{tabular}
 \end{center}

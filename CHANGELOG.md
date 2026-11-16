@@ -3,10 +3,15 @@
 ## [Unreleased]
 
 ### Hinzugefügt
-- Benutzerhandbuch in LaTeX (`docs/handbuch/`, ca. 85 Seiten): Grundlagen und Konventionen, Installation, Schnellstart,
+- Benutzerhandbuch in LaTeX (`docs/handbuch/`, ca. 100 Seiten): Grundlagen und Konventionen, Installation, Schnellstart,
   vollständige Konfigurationsreferenz, alle Schichttypen, Löserwahl/Faktorisierung/Konvergenz (mit gemessener
   Konvergenztabelle V19), Scans und Sweeps, Nahfeld, Ausgaben, ASR/PML/Zylinder, CAD, Python, Gradienten, Leistung,
   C++, GUI, Rezepte mit echten Ergebnissen, Fehlersuche, Anhänge. `scripts/build_docs.sh` baut es mit.
+  Dazu dispersive Materialien (M22), eine vollständige Befehlsreferenz im Anhang (`fgsolve`, `fgbench`, Skripte,
+  Python-API, Umgebungsvariablen, CMake-Optionen und Presets) und ein Stichwortverzeichnis (Konfigurationsschlüssel
+  automatisch über `\key`, `makeindex` in `build_docs.sh`). Test `tests/python/test_handbook_reference.py`: jeder
+  öffentliche Python-Name, jede Option von `fgsolve`/`fgbench`, jede Umgebungsvariable, CMake-Option und jedes
+  Skript steht in der Referenz. Behoben: `"auto"` erschien als `äuto"` (babel-Kürzel), `--profile` als `-profile`.
 - Doku korrigiert (`config_format.md`, `user_guide.md`): `triangle` hat `apex_x_um` (nicht `blaze_deg`/`apex_deg`),
   `points` ist ein stückweise lineares Polygon (kein Spline), CSV-Spalten heißen `phi_deg` usw., `diagnostics.json`
   wird nicht geschrieben, `nearfield.quantities` ist derzeit wirkungslos, `breakpoints_um` wird nicht gegen die

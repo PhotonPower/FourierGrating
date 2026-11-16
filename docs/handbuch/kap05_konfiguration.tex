@@ -52,6 +52,7 @@ rotationssymmetrischen Strukturen (Abschnitt~\ref{sec:zylinder}) entfallen \key{
 \key{period\_um}.
 
 \section{Materialien}\label{sec:materialien}
+\index{Material}\index{Anisotropie}\index{Euler-Winkel}%
 Der Block \key{materials} ordnet Namen ihre optischen Eigenschaften zu. Alle anderen Stellen der Konfiguration
 verweisen nur noch auf diese Namen.
 \begin{lstlisting}[language=json]
@@ -93,6 +94,7 @@ Superstrat muss reell und isotrop sein (das Licht kommt von dort). Das Substrat 
 keine transmittierten Ordnungen. Anisotrope Substrate sind erlaubt.
 
 \subsection{Dispersive Materialien}\label{sec:conf-dispersion}
+\index{Dispersion}\index{Sellmeier}\index{Cauchy}\index{Drude--Lorentz}\index{Materialtabelle}%
 Eine feste Zahl gilt für alle Wellenlängen eines Scans. Für Spektren über mehr als einige Nanometer ist das bei
 Metallen und Gläsern falsch. Deshalb darf jeder Materialwert unter \key{n}, \key{eps} und in jedem Eintrag von
 \key{eps\_principal} statt einer Zahl ein \emph{Modell} sein. \FG{} wertet es an jedem Scanpunkt bei dessen
@@ -163,6 +165,7 @@ mit \texttt{fouriergrating.materials.from\_refractiveindex} (Abschnitt~\ref{sec:
 \end{hinweis}
 
 \section{Einfall}\label{sec:conf-einfall}
+\index{Einfall}%
 \begin{center}
 \small
 \begin{tabularx}{\linewidth}{lllY}
@@ -189,6 +192,7 @@ Schachtelung ($\lambda$ außen, $\delta$ innen). Zwei Wellenlängen und beide Po
 (\val{"delta\_deg": [0, 90]}) ergeben also vier Rechnungen. Einzelheiten in Kapitel~\ref{ch:scans}.
 
 \section{Sweep}
+\index{Sweep}%
 Ein Sweep variiert eine beliebige \emph{Zahl} der Konfiguration, adressiert durch einen JSON-Pointer:
 \begin{lstlisting}[language=json]
 "sweep": { "parameter": "/layers/0/thickness_um",
@@ -220,6 +224,7 @@ beschreibt Kapitel~\ref{ch:schichten} ausführlich; hier die Übersicht:
 \end{center}
 
 \section{Löseroptionen}
+\index{Löseroptionen}%
 \begin{center}
 \small
 \begin{tabularx}{\linewidth}{lllY}

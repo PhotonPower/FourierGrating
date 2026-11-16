@@ -1,9 +1,10 @@
 \chapter{CAD-Import: STEP-Dateien}\label{ch:cad}
+\index{CAD}\index{STEP-Datei}%
 
 Komplizierte 3D-Formen (Säulen mit schrägen Wänden, Kugelkappen, Hohlräume, mehrere Materialien) lassen sich als
 STEP-Datei vorgeben. \FG{} zerlegt die Körper entlang $y$ in \textbf{Bänder} und erzeugt daraus automatisch
 homogene, \val{contour2d}- und $y$-variable Schichten. Voraussetzung ist ein Build mit CAD-Slicer
-(Abschnitt~\ref{sec:inst-cad}); \cmd{fgsolve --info} zeigt \texttt{cad slicer : Nurbforge}.
+(Abschnitt~\ref{sec:inst-cad}); \cmd{fgsolve -{}-info} zeigt \texttt{cad slicer : Nurbforge}.
 
 \section{Ablauf}
 \begin{center}
@@ -91,6 +92,7 @@ Die \val{cad}-Schicht wird beim Laden durch ihre Bänder ersetzt (von unten nach
 gewöhnliche Schichten liegen.
 
 \section{Geometrieprüfung}
+\index{CAD!Geometrieprüfung}%
 \begin{lstlisting}[style=shell]
 fgsolve --cad-report config.json        # JSON-Bericht; Rückgabe 0 bei ok, sonst 4
 \end{lstlisting}
@@ -128,7 +130,7 @@ konstruiert, \FG{} prüft, das Modell korrigiert.
 
 \section{Tipps}
 \begin{itemize}
-  \item Prüfen Sie jede neue Geometrie zuerst mit \cmd{--cad-report} oder in der GUI-Seite \gui{CAD}.
+  \item Prüfen Sie jede neue Geometrie zuerst mit \cmd{-{}-cad-report} oder in der GUI-Seite \gui{CAD}.
   \item Bänder mit senkrechten Wänden sind exakt und billig. Schräge Wände kosten \key{rcwa\_slices} Eigenprobleme;
         \val{chebyshev} spart die Neuberechnung der Querschnitte.
   \item Bei RK ist ein $y$-variables Band ohne Treppe exakt; die Querschnitte werden bei Bedarf berechnet und
