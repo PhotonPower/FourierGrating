@@ -66,8 +66,8 @@ jobs:
           sudo apt-get install -y cmake ninja-build libeigen3-dev nlohmann-json3-dev libgtest-dev
       - name: Build
         run: cmake --preset cpu-cad -DFG_WARNINGS_AS_ERRORS=ON && cmake --build --preset cpu-cad
-      - name: CAD tests, unit tests, golden files
-        run: ctest --preset cpu-cad -L "unit|regression" && ctest --preset cpu-cad -R "CAD|cad_pillar"
+      - name: CAD tests, unit tests, golden files, V23c (dispersive CAD layer)
+        run: ctest --preset cpu-cad -L "unit|regression" && ctest --preset cpu-cad -R "CAD|cad_pillar|V23c"
 
   windows-msvc:
     runs-on: windows-2022
