@@ -16,6 +16,7 @@ Diese Datei gilt für jeden, der an FourierGrating arbeitet. Lies sie vollständ
 
 * Arbeite die Meilensteine in `docs/roadmap.md` **der Reihe nach** ab (M0 → M11, dann Version 2: M12 → M19,
   Plan Teile 5–6). Die offene GPU-Abnahme von M10 blockiert nur die GPU-Teile von M15 und M16.
+  M22 (Dispersion, Plan Teil 8) hängt nicht von M20/M21 ab und darf vor deren Abschluss umgesetzt werden.
   Ein Meilenstein ist erst fertig, wenn alle seine Abnahmetests grün sind.
 * Status in `docs/roadmap.md` nach jedem Meilenstein aktualisieren (`[x]`).
 * Keine Funktionen „auf Vorrat“ implementieren, die der aktuelle Meilenstein nicht braucht.
