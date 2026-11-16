@@ -41,6 +41,8 @@ __all__ = [
     "cuda_available",
     "get_backend",
     "load_config",
+    "material_eps",
+    "materials",
     "near_field",
     "set_backend",
     "solve",
@@ -67,6 +69,12 @@ def load_config(path: Union[str, "os.PathLike[str]"]) -> dict:
     out = cfg.get("output")
     if isinstance(out, dict) and isinstance(out.get("dir"), str) and not os.path.isabs(out["dir"]):
         out["dir"] = os.path.normpath(os.path.join(base, out["dir"]))
+    for mat in (cfg.get("materials") or {}).values():  # table files of dispersive materials (M22)
+        values = [mat.get("n"), mat.get("eps")] + list(mat.get("eps_principal") or [])
+        for v in values:
+            t = v.get("table") if isinstance(v, dict) else None
+            if isinstance(t, dict) and isinstance(t.get("file"), str) and not os.path.isabs(t["file"]):
+                t["file"] = os.path.normpath(os.path.join(base, t["file"]))
     for layer in cfg.get("layers", []):  # STEP files of cad layers (M14)
         if isinstance(layer, dict) and layer.get("type") == "cad" and isinstance(layer.get("file"), str):
             if not os.path.isabs(layer["file"]):
@@ -199,6 +207,22 @@ def near_field(cfg: Config) -> dict:
     return d
 
 
+def _material(cfg: Config, name: str, lambda_um, which: int):
+    lam = np.asarray(lambda_um, dtype=float)
+    vals = _core.material_values(_to_json(cfg), str(name), [float(x) for x in lam.ravel()])[which]
+    out = np.asarray(vals)
+    out = out[:, 0] if out.shape[1] == 1 else out
+    out = out.reshape(lam.shape + out.shape[1:])
+    return complex(out) if out.ndim == 0 else out
+
+
+def material_eps(cfg: Config, name: str, lambda_um):
+    """Relative permittivity of material ``name`` at ``lambda_um`` (number or array, µm), evaluated by the core
+    (dispersive models, M22, and fixed values): complex for a number, an array of the shape of ``lambda_um``
+    otherwise; materials with ``eps_principal`` give the three principal values in a last axis of length 3."""
+    return _material(cfg, name, lambda_um, 1)
+
+
 #: objective / cotangents: {("R", n, m): weight} or [(side, n, m, weight), ...]; aperiodic structures (Plan v2.13):
 #: {("scattering", "up"): w, ("scattering", "down"): w, ("mode", "R", j): w, ("mode", "T", j): w}
 Objective = Union[Mapping[tuple, float], Sequence[tuple]]
@@ -308,3 +332,4 @@ class Simulation:
 
 
 from . import cad  # noqa: E402  (needs _to_json and _core)
+from . import materials  # noqa: E402

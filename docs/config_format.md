@@ -1,6 +1,6 @@
 # Konfigurationsformat (JSON)
 
-Einheiten: Längen in µm, Winkel in Grad. Brechzahlen als Zahl oder `[Re, Im]`.
+Einheiten: Längen in µm, Winkel in Grad. Brechzahlen als Zahl, `[Re, Im]` oder dispersives Modell (M22, unten).
 Eingelesen von `fg::io::loadConfig` bzw. `fg::io::loadSweep`; dieses Dokument ist die Spezifikation.
 Eine Einführung mit Beispielen steht im Anwenderhandbuch `docs/user_guide.md`.
 
@@ -25,7 +25,9 @@ Eine Einführung mit Beispielen steht im Anwenderhandbuch `docs/user_guide.md`.
     "co":    { "eps_tensor": [[[-8.19,16.38],[0,0],[-0.495,-0.106]],
                               [[0,0],[-8.19,16.38],[0,0]],
                               [[0.495,0.106],[0,0],[-8.19,16.38]]] },
-    "lnb":   { "eps_principal": [4.98, 4.98, 4.6], "euler_deg": [0, 90, 0] }  // R diag R^T, z-x-z
+    "lnb":   { "eps_principal": [4.98, 4.98, 4.6], "euler_deg": [0, 90, 0] },  // R diag R^T, z-x-z
+    "sio2":  { "n": { "sellmeier": { "A": 1.0, "B": [0.6961663, 0.4079426, 0.8974794],      // M22: Modelle,
+                                     "C_um2": [0.00467914826, 0.0135120631, 97.9340025] } } }  // siehe unten
   },
   "superstrate": "air",
   "substrate": "al",
@@ -77,7 +79,8 @@ Eine Einführung mit Beispielen steht im Anwenderhandbuch `docs/user_guide.md`.
     "quantities": ["E", "H", "absE2", "poynting"],
     "reconstruction": "fff"              // "direct" | "fff"
   },
-  "output": { "dir": "out/example", "efficiencies": "efficiencies.csv" }
+  "output": { "dir": "out/example", "efficiencies": "efficiencies.csv",
+              "materials": "materials.csv" }    // optional (M22): n, ε je Scan-Wellenlänge
 }
 ```
 
@@ -96,6 +99,46 @@ Bildern; geprüft, sonst Fehler). Formen: `circle`, `ellipse` (exakt als rationa
 Orientierung ist beliebig. Koeffizienten aus Konturintegralen (Plan eq:contour, ≈ 1e-14), Normalenfeld aus
 Randstichproben der Kurven (Algorithmus NF, M13). Ein `contour2d`-Polygon ist identisch mit `polygon2d`.
 Kommentare (`//`) dienen nur der Erläuterung; echte Dateien sind reines JSON.
+
+**Dispersive Materialien (M22, Plan Abschnitt „Dispersive Materialien“).** Ein Materialwert unter `"n"`, `"eps"`
+oder in einem Eintrag von `"eps_principal"` darf statt einer Zahl ein Modell sein; es wird an jedem Scanpunkt
+bei dessen Wellenlänge ausgewertet. Die Geometrie hängt nicht von λ ab.
+
+```json
+"sio2": { "n": { "sellmeier": { "A": 1.0, "B": [0.6961663, 0.4079426, 0.8974794],
+                                "C_um2": [0.00467914826, 0.0135120631, 97.9340025],
+                                "range_um": [0.21, 6.7] } } },          // range_um optional
+"tio2": { "n": { "cauchy": { "A": 2.40, "B_um2": 0.03, "C_um4": 0.0, "k": 0.0 } } },
+"au":   { "n": { "table": { "file": "materials/au.csv", "unit": "um",  // oder "data": [[λ, n, k], ...]
+                            "interpolation": "cubic", "extrapolate": "error" } } },
+"ag":   { "eps": { "table": { "data": [[0.40, -4.4, 0.21], [0.50, -9.8, 0.31]] } } },
+"al":   { "eps": { "drude_lorentz": { "eps_inf": 1.0, "omega_p_eV": 14.98, "f0": 0.523, "gamma0_eV": 0.047,
+            "oscillators": [ { "f": 0.227, "omega_eV": 0.162, "gamma_eV": 0.333 } ] } } },
+"lnb":  { "eps_principal": [ { "sellmeier": {...} }, { "sellmeier": {...} }, 4.6 ], "euler_deg": [0, 90, 0] }
+```
+
+| Modell | liefert | Formel / Werte |
+| --- | --- | --- |
+| `sellmeier` | ε | ε = A + Σ B_k λ²/(λ² − C_k), C_k in µm², A Standard 1; reell. `range_um` (optional): außerhalb Fehler |
+| `cauchy` | n | n = A + B/λ² + C/λ⁴ + i k (`B_um2`, `C_um4`, `k` Standard 0) |
+| `drude_lorentz` | ε | ε = ε∞ − f₀ωp²/(ω(ω + iΓ₀)) + Σ f_j ωp²/(ω_j² − ω² − iωΓ_j), Energien in eV, ħω = 1,239841984/λ |
+| `table` | Schlüssel | unter `"n"`: Spalten λ, n[, k]; unter `"eps"`/`"eps_principal"`: λ, Re ε[, Im ε] |
+
+* Liefert ein Modell n, ist ε = n²; liefert es ε, gilt das auch unter `"n"`. Verluste: Im ε > 0, k ≥ 0.
+* Tabellen: `"file"` (CSV; Trennzeichen Komma, Semikolon oder Leerraum; `#`-Zeilen und eine Kopfzeile ohne
+  Zahlen werden übersprungen; relativ zum Verzeichnis der Konfiguration) **oder** `"data"`. `"unit"` der ersten
+  Spalte: `um` (Standard), `nm`, `eV`. `"interpolation"`: `linear` (Standard) oder `cubic` (Not-a-knot-Spline, ab
+  4 Zeilen); jede Spalte für sich in λ. Außerhalb der Tabelle: Fehler, mit `"extrapolate": "constant"` Randwert
+  und Warnung in der Diagnose.
+* Dispersive Einträge in `eps_tensor` sind nicht vorgesehen (`eps_principal` mit `euler_deg` verwenden).
+* Frühe Prüfung beim Laden (auch jeder Sweep-Wert): Bereich, Sellmeier-Pol, verlustfreies Superstrat an jedem
+  Scanpunkt. Die Meldung nennt den JSON-Pointer, z. B. `/materials/au/n/table: lambda 0.25 um outside [0.3, 1.9] um`.
+* Modellwerte sind Zahlen der Konfiguration: Sweeps, `set_parameter` und Gradienten sprechen sie per Pointer an,
+  z. B. `/materials/sio2/n/sellmeier/B/0`, `/materials/ag/eps/table/data/3/2` (Tabellenwerte nur mit `"data"`;
+  die Wellenlängen-Spalte ist kein Gradientenparameter).
+* Ausgabe: `Result::diag.materials` (n, ε der dispersiven Materialien je Scanpunkt), Terminal `material …`,
+  optional `materials.csv` mit den Spalten `lambda_um, material, component, n_re, n_im, eps_re, eps_im`
+  (`component`: `iso` oder Hauptachse `1`–`3`; alle Materialien außer `eps_tensor`).
 
 **Threads (M15).** Drei Ebenen: Scanpunkte (`threads.scan`), Schichten/Scheiben einer Rechnung
 (`threads.slices`: RCWA-Scheiben, RK-Stabilitätsscheiben, homogene Schichten; dazu Normalenfeld-Raster,

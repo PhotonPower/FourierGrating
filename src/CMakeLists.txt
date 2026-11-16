@@ -11,6 +11,7 @@ add_library(fg_core
   fourier/sampling.cpp
   fourier/contour.cpp
   geometry/stack.cpp
+  geometry/dispersion.cpp
   adjoint/primitives.cpp
   adjoint/shape.cpp
   geometry/aperiodic.cpp

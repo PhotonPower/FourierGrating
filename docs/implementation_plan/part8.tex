@@ -210,6 +210,29 @@ Beispiel \verb|examples/dispersive_metal_grating.json| (1D-Silbergitter, Drude--
 \verb|docs/user_guide.md| (Abschnitt \enquote{Dispersion}, Hinweis auf festen Winkel im Superstrat),
 \verb|docs/python.md|.
 
+\subsection{Umsetzung (v2.19)}\label{sec:disp_impl}
+\begin{itemize}[nosep]
+  \item \verb|Material::at| bildet die Werte mit denselben Konstruktionen wie der Parser für Zahlen
+        (\verb|fromIndex| für $n$, $\varepsilon$ direkt, \verb|rotatedTensor| für Hauptwerte); damit ist V23a bitgleich.
+        Nicht aufgelöste dispersive Materialien tragen NaN, und jeder Pfad unterhalb von \verb|detail::resolveStack|
+        (Schichtmodelle, \verb|setup|, Zylinderpfad) weist sie ab.
+  \item Sellmeier: $A$ ist optional (Standard $1$); optional \verb|"range_um": [lo, hi]| als Gültigkeitsbereich
+        (außerhalb Fehler wie bei Tabellen). Der Import aus refractiveindex.info setzt ihn aus
+        \verb|wavelength_range| (\enquote{Gültigkeitsbereich als Tabellengrenze}).
+  \item Gradienten: Die Konfiguration wird bei $\lambda$ aufgelöst, jedes Modell durch $[\operatorname{Re}q,
+        \operatorname{Im}q]$ seines Werts $q$ ersetzt ($n$ oder $\varepsilon$, Hauptwerte stets $\varepsilon$). Die
+        Materialgradienten aus M19 liefern $\partial L/\partial\operatorname{Re}q$ und $\partial L/\partial\operatorname{Im}q$;
+        \eqref{eq:disp_grad_p} und \eqref{eq:disp_grad_lambda} sind dann
+        $\frac{dL}{dp}=\frac{\partial L}{\partial\operatorname{Re}q}\operatorname{Re}\frac{\partial q}{\partial p}
+        +\frac{\partial L}{\partial\operatorname{Im}q}\operatorname{Im}\frac{\partial q}{\partial p}$ (gleichwertig, da
+        $\bar q=\partial L/\partial\operatorname{Re}q+i\,\partial L/\partial\operatorname{Im}q$). Beim Superstrat wird nur
+        $\operatorname{Re}q$ abgeleitet; Parameter mit $\operatorname{Im}\partial q/\partial p\ne0$ sind dort abgelehnt.
+  \item \verb|Simulation|: Schichten, deren Materialien erst je Schnitthöhe bekannt sind (\verb|SectionedLayer|, CAD),
+        werden bei einem Wechsel von $\lambda$ immer neu gebaut, sobald ein Material des Stapels dispersiv ist.
+  \item \verb|materials.csv| enthält alle Materialien außer \verb|eps_tensor| (Spalte \verb|component|: \verb|iso|
+        oder Hauptachse \verb|1|--\verb|3|); \verb|fg.material_eps| wertet auch feste Materialien aus.
+\end{itemize}
+
 \subsection*{Literatur zu M22 (vor Verwendung bibliographisch prüfen)}
 \begin{enumerate}[label={[D\arabic*]},nosep,leftmargin=2.6em]
   \item I.\,H.~Malitson, \emph{Interspecimen comparison of the refractive index of fused silica}, JOSA 55, 1205 (1965).

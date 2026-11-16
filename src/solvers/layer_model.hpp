@@ -96,6 +96,15 @@ LayerModels buildLayerModels(const Stack& stack, const IndexMap& map, int defaul
 /// Model of layer k only (Simulation::setParameter rebuilds single layers, M12).
 std::unique_ptr<LayerModel> buildLayerModel(const Stack& stack, std::size_t k, const IndexMap& map, int defaultSlices);
 
+/// The stack with fixed material values at lambda (Plan sec:disp_arch, M22): called at the start of every
+/// public entry; the paths below it require a resolved stack (requireResolved). With diag: n and eps of the
+/// dispersive materials and warnings for constant extrapolation.
+Stack resolveStack(const Stack& stack, double lambda_um, Diagnostics* diag = nullptr);
+/// n, eps of the dispersive materials of `stack` at lambda and extrapolation warnings into diag.
+void materialDiagnostics(const Stack& stack, double lambda_um, Diagnostics& diag);
+/// Throws if dispersive materials reach a solver path unresolved (an entry that bypasses resolveStack).
+void requireResolved(const Stack& stack);
+
 /// Thread-local settings of a solver run (backend dispatch, FFT sampling); also needed before
 /// building layer models outside a solver.
 void applyThreadSettings(const SolverOptions& opt);
