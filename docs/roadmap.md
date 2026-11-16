@@ -208,15 +208,28 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
   `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)
   - Abnahme: V22a–g (Plan)
 
-## Dispersive Materialien (Plan v2.18, Teil 8: M22)
+## Dispersive Materialien (Plan v2.18–v2.19, Teil 8: M22)
 
 Unabhängig von M20/M21, darf vorgezogen werden (Plan Abschnitt „Erweiterung ab Version 2.18“). Spezifikation: Plan
 Abschnitt „Dispersive Materialien (M22)“.
 
-- [ ] **M22** Dispersive Materialien: Materialwert = Zahl, `[Re, Im]` oder Modell (`table` aus `file`/`data` mit
+- [x] **M22** Dispersive Materialien: Materialwert = Zahl, `[Re, Im]` oder Modell (`table` aus `file`/`data` mit
   `linear`/`cubic`, `sellmeier`, `cauchy`, `drude_lorentz`) in `n`, `eps` und `eps_principal`; Auswertung je
   Scanpunkt über `Stack::at` / `detail::resolveStack` an jedem Einstieg; frühe Prüfung (Bereich, Pol, verlustfreies
   Superstrat) mit JSON-Pointer; Zwischenspeicher in `Simulation`; `diagnostics["materials"]`, `materials.csv`,
   `fg.material_eps`; Gradienten nach λ (Kettenregel) und Modellwerten; Import `fouriergrating.materials.from_refractiveindex`
   - Abnahme: V23a–h (Plan), Golden Files bitgleich
+  - Erledigt (Plan v2.19): `fg::Dispersion` (`src/geometry/dispersion.cpp`), `Material::at`/`Stack::at`,
+    `detail::resolveStack` an jedem Einstieg; Unit-Tests `test_dispersion` (V23b: Malitson 1e-14 und n_d = 1,4585,
+    Drude–Lorentz Im ε > 0, Tabelle exakt an Stützstellen, `cubic` = kubisches Polynom 1e-13, dε/dλ und
+    Modellableitungen gegen Differenzen 1e-8, nm/eV/Datei = µm; V23g: Fehler mit Pointer vor der Rechnung);
+    `test_validation_v23` (V23a bitgleich 1D/2D/anisotrop; V23c `solveScan`, RK, `Simulation` mit Rücksprüngen, Sweep
+    über λ und Modellwert, Nahfeld, `orderSMatrix`, Hauptachsen, PML, Zylinder bitgleich zu festen Werten; V23d
+    Drude–Lorentz-Halbraum = Fresnel 1e-12, Sellmeier-Gitter R + T = 1 auf 1e-10, Rayleigh-Anomalie im dispersiven
+    Substrat ±1e-10 µm; V23e Gradienten gegen Differenzen ≤ 4e-6 relativ, RCWA/RK, Tabellen linear/kubisch,
+    Hauptachsen, `Simulation` = `gradient` bitgleich; V23f `model_builds`); Python `test_materials.py` (V23h,
+    `material_eps`, Scan = feste Werte, Gradient); Beispiel `examples/dispersive_metal_grating.json` mit Golden File
+  - Offen: der CAD-Fall von V23c läuft noch nirgends (lokal ohne Nurbforge übersprungen; der CI-Job `cad` wählt ihn
+    mit `-L "unit|regression"` und `-R "CAD|cad_pillar"` nicht aus); Drude–Lorentz-Werte (Ag, Al nach Rakić) und
+    Literaturangaben [D1]–[D4] bibliographisch prüfen
 

@@ -3,6 +3,23 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M22 dispersive Materialien (Plan Teil 8, v2.19): Materialwerte unter `n`, `eps` und in `eps_principal` dürfen
+  Modelle sein – `sellmeier` (optional `range_um`), `cauchy`, `drude_lorentz`, `table` (`file`/`data`, Einheit
+  um/nm/eV, `linear`/`cubic` Not-a-knot, `extrapolate`); Modul `fg::Dispersion` (`include/fg/geometry/dispersion.hpp`),
+  `Material::at`/`Stack::at`, `detail::resolveStack` an jedem Einstieg (`solve`, `solveScan`, `fieldCoefficients`,
+  `nearField`, `orderSMatrix`, Gradienten, Zylinderpfad), nicht aufgelöste Materialien werden abgewiesen. Frühe
+  Prüfung beim Laden (Bereich, Sellmeier-Pol, verlustfreies Superstrat, jeder Sweep-Wert) mit JSON-Pointer.
+  `Simulation` baut bei einem Wechsel von λ nur Schichten mit dispersivem Material neu. Ausgaben
+  `Result::diag.materials`, `fgsolve`-Zeilen `material …`, `"output": {"materials": "materials.csv"}`,
+  `fg::io::materialAt`, Python `fg.material_eps`, `diagnostics["materials"]`. Gradienten nach Modellwerten
+  (eq:disp_grad_p) und nach λ mit Kettenregel (eq:disp_grad_lambda). Python
+  `fouriergrating.materials.from_refractiveindex` (YAML, optional PyYAML: `fouriergrating[materials]`),
+  `load_config` löst Tabellendateien relativ auf. Tests `test_dispersion` (V23b, V23g), `test_validation_v23`
+  (V23a, V23c–f), `tests/python/test_materials.py` (V23h); Beispiele `examples/dispersive_metal_grating.json`
+  (neues Golden File, keine bestehenden geändert) und `examples/python/dispersive_scan.py`.
+- Plan v2.19: Umsetzungsdetails zu M22 (Abschnitt „Umsetzung (v2.19)“): Sellmeier `range_um` für den Import aus
+  refractiveindex.info, Gradienten über die Materialgradienten von M19 mit aufgelöster Konfiguration,
+  CAD-Schichten im Zwischenspeicher, Inhalt von `materials.csv`.
 - S-Matrix des Stapels in der s/p-Basis der Ordnungen (Plan v2.17, Abschnitt „S-Matrix in der s/p-Basis der
   Ordnungen“, eq:Ssp): `Solver::orderSMatrix`, `Simulation::orderSMatrix`, Python `Simulation.smatrix` mit
   `R_top`, `T_down`, `T_up`, `R_bottom`. Ein Eigenproblem liefert beide Polarisationen und Licht von oben und von

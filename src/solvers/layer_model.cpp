@@ -1479,6 +1479,7 @@ class Profile2DModel final : public LayerModel {
 }  // namespace
 
 std::unique_ptr<LayerModel> buildLayerModel(const Stack& stack, std::size_t k, const IndexMap& map, int defaultSlices) {
+  requireResolved(stack);
   FG_REQUIRE(k < stack.layers.size(), "layer index out of range");
   const LayerEntry& le = stack.layers[k];
   const ResolvedTransform tr = resolveTransform(stack);  // coefficients in X, Z (Plan section "M17")
@@ -1506,6 +1507,7 @@ std::unique_ptr<LayerModel> buildLayerModel(const Stack& stack, std::size_t k, c
 }
 
 LayerModels buildLayerModels(const Stack& stack, const IndexMap& map, int defaultSlices) {
+  requireResolved(stack);
   LayerModels out;
   for (std::size_t k = 0; k < stack.layers.size(); ++k) out.push_back(buildLayerModel(stack, k, map, defaultSlices));
   return out;

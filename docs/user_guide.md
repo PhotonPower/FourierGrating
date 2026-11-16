@@ -96,6 +96,30 @@ fgsolve examples/sweep_lamellar_depth.json
 scripts/plot_efficiencies.py out/sweep_lamellar_depth/efficiencies.csv --orders R:0 T:-1 T:0 --out sweep.png
 ```
 
+### Dispersion (M22)
+
+Materialwerte dürfen Funktionen der Wellenlänge sein (Sellmeier, Cauchy, Drude–Lorentz, Tabellen n/k oder ε);
+Format und Pointer in `docs/config_format.md`, Abschnitt „Dispersive Materialien“. Ohne Modell rechnen alle
+Scanpunkte mit denselben Zahlen, Spektren über mehr als einige Nanometer sind dann für Metalle und Gläser falsch.
+
+```bash
+fgsolve examples/dispersive_metal_grating.json      # Silbergitter, Drude–Lorentz, 0,4–1,0 µm
+scripts/plot_efficiencies.py out/dispersive_metal_grating/efficiencies.csv --orders R:0 R:-1
+```
+
+* **Fester Winkel im Superstrat.** φ bezieht sich wie immer auf das Superstrat. Ist dessen Brechzahl dispersiv,
+  hängt α₀ = ν_M(λ) sin φ cos ψ von λ ab (physikalisch richtig: fester Winkel im Superstrat, nicht fester
+  Wellenvektor). Das Superstrat muss an jedem Scanpunkt verlustfrei sein (Prüfung beim Laden).
+* Ohne dispersives Material ändert sich nichts (Golden Files bitgleich); ein Modell mit konstantem Wert ergibt
+  bitgleich dasselbe wie die Zahl.
+* Die Drude–Lorentz-Parameter in den Beispielen (Ag, Al nach Rakić et al. 1998) vor der Verwendung für
+  Ergebnisse prüfen; Tabellen lassen sich aus refractiveindex.info übernehmen (Python,
+  `fouriergrating.materials.from_refractiveindex`, `docs/python.md`; Lizenz der Daten beachten).
+* `Simulation`/Python `fg.Simulation`: bei einem Wechsel von λ werden nur Schichten mit dispersivem Material neu
+  aufgebaut (`model_builds`).
+* Gradienten nach λ enthalten die Kettenregel über dε/dλ (Plan eq:disp_grad_lambda); bei linearer Tabelle ist
+  die Ableitung an einer Stützstelle einseitig (Hinweis in `notes`).
+
 ## 6. Nahfeld
 
 ```json
@@ -117,6 +141,8 @@ scripts/plot_efficiencies.py out/sweep_lamellar_depth/efficiencies.csv --orders 
   exakt, FFF-Varianten auf 1e-5 bis 5e-4). Negative Absorption oder R > 1 zeigen eine ungeeignete
   Faktorisierung oder zu kleines N an.
 * Warnungen (z. B. `FFF_iso` mit Metall) erscheinen in der Ausgabe und in `Result::diag.warnings`.
+* Dispersive Materialien (M22): n und ε am Scanpunkt im Terminal (`material …`) und in `Result::diag.materials`;
+  `"output": {"materials": "materials.csv"}` schreibt sie je Scan-Wellenlänge.
 
 ## 8. Laufzeiten und Leistung
 

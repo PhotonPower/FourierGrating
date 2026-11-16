@@ -128,6 +128,16 @@ py::dict toDict(const fg::Result& r, double seconds, const std::vector<fg::prof:
   diag["precision_fallback"] = r.diag.precisionFallback;
   diag["refinement_steps"] = r.diag.refinementSteps;
   diag["refinement_fallbacks"] = r.diag.refinementFallbacks;
+  py::list mats;  // M22: dispersive materials at this wavelength
+  for (const auto& v : r.diag.materials) {
+    py::dict mv;
+    mv["name"] = v.name;
+    mv["component"] = v.component;
+    mv["n"] = v.n;
+    mv["eps"] = v.eps;
+    mats.append(mv);
+  }
+  diag["materials"] = mats;
   py::dict timings;
   timings["solve_s"] = seconds;
   if (!prof.empty()) timings["scopes"] = scopes(prof);
@@ -283,6 +293,31 @@ PYBIND11_MODULE(_core, m) {
       },
       py::arg("config_json"), py::arg("base_dir"), py::arg("step_text"), py::arg("y_um"));
   m.def("cad_llm_tool_spec", [] { return fg::cad::llmToolSpec(); });
+
+  // M22: n and eps of a material for an array of wavelengths (Plan "Ausgaben", fg.material_eps)
+  m.def(
+      "material_values",
+      [](const std::string& json, const std::string& name, const std::vector<double>& lambdas) {
+        std::vector<std::vector<fg::MaterialValue>> vals;
+        {
+          py::gil_scoped_release nogil;
+          const auto cfg = fg::io::parseConfig(json);
+          for (double l : lambdas) vals.push_back(fg::io::materialAt(cfg.stack, name, l));
+        }
+        const auto rows = static_cast<py::ssize_t>(lambdas.size());
+        const auto cols = static_cast<py::ssize_t>(vals.empty() ? 1 : vals.front().size());
+        py::array_t<std::complex<double>> n({rows, cols}), eps({rows, cols});
+        auto nv = n.mutable_unchecked<2>();
+        auto ev = eps.mutable_unchecked<2>();
+        for (py::ssize_t i = 0; i < rows; ++i)
+          for (py::ssize_t c = 0; c < cols; ++c) {
+            nv(i, c) = vals[static_cast<std::size_t>(i)][static_cast<std::size_t>(c)].n;
+            ev(i, c) = vals[static_cast<std::size_t>(i)][static_cast<std::size_t>(c)].eps;
+          }
+        return py::make_tuple(n, eps);
+      },
+      py::arg("config_json"), py::arg("name"), py::arg("lambdas_um"),
+      "(n, eps) of a material, arrays (len(lambdas), 1 | 3): isotropic or the principal values.");
 
   m.def(
       "solve",

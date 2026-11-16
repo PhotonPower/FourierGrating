@@ -8,9 +8,11 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <variant>
 
 #include "fg/core/error.hpp"
+#include "fg/geometry/dispersion.hpp"
 #include "fg/core/parallel.hpp"
 #include "fg/core/prof.hpp"
 #include "fg/core/quadrature.hpp"
@@ -372,6 +374,14 @@ class StackSolver final : public Solver {
 
   // ------------------------------------------------------------------ efficiencies
   Result solve(const Stack& stack, const Wavelength& wl) override {
+    if (stack.dispersive()) {  // M22: fixed material values at this wavelength (Plan sec:disp_arch)
+      Diagnostics d;
+      const Stack st = detail::resolveStack(stack, wl.lambda_um, &d);
+      Result r = solve(st, wl);
+      r.diag.materials = std::move(d.materials);
+      r.diag.warnings.insert(r.diag.warnings.end(), d.warnings.begin(), d.warnings.end());
+      return r;
+    }
     if (stack.cylindrical.enabled) return cylindricalSolve(stack, wl);
     const Setup s = setup(stack, wl);
     return solveModels(stack, s, buildModels(stack, s));
@@ -379,6 +389,7 @@ class StackSolver final : public Solver {
 
   // ------------------------------------------------------------------ S-matrix in the s/p basis
   OrderSMatrix orderSMatrix(const Stack& stack, const Wavelength& wl) override {
+    if (stack.dispersive()) return orderSMatrix(detail::resolveStack(stack, wl.lambda_um), wl);  // M22
     FG_REQUIRE(!stack.cylindrical.enabled, "orderSMatrix: cylindrical stacks have no plane-wave orders");
     const Setup s = setup(stack, wl);
     return orderSMatrixModels(stack, s, buildModels(stack, s));
@@ -577,6 +588,7 @@ class StackSolver final : public Solver {
 
   // ------------------------------------------------------------------ field coefficients
   FieldSampleSet fieldCoefficients(const Stack& stack, const Wavelength& wl, const std::vector<double>& y_um) override {
+    if (stack.dispersive()) return fieldCoefficients(detail::resolveStack(stack, wl.lambda_um), wl, y_um);  // M22
     if (stack.cylindrical.enabled) throw NotImplemented("cylindrical near fields (M20)");
     const Setup s = setup(stack, wl);
     const auto models = buildModels(stack, s);
@@ -586,6 +598,7 @@ class StackSolver final : public Solver {
   // ------------------------------------------------------------------ near field cuts
   NearFieldResult nearField(const Stack& stack, const Wavelength& wl, const NearFieldRequest& req) override {
     FG_PROF_SCOPE("nearfield");
+    if (stack.dispersive()) return nearField(detail::resolveStack(stack, wl.lambda_um), wl, req);  // M22
     if (stack.cylindrical.enabled) throw NotImplemented("cylindrical near fields (M20)");
     const Setup s = setup(stack, wl);
     const auto models = buildModels(stack, s);
@@ -620,6 +633,7 @@ class StackSolver final : public Solver {
   /// "M20: S-Matrix, Loeser und Nahfeld"): one assembly per azimuthal harmonic with the Hankel basis,
   /// powers from Plan eq:cyl_flux.
   Result cylindricalSolve(const Stack& stack, const Wavelength& wl) {
+    detail::requireResolved(stack);
     FG_PROF_SCOPE("solve.cylindrical");
     detail::applyThreadSettings(opt_);
     setEigenThreads({1, sliceThreads(), std::max(1, opt_.threadsBlas)});
@@ -836,6 +850,7 @@ class StackSolver final : public Solver {
 
   // ------------------------------------------------------------------ setup
   Setup setup(const Stack& stack, const Wavelength& wl) const {
+    detail::requireResolved(stack);
     detail::applyThreadSettings(opt_);
     setEigenThreads({1, sliceThreads(), std::max(1, opt_.threadsBlas)});
     Setup s;
@@ -2111,6 +2126,47 @@ class StackSolver final : public Solver {
 std::unique_ptr<Solver> makeSolver(const SolverOptions& opt) { return std::make_unique<StackSolver>(opt); }
 
 namespace detail {
+
+Stack resolveStack(const Stack& stack, double lambda_um, Diagnostics* diag) {
+  Stack s = stack.at(lambda_um);
+  if (diag) materialDiagnostics(stack, lambda_um, *diag);
+  return s;
+}
+
+void materialDiagnostics(const Stack& stack, double lambda_um, Diagnostics& diag) {
+  auto nOf = [](cplx e) {  // branch Im n >= 0
+    const cplx n = std::sqrt(e);
+    return n.imag() < 0 ? -n : n;
+  };
+  for (const auto& [name, m] : stack.materials) {
+    if (!m.dispersive()) continue;
+    const Material r = m.at(lambda_um);
+    if (m.model) {
+      const cplx v = m.model->value(lambda_um);
+      const bool isN = m.model->quantity() == Dispersion::Quantity::N;
+      diag.materials.push_back({name, 0, isN ? v : nOf(r.eps), r.eps});
+    } else {
+      for (int i = 0; i < 3; ++i)
+        diag.materials.push_back({name, i + 1, nOf(r.principal[static_cast<std::size_t>(i)]),
+                                  r.principal[static_cast<std::size_t>(i)]});
+    }
+    std::vector<const Dispersion*> ds{m.model.get()};
+    for (const auto& p : m.principalModels) ds.push_back(p.get());
+    for (const Dispersion* d : ds)
+      if (d && d->extrapolated(lambda_um)) {
+        const auto [lo, hi] = d->validRange();
+        std::ostringstream w;
+        w << d->pointer() << "/table: lambda " << lambda_um << " um outside [" << lo << ", " << hi
+          << "] um, value held constant (extrapolate)";
+        diag.warnings.push_back(w.str());
+      }
+  }
+}
+
+void requireResolved(const Stack& stack) {
+  FG_REQUIRE(!stack.dispersive(),
+             "internal: dispersive materials reach the solver unresolved (every entry calls detail::resolveStack, M22)");
+}
 
 linalg::Precision resolvePrecision(const SolverOptions& opt) {
   std::string p = opt.precision;
