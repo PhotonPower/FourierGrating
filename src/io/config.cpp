@@ -76,7 +76,7 @@ std::shared_ptr<const Dispersion> parseDispersion(const json& v, const std::stri
   FG_REQUIRE(v.is_object() && v.size() == 1,
              ptr + ": a model is {\"sellmeier\" | \"cauchy\" | \"drude_lorentz\" | \"table\": {...}}");
   const std::string key = v.begin().key();
-  const json& m = v.begin().value();
+  const json& m = v.at(key);
   const std::string where = ptr + "/" + key;
   FG_REQUIRE(m.is_object(), where + " must be an object");
   auto known = [&](std::initializer_list<const char*> keys) {
