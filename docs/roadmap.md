@@ -230,5 +230,6 @@ Abschnitt „Dispersive Materialien (M22)“.
     Hauptachsen, `Simulation` = `gradient` bitgleich; V23f `model_builds`); Python `test_materials.py` (V23h,
     `material_eps`, Scan = feste Werte, Gradient); Beispiel `examples/dispersive_metal_grating.json` mit Golden File
   - V23c mit CAD-Schicht läuft im CI-Job `cad` (`-R "CAD|cad_pillar|V23c"`; lokal ohne Nurbforge übersprungen)
-  - Offen: Drude–Lorentz-Werte (Ag, Al nach Rakić) und Literaturangaben [D1]–[D4] bibliographisch prüfen
+  - Drude–Lorentz-Werte (Ag, Al nach Rakić) und Literaturangaben [D1]–[D4] geprüft (Plan v2.20): `fg.material_eps`
+    gibt die Rakić-Tabellen von refractiveindex.info auf die 5 Stellen der Tabelle wieder
 

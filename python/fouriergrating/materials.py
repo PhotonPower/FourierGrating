@@ -4,7 +4,7 @@ Format conversion only (AGENTS.md section 7): the result is a material object of
 (``docs/config_format.md``, "Materialwerte"), evaluated by the core like a handwritten one.
 
     import fouriergrating as fg
-    cfg["materials"]["au"] = fg.materials.from_refractiveindex("data/main/Au/Johnson.yml")
+    cfg["materials"]["au"] = fg.materials.from_refractiveindex("database/data/main/Au/nk/Johnson.yml")
 """
 
 from __future__ import annotations

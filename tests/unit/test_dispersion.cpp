@@ -26,7 +26,7 @@ Dispersion::Sellmeier malitson() {
   return s;
 }
 
-// aluminium after Rakic et al. [D3] (Lorentz-Drude, values to be checked before use in results)
+// aluminium after Rakic et al. [D3] (Lorentz-Drude)
 Dispersion::DrudeLorentz rakicAl() {
   Dispersion::DrudeLorentz d;
   d.epsInf = 1.0;

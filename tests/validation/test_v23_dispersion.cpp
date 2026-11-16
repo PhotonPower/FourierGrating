@@ -22,7 +22,7 @@ const json kSio2 = {{"sellmeier",
                      {{"A", 1.0},
                       {"B", {0.6961663, 0.4079426, 0.8974794}},
                       {"C_um2", {0.00467914826, 0.0135120631, 97.9340025}}}}};
-// silver after Rakic et al. [D3] (Lorentz-Drude; values to be checked before quoting results)
+// silver after Rakic et al. [D3] (Lorentz-Drude)
 const json kAg = {{"drude_lorentz",
                    {{"eps_inf", 1.0},
                     {"omega_p_eV", 9.01},

@@ -99,7 +99,7 @@ Ein \emph{Materialwert} ist künftig eine Zahl, \verb|[Re, Im]| oder ein Modello
   "ag":   { "eps": { "table": { "data": [[0.40, -4.4, 0.21], [0.50, -9.8, 0.31], ...] } } },
   "al":   { "eps": { "drude_lorentz": { "eps_inf": 1.0, "omega_p_eV": 14.98,
               "f0": 0.523, "gamma0_eV": 0.047,
-              "oscillators": [ { "f": 0.227, "omega_eV": 0.162, "gamma_eV": 0.333 } ] } } },
+              "oscillators": [ { "f": 0.227, "omega_eV": 0.162, "gamma_eV": 0.333 }, ... ] } } },
   "lnb":  { "eps_principal": [ { "sellmeier": {...} }, { "sellmeier": {...} }, 4.6 ],
             "euler_deg": [0, 90, 0] }
 }
@@ -233,12 +233,13 @@ Beispiel \verb|examples/dispersive_metal_grating.json| (1D-Silbergitter, Drude--
         oder Hauptachse \verb|1|--\verb|3|); \verb|fg.material_eps| wertet auch feste Materialien aus.
 \end{itemize}
 
-\subsection*{Literatur zu M22 (vor Verwendung bibliographisch prüfen)}
+\subsection*{Literatur zu M22 (bibliographisch geprüft, v2.20)}
 \begin{enumerate}[label={[D\arabic*]},nosep,leftmargin=2.6em]
-  \item I.\,H.~Malitson, \emph{Interspecimen comparison of the refractive index of fused silica}, JOSA 55, 1205 (1965).
-  \item P.\,B.~Johnson, R.\,W.~Christy, \emph{Optical constants of the noble metals}, Phys.\ Rev.\ B 6, 4370 (1972).
+  \item I.\,H.~Malitson, \emph{Interspecimen comparison of the refractive index of fused silica}, JOSA 55(10), 1205--1209 (1965).
+  \item P.\,B.~Johnson, R.\,W.~Christy, \emph{Optical constants of the noble metals}, Phys.\ Rev.\ B 6(12), 4370--4379 (1972).
   \item A.\,D.~Raki\'c, A.\,B.~Djuri\v{s}i\'c, J.\,M.~Elazar, M.\,L.~Majewski, \emph{Optical properties of metallic
-        films for vertical-cavity optoelectronic devices}, Appl.\ Opt.\ 37, 5271 (1998).
-  \item M.\,N.~Polyanskiy, \emph{Refractiveindex.info database of optical constants}, Sci.\ Data 11, 94 (2024);
-        Lizenz der Daten vor Übernahme in Beispiele prüfen.
+        films for vertical-cavity optoelectronic devices}, Appl.\ Opt.\ 37(22), 5271--5283 (1998).
+  \item M.\,N.~Polyanskiy, \emph{Refractiveindex.info database of optical constants}, Sci.\ Data 11, 94 (2024).
+        Die Daten der Datenbank stehen unter CC0~1.0; erbeten ist das Zitat dieses Artikels und der Originalquelle
+        des jeweiligen Datensatzes.
 \end{enumerate}
