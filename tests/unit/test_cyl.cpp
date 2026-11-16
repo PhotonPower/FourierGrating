@@ -4,6 +4,7 @@
 
 #include "../support/std_bessel.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 #include "fg/core/quadrature.hpp"
@@ -230,7 +231,9 @@ TEST(CylPropagationMatrix, HomogeneousMediumEigenvectors) {
   const MatC M = cyl::propagationMatrix(grid.k, Q);
   VecC d(4 * n);
   for (int b = 0; b < 4; ++b) d.segment(b * n, n) = grid.k.cwiseProduct(grid.k).array() - eps;
-  EXPECT_LT(((M * M) - MatC(d.asDiagonal())).cwiseAbs().maxCoeff(), 1e-13);
+  // relative to max|k^2 - eps|: the rounding of M*M depends on FMA contraction (arm64 clang contracts by default)
+  const double scale = std::max(1.0, d.cwiseAbs().maxCoeff());
+  EXPECT_LT(((M * M) - MatC(d.asDiagonal())).cwiseAbs().maxCoeff(), 1e-13 * scale);
   const auto mb = cyl::homogeneousModes(eps, grid.k);
   EXPECT_LT((M * mb.Psi - mb.Psi * mb.lambda.asDiagonal()).cwiseAbs().maxCoeff(), 1e-12);
   EXPECT_LT((mb.Psi * mb.PsiInv - MatC::Identity(4 * n, 4 * n)).cwiseAbs().maxCoeff(), 1e-13);
