@@ -27,6 +27,16 @@ Verluste gehören in Schichten oder das Substrat \\
 \texttt{sweep: parameter '\ldots' not found} & JSON-Pointer zeigt ins Leere; optionalen Block anlegen \\
 \texttt{sweep: parameter '\ldots' is not a number} & Pointer zeigt auf eine Liste oder ein Objekt (z.\,B.\
 \val{/materials/au/n} bei \val{[Re, Im]}; richtig: \val{/materials/au/n/0}) \\
+\texttt{/materials/x/n/table: lambda \ldots{} um outside [\ldots] um} & Scanpunkt außerhalb der Tabelle: Tabelle
+erweitern, Scan einschränken oder \val{"extrapolate": "constant"} \\
+\texttt{\ldots/sellmeier: lambda \ldots{} at the pole \ldots} & Wellenlänge auf einem Pol $\sqrt{C_k}$ der
+Sellmeier-Formel \\
+\texttt{\ldots/sellmeier: lambda \ldots{} um outside [\ldots] um (range\_um)} & außerhalb des
+Gültigkeitsbereichs der Formel \\
+\texttt{\ldots: the superstrate must be lossless at every scan point} & dispersives Superstrat mit Verlusten an einem
+Scanpunkt \\
+\texttt{\ldots dispersive eps\_tensor entries} (Code 2) & Modell in \key{eps\_tensor}; \key{eps\_principal} mit
+\key{euler\_deg} verwenden \\
 \texttt{no material jumps found along the axis, give breakpoints\_um} & ASR mit \val{auto} ohne Lamellen/Polygone \\
 \texttt{CUDA backend requested but not available} & \val{"backend": "cuda"} ohne GPU-Build oder Gerät $\to$ \val{auto} \\
 \texttt{\ldots NotImplemented \ldots M\textit{x}} (Code 2) & Funktion spezifiziert, aber noch nicht umgesetzt; z.\,B.\

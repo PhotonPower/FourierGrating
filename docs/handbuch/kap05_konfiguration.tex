@@ -92,9 +92,74 @@ Konvention $e^{+i\omega t}$ (dort $n-ik$) müssen Sie mit positivem Imaginärtei
 Superstrat muss reell und isotrop sein (das Licht kommt von dort). Das Substrat darf absorbieren; dann gibt es
 keine transmittierten Ordnungen. Anisotrope Substrate sind erlaubt.
 
-\begin{hinweis}[Keine Dispersion]
-Ein Material hat für alle Wellenlängen eines Scans denselben Wert. Für breite Spektren rechnen Sie je Wellenlänge
-mit eigenem Wert (Abschnitt~\ref{sec:py-dispersion}).
+\subsection{Dispersive Materialien}\label{sec:conf-dispersion}
+Eine feste Zahl gilt für alle Wellenlängen eines Scans. Für Spektren über mehr als einige Nanometer ist das bei
+Metallen und Gläsern falsch. Deshalb darf jeder Materialwert unter \key{n}, \key{eps} und in jedem Eintrag von
+\key{eps\_principal} statt einer Zahl ein \emph{Modell} sein. \FG{} wertet es an jedem Scanpunkt bei dessen
+Wellenlänge aus; die Geometrie bleibt fest.
+\begin{lstlisting}[language=json]
+"materials": {
+  "sio2": { "n": { "sellmeier": { "A": 1.0, "B": [0.6961663, 0.4079426, 0.8974794],
+                                  "C_um2": [0.00467914826, 0.0135120631, 97.9340025],
+                                  "range_um": [0.21, 6.7] } } },   // optional
+  "tio2": { "n": { "cauchy": { "A": 2.40, "B_um2": 0.03, "C_um4": 0.0, "k": 0.0 } } },
+  "au":   { "n": { "table": { "file": "materials/au.csv", "unit": "um",
+                              "interpolation": "cubic", "extrapolate": "error" } } },
+  "ag":   { "eps": { "drude_lorentz": { "eps_inf": 1.0, "omega_p_eV": 9.01,
+              "f0": 0.845, "gamma0_eV": 0.048,
+              "oscillators": [ { "f": 0.065, "omega_eV": 0.816, "gamma_eV": 3.886 },
+                               { "f": 0.124, "omega_eV": 4.481, "gamma_eV": 0.452 },
+                               { "f": 0.011, "omega_eV": 8.185, "gamma_eV": 0.065 },
+                               { "f": 0.840, "omega_eV": 9.083, "gamma_eV": 0.916 },
+                               { "f": 5.646, "omega_eV": 20.29, "gamma_eV": 2.419 } ] } } },
+  "lnb":  { "eps_principal": [ { "sellmeier": {...} }, { "sellmeier": {...} }, 4.6 ],
+            "euler_deg": [0, 90, 0] }
+}
+\end{lstlisting}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{llY}
+\toprule
+Modell & liefert & Formel und Schlüssel \\
+\midrule
+\key{sellmeier} & $\varepsilon$ & $\varepsilon=A+\sum_k B_k\lambda^2/(\lambda^2-C_k)$, $C_k$ in \textmu m$^2$
+(\key{C\_um2}), \key{A} Standard 1, reell. Optional \key{range\_um}: außerhalb Fehler \\
+\key{cauchy} & $n$ & $n=A+B/\lambda^2+C/\lambda^4+ik$ (\key{B\_um2}, \key{C\_um4}, \key{k}, Standard 0) \\
+\key{drude\_lorentz} & $\varepsilon$ & $\varepsilon=\varepsilon_\infty-\dfrac{f_0\omega_p^2}{\omega(\omega+i\Gamma_0)}
++\sum_j\dfrac{f_j\omega_p^2}{\omega_j^2-\omega^2-i\omega\Gamma_j}$, Energien in eV,
+$\hbar\omega=1{,}239841984/\lambda$ \\
+\key{table} & Schlüssel & unter \key{n}: Spalten $\lambda$, $n$[, $k$]; unter \key{eps}/\key{eps\_principal}:
+$\lambda$, $\operatorname{Re}\varepsilon$[, $\operatorname{Im}\varepsilon$] \\
+\bottomrule
+\end{tabularx}
+\end{center}
+\begin{itemize}
+  \item Liefert ein Modell $n$, gilt $\varepsilon=n^2$; liefert es $\varepsilon$, gilt das auch unter \key{n}.
+        Verluste heißen $\operatorname{Im}\varepsilon>0$ bzw.\ $k\ge0$.
+  \item \textbf{Tabellen}: \key{file} (CSV; Trennzeichen Komma, Semikolon oder Leerraum; Zeilen mit \texttt{\#} und
+        eine Kopfzeile ohne Zahlen werden übersprungen; relativ zum Verzeichnis der Konfiguration) \emph{oder}
+        \key{data} mit den Zeilen. \key{unit} der ersten Spalte: \val{um} (Standard), \val{nm}, \val{eV}.
+        \key{interpolation}: \val{linear} (Standard) oder \val{cubic} (Not-a-knot-Spline, ab 4 Zeilen); jede
+        Spalte für sich in $\lambda$. Außerhalb der Tabelle ist die Auswertung ein Fehler, mit
+        \val{"extrapolate": "constant"} gilt der Randwert mit einer Warnung in der Diagnose.
+  \item Dispersive Einträge in \key{eps\_tensor} gibt es nicht; dafür \key{eps\_principal} mit \key{euler\_deg}.
+  \item \FG{} prüft beim Laden jeden Scanpunkt und jeden Sweep-Wert: Gültigkeitsbereich, Sellmeier-Pol und ein
+        verlustfreies Superstrat. Die Meldung nennt den JSON-Pointer, z.\,B.\
+        \texttt{/materials/au/n/table: lambda 0.25 um outside [0.3, 1.9] um}.
+  \item Der Einfallswinkel $\varphi$ gilt im Superstrat. Ist dessen Brechzahl dispersiv, hängt die
+        Tangentialkomponente $\alpha_0=\nu_M(\lambda)\sin\varphi\cos\psi$ von $\lambda$ ab (fester Winkel, nicht
+        fester Wellenvektor).
+  \item Modellwerte sind Zahlen der Konfiguration: Sweeps, \texttt{set\_parameter} und Gradienten erreichen sie per
+        Pointer, z.\,B.\ \val{/materials/sio2/n/\allowbreak sellmeier/B/0} oder \val{/materials/ag/eps/\allowbreak table/data/3/2}
+        (Tabellenwerte nur mit \key{data}; die Wellenlängenspalte ist kein Gradientenparameter).
+  \item Ein Modell mit konstantem Wert ergibt bitgleich dasselbe wie die Zahl.
+\end{itemize}
+\begin{hinweis}[Herkunft der Werte]
+Die Drude--Lorentz-Werte für Silber oben (und für Aluminium in \file{docs/config\_format.md}) stammen von Raki\'c
+et al.\ \ref{lit:rakic} und sind gegen die Tabellen von refractiveindex.info geprüft. Raki\'c hat an Messdaten mehrerer Quellen
+angepasst: Gegenüber Johnson--Christy \ref{lit:jc} ist $|\operatorname{Re}\varepsilon|$ für Silber im Sichtbaren etwa 20\,\%
+kleiner und $\operatorname{Im}\varepsilon$ zwei- bis fünfmal größer. Tabellen übernehmen Sie aus refractiveindex.info
+mit \texttt{fouriergrating.materials.from\_refractiveindex} (Abschnitt~\ref{sec:py-dispersion}).
 \end{hinweis}
 
 \section{Einfall}\label{sec:conf-einfall}
@@ -187,6 +252,8 @@ Schlüssel & Typ & Standard & Bedeutung \\
 \midrule
 \key{output.dir} & Text & \val{"out"} & Ausgabeverzeichnis (relativ zum Arbeitsverzeichnis von \cmd{fgsolve}) \\
 \key{output.efficiencies} & Text & \val{"efficiencies.csv"} & Name der Effizienzdatei \\
+\key{output.materials} & Text & -- & optional: $n$ und $\varepsilon$ aller Materialien je Scan-Wellenlänge
+(Abschnitt~\ref{sec:materials-csv}) \\
 \bottomrule
 \end{tabularx}
 \end{center}

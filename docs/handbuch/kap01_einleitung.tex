@@ -39,10 +39,11 @@ Bereich & Möglichkeiten \\
 \midrule
 Geometrie & 1D-Gitter (periodisch in $x$), 2D-Gitter (periodisch in $x$ und $z$), isolierte Strukturen mit PML,
 rotationssymmetrische Strukturen (in Arbeit) \\
-Schichttypen & homogen, Lamellen, Profile $y=g(x)$ (Sinus, Dreieck, Spline), Polygone, gekrümmte Konturen (Kreis,
+Schichttypen & homogen, Lamellen, Profile $y=g(x)$ (Sinus, Dreieck, Punktliste), Polygone, gekrümmte Konturen (Kreis,
 Ellipse, NURBS), Profile $y=g(x,z)$, STEP-Körper aus CAD, Ringe \\
 Materialien & isotrop (reell oder komplex), anisotrop mit vollem $\varepsilon$-Tensor oder Hauptwerten und
-Euler-Winkeln; Metalle, Dielektrika, Halbleiter \\
+Euler-Winkeln; Metalle, Dielektrika, Halbleiter; dispersiv als Sellmeier-, Cauchy- oder Drude--Lorentz-Modell
+oder als Tabelle $n,k$ bzw.\ $\varepsilon(\lambda)$ \\
 Einfall & ebene Welle beliebiger Richtung und Polarisation (auch konisch), Gauß-Strahl (Zylinderpfad), geführte Mode
 eines strukturierten Halbraums \\
 Löser & RCWA und Runge--Kutta; Faktorisierungen Laurent, Li, FFF in mehreren Varianten; adaptive räumliche Auflösung
@@ -62,10 +63,6 @@ Oberfläche im Browser (\GUI) \\
 
 \section{Was FourierGrating (noch) nicht kann}
 \begin{itemize}
-  \item \textbf{Dispersive Materialien}: Ein Material hat für alle Wellenlängen eines Scans dieselbe Brechzahl.
-        Für Spektren über einen größeren Bereich ist das bei Metallen und Halbleitern falsch. Abhilfe bis zur
-        Umsetzung (Meilenstein M22, geplant): je Wellenlänge eine Rechnung mit passender Brechzahl, am bequemsten in
-        Python (Abschnitt~\ref{sec:py-dispersion}).
   \item Nichtlineare Optik, magnetische Materialien ($\mu_r\neq1$), zeitabhängige Felder.
   \item Kurvenförmige Schichtgrenzen in $y$-Richtung außerhalb der unterstützten Profil- und CAD-Typen.
   \item Rotationssymmetrische Strukturen (Meilenstein M20) sind teilweise umgesetzt; Nahfeld, Profile in Ringform

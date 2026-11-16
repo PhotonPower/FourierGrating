@@ -11,13 +11,16 @@ eigene Physik: Ergebnisse sind identisch mit \cmd{fgsolve}.
 \toprule
 Funktion / Klasse & Zweck \\
 \midrule
-\texttt{fg.load\_config(pfad)} & JSON-Datei lesen; \key{output.dir} und \key{cad.file} relativ zur Datei auflösen \\
+\texttt{fg.load\_config(pfad)} & JSON-Datei lesen; \key{output.dir}, \key{cad.file} und Tabellendateien
+(\key{table.file}) relativ zur Datei auflösen \\
 \texttt{fg.solve(cfg, profile=False)} & erster Scanpunkt $\to$ \texttt{Result} (\key{sweep} wird ignoriert) \\
 \texttt{fg.solve\_scan(cfg, profile=False)} & alle Sweep-Werte und Scanpunkte (parallel) $\to$ \texttt{ScanResult} \\
 \texttt{fg.near\_field(cfg)} & Nahfeldschnitte des ersten Scanpunkts \\
 \texttt{fg.Simulation(cfg)} & vorbereitete Rechnung für viele Auswertungen, Parameteränderungen, Gradienten \\
 \texttt{fg.set\_backend(pref, threshold)} & Standard-Backend für Konfigurationen ohne \key{backend} \\
 \texttt{fg.get\_backend()}, \texttt{fg.cuda\_available()}, \texttt{fg.core\_variant()} & Abfragen \\
+\texttt{fg.material\_eps(cfg, name, lambda\_um)} & $\varepsilon$ eines Materials bei einer oder vielen Wellenlängen \\
+\texttt{fg.materials.from\_refractiveindex} & Materialobjekt aus einer YAML-Datei von refractiveindex.info \\
 \texttt{fg.cad.check}, \texttt{fg.cad.preview}, \texttt{fg.cad.llm\_tool\_spec} & CAD (Kapitel~\ref{ch:cad}) \\
 \texttt{fouriergrating.torch}, \texttt{fouriergrating.jax} & Gradienten-Adapter (Kapitel~\ref{ch:optimierung}) \\
 \texttt{fg.FourierGratingError} & Ausnahme für Konfigurations- und Rechenfehler (Unterklasse von \texttt{RuntimeError}) \\
@@ -38,6 +41,7 @@ res.incidence        # {"lambda_um", "phi_deg", "psi_deg", "delta_deg"}
 res.scattering       # isolierte Strukturen: {"up", "down", "lateral", "absorbed"}
 res.modal            # Modenanregung: {"incident", "reflected", "transmitted", "radiated"}
 res.cylindrical      # Zylinder: {"reflected", "transmitted", "absorbed", "harmonics", ...}
+res.diagnostics["materials"]   # dispersive Materialien: [{"name", "component", "n", "eps"}, ...]
 \end{lstlisting}
 Die Felder \texttt{amp\_s}, \texttt{amp\_p} sind komplex. Beispiel: alle reflektierten Ordnungen ausgeben
 \begin{lstlisting}[style=py]
@@ -106,26 +110,33 @@ for lam in np.linspace(0.5, 0.9, 41):
     print(lam, sim.solve(lambda_um=lam, phi_deg=phi).efficiency("R", -1))
 \end{lstlisting}
 
-\subsection{Dispersive Materialien von Hand}\label{sec:py-dispersion}
-Solange \FG{} keine wellenlängenabhängigen Materialien kennt, setzen Sie die Brechzahl je Wellenlänge selbst. Die
-Brechzahl muss dafür als \val{[Re, Im]} in der Konfiguration stehen:
+\section{Dispersive Materialien}\label{sec:py-dispersion}
+Die Modelle stehen in der Konfiguration (Abschnitt~\ref{sec:conf-dispersion}); Python wertet nichts selbst aus. Ein
+Scan rechnet jeden Punkt mit den Werten seiner Wellenlänge, \texttt{Simulation} baut bei einem Wechsel von
+$\lambda$ nur die Schichten neu, die ein dispersives Material enthalten (\texttt{model\_builds}).
 \begin{lstlisting}[style=py]
-import numpy as np
-# Tabelle (lambda in µm, n, k), z. B. aus einer CSV-Datei
-tab = np.loadtxt("au_nk.csv", delimiter=",", skiprows=1)
-n_of = lambda lam: np.interp(lam, tab[:, 0], tab[:, 1])
-k_of = lambda lam: np.interp(lam, tab[:, 0], tab[:, 2])
-
-cfg["materials"]["au"] = {"n": [1.0, 1.0]}       # Platzhalter, wird überschrieben
-sim = fg.Simulation(cfg)
-for lam in np.linspace(0.5, 0.9, 81):
-    sim.set_parameter("/materials/au/n/0", n_of(lam))
-    sim.set_parameter("/materials/au/n/1", k_of(lam))
-    r = sim.solve(lambda_um=lam)
-    print(lam, r.efficiency("R", -1))
+import numpy as np, fouriergrating as fg
+cfg = fg.load_config("examples/dispersive_metal_grating.json")   # Silbergitter
+scan = fg.solve_scan(cfg)                                       # 0,4 .. 1,0 µm
+eps = fg.material_eps(cfg, "ag", [0.4, 0.7, 1.0])               # complex-Array
+fg.material_eps(cfg, "ag", 0.6)                                 # eine Zahl -> complex
+scan.points[0].diagnostics["materials"]                         # n, eps am Scanpunkt
 \end{lstlisting}
-Für eine Sellmeier-Formel ersetzen Sie die Interpolation durch die Formel. Eine Materialänderung baut alle Schichten
-neu; die Rechnung ist dadurch nicht teurer als einzelne Aufrufe von \texttt{fg.solve}.
+\texttt{material\_eps} wertet auch feste Materialien aus; bei \key{eps\_principal} hat das Ergebnis eine letzte
+Achse der Länge 3. Ein vollständiges Beispiel ist \file{examples/python/dispersive\_scan.py}.
+
+\paragraph{Import aus refractiveindex.info.} \texttt{fg.materials.from\_refractiveindex(pfad\_oder\_text)} liest eine
+YAML-Datei der Datenbank refractiveindex.info \ref{lit:rii} und gibt ein Materialobjekt der Konfiguration zurück.
+Die Daten der Datenbank stehen unter CC0~1.0; zitiert werden sollen der Datenbankartikel und die Originalquelle
+des Datensatzes.
+\begin{lstlisting}[style=py]
+cfg["materials"]["au"] = fg.materials.from_refractiveindex(
+    "refractiveindex.info-database/database/data/main/Au/nk/Johnson.yml")
+\end{lstlisting}
+Unterstützt sind \val{tabulated nk}, \val{tabulated n}, \val{tabulated n} mit \val{tabulated k} (Stützstellen beider
+Listen im Überlappbereich, linear interpoliert) als Tabelle unter \key{n} sowie \val{formula 1} und \val{formula 2}
+als Sellmeier mit dem Gültigkeitsbereich als \key{range\_um}. Andere Formeln lösen \texttt{NotImplementedError} aus.
+PyYAML ist optional: \texttt{pip install fouriergrating[materials]}.
 
 \section{S-Matrix in der s/p-Basis}\label{sec:smatrix}
 \begin{lstlisting}[style=py]

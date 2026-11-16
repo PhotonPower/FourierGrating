@@ -43,6 +43,9 @@ NURBS-Kontrollpunkte und -Gewichte \\
 \val{profile2d} & \val{depth\_um}, \val{x0\_um}, \val{z0\_um}, Materialien \\
 isotrope Materialien & \val{/materials/name/n}, \val{.../n/0}, \val{.../n/1}, \val{.../eps}; im Superstrat nur der Realteil \\
 anisotrope Materialien & \val{.../eps\_tensor/i/j/0|1}, \val{.../eps\_principal/k}, \val{.../euler\_deg/k} \\
+dispersive Modelle & jede Zahl eines Modells, z.\,B.\ \val{.../n/sellmeier/B/0},
+\val{.../eps/drude\_lorentz/omega\_p\_eV}, \val{.../eps/drude\_lorentz/oscillators/1/f}; Tabellenwerte nur mit
+\key{data} (\val{.../table/data/i/1}), nicht die Wellenlängenspalte \\
 Einfall & \val{/incidence/lambda\_um}, \val{phi\_deg}, \val{psi\_deg}, \val{delta\_deg} \\
 \bottomrule
 \end{tabularx}
@@ -50,6 +53,10 @@ Einfall & \val{/incidence/lambda\_um}, \val{phi\_deg}, \val{psi\_deg}, \val{delt
 Unterstützt sind RCWA und RK, periodische Gitter, auch mit ASR (Geometrieparameter dann nur mit expliziten
 \key{breakpoints\_um}). Bei isolierten Strukturen: Streuflüsse oben/unten (alle Parameterarten), Modenleistungen;
 noch nicht: Profilschichten mit PML, seitlicher Fluss und Absorption.
+
+Bei dispersiven Materialien enthält die Ableitung nach \val{/incidence/lambda\_um} die Kettenregel über
+$d\varepsilon/d\lambda$. Bei einer linearen Tabelle ist sie an einer Stützstelle einseitig (rechte Ableitung); das
+Ergebnis enthält dann einen Hinweis.
 
 \begin{hinweis}[Was als fest gilt]
 Abgeleitet wird die tatsächlich berechnete diskrete Abbildung. Scheibenzerlegung und RK-Schrittfolge gelten als

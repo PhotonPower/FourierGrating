@@ -18,7 +18,12 @@ Darunter stehen gegebenenfalls
   \item bei isolierten Strukturen \texttt{scattered up = \ldots{} down = \ldots{} absorbed = \ldots} statt der
         Ordnungen,
   \item bei Modenanregung die Zeilen \texttt{MR}, \texttt{MT} mit effektivem Index und Leistung je Mode,
-  \item bei Sweeps vor jedem Wert die Zeile \texttt{== sweep <pointer> = <wert>}.
+  \item bei Sweeps vor jedem Wert die Zeile \texttt{== sweep <pointer> = <wert>},
+  \item bei dispersiven Materialien je Material und Scanpunkt die ausgewerteten Werte, bei \key{eps\_principal}
+        je Hauptachse mit \texttt{[1]}--\texttt{[3]}:
+\begin{lstlisting}
+  material ag: n = 0.1578809+1.8273612i   eps = -3.3143227+0.57701088i
+\end{lstlisting}
 \end{itemize}
 Am Ende nennt \cmd{fgsolve} die geschriebenen Dateien.
 
@@ -68,6 +73,17 @@ t1 = df[(df.side == "T") & (df.n == 1)]
 print(t1[["lambda_um", "efficiency"]])
 \end{lstlisting}
 
+\section{\texttt{materials.csv}}\label{sec:materials-csv}
+Mit \val{"output": \{"materials": "materials.csv"\}} schreibt \cmd{fgsolve} die Materialwerte je
+Scan-Wellenlänge, auch die der festen Materialien (ohne \key{eps\_tensor}):
+\begin{lstlisting}
+lambda_um,material,component,n_re,n_im,eps_re,eps_im
+0.4,ag,iso,0.15788090118,1.82736122912,-3.31432268272,0.577010875269
+0.4,air,iso,1,0,1,0
+\end{lstlisting}
+\texttt{component} ist \val{iso} oder bei \key{eps\_principal} die Hauptachse \val{1}--\val{3}. So lässt sich
+nachprüfen, mit welchen Werten tatsächlich gerechnet wurde.
+
 \section{Diagnose}\label{sec:diagnose}
 \begin{center}
 \small
@@ -79,7 +95,10 @@ Größe (Python: \texttt{res.diagnostics[...]}) & Bedeutung, Bewertung \\
 \texttt{max\_condition\_t11} & größte Konditionszahl der Teilblöcke bei der S-Matrix-Verkettung; sehr große Werte
 ($>10^{12}$) deuten auf numerische Probleme \\
 \texttt{rk\_steps} & Zahl der Runge--Kutta-Schritte \\
-\texttt{warnings} & Liste von Warnungen \\
+\texttt{warnings} & Liste von Warnungen (auch: Tabelle außerhalb ihres Bereichs mit \val{"extrapolate":
+"constant"}) \\
+\texttt{materials} & dispersive Materialien am Scanpunkt: Liste mit \texttt{name}, \texttt{component} (0 isotrop,
+1--3 Hauptachse), \texttt{n}, \texttt{eps} \\
 \texttt{precision} & tatsächlich verwendete Genauigkeit (\val{fp64}, \val{mixed}, \val{fp32}) \\
 \texttt{precision\_fallback} & \val{true}, wenn eine fp32-Rechnung in fp64 wiederholt wurde \\
 \texttt{refinement\_steps}, \texttt{refinement\_fallbacks} & Nachiterationen bei \val{mixed} \\

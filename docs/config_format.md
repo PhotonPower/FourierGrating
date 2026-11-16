@@ -250,6 +250,6 @@ Scanpunkt des ersten Sweep-Werts berechnet. Darstellung: `scripts/plot_efficienc
 Ausgabe: `efficiencies.csv` (Spalten: lambda_um, phi_deg, psi_deg, delta_deg, side, n, m, efficiency,
 eff_s, eff_p, amp_s_re, amp_s_im, amp_p_re, amp_p_im; s/p nur in isotropen Medien), Nahfeld je Schnitt in
 `nearfield_<schnitt>/` (`Ex…Hz.npy`, `absE2.npy`, `absH2.npy`, `Sy.npy`, `material.npy`, `meta.json`), mit
-`fgsolve --profile` zusätzlich `profile.json`. Eine Datei `diagnostics.json` wird nicht geschrieben; die Diagnose steht
+`fgsolve --profile` zusätzlich `profile.json`, mit `output.materials` die Materialwerte (M22, siehe oben). Eine Datei `diagnostics.json` wird nicht geschrieben; die Diagnose steht
 auf dem Terminal bzw. in Python in `Result.diagnostics`. Relative `output.dir` gelten bei `fgsolve` gegen das
 Arbeitsverzeichnis, in Python (`load_config`) gegen die Konfigurationsdatei.

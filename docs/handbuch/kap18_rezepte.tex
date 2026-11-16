@@ -120,9 +120,11 @@ Einfall: außergewöhnliche Transmission (Referenzfall V10).
                   "vertices_um": [[0.325,0.325],[0.575,0.325],[0.575,0.575],[0.325,0.575]] } ] } ] }
 \end{lstlisting}
 \input{rezept_loch_ergebnis}
-\textbf{Worauf achten:} Die Brechzahl von Silber ist hier für alle Wellenlängen gleich (keine Dispersion); für
-quantitative Spektren je Wellenlänge die passende Brechzahl setzen (Abschnitt~\ref{sec:py-dispersion}). Die Lage
-des Peaks verschiebt sich mit $N$; Spektren für $N=6,8,10$ vergleichen.
+\textbf{Worauf achten:} Die Brechzahl von Silber ist hier für alle Wellenlängen gleich, wie im Referenzfall des
+Buchs. Für quantitative Spektren ein dispersives Modell oder eine Tabelle einsetzen
+(Abschnitt~\ref{sec:conf-dispersion}), z.\,B.\ das Drude--Lorentz-Modell aus
+\file{examples/dispersive\_metal\_grating.json}. Die Lage des Peaks verschiebt sich mit $N$; Spektren für $N=6,8,10$
+vergleichen.
 
 %-------------------------------------------------------------------------------------------
 \section{Einzelner Steg mit PML}

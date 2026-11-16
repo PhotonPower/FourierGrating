@@ -115,9 +115,9 @@ scripts/plot_efficiencies.py out/dispersive_metal_grating/efficiencies.csv --ord
   Wellenvektor). Das Superstrat muss an jedem Scanpunkt verlustfrei sein (Prüfung beim Laden).
 * Ohne dispersives Material ändert sich nichts (Golden Files bitgleich); ein Modell mit konstantem Wert ergibt
   bitgleich dasselbe wie die Zahl.
-* Die Drude–Lorentz-Parameter in den Beispielen (Ag, Al nach Rakić et al. 1998) vor der Verwendung für
-  Ergebnisse prüfen; Tabellen lassen sich aus refractiveindex.info übernehmen (Python,
-  `fouriergrating.materials.from_refractiveindex`, `docs/python.md`; Lizenz der Daten beachten).
+* Die Drude–Lorentz-Parameter in den Beispielen (Ag, Al nach Rakić et al. 1998) sind gegen die Tabellen von
+  refractiveindex.info geprüft (Plan v2.20). Tabellen lassen sich aus refractiveindex.info übernehmen (Python,
+  `fouriergrating.materials.from_refractiveindex`, `docs/python.md`; Daten unter CC0 1.0, Quelle zitieren).
 * `Simulation`/Python `fg.Simulation`: bei einem Wechsel von λ werden nur Schichten mit dispersivem Material neu
   aufgebaut (`model_builds`).
 * Gradienten nach λ enthalten die Kettenregel über dε/dλ (Plan eq:disp_grad_lambda); bei linearer Tabelle ist
