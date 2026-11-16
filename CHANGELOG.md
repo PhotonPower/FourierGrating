@@ -95,6 +95,10 @@
 - M10-Abnahme auf der RTX 6000 Ada: Messwerte in `docs/benchmarks.md`.
 
 ### Geändert
+- Plan v2.20: Literatur zu M22 [D1]–[D4] bibliographisch geprüft (Seitenbereiche ergänzt; refractiveindex.info
+  unter CC0 1.0). Drude–Lorentz-Werte für Ag und Al nach Rakić geprüft: `fg.material_eps` gibt die Rakić-Tabellen
+  von refractiveindex.info auf die 5 Stellen der Tabelle wieder. Al-Beispiel in Plan und `docs/config_format.md` als
+  gekürzt gekennzeichnet, Pfade zu refractiveindex.info an den heutigen Aufbau der Datenbank angepasst.
 - Gradienten nach Formparametern mit FFF in 2D: das Rasterfeld von Algorithmus NF bewegt sich mit der Geometrie
   (Differenzenquotient über eine Rasterzelle). Eingefroren war z. B. die Verschiebung eines Kreises um 30–150 %
   falsch (nur der Radius war geprüft). Kosten: zwei NF-Rechnungen je Formparameter.

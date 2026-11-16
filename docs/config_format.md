@@ -113,7 +113,7 @@ bei dessen Wellenlänge ausgewertet. Die Geometrie hängt nicht von λ ab.
                             "interpolation": "cubic", "extrapolate": "error" } } },
 "ag":   { "eps": { "table": { "data": [[0.40, -4.4, 0.21], [0.50, -9.8, 0.31]] } } },
 "al":   { "eps": { "drude_lorentz": { "eps_inf": 1.0, "omega_p_eV": 14.98, "f0": 0.523, "gamma0_eV": 0.047,
-            "oscillators": [ { "f": 0.227, "omega_eV": 0.162, "gamma_eV": 0.333 } ] } } },
+            "oscillators": [ { "f": 0.227, "omega_eV": 0.162, "gamma_eV": 0.333 }, ... ] } } },  // gekürzt: Rakić hat 4
 "lnb":  { "eps_principal": [ { "sellmeier": {...} }, { "sellmeier": {...} }, 4.6 ], "euler_deg": [0, 90, 0] }
 ```
 

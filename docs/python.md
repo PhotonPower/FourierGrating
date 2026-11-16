@@ -58,7 +58,7 @@ sim.model_builds, sim.config
 fg.material_eps(cfg, "ag", [0.4, 0.7, 1.0])   # ε eines Materials (M22), auch fester Werte;
                                      # eps_principal: letzte Achse der Länge 3
 res.diagnostics["materials"]         # dispersive Materialien am Scanpunkt: name, component, n, eps
-cfg["materials"]["au"] = fg.materials.from_refractiveindex("Au/Johnson.yml")   # M22, braucht PyYAML
+cfg["materials"]["au"] = fg.materials.from_refractiveindex("database/data/main/Au/nk/Johnson.yml")   # M22, braucht PyYAML
 
 fg.set_backend("auto", threshold=160)   # Standard für Konfigurationen ohne "backend"
 fg.cuda_available(); fg.core_variant(); fg.__version__
