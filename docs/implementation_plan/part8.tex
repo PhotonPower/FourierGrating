@@ -1,0 +1,221 @@
+%=====================================================================
+\clearpage
+\section{Erweiterung ab Version 2.18: Dispersive Materialien (M22)}\label{sec:disp}
+%=====================================================================
+Bisher ist jedes Material eine feste Zahl ($n$, $\varepsilon$, Tensor). Bei einem Wellenlängen-Scan rechnen alle
+Scanpunkte mit denselben Werten; Spektren über mehr als einige Nanometer sind damit für Metalle, Halbleiter und
+Gläser falsch. Ein Sweep kann das nicht ersetzen, weil er genau einen Zahlenwert ändert und nicht mit $\lambda$
+gekoppelt ist. M22 macht Materialwerte zu Funktionen von $\lambda$, die je Scanpunkt ausgewertet werden.
+
+Die Erweiterung berührt keine Formel der Teile~1--7: Jeder Löserpfad sieht weiterhin einen Stapel mit festen
+Materialwerten, nur wird dieser je Wellenlänge neu gebildet (Abschnitt~\ref{sec:disp_arch}). Deshalb gilt sie
+ohne Zusatzaufwand für RK, RCWA, 2D, Anisotropie, CAD, PML/Streufeld, GPU, gewählte Genauigkeit und
+Zylinderkoordinaten.
+
+\subsection{Annahmen und Festlegungen}
+\begin{enumerate}[nosep]
+  \item Zeitabhängigkeit $e^{-i\omega t}$ wie überall: Verluste haben $\operatorname{Im}\varepsilon>0$,
+        $\operatorname{Im}n=k\ge 0$.
+  \item Die Geometrie hängt nicht von $\lambda$ ab. Die Perioden, Schichtdicken, Normalenfelder und CAD-Bänder
+        bleiben fest; nur die Materialwerte ändern sich.
+  \item Das Superstrat bleibt an \emph{jedem} Scanpunkt verlustfrei (reelles $\nu_M(\lambda)$, Teil~1). Der
+        Einfallswinkel $\varphi$ bezieht sich wie bisher auf das Superstrat; damit ist
+        $\alpha_0=\nu_M(\lambda)\sin\varphi\cos\psi$ wellenlängenabhängig. Das ist physikalisch richtig (fester
+        Winkel im Superstrat) und wird in \verb|docs/user_guide.md| ausdrücklich genannt.
+  \item Ohne dispersives Material im Stapel bleiben alle Ergebnisse bitgleich (Golden Files).
+  \item Ein Modell mit festem Wert, etwa \verb|{"cauchy": {"A": 1.5}}|, liefert dasselbe Ergebnis wie die Zahl
+        \verb|1.5| (bitgleich, Test V23a).
+\end{enumerate}
+
+\subsection{Meilenstein und Abhängigkeiten}
+\begin{center}
+\small
+\begin{tabular}{p{1.0cm}p{6.6cm}p{3.0cm}p{3.8cm}}
+\toprule
+M & Inhalt & setzt voraus & prüfbar in der Sandbox \\
+\midrule
+M22 & Dispersive Materialien: Tabellen, Sellmeier, Cauchy, Drude--Lorentz; Auswertung je Scanpunkt, Zwischenspeicher in
+      \verb|Simulation|, Gradienten mit $d\varepsilon/d\lambda$ und nach Modellparametern, Import aus
+      refractiveindex.info (Python) & M11, M12, M19 & ja \\
+\bottomrule
+\end{tabular}
+\end{center}
+M22 hängt nicht von M20/M21 ab und \textbf{darf vor deren Abschluss umgesetzt werden} (Ausnahme von der Reihenfolge in
+\verb|AGENTS.md|, Abschnitt~2). Die Zylinderpfade erhalten Dispersion automatisch über Abschnitt~\ref{sec:disp_arch};
+V23c schließt einen Zylinderfall ein, sobald M20 ihn rechnen kann.
+
+\subsection{Materialmodelle}\label{sec:disp_models}
+Alle Längen in µm, Energien in eV; $\hbar\omega[\mathrm{eV}]=1{,}239841984/\lambda[\text{µm}]$ (Umrechnung nur an der
+IO-Grenze). Jedes Modell liefert eine \emph{natürliche Größe}: Sellmeier und Drude--Lorentz liefern $\varepsilon$,
+Cauchy liefert $n$ (dann $\varepsilon=n^2$). Bei Tabellen bestimmt der Schlüssel, unter dem sie stehen, die Größe
+(Abschnitt~\ref{sec:disp_config}).
+
+\paragraph{Sellmeier.} Mit $C_k$ in µm$^2$:
+\begin{equation}\label{eq:disp_sellmeier}
+  \varepsilon(\lambda)=A+\sum_{k}\frac{B_k\,\lambda^2}{\lambda^2-C_k}.
+\end{equation}
+Reell und verlustfrei. Liegt ein Scanpunkt auf oder näher als $10^{-9}$ (relativ) an einem Pol
+$\lambda^2=C_k$, ist das ein Konfigurationsfehler.
+
+\paragraph{Cauchy.} Mit $B$ in µm$^2$ und $C$ in µm$^4$, optional mit festem $k$:
+\begin{equation}\label{eq:disp_cauchy}
+  n(\lambda)=A+\frac{B}{\lambda^2}+\frac{C}{\lambda^4}+i\,k .
+\end{equation}
+
+\paragraph{Drude--Lorentz} (Form nach Raki\'c et al.\ [D3]; alle Größen in eV, $\omega=\hbar\omega$):
+\begin{equation}\label{eq:disp_dl}
+  \varepsilon(\omega)=\varepsilon_\infty-\frac{f_0\,\omega_p^2}{\omega\,(\omega+i\Gamma_0)}
+  +\sum_j\frac{f_j\,\omega_p^2}{\omega_j^2-\omega^2-i\,\omega\,\Gamma_j}.
+\end{equation}
+Mit $\Gamma_j\ge0$ ist $\operatorname{Im}\varepsilon\ge0$ für $\omega>0$ (passt zu $e^{-i\omega t}$).
+
+\paragraph{Tabelle.} Stützstellen $(\lambda_i,a_i,b_i)$, $i=0,\dots,K-1$, $\lambda_i$ streng steigend (nach
+Umrechnung der Einheit; bei eV wird absteigend sortiert). $(a,b)$ ist $(n,k)$ unter \verb|"n"| und
+$(\operatorname{Re}\varepsilon,\operatorname{Im}\varepsilon)$ unter \verb|"eps"|. Zwei Spalten bedeuten $b=0$.
+Interpoliert wird jede Spalte für sich in $\lambda$:
+\begin{itemize}[nosep]
+  \item \verb|"linear"| (Standard): stückweise linear. $d\varepsilon/d\lambda$ ist an den Stützstellen unstetig; an
+        einer Stützstelle gilt die rechte Ableitung.
+  \item \verb|"cubic"|: kubischer Spline mit Not-a-knot-Randbedingung (reproduziert kubische Polynome exakt), ab
+        $K\ge4$ Stützstellen.
+\end{itemize}
+Außerhalb von $[\lambda_0,\lambda_{K-1}]$ ist die Auswertung ein Fehler. Mit \verb|"extrapolate": "constant"|
+werden stattdessen die Randwerte gehalten, und das Ergebnis bekommt eine Warnung in der Diagnose.
+
+\paragraph{Anisotropie.} Jeder der drei Einträge von \verb|eps_principal| darf ein Modell sein; die Euler-Winkel
+bleiben fest. Dispersive Einträge in \verb|eps_tensor| sind nicht Teil von M22 (\verb|NotImplemented|).
+
+\subsection{Konfiguration}\label{sec:disp_config}
+Ein \emph{Materialwert} ist künftig eine Zahl, \verb|[Re, Im]| oder ein Modellobjekt. Das ist erlaubt in
+\verb|"n"|, \verb|"eps"| und in jedem Eintrag von \verb|"eps_principal"|:
+\begin{verbatim}
+"materials": {
+  "air":  { "n": 1.0 },
+  "sio2": { "n": { "sellmeier": { "A": 1.0, "B": [0.6961663, 0.4079426, 0.8974794],
+                                  "C_um2": [0.00467914826, 0.0135120631, 97.9340025] } } },
+  "tio2": { "n": { "cauchy": { "A": 2.40, "B_um2": 0.03, "C_um4": 0.0, "k": 0.0 } } },
+  "au":   { "n": { "table": { "file": "materials/au.csv", "unit": "um",
+                              "interpolation": "cubic", "extrapolate": "error" } } },
+  "ag":   { "eps": { "table": { "data": [[0.40, -4.4, 0.21], [0.50, -9.8, 0.31], ...] } } },
+  "al":   { "eps": { "drude_lorentz": { "eps_inf": 1.0, "omega_p_eV": 14.98,
+              "f0": 0.523, "gamma0_eV": 0.047,
+              "oscillators": [ { "f": 0.227, "omega_eV": 0.162, "gamma_eV": 0.333 } ] } } },
+  "lnb":  { "eps_principal": [ { "sellmeier": {...} }, { "sellmeier": {...} }, 4.6 ],
+            "euler_deg": [0, 90, 0] }
+}
+\end{verbatim}
+\begin{itemize}[nosep]
+  \item \verb|"file"|: CSV mit Spalten $\lambda$, $a$[, $b$]; Trennzeichen Komma, Semikolon oder Leerraum; Zeilen mit
+        \verb|#| und eine Kopfzeile ohne Zahlen werden übersprungen. Relative Pfade gelten gegen das Verzeichnis der
+        Konfiguration (wie \verb|cad.file|). Alternativ \verb|"data"| mit den Zeilen inline. Beides zugleich ist ein
+        Fehler.
+  \item \verb|"unit"|: \verb|"um"| (Standard), \verb|"nm"| oder \verb|"eV"| für die erste Spalte.
+  \item Werte der Modelle dürfen von Sweeps und \verb|set_parameter| angesprochen werden, z.\,B.
+        \verb|/materials/sio2/n/sellmeier/B/0| oder \verb|/materials/ag/eps/table/data/3/2|.
+\end{itemize}
+\textbf{Frühe Prüfung} beim Laden (\verb|loadConfig|, \verb|loadSweep|, Python \verb|Simulation|): alle
+Wellenlängen des Scans und, falls der Sweep \verb|/incidence/lambda_um| oder einen Modellwert ändert, aller
+Sweep-Werte werden gegen die Gültigkeitsbereiche, Sellmeier-Pole und die Verlustfreiheit des Superstrats geprüft,
+\emph{bevor} gerechnet wird. Die Meldung nennt Material, Wellenlänge, Bereich und den JSON-Pointer des Modells,
+z.\,B. \verb|/materials/au/n/table: lambda 0.25 um outside [0.30, 1.90] um|.
+
+\subsection{Architektur}\label{sec:disp_arch}
+\begin{itemize}[nosep]
+  \item \verb|include/fg/geometry/dispersion.hpp|: \verb|Dispersion| (Variante aus \verb|Table|, \verb|Sellmeier|,
+        \verb|Cauchy|, \verb|DrudeLorentz|) mit \verb|eps(lambda_um)|, \verb|dEpsDLambda(lambda_um)|,
+        \verb|validRange()| und dem Zugriff auf Modellwerte per JSON-Pointer (für Sweeps und Gradienten).
+  \item \verb|Material| erhält optionale Modelle je Wert (isotrop: eins; Hauptachsen: drei). Neue Funktion
+        \verb|Material::at(lambda_um)| liefert ein Material mit festen Werten; feste Materialien werden unverändert
+        kopiert.
+  \item \verb|Stack Stack::at(double lambda_um) const| ersetzt nur dispersive Materialien. Die einzige Stelle, die es
+        aufruft, ist \verb|detail::resolveStack(stack, wl)| am Anfang \emph{jedes} öffentlichen Einstiegs:
+        \verb|solve|, \verb|solveScan|, \verb|fieldCoefficients|, \verb|nearField|, \verb|orderSMatrix|, die
+        Gradientenfunktionen und die Zylinderpfade. Danach läuft alles wie bisher. Ein Test (V23c) stellt sicher, dass
+        kein Einstieg sie umgeht.
+  \item \verb|solveScan| baut die Schichtmodelle schon heute je Scanpunkt; Dispersion kostet dort nichts zusätzlich.
+  \item \verb|Simulation| hält die Schichtmodelle fest. Mit dispersiven Materialien werden bei einem Wechsel von
+        $\lambda$ nur die Schichten neu gebaut, die ein dispersives Material enthalten (Superstrat und Substrat gehen
+        ohnehin nur über $\nu_1,\nu_M$ ein). Ein Zwischenspeicher hält die Modelle der letzten $\lambda$;
+        \verb|model_builds| zählt die Neubauten. Ohne Dispersion verhält sich \verb|Simulation| bitgleich wie bisher.
+  \item GPU und Genauigkeit (M10, M16): keine Änderung, die Modelle werden auf dem Host ausgewertet.
+\end{itemize}
+
+\subsection{Ausgaben}
+\begin{itemize}[nosep]
+  \item \verb|Result.diagnostics["materials"]|: für jedes dispersive Material $n$ und $\varepsilon$ am Scanpunkt
+        (Hauptachsen: drei Werte), dazu Warnungen bei konstanter Extrapolation.
+  \item \verb|fgsolve|: optional \verb|"output": {"materials": "materials.csv"}| mit den Spalten
+        \verb|lambda_um, material, component, n_re, n_im, eps_re, eps_im| (je Wellenlänge des Scans einmal).
+  \item Python: \verb|fg.material_eps(cfg, name, lambda_um)| (auch für ein Array von $\lambda$) ruft die
+        Kernfunktion \verb|fg::io::materialAt| auf und rechnet selbst nichts. Gedacht für Diagramme und die GUI.
+\end{itemize}
+
+\subsection{Differenzierbarkeit}\label{sec:disp_adj}
+M19 liefert bereits $\bar\varepsilon_m$ für jedes Material $m$ (Konvention aus Abschnitt~\ref{sec:adjoint}:
+$dL=\operatorname{Re}(\bar\varepsilon_m^{\,*}\,d\varepsilon_m)$). Für einen reellen Modellwert $p$ gilt
+\begin{equation}\label{eq:disp_grad_p}
+  \frac{dL}{dp}=\sum_m\operatorname{Re}\!\Bigl(\bar\varepsilon_m^{\,*}\,\frac{\partial\varepsilon_m}{\partial p}\Bigr),
+\end{equation}
+und die Wellenlänge erhält zusätzlich zum bisherigen Anteil bei festen Materialien die Kettenregel
+\begin{equation}\label{eq:disp_grad_lambda}
+  \frac{dL}{d\lambda}=\left.\frac{\partial L}{\partial\lambda}\right|_{\varepsilon}
+  +\sum_m\operatorname{Re}\!\Bigl(\bar\varepsilon_m^{\,*}\,\frac{d\varepsilon_m}{d\lambda}\Bigr).
+\end{equation}
+Bei Hauptachsen-Materialien gilt dasselbe je Hauptwert, mit $\bar\varepsilon$ aus der Rückwärtsregel von
+$R\,\mathrm{diag}\,R^T$. Das Superstrat bleibt verlustfrei: Modellwerte, die dort einen Imaginärteil erzeugen
+würden, sind als Parameter abgelehnt (wie bisher). Zulässige Parameter: $A,B_k,C_k$ (Sellmeier),
+$A,B,C,k$ (Cauchy), alle Werte von Drude--Lorentz, Tabellenwerte $a_i,b_i$. Die Stützstellen $\lambda_i$ sind keine
+Parameter (Fehlermeldung). Bei \verb|"linear"| ist $L(\lambda)$ an Stützstellen nur einseitig differenzierbar; die
+Diagnose weist das aus.
+
+\subsection{Import aus refractiveindex.info (Python)}
+\verb|fouriergrating.materials.from_refractiveindex(path_or_text)| liest eine YAML-Datei der Datenbank [D4] und gibt
+ein Materialobjekt im obigen Format zurück. Unterstützt: \verb|tabulated nk|, \verb|tabulated n|,
+\verb|tabulated n| $+$ \verb|tabulated k| (gemeinsame Stützstellen nach Vereinigung, lineare Interpolation),
+\verb|formula 1| (Sellmeier mit $C_k^2$) und \verb|formula 2| (Sellmeier mit $C_k$) mit dem Gültigkeitsbereich als
+Tabellengrenze. Andere Formeln: \verb|NotImplementedError| mit Formelnummer. Das ist Formatumwandlung und keine Physik,
+also mit \verb|AGENTS.md|, Abschnitt~7, vereinbar; PyYAML wird optionale Abhängigkeit (\verb|fouriergrating[materials]|).
+
+\subsection{Tests und Abnahme (M22)}
+\begin{enumerate}[label=V23\alph*,nosep,leftmargin=3.2em]
+  \item \textbf{Regression:} Golden Files bitgleich. Zahl und gleichwertiges konstantes Modell
+        (\verb|cauchy| mit nur $A$, Tabelle mit konstanten Werten) bitgleich für einen 1D-, einen 2D- und einen
+        anisotropen Fall.
+  \item \textbf{Modelle (Unit):} Sellmeier für Quarzglas nach Malitson [D1] gegen die geschlossene Formel
+        ($10^{-14}$) und gegen den veröffentlichten Wert $n(0{,}5876)=1{,}4585$ ($10^{-4}$); Drude--Lorentz mit
+        $\operatorname{Im}\varepsilon>0$ auf einem Gitter; Tabelle exakt an den Stützstellen, linear exakt in der
+        Mitte, \verb|cubic| reproduziert ein kubisches Polynom ($10^{-13}$); $d\varepsilon/d\lambda$ aller Modelle
+        gegen zentrale Differenzen ($10^{-8}$ relativ, Tabellen abseits der Stützstellen); eV- und nm-Einheiten
+        gegen µm.
+  \item \textbf{Scan-Äquivalenz:} $\lambda$-Scan mit dispersiven Materialien bitgleich zu Einzelrechnungen mit den
+        festen Werten $n(\lambda_i)$, für \verb|solve_scan| (parallel), \verb|Simulation| (beliebige Reihenfolge
+        der $\lambda$, auch Rücksprünge), Sweep, \verb|near_field|, \verb|smatrix|, ein CAD-Beispiel, ein
+        PML-Beispiel und (sobald M20 es rechnet) einen Zylinderfall.
+  \item \textbf{Physik:} senkrechte Reflexion an einem Drude--Lorentz-Halbraum über 0,3--2~µm gegen Fresnel
+        ($10^{-12}$); verlustfreies Sellmeier-Gitter: Energiebilanz wie V-Fälle der Teile~1--4; Rayleigh-Anomalie
+        in einem dispersiven Substrat: die Ordnung $+1$ im Substrat wird ausbreitungsfähig an der Nullstelle von
+        $\lambda-d\,(\nu_1(\lambda)-\nu_M(\lambda)\sin\varphi)$ (Bisektion, $10^{-10}$~µm).
+  \item \textbf{Gradienten:} $dL/d\lambda$ nach \eqref{eq:disp_grad_lambda}, $dL/dB_k$, $dL/df_j$, $dL/da_i$ gegen
+        zentrale Differenzen (Toleranzen wie M19), für RCWA und RK, isotrop und Hauptachsen.
+  \item \textbf{Zwischenspeicher:} \verb|model_builds| steigt bei einem $\lambda$-Wechsel nur um die Zahl der
+        Schichten mit dispersivem Material; ohne Dispersion bleibt es bei 1.
+  \item \textbf{Fehler:} $\lambda$ außerhalb einer Tabelle, Sellmeier-Pol, verlustbehaftetes Superstrat an einem
+        Scanpunkt, \verb|file| und \verb|data| zugleich, Modell in \verb|eps_tensor| -- jeweils vor der Rechnung, mit
+        JSON-Pointer in der Meldung.
+  \item \textbf{Import:} eigene kleine YAML-Dateien je unterstütztem Typ (keine Kopie von Datenbankinhalten nötig);
+        Ergebnis gleich dem handgeschriebenen JSON-Modell.
+\end{enumerate}
+Beispiel \verb|examples/dispersive_metal_grating.json| (1D-Silbergitter, Drude--Lorentz, Spektrum 0,4--1,0~µm) und
+\verb|examples/python/dispersive_scan.py|. Dokumentation: \verb|docs/config_format.md| (Materialwerte),
+\verb|docs/user_guide.md| (Abschnitt \enquote{Dispersion}, Hinweis auf festen Winkel im Superstrat),
+\verb|docs/python.md|.
+
+\subsection*{Literatur zu M22 (vor Verwendung bibliographisch prüfen)}
+\begin{enumerate}[label={[D\arabic*]},nosep,leftmargin=2.6em]
+  \item I.\,H.~Malitson, \emph{Interspecimen comparison of the refractive index of fused silica}, JOSA 55, 1205 (1965).
+  \item P.\,B.~Johnson, R.\,W.~Christy, \emph{Optical constants of the noble metals}, Phys.\ Rev.\ B 6, 4370 (1972).
+  \item A.\,D.~Raki\'c, A.\,B.~Djuri\v{s}i\'c, J.\,M.~Elazar, M.\,L.~Majewski, \emph{Optical properties of metallic
+        films for vertical-cavity optoelectronic devices}, Appl.\ Opt.\ 37, 5271 (1998).
+  \item M.\,N.~Polyanskiy, \emph{Refractiveindex.info database of optical constants}, Sci.\ Data 11, 94 (2024);
+        Lizenz der Daten vor Übernahme in Beispiele prüfen.
+\end{enumerate}

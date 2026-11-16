@@ -208,3 +208,15 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
   `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)
   - Abnahme: V22a–g (Plan)
 
+## Dispersive Materialien (Plan v2.18, Teil 8: M22)
+
+Unabhängig von M20/M21, darf vorgezogen werden (Plan Abschnitt „Erweiterung ab Version 2.18“). Spezifikation: Plan
+Abschnitt „Dispersive Materialien (M22)“.
+
+- [ ] **M22** Dispersive Materialien: Materialwert = Zahl, `[Re, Im]` oder Modell (`table` aus `file`/`data` mit
+  `linear`/`cubic`, `sellmeier`, `cauchy`, `drude_lorentz`) in `n`, `eps` und `eps_principal`; Auswertung je
+  Scanpunkt über `Stack::at` / `detail::resolveStack` an jedem Einstieg; frühe Prüfung (Bereich, Pol, verlustfreies
+  Superstrat) mit JSON-Pointer; Zwischenspeicher in `Simulation`; `diagnostics["materials"]`, `materials.csv`,
+  `fg.material_eps`; Gradienten nach λ (Kettenregel) und Modellwerten; Import `fouriergrating.materials.from_refractiveindex`
+  - Abnahme: V23a–h (Plan), Golden Files bitgleich
+

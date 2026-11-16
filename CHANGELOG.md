@@ -27,6 +27,9 @@
   Li in r (`cylQ`), Propagationsmatrix, Modenbasis homogener Medien und Poynting-Fluss je Harmonischer; Unit-Tests
   `test_cyl`, Validierung V21b (Fasermoden: Li in r ≤ 1,1e-4 bei k_max = 16, Laurent erster Ordnung; Werte des
   Prototyps reproduziert).
+- Plan v2.18 (Teil 8): Spezifikation dispersiver Materialien – M22 (Tabellen, Sellmeier, Cauchy, Drude–Lorentz in
+  `n`, `eps`, `eps_principal`; Auswertung je Scanpunkt, frühe Prüfung mit JSON-Pointer, Gradienten nach λ und
+  Modellwerten, Import aus refractiveindex.info); Roadmap und AGENTS.md (M22 darf vor M20/M21) ergänzt.
 - Plan v2.15: Umsetzungsdetails zu M20 – Wurzelsubstitution je Teilpanel (Panel zwischen zwei Verzweigungspunkten
   geteilt, die Sinus-Substitution über das ganze Panel ist mit 8 Knoten 10³-fach ungenauer), Bessel nach Miller mit
   Genauigkeitsmaß relativ zur Amplitude (scipy bei |z| ≈ 500 nur auf ≈ 1e-14), Lommel-Toleranz 5e-14.
