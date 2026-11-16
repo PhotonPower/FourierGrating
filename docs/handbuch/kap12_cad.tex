@@ -1,0 +1,137 @@
+\chapter{CAD-Import: STEP-Dateien}\label{ch:cad}
+
+Komplizierte 3D-Formen (Säulen mit schrägen Wänden, Kugelkappen, Hohlräume, mehrere Materialien) lassen sich als
+STEP-Datei vorgeben. \FG{} zerlegt die Körper entlang $y$ in \textbf{Bänder} und erzeugt daraus automatisch
+homogene, \val{contour2d}- und $y$-variable Schichten. Voraussetzung ist ein Build mit CAD-Slicer
+(Abschnitt~\ref{sec:inst-cad}); \cmd{fgsolve --info} zeigt \texttt{cad slicer : Nurbforge}.
+
+\section{Ablauf}
+\begin{center}
+\begin{tikzpicture}[node distance=4mm and 6mm,>=Latex,
+  box/.style={draw,rounded corners,fill=fggray,align=center,font=\small,minimum height=8mm,text width=2.5cm}]
+  \node[box] (a) {STEP-Datei\\(Körper, Namen)};
+  \node[box,right=of a] (b) {Einheit, Achsen\\$\to$ FG-Koordinaten};
+  \node[box,right=of b] (c) {kritische Höhen\\$\to$ Bänder};
+  \node[box,right=of c] (d) {je Band: homogen, Extrusion, $y$-variabel};
+  \draw[->] (a) -- (b); \draw[->] (b) -- (c); \draw[->] (c) -- (d);
+\end{tikzpicture}
+\end{center}
+\begin{enumerate}
+  \item Die Körper werden mit Nurbforge gelesen; jeder benannte Körper bekommt ein Material.
+  \item Einheit und Achsen werden in \FG-Koordinaten (\textmu m, $y$ = Stapelrichtung) umgerechnet.
+  \item \textbf{Kritische Höhen} sind Ecken, ebene Flächen senkrecht zu $y$ und Höhenextrema auf Flächen und Kanten.
+        Zwischen zwei kritischen Höhen liegt ein Band; es wird nie auf einer kritischen Höhe geschnitten.
+  \item Je Band:
+  \begin{itemize}
+    \item kein Rand $\to$ \val{homogeneous},
+    \item alle Wände parallel zu $y$ (Extrusion) $\to$ ein exakter Schnitt in Bandmitte als \val{contour2d},
+    \item sonst $y$-variabel: Schnitte bei Bedarf (RCWA-Treppe oder RK), wahlweise interpoliert.
+  \end{itemize}
+\end{enumerate}
+Extrusionen und Rotationskörper um $y$ (Zylinder, Kegel, Kugel, Torus) liefern exakte Schnittkurven; andere Flächen
+werden auf $10^{-9}$ der Modellgröße verfolgt.
+
+\section{STEP-Dateien vorbereiten}
+\begin{itemize}
+  \item In \textbf{Mikrometern} konstruieren und so schreiben (\texttt{unit="um"}).
+  \item \textbf{Ein benannter Körper je Material}, z.\,B.\ \texttt{Pillar}, \texttt{Lid}.
+  \item Geschlossene, konsistent orientierte Körper (Volumenkörper, keine offenen Flächen).
+  \item Mit Nurbforge in Python:
+\end{itemize}
+\begin{lstlisting}[style=py]
+import nurbforge as nf
+pillar = ...  # nf.Shell, Koordinaten in µm, CAD +Z = Stapelrichtung
+nf.write_step("pillars.step", [pillar, lid], unit="um", names=["Pillar", "Lid"])
+\end{lstlisting}
+\file{scripts/make\_cad\_examples.py} erzeugt so die Beispiele in \file{examples/cad/}.
+
+\section{Konfiguration}
+\begin{lstlisting}[language=json]
+{ "type": "cad", "file": "cad/pillar_array.step", "unit": "auto",
+  "axes": { "y": "+Z", "x": "+X" },
+  "y_range_um": [0.0, 0.26], "cell_origin_um": [0.0, -0.5],
+  "background": "superstrate",
+  "bodies": [ { "name": "Pillar", "material": "si" }, { "index": 1, "material": "sio2" } ],
+  "overlap": "error", "periodic_union": false,
+  "slicing": { "critical_tol_um": 1e-6, "min_band_um": 1e-5, "rcwa_slices": 40,
+               "y_interpolation": "none", "chebyshev_nodes": 16 },
+  "factorization": "auto",
+  "normal_field": { "method": "tensor", "grid": 512, "sigma": 3 } }
+\end{lstlisting}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Schlüssel & Bedeutung \\
+\midrule
+\key{file} & STEP-Datei, relativ zur Konfigurationsdatei; alternativ \key{step} mit dem Dateiinhalt als Text \\
+\key{unit} & \val{auto}: wie in der Datei deklariert; \val{mm} oder \val{um} erzwingen (korrigiert falsche
+Deklarationen) \\
+\key{axes} & CAD-Achsen für FG-$y$ (Stapelrichtung) und FG-$x$; FG-$z=x\times y$. Gespiegelte (linkshändige) Achsen
+sind verboten, weil sie chirale Strukturen verfälschen \\
+\key{y\_range\_um} & $y$-Bereich (Standard: Hüllquader der Körper) \\
+\key{cell\_origin\_um} & $(x_0,z_0)$ der Zelle in FG-Koordinaten (Standard: Minimum des Hüllquaders); Körper dürfen
+über die Zelle ragen \\
+\key{background} & Material außerhalb der Körper: Name, \val{superstrate} oder \val{substrate} \\
+\key{bodies} & Zuordnung Körper $\to$ Material über den Namen (\key{name}) oder die Position (\key{index});
+nicht zugeordnete Körper sind ein Fehler \\
+\key{overlap} & \val{error} (Standard) oder \val{priority}: frühere Körper gewinnen \\
+\key{periodic\_union} & Körper vor dem Schneiden mit ihren überlappenden periodischen Bildern vereinigen \\
+\key{slicing.critical\_tol\_um} & nähere kritische Höhen werden zusammengelegt \\
+\key{slicing.min\_band\_um} & dünnere Bänder werden dem Nachbarn zugeschlagen (Warnung \texttt{FEATURE\_SMALL}) \\
+\key{slicing.rcwa\_slices} & RCWA-Treppenstufen je $y$-variablem Band \\
+\key{slicing.y\_interpolation} & \val{none} oder \val{chebyshev}: Querschnittsmatrizen aus Tschebyschow-Knoten
+interpolieren (schneller bei vielen Scheiben) \\
+\key{slicing.chebyshev\_nodes} & Startzahl der Knoten (verdoppelt bis $10^{-10}$, höchstens 256) \\
+\key{factorization}, \key{normal\_field} & wie bei \val{contour2d} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Die \val{cad}-Schicht wird beim Laden durch ihre Bänder ersetzt (von unten nach oben). Darüber und darunter dürfen
+gewöhnliche Schichten liegen.
+
+\section{Geometrieprüfung}
+\begin{lstlisting}[style=shell]
+fgsolve --cad-report config.json        # JSON-Bericht; Rückgabe 0 bei ok, sonst 4
+\end{lstlisting}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Code & Befund \\
+\midrule
+\texttt{SHELL\_OPEN} & Körper nicht geschlossen (freie Kanten), mit Position \\
+\texttt{SHELL\_ORIENTATION} & nicht konsistent orientiert oder negatives Volumen (korrigiert, Warnung) \\
+\texttt{BODY\_OVERLAP} & zwei Körper überlappen \\
+\texttt{PERIODIC\_OVERLAP} & ein Körper überlappt sein periodisches Bild oder das eines anderen \\
+\texttt{OUT\_OF\_RANGE} & Geometrie außerhalb des $y$-Bereichs \\
+\texttt{UNIT\_SUSPECT} & Abmessungen passen nicht zu Periode oder Wellenlänge (Faktor $10^3$ daneben) \\
+\texttt{FEATURE\_SMALL} & Merkmal kleiner als zwei Rasterabstände des Normalenfeldes oder dünnes Band (Warnung) \\
+\texttt{BODY\_UNASSIGNED} & Körper ohne Material oder Zuordnung ohne Körper \\
+\texttt{STEP\_UNSUPPORTED} & Datei nicht lesbar oder Entität nicht unterstützt \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Positionen stehen in \textmu m und FG-Koordinaten.
+
+\section{CAD in Python}
+\begin{lstlisting}[style=py]
+import fouriergrating as fg
+step = open("pillars.step").read()
+report = fg.cad.check(step, cfg)      # {"ok", "errors": [...], "warnings": [...], "bands": [...]}
+svg = fg.cad.preview(step, cfg, y_um=0.1)    # Schnitt bei y = 0,1 µm als SVG
+tool = fg.cad.llm_tool_spec()          # Werkzeugbeschreibung für ein Sprachmodell (JSON-Schema)
+\end{lstlisting}
+\texttt{llm\_tool\_spec()} beschreibt ein Werkzeug \texttt{fouriergrating\_check\_cad(step, config)}, das sich in
+der Prüfschleife eines Sprachmodells (z.\,B.\ mit den Ollama-Werkzeugen von Nurbforge) registrieren lässt: Das Modell
+konstruiert, \FG{} prüft, das Modell korrigiert.
+
+\section{Tipps}
+\begin{itemize}
+  \item Prüfen Sie jede neue Geometrie zuerst mit \cmd{--cad-report} oder in der GUI-Seite \gui{CAD}.
+  \item Bänder mit senkrechten Wänden sind exakt und billig. Schräge Wände kosten \key{rcwa\_slices} Eigenprobleme;
+        \val{chebyshev} spart die Neuberechnung der Querschnitte.
+  \item Bei RK ist ein $y$-variables Band ohne Treppe exakt; die Querschnitte werden bei Bedarf berechnet und
+        zwischengespeichert.
+  \item Für Gradienten nach CAD-Kontrollpunkten siehe Kapitel~\ref{ch:optimierung}.
+\end{itemize}

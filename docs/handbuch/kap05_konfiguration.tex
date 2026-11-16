@@ -1,0 +1,216 @@
+\chapter{Die Konfigurationsdatei}\label{ch:konfiguration}
+
+Jede Rechnung wird durch eine Konfiguration im JSON-Format beschrieben. \cmd{fgsolve} liest sie aus einer Datei,
+Python nimmt sie als \texttt{dict}, die GUI bearbeitet sie in Formularen. Es ist in allen drei Fällen
+\emph{dasselbe Format} mit demselben Parser.
+
+\section{Gesamtaufbau}
+\begin{lstlisting}[language=json]
+{
+  "dimension": "1D",              // Geometrie: "1D" oder "2D"
+  "solver": "rcwa",               // "rcwa" oder "rk"
+  "truncation": {...},            // Fourierordnungen
+  "period_um": {...},             // Perioden
+  "incidence": {...},             // Einfall, auch als Scan
+  "sweep": {...},                 // optional: Parameter-Sweep
+  "materials": {...},             // Materialtabelle
+  "superstrate": "air",           // Einfallsmedium (oben)
+  "substrate": "glass",           // Substrat (unten)
+  "layers": [...],                // Schichten von unten nach oben
+  "rk": {...}, "rcwa": {...},     // Löseroptionen
+  "nearfield": {...},             // optional: Nahfeld
+  "output": {...}                 // Ausgabe
+  // weitere optionale Blöcke: Leistung, Genauigkeit, ASR, PML, Zylinder (Kapitel 11, 15)
+}
+\end{lstlisting}
+
+\begin{hinweis}[{Groß- und Kleinschreibung, Reihenfolge, unbekannte Schlüssel}]
+Schlüssel sind klein geschrieben. Die Reihenfolge der Schlüssel spielt keine Rolle, die Reihenfolge der Schichten
+dagegen schon. Unbekannte Schlüssel werden ignoriert; ein Tippfehler wie \key{thicknes\_um} führt deshalb meist zu
+der Fehlermeldung, dass ein \emph{Pflicht}schlüssel fehlt. Der Schlüssel \key{reference} in den Beispielen enthält
+Sollwerte für die Tests und hat auf die Rechnung keinen Einfluss.
+\end{hinweis}
+
+\section{Grundeinstellungen}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lllY}
+\toprule
+Schlüssel & Typ & Standard & Bedeutung \\
+\midrule
+\key{dimension} & Text & Pflicht & \val{"1D"} (periodisch in $x$) oder \val{"2D"} (periodisch in $x$ und $z$) \\
+\key{solver} & Text & \val{"rcwa"} & \val{"rcwa"} oder \val{"rk"} (Kapitel~\ref{ch:loeser}) \\
+\key{truncation.Nx} & Zahl & 10 & höchste Fourierordnung in $x$ \\
+\key{truncation.Nz} & Zahl & 0 & höchste Fourierordnung in $z$ (nur 2D, sonst 0) \\
+\key{period\_um.x} & Zahl & Pflicht & Periode $d_x$ in \textmu m \\
+\key{period\_um.z} & Zahl & 0 & Periode $d_z$; bei \val{"2D"} Pflicht und $>0$ \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Der Block \key{truncation} selbst ist Pflicht (auch wenn er nur \val{\{"Nx": 15\}} enthält). Bei
+rotationssymmetrischen Strukturen (Abschnitt~\ref{sec:zylinder}) entfallen \key{dimension}, \key{truncation} und
+\key{period\_um}.
+
+\section{Materialien}\label{sec:materialien}
+Der Block \key{materials} ordnet Namen ihre optischen Eigenschaften zu. Alle anderen Stellen der Konfiguration
+verweisen nur noch auf diese Namen.
+\begin{lstlisting}[language=json]
+"materials": {
+  "air":  { "n": 1.0 },                         // reelle Brechzahl
+  "au":   { "n": [0.2, 3.4] },                  // komplexe Brechzahl n + ik
+  "ag":   { "eps": [-15.9, 1.1] },              // Permittivität statt Brechzahl
+  "co":   { "eps_tensor": [[[-8.19,16.38],[0,0],[-0.495,-0.106]],
+                           [[0,0],[-8.19,16.38],[0,0]],
+                           [[0.495,0.106],[0,0],[-8.19,16.38]]] },
+  "lnb":  { "eps_principal": [4.98, 4.98, 4.6], "euler_deg": [0, 90, 0] }
+}
+\end{lstlisting}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Angabe & Bedeutung \\
+\midrule
+\key{n} & Brechzahl, reell (\val{1.5}) oder komplex als \val{[Re, Im]}; intern $\varepsilon=n^2$ \\
+\key{eps} & relative Permittivität, reell oder \val{[Re, Im]} \\
+\key{eps\_tensor} & voller $3\times3$-Tensor in der Reihenfolge $(x,y,z)$; jeder Eintrag \val{[Re, Im]}. Zeile $i$,
+Spalte $j$ ist $\varepsilon_{ij}$ \\
+\key{eps\_principal} & drei Hauptwerte (reell oder \val{[Re, Im]}) und \key{euler\_deg}: Drehung $R$ als
+Euler-Winkel in der Folge $z$-$x$-$z$; $\varepsilon = R\,\mathrm{diag}(\varepsilon_1,\varepsilon_2,\varepsilon_3)\,R^T$ \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Jedes Material braucht genau eine dieser Angaben. Fehlt sie, meldet \FG{}
+\texttt{material 'x' needs 'n', 'eps', 'eps\_tensor' or 'eps\_principal'}.
+
+\begin{achtung}[Vorzeichen]
+Absorption heißt $\operatorname{Im}n>0$ (Zeitkonvention $e^{-i\omega t}$). Tabellenwerte aus Quellen mit der
+Konvention $e^{+i\omega t}$ (dort $n-ik$) müssen Sie mit positivem Imaginärteil eintragen.
+\end{achtung}
+
+\paragraph{Superstrat und Substrat.} \key{superstrate} und \key{substrate} nennen je einen Materialnamen. Das
+Superstrat muss reell und isotrop sein (das Licht kommt von dort). Das Substrat darf absorbieren; dann gibt es
+keine transmittierten Ordnungen. Anisotrope Substrate sind erlaubt.
+
+\begin{hinweis}[Keine Dispersion]
+Ein Material hat für alle Wellenlängen eines Scans denselben Wert. Für breite Spektren rechnen Sie je Wellenlänge
+mit eigenem Wert (Abschnitt~\ref{sec:py-dispersion}).
+\end{hinweis}
+
+\section{Einfall}\label{sec:conf-einfall}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lllY}
+\toprule
+Schlüssel & Typ & Standard & Bedeutung \\
+\midrule
+\key{lambda\_um} & Wert & Pflicht & Vakuumwellenlänge in \textmu m \\
+\key{phi\_deg} & Wert & 0 & Polarwinkel gegen die Normale \\
+\key{psi\_deg} & Wert & 0 & Azimut gegen $x$ \\
+\key{delta\_deg} & Wert & 0 & Polarisation: 0 = s (TE), 90 = p (TM) \\
+\key{type} & Text & -- & nur für Sonderfälle: \val{"gaussian\_beam"}, \val{"plane\_wave"} (Zylinder) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Jeder \emph{Wert} darf sein:
+\begin{itemize}
+  \item eine Zahl: \val{0.6328},
+  \item eine Liste: \val{[0.55, 0.6328, 0.7]},
+  \item ein Bereich: \val{\{"from": 0.5, "to": 0.8, "steps": 31\}}. Die Endpunkte sind eingeschlossen, die Werte
+        gleichabständig; \key{steps} $=1$ ergibt nur \key{from}.
+\end{itemize}
+Gerechnet wird das \textbf{kartesische Produkt} $\lambda\times\varphi\times\psi\times\delta$ in dieser
+Schachtelung ($\lambda$ außen, $\delta$ innen). Zwei Wellenlängen und beide Polarisationen
+(\val{"delta\_deg": [0, 90]}) ergeben also vier Rechnungen. Einzelheiten in Kapitel~\ref{ch:scans}.
+
+\section{Sweep}
+Ein Sweep variiert eine beliebige \emph{Zahl} der Konfiguration, adressiert durch einen JSON-Pointer:
+\begin{lstlisting}[language=json]
+"sweep": { "parameter": "/layers/0/thickness_um",
+           "values": { "from": 0.05, "to": 1.2, "steps": 24 } }
+\end{lstlisting}
+\key{values} hat dieselbe Form wie ein Einfallswert. Der Pointer muss auf eine vorhandene Zahl zeigen. Für jeden
+Sweep-Wert wird der ganze Scan gerechnet. Kapitel~\ref{ch:scans} erklärt JSON-Pointer ausführlich.
+
+\section{Schichten}
+\key{layers} ist eine Liste von Schichten \emph{von unten nach oben}; jede hat einen \key{type}. Eine leere Liste
+(oder ein fehlender Block) beschreibt eine einfache Grenzfläche zwischen Substrat und Superstrat. Die Schichttypen
+beschreibt Kapitel~\ref{ch:schichten} ausführlich; hier die Übersicht:
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lYcc}
+\toprule
+\key{type} & Beschreibung & 1D & 2D \\
+\midrule
+\val{homogeneous} & homogene Schicht & \checkmark & \checkmark \\
+\val{lamellar1d} & Lamellen, Materialwechsel an Stellen in $x$ & \checkmark & \checkmark ($z$-invariant) \\
+\val{profile1d} & Grenzfläche $y=g(x)$: Sinus, Dreieck, Spline & \checkmark & \checkmark ($z$-invariant) \\
+\val{polygon2d} & Querschnitt aus Polygonen und Rechtecken & -- & \checkmark \\
+\val{contour2d} & Querschnitt aus Kreisen, Ellipsen, Polygonen, NURBS, mit Löchern & -- & \checkmark \\
+\val{profile2d} & Grenzfläche $y=g(x,z)$: Eierkarton, Sinus in $x$ & -- & \checkmark \\
+\val{cad} & STEP-Körper, beim Laden in Bänder zerlegt & -- & \checkmark \\
+\val{rings} & konzentrische Ringe (Zylinderpfad) & \multicolumn{2}{c}{nur Zylinder} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Löseroptionen}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lllY}
+\toprule
+Schlüssel & Typ & Standard & Bedeutung \\
+\midrule
+\key{rk.tableau} & Text & \val{"gauss2"} & Runge--Kutta-Verfahren: \val{gauss2}, \val{gauss3}, \val{radau3} \\
+\key{rk.tol} & Zahl & $10^{-8}$ & Toleranz der Schrittweitensteuerung \\
+\key{rcwa.slices} & Zahl & 40 & Treppenstufen je Profilschicht (RCWA); je Schicht überschreibbar \\
+\key{backend} & Text & \val{"auto"} & \val{cpu}, \val{cuda}, \val{auto} (Abschnitt~\ref{sec:gpu}) \\
+\key{backend\_threshold} & Zahl & 160 & Matrixgröße, ab der \val{auto} die GPU nutzt \\
+\key{precision} & Text & \val{"auto"} & \val{fp64}, \val{mixed}, \val{fp32}, \val{auto} (Abschnitt~\ref{sec:genauigkeit}) \\
+\key{precision\_fallback} & bool & auto & bei verlustfreien Strukturen und schlechter Energiebilanz in fp64 wiederholen \\
+\key{split\_polarizations} & bool & \val{false} & 1D, $\psi=0$, isotrop: TE und TM getrennt (schneller) \\
+\key{fft\_sampling} & bool & \val{false} & abgetastete Koeffizienten per FFT \\
+\key{threads} & Objekt & auto & \key{scan}, \key{slices}, \key{blas} (Abschnitt~\ref{sec:threads}) \\
+\key{reduction} & Text & \val{"sequential"} & Verkettung der Scheiben: \val{sequential} oder \val{tree} \\
+\key{growth\_limit} & Zahl & 0 (auto) & Kriterium für die Stabilitätsscheiben \\
+\key{checkpoint\_every} & Zahl & 1 & Gradienten: nur jedes $k$-te Zwischenprodukt speichern \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Ausgabe}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lllY}
+\toprule
+Schlüssel & Typ & Standard & Bedeutung \\
+\midrule
+\key{output.dir} & Text & \val{"out"} & Ausgabeverzeichnis (relativ zum Arbeitsverzeichnis von \cmd{fgsolve}) \\
+\key{output.efficiencies} & Text & \val{"efficiencies.csv"} & Name der Effizienzdatei \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Ein vollständiges Beispiel mit allen Grundblöcken}
+\begin{lstlisting}[language=json]
+{
+  "dimension": "2D",
+  "solver": "rcwa",
+  "truncation": { "Nx": 6, "Nz": 6 },
+  "period_um": { "x": 0.6, "z": 0.6 },
+  "incidence": { "lambda_um": { "from": 0.55, "to": 0.75, "steps": 21 },
+                 "phi_deg": 10, "psi_deg": 0, "delta_deg": [0, 90] },
+  "materials": { "air": { "n": 1.0 }, "glass": { "n": 1.5 }, "si": { "n": [3.88, 0.02] } },
+  "superstrate": "air",
+  "substrate": "glass",
+  "layers": [
+    { "type": "polygon2d", "thickness_um": 0.15, "background": "air",
+      "inclusions": [ { "material": "si",
+                        "rectangle_um": { "center": [0.3, 0.3], "size": [0.3, 0.3] } } ] }
+  ],
+  "backend": "auto",
+  "threads": { "scan": "auto", "slices": "auto", "blas": 1 },
+  "output": { "dir": "out/si_pillars" }
+}
+\end{lstlisting}
+Das sind 42 Rechnungen (21 Wellenlängen, zwei Polarisationen) an quadratischen Siliziumsäulen auf Glas.

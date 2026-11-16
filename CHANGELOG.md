@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- Benutzerhandbuch in LaTeX (`docs/handbuch/`, ca. 85 Seiten): Grundlagen und Konventionen, Installation, Schnellstart,
+  vollständige Konfigurationsreferenz, alle Schichttypen, Löserwahl/Faktorisierung/Konvergenz (mit gemessener
+  Konvergenztabelle V19), Scans und Sweeps, Nahfeld, Ausgaben, ASR/PML/Zylinder, CAD, Python, Gradienten, Leistung,
+  C++, GUI, Rezepte mit echten Ergebnissen, Fehlersuche, Anhänge. `scripts/build_docs.sh` baut es mit.
+- Doku korrigiert (`config_format.md`, `user_guide.md`): `triangle` hat `apex_x_um` (nicht `blaze_deg`/`apex_deg`),
+  `points` ist ein stückweise lineares Polygon (kein Spline), CSV-Spalten heißen `phi_deg` usw., `diagnostics.json`
+  wird nicht geschrieben, `nearfield.quantities` ist derzeit wirkungslos, `breakpoints_um` wird nicht gegen die
+  Periode geprüft.
 - S-Matrix des Stapels in der s/p-Basis der Ordnungen (Plan v2.17, Abschnitt „S-Matrix in der s/p-Basis der
   Ordnungen“, eq:Ssp): `Solver::orderSMatrix`, `Simulation::orderSMatrix`, Python `Simulation.smatrix` mit
   `R_top`, `T_down`, `T_up`, `R_bottom`. Ein Eigenproblem liefert beide Polarisationen und Licht von oben und von

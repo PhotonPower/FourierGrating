@@ -2,6 +2,8 @@
 
 * `implementation_plan/` – **Spezifikation** (LaTeX, `main.tex` + `part1..4.tex`, PDF `main.pdf`).
   Neu erzeugen mit `../scripts/build_docs.sh`.
+* `handbuch/` – **Benutzerhandbuch** (LaTeX, `handbuch.tex` + Kapiteldateien, Abbildungen in `fig/`).
+  PDF mit `../scripts/build_docs.sh` (wird nicht eingecheckt).
 * `architecture.md` – Module und Datenfluss.
 * `roadmap.md` – Meilensteine mit Status.
 * `validation.md` – Referenzfälle und Sollwerte.

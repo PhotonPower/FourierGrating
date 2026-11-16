@@ -1,0 +1,216 @@
+\chapter{Kurzreferenz der Konfiguration}\label{anh:schluessel}
+\small
+\begin{longtable}{>{\raggedright\arraybackslash}p{5.0cm}>{\raggedright\arraybackslash}p{2.4cm}>{\raggedright\arraybackslash}p{7.0cm}}
+\toprule
+Schlüssel & Standard & Kurzbeschreibung \\
+\midrule
+\endhead
+\multicolumn{3}{l}{\textbf{Grundeinstellungen}} \\
+\key{dimension} & Pflicht & \val{1D} | \val{2D} \\
+\key{solver} & \val{rcwa} & \val{rcwa} | \val{rk} \\
+\key{truncation.Nx}, \key{.Nz} & 10, 0 & Fourierordnungen \\
+\key{period\_um.x}, \key{.z} & Pflicht, 0 & Perioden \\
+\multicolumn{3}{l}{\textbf{Einfall} (Zahl, Liste oder \{from, to, steps\})} \\
+\key{incidence.lambda\_um} & Pflicht & Wellenlänge \\
+\key{incidence.phi\_deg}, \key{psi\_deg}, \key{delta\_deg} & 0 & Winkel, Polarisation \\
+\key{incidence.type} & -- & \val{gaussian\_beam}, \val{plane\_wave} (Zylinder) \\
+\key{incidence.waist\_um}, \key{focus\_y\_um}, \key{polarization} & --, 0, \val{x} & Gauß-Strahl \\
+\multicolumn{3}{l}{\textbf{Sweep}} \\
+\key{sweep.parameter} & -- & JSON-Pointer auf eine Zahl \\
+\key{sweep.values} & -- & Zahl, Liste oder Bereich \\
+\multicolumn{3}{l}{\textbf{Materialien, Halbräume}} \\
+\key{materials.<name>.n} \textbar{} \key{eps} \textbar{} \key{eps\_tensor} \textbar{} \key{eps\_principal} & -- & genau eine Angabe \\
+\key{materials.<name>.euler\_deg} & [0,0,0] & zu \key{eps\_principal}, $z$-$x$-$z$ \\
+\key{superstrate}, \key{substrate} & Pflicht & Materialnamen \\
+\multicolumn{3}{l}{\textbf{Schichten} (\key{layers}, von unten nach oben)} \\
+\val{homogeneous} & & \key{thickness\_um}, \key{material} \\
+\val{lamellar1d} & & \key{thickness\_um}, \key{breakpoints\_um}, \key{materials} \\
+\val{profile1d} & & \key{depth\_um}, \key{below}, \key{above}, \key{shape}, \key{x0\_um}, \key{apex\_x\_um},
+\key{x\_um}, \key{y\_um}, \key{slices} \\
+\val{polygon2d} & & \key{thickness\_um}, \key{background}, \key{inclusions} (\key{material}, \key{vertices\_um} |
+\key{rectangle\_um}), \key{normal\_field} \\
+\val{contour2d} & & \key{thickness\_um}, \key{background}, \key{regions} (\key{material}, \key{circle} | \key{ellipse} |
+\key{polygon\_um} | \key{nurbs}, \key{holes}), \key{normal\_field} \\
+\val{profile2d} & & \key{depth\_um}, \key{below}, \key{above}, \key{shape}, \key{x0\_um}, \key{z0\_um}, \key{slices},
+\key{z\_samples} \\
+\val{cad} & & \key{file} | \key{step}, \key{unit}, \key{axes}, \key{y\_range\_um}, \key{cell\_origin\_um},
+\key{background}, \key{bodies}, \key{overlap}, \key{periodic\_union}, \key{slicing}, \key{normal\_field} \\
+\val{rings} & & \key{thickness\_um}, \key{radii\_um}, \key{materials} \\
+alle & \val{auto} & \key{factorization} \\
+\multicolumn{3}{l}{\textbf{Löser und Leistung}} \\
+\key{rk.tableau}, \key{rk.tol} & \val{gauss2}, $10^{-8}$ & Runge--Kutta \\
+\key{rcwa.slices} & 40 & Scheiben je Profilschicht \\
+\key{backend}, \key{backend\_threshold} & \val{auto}, 160 & CPU/GPU \\
+\key{precision}, \key{precision\_fallback} & \val{auto}, auto & Genauigkeit \\
+\key{threads.scan}, \key{.slices}, \key{.blas} & auto, auto, 1 & Threads \\
+\key{reduction} & \val{sequential} & \val{tree}: parallele Verkettung \\
+\key{split\_polarizations} & \val{false} & TE/TM getrennt (1D, $\psi=0$, isotrop) \\
+\key{fft\_sampling} & \val{false} & FFT für abgetastete Koeffizienten \\
+\key{growth\_limit} & 0 & Stabilitätsscheiben (0 = auto) \\
+\key{checkpoint\_every} & 1 & Gradienten-Speicher \\
+\multicolumn{3}{l}{\textbf{Erweiterungen}} \\
+\key{coordinate\_transform.x|z} & -- & ASR: \key{type}, \key{eta}, \key{breakpoints\_um} \\
+\key{aperiodic} & -- & PML: \key{pml.x|z} (\key{width\_um}, \key{beta}), \key{formulation}, \key{excitation} \\
+\key{superstrate\_structure}, \key{substrate\_structure} & -- & strukturierte Halbräume \\
+\key{scattered\_field} & \val{false} & Streufeld bei periodischen Gittern \\
+\key{cylindrical} & -- & \key{symmetry}, \key{harmonics}, \key{spectrum}, \key{factorization} \\
+\multicolumn{3}{l}{\textbf{Nahfeld und Ausgabe}} \\
+\key{nearfield.enabled} & \val{false} & \\
+\key{nearfield.horizontal\_y\_um}, \key{vertical\_z\_um} & 0, 0 & Lage der Schnitte \\
+\key{nearfield.y\_range\_um} & $[-0{,}2;\,0{,}5]$ & \\
+\key{nearfield.nx}, \key{ny}, \key{nz}, \key{periods} & 400, 300, 200, 1 & \\
+\key{nearfield.reconstruction}, \key{field} & \val{fff}, \val{total} & \\
+\key{output.dir}, \key{output.efficiencies} & \val{out}, \val{efficiencies.csv} & \\
+\bottomrule
+\end{longtable}
+\normalsize
+
+\chapter{Kommandozeile und Umgebungsvariablen}\label{anh:cli}
+\section{\texttt{fgsolve}}
+\begin{lstlisting}[style=shell]
+fgsolve <config.json>                 # rechnen
+fgsolve --profile <config.json>       # rechnen und Zeitprofil (profile.json)
+fgsolve --cad-report <config.json>    # Bandzerlegung und Geometrieprüfung der cad-Schichten (JSON)
+fgsolve --info                        # Version, Backends, CAD-Slicer
+fgsolve --version
+fgsolve --help
+\end{lstlisting}
+\section{\texttt{fgbench}}
+\begin{lstlisting}[style=shell]
+fgbench --sizes 256,512,1024 --orders 4,6,8 --repeat 2
+\end{lstlisting}
+\section{Skripte}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Skript & Zweck \\
+\midrule
+\file{scripts/plot\_efficiencies.py} & Spektren, Winkelgänge, Sweeps aus \file{efficiencies.csv} \\
+\file{scripts/plot\_nearfield.py} & Nahfeldkarten und -linien \\
+\file{scripts/make\_cad\_examples.py} & STEP-Beispiele mit Nurbforge erzeugen \\
+\file{scripts/setup\_almalinux10.sh}, \file{setup\_windows.ps1} & Abhängigkeiten installieren \\
+\file{scripts/build\_docs.sh} & Implementierungsplan als PDF \\
+\bottomrule
+\end{tabularx}
+\end{center}
+\section{Umgebungsvariablen}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Variable & Wirkung \\
+\midrule
+\texttt{FG\_NUM\_THREADS} & Gesamtzahl der Threads (sonst \texttt{OMP\_NUM\_THREADS}, sonst alle Kerne) \\
+\texttt{FG\_BACKEND} & \val{cpu}, \val{cuda}, \val{auto}; überschreibt \key{backend} \\
+\texttt{FG\_BACKEND\_THRESHOLD} & überschreibt \key{backend\_threshold} \\
+\texttt{FG\_PRECISION} & überschreibt \key{precision} \\
+\texttt{FG\_GPU\_STREAMS} & Scheiben gleichzeitig auf der GPU (Standard 4) \\
+\texttt{FG\_CORE} & Python: \val{cpu} erzwingt den CPU-Kern \\
+\texttt{CUDA\_PATH} & Windows: Ort der CUDA-Bibliotheken \\
+\texttt{NVIDIA\_TF32\_OVERRIDE} & \val{0} schließt TF32 aus \\
+\texttt{FG\_FGSOLVE} & Python-Tests: Pfad zu \cmd{fgsolve} für Vergleiche \\
+\texttt{FG\_GUI\_*} & GUI, siehe Abschnitt~\ref{sec:gui-betrieb} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\chapter{Beispieldateien und Referenzfälle}\label{anh:beispiele}
+\section{Beispiele in \file{examples/}}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Datei & Fall \\
+\midrule
+\file{v1\_fresnel\_interface.json} & ebene Grenzfläche, konischer Einfall (Fresnel) \\
+\file{v3\_lamellar\_dielectric.json} & dielektrisches Lamellengitter, RCWA \\
+\file{v3\_lamellar\_rk\_scan.json} & dasselbe mit RK und Scan \\
+\file{v4\_al\_sinus\_te.json}, \file{v4\_al\_sinus\_tm.json} & Aluminium-Sinusgitter \\
+\file{v5\_glass\_deep\_te.json} & tiefes Glasgitter in Transmission \\
+\file{echelette\_au\_scan.json} & Gold-Echelette, RK, Winkel-Scan \\
+\file{v7\_cobalt\_anisotropic.json} & anisotropes Kobaltgitter \\
+\file{v10\_hole\_array.json} & Silber-Lochgitter (2D) \\
+\file{v15\_circular\_pillars.json} & Kreissäulen mit \val{contour2d} \\
+\file{nearfield\_lamellar\_1d.json} & Nahfeld 1D \\
+\file{nearfield\_pillars\_2d.json} & Nahfeld 2D, Siliziumsäulen \\
+\file{sweep\_lamellar\_depth.json} & Sweep der Stegtiefe \\
+\file{cad\_pillar\_array.json}, \file{cad/} & CAD-Beispiel mit STEP-Datei \\
+\file{cyl\_pillar\_beam.json} & Säule unter Gauß-Strahl (Zylinder) \\
+\file{python/scan\_lamellar.py} & Python: Scan und Sweep mit \texttt{Simulation} \\
+\file{python/optimize\_littrow.py} & Python: Littrow-Optimierung mit L-BFGS-B \\
+\file{python/optimize\_nurbs\_pillar.py} & Python: NURBS-Säule mit PyTorch/Adam \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Referenzfälle}
+\FG{} wird gegen diese Fälle geprüft (\file{docs/validation.md}); sie eignen sich auch, um eigene Erwartungen zu
+kalibrieren.
+\begin{center}
+\small
+\begin{longtable}{>{\raggedright\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{7.4cm}>{\raggedright\arraybackslash}p{6.0cm}}
+\toprule
+ID & Fall & Sollwert \\
+\midrule
+\endhead
+V1 & ebene Grenzfläche, alle Winkel, TE/TM, Azimut & Fresnel, $10^{-12}$ \\
+V2 & homogene Schicht auf Substrat, auch absorbierend & Airy, $10^{-12}$ \\
+V3 & dielektrisches Lamellengitter & Energie $=1$; RK $=$ RCWA \\
+V4 & Al-Sinus, $d=0{,}5$, $a=0{,}2$\um, $\lambda=0{,}6328$\um, $30^\circ$, $\nu=1{,}38+7{,}62i$, Ordnung $-1$ &
+TE 0,3235; TM 0,8696 \\
+V5 & Glas-Sinus, $d=0{,}5$, $a=1{,}0$\um, $30^\circ$, Transmission $-1$, TE & 0,820 \\
+V7 & Kobalt-Sinus anisotrop & TM$_0$ 0,0567; TM$_{-1}$ 0,1435 \\
+V10 & Ag-Lochgitter, Normaleinfall & $T(1{,}388)\approx7{,}5\,\%$ (Buch); SPP-Pol 1,369406\um \\
+V12 & Nahfeld: Airy, Stetigkeit, Fluss & analytisch \\
+V13 & Gold-Sinus TM, $d=1$, $a=0{,}25$\um, $\nu=0{,}2+3{,}4i$, $20^\circ$ & $e_{-1}=0{,}26614$, $e_0=0{,}02362$ \\
+V15 & Kreissäulen: \val{contour2d} gegen Polygone & Fehler $\propto L^{-2}$ \\
+V19 & Gold-Lamellen TM, ASR & $e_{-1}=0{,}013591$, $e_0=0{,}79435$ \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\chapter{Glossar}\label{anh:glossar}
+\begin{description}[style=nextline]
+  \item[ASR] Adaptive Spatial Resolution: Koordinatentransformation, die die Fourierbasis an Materialsprüngen verdichtet.
+  \item[Band] Abschnitt einer CAD-Geometrie zwischen zwei kritischen Höhen.
+  \item[Beugungsordnung] Ebene Welle mit Tangentialkomponente $\alpha_0+n\lambda/d_x$ (und $\gamma_0+m\lambda/d_z$).
+  \item[Effizienz] Anteil des einfallenden Leistungsflusses in einer Ordnung.
+  \item[Evaneszent] Ordnung mit imaginärem $\beta$; trägt keine Leistung in die Ferne.
+  \item[FFF] Fast Fourier Factorization: Faktorisierung mit Normalenvektorfeld, schnelle Konvergenz bei TM und Metallen.
+  \item[FMM] Fourier-Modal-Methode: Entwicklung in Fourierreihen, Lösung in $y$ als Differentialgleichung.
+  \item[Konischer Einfall] Einfallsebene nicht senkrecht zu den Gitterlinien ($\psi\neq0$).
+  \item[Laurent-Regel] Naive Produktregel für Fourierreihen.
+  \item[Li-Regeln] Korrekte Faktorisierungsregeln für Sprünge (Lifeng Li, 1996).
+  \item[Littrow] Anordnung, in der eine Beugungsordnung in die Einfallsrichtung zurückläuft.
+  \item[Normalenfeld] Feld von Einheitsvektoren senkrecht zu den Materialgrenzen, für die FFF.
+  \item[PML] Perfectly Matched Layer: absorbierende Randzone für isolierte Strukturen.
+  \item[RCWA] Rigorous Coupled-Wave Analysis: Scheibenzerlegung mit Eigenmoden.
+  \item[RK] Runge--Kutta: numerische Integration in $y$ (Differentialmethode).
+  \item[S-Matrix] Streumatrix; verknüpft auslaufende mit einlaufenden Amplituden, numerisch stabil.
+  \item[Scan] Rechnung über mehrere Einfallsparameter.
+  \item[Scheibe] $y$-invarianter Abschnitt einer Profilschicht (RCWA) oder Stabilitätsabschnitt (RK).
+  \item[s/p, TE/TM] Polarisation senkrecht bzw.\ parallel zur Einfallsebene; bei $\psi=0$ TE $=$ s, TM $=$ p.
+  \item[Streufeldformulierung] Aufteilung in bekanntes Hintergrundfeld und gesuchtes Streufeld.
+  \item[Sweep] Rechnung über mehrere Werte einer Zahl der Konfiguration.
+  \item[Trunkierung] Abschneiden der Fourierreihen bei $\pm N$.
+\end{description}
+
+\chapter{Literatur}\label{anh:literatur}
+\begin{enumerate}[label={[\arabic*]},leftmargin=2.2em]
+  \item M.~Nevière, E.~Popov, \emph{Light Propagation in Periodic Media: Differential Theory and Design},
+        Marcel Dekker, New York 2003. Grundlage der Differentialmethode und der FFF; Korrekturen in
+        \file{docs/book\_errata.md}.
+  \item M.\,G.~Moharam, T.\,K.~Gaylord, \emph{Rigorous coupled-wave analysis of planar-grating diffraction},
+        J.\ Opt.\ Soc.\ Am.\ 71, 811 (1981).
+  \item L.~Li, \emph{Use of Fourier series in the analysis of discontinuous periodic structures}, J.\ Opt.\ Soc.\ Am.\
+        A 13, 1870 (1996).
+  \item E.~Popov, M.~Nevière, \emph{Grating theory: new equations in Fourier space leading to fast converging results
+        for TM polarization}, J.\ Opt.\ Soc.\ Am.\ A 17, 1773 (2000).
+  \item G.~Granet, \emph{Reformulation of the lamellar grating problem through the concept of adaptive spatial
+        resolution}, J.\ Opt.\ Soc.\ Am.\ A 16, 2510 (1999).
+  \item T.\,W.~Ebbesen et al., \emph{Extraordinary optical transmission through sub-wavelength hole arrays}, Nature
+        391, 667 (1998).
+  \item Implementierungsplan FourierGrating, Version 2.17, \file{docs/implementation\_plan/main.pdf} -- verbindliche
+        Spezifikation aller Formeln.
+\end{enumerate}

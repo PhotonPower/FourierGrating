@@ -26,3 +26,12 @@ wheelhouse/
 *.egg-info/
 .venv/
 .pytest_cache/
+# Benutzerhandbuch: nur Quellen und Abbildungen versioniert
+docs/handbuch/*.aux
+docs/handbuch/*.log
+docs/handbuch/*.out
+docs/handbuch/*.toc
+docs/handbuch/*.fls
+docs/handbuch/*.fdb_latexmk
+docs/handbuch/build.log
+docs/handbuch/handbuch.pdf

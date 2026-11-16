@@ -1,0 +1,123 @@
+\chapter{Ausgaben und Diagnose}\label{ch:ausgabe}
+
+\section{Terminalausgabe von \texttt{fgsolve}}
+Für jeden Scanpunkt erscheint ein Block:
+\begin{lstlisting}
+lambda = 0.6328 um, phi = 10 deg, psi = 0 deg, delta = 90 deg
+  side   n    m   efficiency
+  R     -1    0   0.2329942258
+  R      0    0   0.0901052774
+  T     -1   -1   0.0698534457
+  ...
+  sum R+T = 0.789794795102   absorption = 2.102e-01
+\end{lstlisting}
+Darunter stehen gegebenenfalls
+\begin{itemize}
+  \item \texttt{precision fp32 (repeated in fp64)} -- die tatsächlich verwendete Genauigkeit, wenn nicht fp64,
+  \item \texttt{warning: \ldots} -- Warnungen (z.\,B.\ \val{FFF\_iso} bei einem Metall),
+  \item bei isolierten Strukturen \texttt{scattered up = \ldots{} down = \ldots{} absorbed = \ldots} statt der
+        Ordnungen,
+  \item bei Modenanregung die Zeilen \texttt{MR}, \texttt{MT} mit effektivem Index und Leistung je Mode,
+  \item bei Sweeps vor jedem Wert die Zeile \texttt{== sweep <pointer> = <wert>}.
+\end{itemize}
+Am Ende nennt \cmd{fgsolve} die geschriebenen Dateien.
+
+\section{\texttt{efficiencies.csv}}\label{sec:csv}
+Eine Zeile je Ordnung und Scanpunkt, Komma als Trennzeichen, Punkt als Dezimalzeichen.
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Spalte & Bedeutung \\
+\midrule
+\texttt{sweep\_parameter}, \texttt{sweep\_value} & nur bei Sweeps: Pointer und Wert \\
+\texttt{lambda\_um}, \texttt{phi\_deg}, \texttt{psi\_deg}, \texttt{delta\_deg} & Scanpunkt \\
+\texttt{side} & \texttt{R} (reflektiert) oder \texttt{T} (transmittiert); Sonderfälle siehe unten \\
+\texttt{n}, \texttt{m} & Ordnung (in 1D ist \texttt{m} $=0$) \\
+\texttt{efficiency} & Beugungseffizienz \\
+\texttt{eff\_s}, \texttt{eff\_p} & s- und p-Anteil (nur bei isotropen Halbräumen, sonst 0) \\
+\texttt{amp\_s\_re}, \texttt{amp\_s\_im}, \texttt{amp\_p\_re}, \texttt{amp\_p\_im} & komplexe Amplituden der
+s- und p-Komponente \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Sonderwerte von \texttt{side}:
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+\texttt{side} & Bedeutung \\
+\midrule
+\texttt{S\_up}, \texttt{S\_down}, \texttt{S\_abs} & isolierte Strukturen: Streuleistung nach oben, nach unten, Absorption
+(1D: Streubreite in \textmu m, 2D: Streuquerschnitt in \textmu m$^2$) \\
+\texttt{MR}, \texttt{MT}, \texttt{Mrad} & Modenanregung: reflektierte und transmittierte Modenleistung (\texttt{n} =
+Modennummer), abgestrahlte Leistung \\
+\texttt{C\_R}, \texttt{C\_T}, \texttt{C\_A} & Zylinder, Strahl: Reflexion, Transmission, Rest (bezogen auf den
+einfallenden Strahl) \\
+\texttt{C\_Rm}, \texttt{C\_Tm} & Zylinder: Anteil je azimutaler Harmonischer (\texttt{n} $=m$) \\
+\texttt{C\_Sup}, \texttt{C\_Sdown}, \texttt{C\_Ssca} & Zylinder, ebene Welle: Streuquerschnitte in \textmu m$^2$ \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\textbf{Einlesen.}
+\begin{lstlisting}[style=py]
+import pandas as pd
+df = pd.read_csv("out/v3/efficiencies.csv")
+t1 = df[(df.side == "T") & (df.n == 1)]
+print(t1[["lambda_um", "efficiency"]])
+\end{lstlisting}
+
+\section{Diagnose}\label{sec:diagnose}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Größe (Python: \texttt{res.diagnostics[...]}) & Bedeutung, Bewertung \\
+\midrule
+\texttt{energy\_balance} & $\sum R + \sum T$; bei verlustfreien Strukturen 1 \\
+\texttt{max\_condition\_t11} & größte Konditionszahl der Teilblöcke bei der S-Matrix-Verkettung; sehr große Werte
+($>10^{12}$) deuten auf numerische Probleme \\
+\texttt{rk\_steps} & Zahl der Runge--Kutta-Schritte \\
+\texttt{warnings} & Liste von Warnungen \\
+\texttt{precision} & tatsächlich verwendete Genauigkeit (\val{fp64}, \val{mixed}, \val{fp32}) \\
+\texttt{precision\_fallback} & \val{true}, wenn eine fp32-Rechnung in fp64 wiederholt wurde \\
+\texttt{refinement\_steps}, \texttt{refinement\_fallbacks} & Nachiterationen bei \val{mixed} \\
+\texttt{timings} & \texttt{solve\_s} und bei \texttt{profile=True} die Zeit je Abschnitt \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Profil der Rechenzeit}
+\begin{lstlisting}[style=shell]
+$ fgsolve --profile examples/nearfield_pillars_2d.json
+...
+profile (busy time summed over threads):
+  wall                           1.5766 s         1 x  max 1.5766 s
+  nearfield                      1.0279 s         1 x  max 1.0279 s
+  nearfield.coefficients         0.8220 s         1 x  max 0.8220 s
+  solve.assemble                 0.5543 s         2 x  max 0.2948 s
+  solve.layer_models             0.3919 s         2 x  max 0.2352 s
+  linalg.eig                     0.1728 s         2 x  max 0.0990 s
+  ...
+written: out/nearfield_pillars_2d/profile.json
+\end{lstlisting}
+Die Zeiten sind über alle Threads summiert. Typische Abschnitte: \texttt{linalg.eig} (Eigenwertprobleme der RCWA),
+\texttt{smatrix.star} (Verkettung), \texttt{nf.raster}/\texttt{nf.coefficients} (Normalenfeld),
+\texttt{nearfield.*} (Nahfeld). In Python: \texttt{fg.solve(cfg, profile=True).diagnostics["timings"]["scopes"]}.
+
+\section{Rückgabewerte von \texttt{fgsolve}}
+\begin{center}
+\small
+\begin{tabular}{cl}
+\toprule
+Code & Bedeutung \\
+\midrule
+0 & Erfolg \\
+2 & Funktion noch nicht umgesetzt (\texttt{NotImplemented}) \\
+3 & Fehler in Konfiguration oder Rechnung (\texttt{fgsolve: error: \ldots}) \\
+4 & \texttt{--cad-report}: Befunde mit Fehlern \\
+\bottomrule
+\end{tabular}
+\end{center}
+In Skripten lässt sich so zuverlässig prüfen, ob eine Rechnung gelaufen ist.

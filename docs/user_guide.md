@@ -1,5 +1,8 @@
 # Anwenderhandbuch
 
+> Ausführliches Benutzerhandbuch (LaTeX, ca. 85 Seiten, mit Beispielen, GUI und Fehlersuche):
+> [`handbuch/handbuch.tex`](handbuch/handbuch.tex), PDF mit `scripts/build_docs.sh` erzeugen.
+
 FourierGrating berechnet Beugungseffizienzen und Nahfelder periodischer Strukturen (1D- und 2D-Gitter,
 isotrope und anisotrope Materialien) mit der Fourier-Modal-Methode. Dieses Handbuch beschreibt die
 Benutzung; Formeln und Algorithmen stehen im Plan (`docs/implementation_plan/main.pdf`), das
@@ -55,7 +58,7 @@ isotropen Medien zusätzlich ausgegeben.
 |---|---|---|---|
 | `homogeneous` | homogene Schicht | ✓ | ✓ |
 | `lamellar1d` | Lamellen (Breakpoints in x, Material je Intervall), z-invariant | ✓ | ✓ |
-| `profile1d` | Oberfläche y = g(x): `sinus`, `triangle` (Echelette), `points` (Spline) | ✓ | ✓ (z-invariant) |
+| `profile1d` | Oberfläche y = g(x): `sinus`, `triangle` (Echelette), `points` (periodisches Polygon) | ✓ | ✓ (z-invariant) |
 | `polygon2d` | y-invarianter Querschnitt: Hintergrund + Polygone/Rechtecke | – | ✓ |
 | `profile2d` | Oberfläche y = g(x, z): `egg_crate`, `sinus_x` | – | ✓ |
 

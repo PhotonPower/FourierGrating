@@ -1,0 +1,220 @@
+\chapter{Grafische Oberfläche im Browser}\label{ch:gui}
+
+\GUI{} ist eine Weboberfläche für \FG. Sie läuft auf einem Rechenserver (am Institut: Server mit NVIDIA RTX 6000
+Ada) und wird im Browser bedient. Die GUI rechnet nicht selbst: Sie baut Konfigurationen im Format von
+Kapitel~\ref{ch:konfiguration}, ruft die Python-Schnittstelle auf und stellt die Ergebnisse dar. Alles, was in der GUI
+entsteht, ist deshalb eine gewöhnliche JSON-Konfiguration, die Sie herunterladen und mit \cmd{fgsolve} oder Python
+weiterverwenden können -- und umgekehrt.
+
+\section{Aufbau}
+Links steht die Navigation mit den Seiten
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lY}
+\toprule
+Seite & Zweck \\
+\midrule
+\gui{Editor} & Konfiguration erstellen und bearbeiten (Formulare und JSON), erste Rechnung \\
+\gui{Einzelrechnung} & Beispiel oder hochgeladene Datei rechnen, erster Scanpunkt \\
+\gui{Scan} & alle Scanpunkte und Sweep-Werte, Diagramme, Vergleich von Läufen \\
+\gui{Nahfeld} & Feldschnitte rechnen und darstellen \\
+\gui{CAD} & STEP-Dateien hochladen, prüfen, Schnitte ansehen \\
+\gui{Optimierung} & Parameter mit exakten Gradienten optimieren \\
+\gui{Rechnungen} & alle Rechnungen: Status, Warteschlange, Download, Löschen \\
+\gui{System} & Version, Rechenkern, GPU-Zustand, Betrieb \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Unter der Navigation stehen Version und Kern von \FG{} (\texttt{cpu} oder \texttt{cuda12}) und die Zahl der laufenden
+Rechnungen.
+
+\section{Sitzung und Adresse}
+Die Adresszeile enthält Ihre \textbf{Sitzungskennung} \texttt{?s=\ldots}. Speichern Sie die Adresse als Lesezeichen:
+Mit ihr kommen Sie -- auch von einem anderen Rechner oder nach einem Neustart des Servers -- zu Ihren Rechnungen und
+zur zuletzt bearbeiteten Konfiguration zurück. Wer die Adresse kennt, sieht Ihre Rechnungen; geben Sie sie nur weiter,
+wenn das gewollt ist. Ohne Kennung beginnt eine neue Sitzung. Unter \gui{Rechnungen} $\to$ \gui{Meine Sitzung löschen}
+entfernen Sie alle Ihre Rechnungen und den Entwurf (nicht rückgängig zu machen).
+
+Ist der Server mit Anmeldung (Proxy) betrieben, gehören Rechnungen zusätzlich Ihrem Benutzernamen; „Nur meine
+Rechnungen“ gilt dann über Sitzungen und Geräte hinweg.
+
+\section{Rechnungen im Hintergrund}
+Jede Rechnung läuft als \textbf{Hintergrundjob}. Die Oberfläche bleibt bedienbar; der Status aktualisiert sich von
+selbst. Standardmäßig rechnet der Server eine Rechnung gleichzeitig (eine GPU, alle Kerne je Rechnung); weitere warten
+in einer Warteschlange mit Platznummer. Vor dem Rechnen zeigen Editor und Scan eine \textbf{Abschätzung}: Zahl der
+Rechnungen, Matrixgröße $n=4n_f$ und Speicher (Faustwert, Warnung ab 70\,\% des Arbeitsspeichers; bei RK, vielen
+Scheiben oder GPU kann der tatsächliche Bedarf weit abweichen).
+
+%-------------------------------------------------------------------------------------------
+\section{Editor}
+Startseite. Oben wählen Sie die \gui{Quelle}:
+\begin{itemize}
+  \item \gui{Neu}: ein 1D-Lamellengitter als Vorlage (\gui{Neue Konfiguration}),
+  \item \gui{Beispiel}: die Referenzfälle aus \file{examples/} von \FG,
+  \item \gui{Datei hochladen}: eine eigene \file{.json}-Konfiguration.
+\end{itemize}
+Die Konfiguration wird in Reitern bearbeitet:
+\begin{description}
+  \item[Grundeinstellungen] Dimension, Löser, Fourierordnungen ($N_x$, $N_z$), Perioden, Superstrat und Substrat.
+  \item[Einfall] $\lambda$, $\varphi$, $\psi$, $\delta$ jeweils als Zahl, Liste (\texttt{0.5, 0.6, 0.7}; ein einzelnes
+        Element als \texttt{0.5,}) oder Bereich \texttt{von:bis:Schritte} (z.\,B.\ \texttt{0.5:0.8:31}).
+  \item[Materialien] Art wählen (Brechzahl $n$, Permittivität $\varepsilon$, Hauptwerte mit Euler-Winkeln, Tensor als
+        JSON), Material hinzufügen (Name eingeben) und entfernen.
+  \item[Schichten] von unten nach oben; mit \gui{$\uparrow$} \gui{$\downarrow$} \gui{$\times$} ordnen bzw.\ löschen. Formulare gibt es für
+        \val{homogeneous}, \val{lamellar1d} (Tabelle der Lamellen von/bis/Material), \val{profile1d}, \val{polygon2d},
+        \val{contour2d} (Tabelle der Formen: Material, Form, Mitte, Größe, Winkel, Eckpunkte) und \val{profile2d}.
+        Andere Typen (CAD, NURBS-Regionen) bearbeiten Sie als JSON der Schicht.
+  \item[Löser] RK- und RCWA-Optionen, Rechenkern (Backend), Genauigkeit, Threads.
+  \item[JSON] die ganze Konfiguration. \gui{Übernehmen} ersetzt die Formularwerte; \gui{Herunterladen} speichert die
+        Datei.
+\end{description}
+Das Formular ändert nur, was Sie ändern; unbekannte Schlüssel bleiben stehen. \gui{Rechnen} startet eine Rechnung
+des ersten Scanpunkts. Schlägt sie fehl, erscheint die Meldung von \FG; der vermutlich betroffene Reiter (bzw.\ die
+Schicht) zeigt sie ebenfalls an.
+
+\begin{tipp}[Vom Editor zum Skript]
+Laden Sie die Konfiguration unter \gui{JSON} herunter. Dieselbe Datei rechnet \cmd{fgsolve datei.json} oder
+\texttt{fg.solve(fg.load\_config("datei.json"))}.
+\end{tipp}
+
+%-------------------------------------------------------------------------------------------
+\section{Einzelrechnung}
+\begin{enumerate}
+  \item \gui{Quelle}: \gui{Beispiel} oder \gui{Datei hochladen}.
+  \item Die Kurzübersicht zeigt Dimension, Löser, Schichten und Materialien; unter \gui{JSON} steht die ganze
+        Konfiguration.
+  \item \gui{Rechnen} rechnet den ersten Scanpunkt (wie \texttt{fg.solve}).
+  \item Ergebnis: $\sum R$, $\sum T$, Absorption, Energiebilanz, Tabelle aller propagierenden Ordnungen mit s/p-Anteil,
+        Balkendiagramm, Warnungen und Diagnose (Laufzeiten, Genauigkeit, Konditionszahlen). \gui{Tabelle als CSV}
+        lädt die Tabelle herunter.
+\end{enumerate}
+
+%-------------------------------------------------------------------------------------------
+\section{Scan}
+Rechnet die Konfiguration aus dem Editor vollständig: alle Werte von $\lambda$, $\varphi$, $\psi$, $\delta$ und den
+\key{sweep}-Block (im Reiter \gui{JSON} des Editors anlegen). \gui{Scan rechnen} startet den Job; jeder Lauf bleibt in
+der Sitzung und lässt sich auswählen.
+\begin{itemize}
+  \item \gui{x-Achse}: eine Größe, die im Scan mehrere Werte hat. Die übrigen veränderlichen Größen halten Sie fest.
+  \item \gui{Ordnungen} $R(n,m)$, $T(n,m)$ und \gui{Summen} $\sum R$, $\sum T$; \gui{Größe}: gesamt, s (TE) oder p (TM).
+        Eine Ordnung, die bei einem Wert nicht propagiert, steht als 0.
+  \item \gui{Vergleichen mit}: weitere Läufe derselben Sitzung im selben Diagramm (gleiche $x$-Achse), z.\,B.\ zwei
+        Werte von $N$ für eine Konvergenzprüfung.
+  \item \gui{efficiencies.csv}: alle Zeilen wie bei \cmd{fgsolve}.
+\end{itemize}
+
+%-------------------------------------------------------------------------------------------
+\section{Nahfeld}
+Feldschnitte für den ersten Scanpunkt der Konfiguration aus dem Editor.
+\begin{enumerate}
+  \item \gui{Nahfeld-Einstellungen}: Fehlt der Block \key{nearfield}, legt \gui{Block mit Beispielwerten anlegen} ihn an.
+        Dann Lage der Schnitte ($y_0$, $z_0$), $y$-Bereich, Punktzahlen, Perioden, Größen und Rekonstruktion einstellen.
+  \item \gui{Nahfeld rechnen} startet den Job (\key{enabled} wird dafür auf \val{true} gesetzt).
+  \item \gui{Schnitt}, \gui{Größe} ($|E|^2$, $|H|^2$, $S_y$, $E_x\ldots H_z$) und \gui{Anteil} (Betrag, Re, Im, Phase)
+        wählen. Karten zeigen die Materialgrenzen als weiße Linien; 1D-Linien erscheinen als Kurve.
+  \item \gui{Alle Schnitte (.zip)} enthält dieselben Dateien wie \cmd{fgsolve} (Abschnitt~\ref{sec:nf-dateien}).
+\end{enumerate}
+
+%-------------------------------------------------------------------------------------------
+\section{CAD}
+Für Schichten vom Typ \val{cad} (Kapitel~\ref{ch:cad}); setzt einen Server mit CAD-Slicer voraus (Seite \gui{System}:
+„CAD-Slicer“).
+\begin{enumerate}
+  \item \gui{CAD-Schicht hinzufügen}, falls noch keine existiert.
+  \item STEP-Datei hochladen (\file{.step}/\file{.stp}) oder ein Beispiel verwenden. Uploads liegen auf dem Server
+        unter \file{uploads/} des Datenverzeichnisses; aus anderen Verzeichnissen liest die GUI nicht.
+  \item \gui{Körper $\to$ Material}: Die Körpernamen werden aus der Datei gelesen; ordnen Sie jedem ein Material zu.
+        Weitere Einstellungen: Einheit, Achsen, $y$-Bereich, Zellursprung, Hintergrund, Überlappung, Bandzerlegung,
+        Normalenfeld.
+  \item \gui{Prüfen} startet die Geometrieprüfung und zeigt Befunde (Code, Meldung, Ort in \textmu m), die Bänder mit
+        Flächenanteilen und eine \textbf{Schnittvorschau} je Band oder bei einer eigenen Höhe.
+\end{enumerate}
+Danach rechnen Einzelrechnung, Scan oder Nahfeld die Konfiguration wie jede andere.
+
+%-------------------------------------------------------------------------------------------
+\section{Optimierung}\label{sec:gui-opt}
+Maximiert oder minimiert $L=\sum w_ie_i$ mit L-BFGS-B und exakten Gradienten (Kapitel~\ref{ch:optimierung}) am ersten
+Scanpunkt.
+\begin{enumerate}
+  \item \gui{Zielfunktion}: Tabelle aus Seite (R/T), Ordnung $n$, $m$ und Gewicht; mehrere Zeilen erlaubt.
+        \gui{Ziel}: Maximieren oder Minimieren.
+  \item \gui{Parameter}: JSON-Pointer wählen (\val{/layers/0/thickness\_um}, \val{/layers/0/breakpoints\_um/1},
+        \val{/materials/al/n/1}, \val{/incidence/lambda\_um} \ldots), je Parameter Start, Unter- und Obergrenze. Die
+        Vorgabe $\pm50$\,\% ist nur ein Platzhalter; der Start muss innerhalb der Grenzen liegen.
+  \item \gui{Optimieren} startet den Job; der Verlauf erscheint live. \gui{Stoppen} beendet nach der laufenden
+        Auswertung und behält das beste Ergebnis.
+  \item Ergebnis: Zielwert am Start und am Optimum, Parameter, Verlauf (auch als CSV). \gui{Optimum in den Editor
+        übernehmen} schreibt die Werte in die Konfiguration.
+\end{enumerate}
+\gui{Littrow-Vorlage laden} lädt das Beispiel \file{optimize\_littrow.py} (Aluminiumgitter, Periode 0,5\um, TM: Tiefe
+und Stegbreite für die Ordnung $-1$).
+
+%-------------------------------------------------------------------------------------------
+\section{Rechnungen}
+Alle Rechnungen (Einzelrechnung, Scan, Nahfeld) werden auf dem Server gespeichert und
+bleiben nach einem Neustart in der Liste. Die Tabelle zeigt Art, Status, Platz in der Warteschlange und Laufzeit.
+Für eine einzelne Rechnung:
+\begin{itemize}
+  \item \gui{Abbrechen} -- nur für wartende Rechnungen; eine laufende lässt sich nicht unterbrechen.
+  \item \gui{Löschen} -- entfernt eine beendete Rechnung samt Dateien.
+  \item \gui{Rechnung herunterladen (.zip)} -- Konfiguration, Ergebnistabellen (CSV/JSON, beim Nahfeld \file{.npy})
+        und Rohdateien; \gui{Modell herunterladen (.json)} -- nur die Konfiguration.
+  \item \gui{Im Editor öffnen} übernimmt die gespeicherte Konfiguration; \gui{Im Scan / Nahfeld öffnen} zeigt das
+        Ergebnis dort.
+\end{itemize}
+Was bei einem Neustart des Servers noch wartete oder lief, steht als Fehler „Server wurde neu gestartet“ in der Liste;
+bitte neu einreichen. Der Betreiber kann alte Rechnungen automatisch löschen lassen.
+
+%-------------------------------------------------------------------------------------------
+\section{System}
+Version und Kern von \FG, ob CUDA nutzbar und der CAD-Slicer eingebaut ist, Backend-Voreinstellung,
+GPU-Zustand (Speicher, Auslastung, Temperatur) und die Einstellungen der GUI. \gui{Neu prüfen} liest die Angaben
+erneut. Der Abschnitt „Betrieb“ zeigt die Gesundheitsprüfung, den Speicherbedarf und \gui{Jetzt aufräumen}.
+
+%-------------------------------------------------------------------------------------------
+\section{Für Betreiber: Installation und Betrieb}\label{sec:gui-betrieb}
+Die vollständige Anleitung steht in \file{GUI-FourierGrating/docs/deployment\_rtx6000.md}. Kurzfassung:
+\begin{lstlisting}[style=shell]
+sudo useradd --system --create-home --home-dir /opt/fg-gui --shell /sbin/nologin fggui
+sudo -u fggui git clone https://github.com/PhotonPower/FourierGrating.git     /opt/fg-gui/FourierGrating
+sudo -u fggui git clone https://github.com/PhotonPower/GUI-FourierGrating.git /opt/fg-gui/GUI-FourierGrating
+sudo -u fggui /opt/fg-gui/GUI-FourierGrating/scripts/install_server.sh --prefix /opt/fg-gui
+sudo cp deploy/fg-gui.env.example /etc/fg-gui/fg-gui.env      # anpassen
+sudo cp deploy/fg-gui.service /etc/systemd/system/
+sudo systemctl enable --now fg-gui
+\end{lstlisting}
+Ohne root-Rechte: \file{scripts/install\_user\_service.sh} richtet einen systemd-Benutzerdienst ein.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lYl}
+\toprule
+Variable & Bedeutung & Standard \\
+\midrule
+\texttt{FG\_GUI\_DATA\_DIR} & Laufzeitdaten (Rechnungen, Uploads, Sitzungen) & \file{data} \\
+\texttt{FG\_GUI\_EXAMPLES\_DIR} & Verzeichnis mit Beispielkonfigurationen & -- \\
+\texttt{FG\_GUI\_WORKERS} & gleichzeitige Rechnungen & 1 \\
+\texttt{FG\_GUI\_JOB\_HISTORY} & Rechnungen im Speicher & 50 \\
+\texttt{FG\_GUI\_USER\_HEADER} & Header mit dem vom Proxy angemeldeten Benutzer (z.\,B.\ \texttt{X-Remote-User}) & -- \\
+\texttt{FG\_GUI\_RETENTION\_DAYS} & beendete Rechnungen nach so vielen Tagen löschen & 0 (aus) \\
+\texttt{FG\_GUI\_MAX\_RUNS} & höchstens so viele Rechnungen behalten & 0 (unbegrenzt) \\
+\texttt{FG\_GUI\_LOG\_LEVEL}, \texttt{FG\_GUI\_LOG\_FILE} & Protokollstufe, zusätzliche Logdatei & \texttt{INFO} \\
+\texttt{FG\_NUM\_THREADS}, \texttt{FG\_CORE}, \texttt{FG\_PRECISION}, \texttt{FG\_GPU\_STREAMS} & an \FG{} durchgereicht & \\
+\bottomrule
+\end{tabularx}
+\end{center}
+\paragraph{Zugriff.} Entweder über einen SSH-Tunnel
+(\texttt{ssh -N -L 8505:server:8505 benutzer@server}, dann \texttt{http://localhost:8505}) oder über nginx mit TLS und
+Anmeldung (Vorlage \file{deploy/nginx-fg-gui.conf}). Den Streamlit-Port \textbf{nicht} nach außen öffnen: Streamlit
+hat keine eigene Anmeldung.
+\paragraph{Überwachung.} \texttt{fg-gui-health --url \ldots} liefert Exit-Code 0, wenn die GUI gesund ist
+(Nagios/Icinga/cron); das Protokoll steht im Journal (\texttt{journalctl -u fg-gui -f}).
+
+\begin{achtung}[Was die GUI (noch) nicht kann]
+\begin{itemize}[nosep]
+  \item Dispersive Materialien (wie \FG{} selbst; geplant als G8 nach M22).
+  \item Eine laufende Rechnung abbrechen.
+  \item Isolierte Strukturen (PML), Zylinder und ASR haben keine eigenen Formulare; sie werden im Reiter \gui{JSON}
+        bearbeitet und funktionieren dann normal.
+\end{itemize}
+\end{achtung}
