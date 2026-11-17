@@ -2,7 +2,13 @@
 
 ## [Unreleased]
 
+## [0.19.0] – M22 (Dispersive Materialien), Teile von M20, Benutzerhandbuch
+
 ### Hinzugefügt
+- Release: `wheels.yml` baut bei einem Tag `v*` zusätzlich das sdist, prüft Tag = Version und hängt Wheels und
+  sdist an ein GitHub-Release; Upload zu PyPI (Trusted Publishing, Umgebungen `pypi` und `pypi-cuda12`)
+  von Hand per `workflow_dispatch`. `fouriergrating-cuda12` verlangt genau dieselbe Version von `fouriergrating`
+  (Test `tests/python/test_release_metadata.py`).
 - Benutzerhandbuch in LaTeX (`docs/handbuch/`, ca. 100 Seiten): Grundlagen und Konventionen, Installation, Schnellstart,
   vollständige Konfigurationsreferenz, alle Schichttypen, Löserwahl/Faktorisierung/Konvergenz (mit gemessener
   Konvergenztabelle V19), Scans und Sweeps, Nahfeld, Ausgaben, ASR/PML/Zylinder, CAD, Python, Gradienten, Leistung,
@@ -94,6 +100,8 @@
 - `backend_threshold` (`backend = auto`): 160 statt 1000 (Messung auf der RTX 6000 Ada, `docs/benchmarks.md`); GPU = CPU im Rundungsbereich.
 
 ### Behoben
+- `CylPropagationMatrix.HomogeneousMediumEigenvectors` auf arm64 (FMA-Kontraktion): Toleranz relativ zu
+  max|k² − ε| statt absolut.
 - Build mit Apple clang 21 (macOS, libc++): Die Skalarprodukte `ph.transpose() * X` im Nahfeldschnitt
   (`solvers/solver.cpp`) werden jetzt mit `.value()` ausgewertet; Eigen 3.4 liefert dort `operator const Scalar()`,
   das clang nicht an `push_back(T&&)` bzw. eine Zuweisung an `std::complex` bindet. Ergebnisse unverändert.
