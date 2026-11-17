@@ -37,9 +37,9 @@ werden auf $10^{-9}$ der Modellgröße verfolgt.
   \item In \textbf{Mikrometern} konstruieren und so schreiben (\texttt{unit="um"}).
   \item \textbf{Ein benannter Körper je Material}, z.\,B.\ \texttt{Pillar}, \texttt{Lid}.
   \item Geschlossene, konsistent orientierte Körper (Volumenkörper, keine offenen Flächen).
-  \item Nur für \textbf{2D-Gitter} (\key{period\_um}.z $>0$). Eine $z$-invariante Linie, über genau eine $z$-Periode
-        extrudiert, berührt ihr periodisches Bild und wird mit \texttt{PERIODIC\_OVERLAP} abgelehnt: Solche Gitter
-        beschreibt man als 1D-Gitter (\val{lamellar1d}, \val{profile1d}).
+  \item Liniengitter (in $z$ extrudierte Körper) als \textbf{1D-Gitter} importieren (Abschnitt~\ref{sec:cad1d-hb}).
+        In einem 2D-Gitter berührt eine über genau eine $z$-Periode extrudierte Linie ihr periodisches Bild und wird
+        mit \texttt{PERIODIC\_OVERLAP} abgelehnt.
   \item Mit Nurbforge in Python:
 \end{itemize}
 \begin{lstlisting}[style=py]
@@ -94,6 +94,32 @@ interpolieren (schneller bei vielen Scheiben) \\
 Die \val{cad}-Schicht wird beim Laden durch ihre Bänder ersetzt (von unten nach oben). Darüber und darunter dürfen
 gewöhnliche Schichten liegen.
 
+\section{Liniengitter als 1D-Gitter}\label{sec:cad1d-hb}
+\index{CAD!1D-Gitter}\index{Liniengitter}%
+Mit \key{dimension} \val{"1D"} liest der Slicer Körper, die entlang FG-$z$ (standardmäßig $-$CAD-$Y$) extrudiert
+sind; die Länge ist beliebig. Jeder Körper wird einmal in der Ebene $z=$\,\key{z\_cut\_um} geschnitten (Standard: Mitte
+des gemeinsamen $z$-Bereichs). Aus dem Profil in der $(x,y)$-Ebene entstehen je Höhe Intervalle mit Materialien und
+die Normalen an den Grenzen; Kreisbögen (z.\,B.\ aus \texttt{nurbforge.fillet\_corners} oder \texttt{make\_arc})
+bleiben exakt.
+\begin{lstlisting}[language=json]
+{"dimension": "1D", "period_um": {"x": 0.3}, "truncation": {"Nx": 12},
+ "layers": [{"type": "cad", "file": "cad/line_grating.step", "unit": "um",
+             "cell_origin_um": 0.0, "background": "superstrate",
+             "bodies": [{"name": "Line", "material": "resist"}]}]}
+\end{lstlisting}
+\begin{itemize}
+  \item Bänder: \val{homogeneous}, \val{lamellar1d} (senkrechte Wände, exakt) oder \val{sectioned1d} ($y$-variabel).
+  \item \key{cell\_origin\_um} ist nur $x_0$ (Zahl oder \val{[x0]}); \key{z\_cut\_um} gibt es nur in 1D.
+  \item Füllt ein Körper die ganze Periode (Restschicht) oder ragt er über den Zellrand, wird er an der Naht ohne
+        Grenzfläche verschmolzen. Überlappt er sein Bild: \texttt{PERIODIC\_OVERLAP} (\key{periodic\_union} vereinigt).
+  \item Nicht $z$-invariante Körper melden \texttt{NOT\_Z\_INVARIANT}. PML ist mit 1D-CAD-Schichten nicht möglich.
+  \item Standard-Faktorisierung \val{FFF\_sym} (isotrop) bzw.\ \val{FFF\_B} (anisotrop); das Normalenfeld interpoliert
+        den Winkel zwischen den Grenzen linear.
+  \item Beispiel: \texttt{examples/cad\_line\_grating\_1d.json}, eine Lackline mit CD 100\,nm auf halber Höhe,
+        100\,nm Höhe, $15^\circ$-Wänden und Ecken mit 10\,nm Radius (Kopf konvex, Fuß konkav).
+  \item \texttt{fg.cad.preview(step, cfg)} zeigt in 1D das Profil mit den Bandgrenzen; \key{y\_um} entfällt.
+\end{itemize}
+
 \section{Geometrieprüfung}
 \index{CAD!Geometrieprüfung}%
 \begin{lstlisting}[style=shell]
@@ -115,6 +141,7 @@ eigenes entlang eines Randstücks (umspannt die Periode) \\
 \texttt{FEATURE\_SMALL} & Merkmal kleiner als zwei Rasterabstände des Normalenfeldes oder dünnes Band (Warnung) \\
 \texttt{BODY\_UNASSIGNED} & Körper ohne Material oder Zuordnung ohne Körper \\
 \texttt{STEP\_UNSUPPORTED} & Datei nicht lesbar oder Entität nicht unterstützt \\
+\texttt{NOT\_Z\_INVARIANT} & 1D-Gitter: Körper ist nicht entlang $z$ extrudiert \\
 \bottomrule
 \end{tabularx}
 \end{center}

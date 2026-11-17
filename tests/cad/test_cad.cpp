@@ -829,6 +829,28 @@ TEST(CAD_V24, OverhangCapAndCavity) {
   EXPECT_NEAR(sum(a), 1.0, 1e-10);
   EXPECT_NEAR(sum(b), 1.0, 1e-7);
   EXPECT_LT(maxDiff(a, b), 2e-3);
+  // reciprocity e_n(alpha0) = e_n(-alpha_n) (as V3): exact up to truncation, the deviation falls with N
+  const double lam = 0.4, th = 30.0, thRev = std::asin(-(std::sin(th * pi / 180) - lam / kD)) * 180 / pi;
+  auto effR = [&](const fg::Result& x, int n) {
+    for (const auto& o : x.reflected)
+      if (o.n == n) return o.efficiency;
+    return -1.0;
+  };
+  for (double delta : {0.0, 90.0}) {
+    double dev[2];
+    const int Ns[2] = {8, 24};
+    for (int k = 0; k < 2; ++k) {
+      json c = rc;
+      c["truncation"] = {{"Nx", Ns[k]}};
+      c["incidence"] = {{"lambda_um", lam}, {"phi_deg", th}, {"psi_deg", 0}, {"delta_deg", delta}};
+      json cr = c;
+      cr["incidence"]["phi_deg"] = thRev;
+      dev[k] = std::abs(effR(solve(c), -1) - effR(solve(cr), -1));
+    }
+    std::printf("V24d reciprocity delta %.0f: N = 8 %.3e, N = 24 %.3e\n", delta, dev[0], dev[1]);
+    EXPECT_LT(dev[1], 0.25 * dev[0]) << delta;
+    EXPECT_LT(dev[1], 1e-3) << delta;
+  }
 }
 
 TEST(CAD_V24, IndependentOfCutPlaneLengthAndOrigin) {

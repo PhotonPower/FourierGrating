@@ -936,6 +936,7 @@ std::string previewSvg(const CadOptions& o, const Stack& st, double y) {
   if (!loadModel(o, st, m, r))
     throw Error("cad preview: " + (r.errors.empty() ? std::string() : r.errors.front().message));
   if (m.oneD) return previewSvg1D(o, st, m, r);
+  FG_REQUIRE(std::isfinite(y), "cad preview: y_um is required for 2D gratings");
   const double h = std::min(st.dx_um, st.dz_um) / 512;
   const CrossSection cs = sectionAt(m.bodies, y, 1e-3 * h);
   // colours per material (stable order)

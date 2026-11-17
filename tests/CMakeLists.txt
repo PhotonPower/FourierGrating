@@ -118,6 +118,10 @@ if(FG_ENABLE_NURBFORGE)
            COMMAND fgsolve ${PROJECT_SOURCE_DIR}/examples/cad_pillar_array.json
            WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
   set_tests_properties(example_cad_pillar_array PROPERTIES LABELS "validation")
+  add_test(NAME example_cad_line_grating_1d
+           COMMAND fgsolve ${PROJECT_SOURCE_DIR}/examples/cad_line_grating_1d.json
+           WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+  set_tests_properties(example_cad_line_grating_1d PROPERTIES LABELS "validation")
   gtest_discover_tests(test_cad PROPERTIES LABELS "validation" TIMEOUT 1800 DISCOVERY_TIMEOUT 60)
 endif()
 

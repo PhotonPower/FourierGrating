@@ -146,7 +146,11 @@ struct Sectioned1DLayer { std::shared_ptr<const LineSectionProvider> provider;
   \item Nahfeld: \verb|epsAt| aus dem Schnitt bei $y$, \verb|normalAt|/\verb|NN| aus \eqref{eq:cad1d_N}.
   \item M19: \verb|adjointSlice| wie bei \verb|ProfileModel| (Intervalle, Indikatoren, Normalenfeld, anisotrop über
         \verb|anisoAdjointSlice|), nicht bei Tschebyschow-Interpolation. Formparameter laufen über
-        \verb|StackParameter| (Neuaufbau aus der STEP-Datei), wie im Test \verb|CAD_M19|.
+        \verb|StackParameter| (Neuaufbau aus der STEP-Datei), wie im Test \verb|CAD_M19|. Ableitung (v2.23): zentrale
+        Differenz der Koeffizientengitter ($\varepsilon$, $1/\varepsilon$, $N_iN_j$, $N_i$ bzw.\ die anisotropen
+        Funktionen) der Schnitte derselben Höhe bei $\theta\pm\delta$ (\verb|AdjointSlice::gridsOfSection|); das
+        Normalenfeld \eqref{eq:cad1d_N} wird also mitdifferenziert.
+  \item PML (M18): nicht mit \verb|Sectioned1DLayer| (klare Fehlermeldung).
 \end{itemize}
 
 \subsection{Bandklassifikation in 1D}
@@ -158,7 +162,8 @@ Linienschnitt in Bandmitte:
   \item sonst \verb|Sectioned1DLayer| mit einem \verb|ProfileLineProvider| (Profilschleifen des Bandes,
         Hintergrund, Toleranz).
 \end{itemize}
-\verb|FEATURE_SMALL| warnt in 1D, wenn ein Intervall in Bandmitte schmaler als $d_x/(2N_x+1)$ ist. Im Bericht heißen die
+\verb|FEATURE_SMALL| warnt in 1D, wenn ein Intervall in Bandmitte schmaler als zwei Rasterabstände
+$2d_x/\max(\texttt{grid},64)$ ist wie in 2D (v2.23; $N_x$ ist dem Slicer nicht bekannt). Im Bericht heißen die
 Bandarten \verb|homogeneous|, \verb|lamellar1d| und \verb|sectioned1d|. Die Flächenanteile werden zu Längenanteilen
 (bezogen auf $d_x$).
 
@@ -213,6 +218,25 @@ CAD-Teil steht in \verb|tests/cad/test_cad.cpp| (Label \verb|validation|), STEP-
 Zusätzlich Unit-Tests: Linienschnitt rationaler Bézierstücke (Kreisbogen, Viertelkreis bis an die Tangente) gegen die
 geschlossene Form; Paritätsregel mit Loch; Verschmelzen an der Naht; Koeffizienten von \eqref{eq:cad1d_N} gegen die
 geschlossene Form.
+
+\subsection{Umsetzung (v2.23)}\label{sec:cad1d_impl}
+\begin{itemize}[nosep]
+  \item \verb|src/geometry/line_section.cpp|: \verb|lineCrossings| (Bernstein-Koeffizienten $w_j(y_j-c)$,
+        Zeichenwechsel, Halbierung, abgesicherter Newton; Nullstellen bei $t=1$ gehören zum nächsten Stück),
+        \verb|lineSection| (Paritätsregel, Rückfaltung, Nähte, Überlappungen, \verb|LineSectionFindings| für die
+        Prüfung), \verb|normalField(LineSection)| (bei parallelen Grenzen exakt konstant, sonst Gauß-Legendre;
+        Test gegen die geschlossene Form $10^{-14}$), \verb|ProfileLineProvider|.
+  \item \verb|Sectioned1DModel| / \verb|LineSliceModel| in \verb|layer_model.cpp|; \verb|ChebyshevQ| gemeinsam mit
+        \verb|SectionedModel| (Golden Files bitgleich). \verb|Sectioned1DLayer::materials| nennt alle möglichen
+        Materialien (TE/TM-Aufspaltung, Wiederverwendung im $\lambda$-Scan).
+  \item Bandgrenzen sind kritische Höhen aus \verb|nf::critical_heights|; ein Fußbogen, der $y=0$ tangential berührt,
+        liefert die Unterkante als Newton-Extremum (z.\,B.\ $-1{,}5\cdot10^{-12}$\,\textmu m statt $0$). Das ist physikalisch
+        bedeutungslos; Tests beziehen Höhen auf die Bandgrenzen des Berichts.
+  \item Ergebnisse: V24b RK $<10^{-10}$, RCWA $<10^{-12}$; V24c gerundete Linie gegen \verb|profile1d| \verb|Function|
+        $2{,}6\cdot10^{-13}$, Schnittpunkte und Normalen exakt bis auf die STEP-Rundung; V24d RCWA (100 Scheiben) gegen RK
+        $2{,}4\cdot10^{-10}$, $R+T=1$ auf $10^{-14}$, Reziprozität $3{,}5\cdot10^{-7}$ bei $N_x=24$ (fallend); V24h
+        Gradienten $\le 2\cdot10^{-8}$ relativ.
+\end{itemize}
 
 \subsection{Reihenfolge der Umsetzung}
 \begin{enumerate}[nosep]
