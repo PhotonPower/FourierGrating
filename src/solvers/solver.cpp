@@ -274,6 +274,7 @@ std::optional<std::vector<std::string>> layerMaterials(const LayerSpec& spec) {
   if (const auto* h = std::get_if<HomogeneousLayer>(&spec)) return std::vector<std::string>{h->material};
   if (const auto* l = std::get_if<Lamellar1DLayer>(&spec)) return l->materials;
   if (const auto* p = std::get_if<Profile1DLayer>(&spec)) return std::vector<std::string>{p->below, p->above};
+  if (const auto* s = std::get_if<Sectioned1DLayer>(&spec); s && !s->materials.empty()) return s->materials;
   return std::nullopt;
 }
 

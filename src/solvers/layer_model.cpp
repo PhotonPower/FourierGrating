@@ -1005,6 +1005,98 @@ class CrossSectionModel final : public LayerModel {
   mutable QBlocks Q_;
 };
 
+// ------------------------------------------------------------------ Chebyshev interpolation in y (M14, M23)
+/// Q(y) of a band [0, h] from barycentric interpolation of the exact Q blocks at Chebyshev nodes (first
+/// kind); K doubled until K and 2K agree to 1e-10 max|Q|, at most 256 (Plan M14 "Kosten und Interpolation
+/// in y"). Shared by SectionedModel and Sectioned1DModel.
+class ChebyshevQ {
+ public:
+  ChebyshevQ(double h, int nodes, std::function<QBlocks(double)> exact, std::string name)
+      : h_(h), nodes_(nodes), exact_(std::move(exact)), name_(std::move(name)) {}
+  /// Builds the interpolant on first use; false (with a warning): exact sections must be used.
+  bool ready(std::vector<std::string>& warnings) const {
+    std::call_once(chebOnce_, [&] { buildInterpolant(warnings); });
+    return static_cast<bool>(cheb_);
+  }
+  QBlocks operator()(double y) const { return interpolate(*cheb_, y); }
+
+ private:
+  /// Q blocks at K Chebyshev nodes (first kind) of the band and the barycentric weights.
+  struct Chebyshev {
+    std::vector<double> x, w;  ///< nodes in [-1, 1], weights
+    std::vector<QBlocks> Q;
+  };
+  Chebyshev chebyshev(int K) const {
+    Chebyshev c;
+    for (int k = 0; k < K; ++k) {
+      const double th = PI * (k + 0.5) / K;
+      c.x.push_back(-std::cos(th));
+      c.w.push_back((k % 2 ? -1.0 : 1.0) * std::sin(th));
+    }
+    // the sections of the nodes are independent (Plan section "M15", step 4)
+    c.Q.resize(static_cast<std::size_t>(K));
+    const bool fft = fourier::fftSampling();  // thread-local setting of the calling solver
+    parallelFor(K, innerThreads(), [&](int k) {
+      fourier::setFFTSampling(fft);
+      const auto i = static_cast<std::size_t>(k);
+      c.Q[i] = exact_(0.5 * h_ * (1.0 + c.x[i]));
+    });
+    return c;
+  }
+  static QBlocks interpolate(const Chebyshev& c, double y, double h) {
+    const double x = std::clamp(2.0 * y / h - 1.0, -1.0, 1.0);
+    std::vector<double> a(c.x.size());
+    double sum = 0;
+    for (std::size_t k = 0; k < c.x.size(); ++k) {
+      if (x == c.x[k]) return c.Q[k];
+      a[k] = c.w[k] / (x - c.x[k]);
+      sum += a[k];
+    }
+    QBlocks Q = c.Q[0];
+    for (int i = 0; i < 3; ++i)
+      for (int j = 0; j < 3; ++j) {
+        MatC m = MatC::Zero(c.Q[0](i, j).rows(), c.Q[0](i, j).cols());
+        for (std::size_t k = 0; k < c.x.size(); ++k) m += (a[k] / sum) * c.Q[k](i, j);
+        Q(i, j) = std::move(m);
+      }
+    return Q;
+  }
+  QBlocks interpolate(const Chebyshev& c, double y) const { return interpolate(c, y, h_); }
+  static double maxAbs(const QBlocks& Q) {
+    double m = 0;
+    for (int i = 0; i < 3; ++i)
+      for (int j = 0; j < 3; ++j) m = std::max(m, Q(i, j).size() ? Q(i, j).cwiseAbs().maxCoeff() : 0.0);
+    return m;
+  }
+  /// K and 2K nodes compared at the K midpoints (1e-10 max|Q|).
+  void buildInterpolant(std::vector<std::string>& warnings) const {
+    for (int K = nodes_; K <= 256; K *= 2) {
+      const Chebyshev a = chebyshev(K), b = chebyshev(2 * K);
+      double err = 0, ref = 0;
+      for (int k = 0; k < K; ++k) {
+        const double y = 0.5 * h_ * (1.0 - std::cos(PI * (k + 1.0) / (K + 1.0)));
+        const QBlocks qa = interpolate(a, y), qb = interpolate(b, y);
+        ref = std::max(ref, maxAbs(qb));
+        for (int i = 0; i < 3; ++i)
+          for (int j = 0; j < 3; ++j)
+            if (qa(i, j).size()) err = std::max(err, (qa(i, j) - qb(i, j)).cwiseAbs().maxCoeff());
+      }
+      if (err <= 1e-10 * ref) {
+        cheb_ = std::make_unique<Chebyshev>(b);
+        return;
+      }
+    }
+    warnings.push_back(name_ + ": Chebyshev interpolation in y did not reach 1e-10 with 256 nodes; exact sections used");
+  }
+
+  double h_;
+  int nodes_;
+  std::function<QBlocks(double)> exact_;
+  std::string name_;
+  mutable std::once_flag chebOnce_;
+  mutable std::unique_ptr<Chebyshev> cheb_;
+};
+
 // ------------------------------------------------------------------ height-dependent cross-sections (M13)
 /// SectionedLayer (Plan section "M13: Hoehenabhaengige Schichtmodelle"): one CrossSectionModel per
 /// height, built on demand from the provider's cross-section and cached (key: y bit-exact; the RK
@@ -1032,11 +1124,14 @@ class SectionedModel final : public LayerModel {
       epsList.push_back(m.isotropic ? m.eps : m.epsTensor.diagonal().mean());
     }
     warnings = at(0.5 * h_).warnings;
+    if (l.chebyshevNodes > 0)
+      cheb_ = std::make_unique<ChebyshevQ>(h_, l.chebyshevNodes, [this](double y) { return get(y)->Q(0.0); },
+                                           "sectioned layer");
   }
   double thickness_um() const override { return h_; }
   bool yInvariant() const override { return false; }
   QBlocks Q(double y) const override {
-    if (l_.chebyshevNodes > 0 && interpolant()) return interpolate(*cheb_, y);
+    if (cheb_ && cheb_->ready(warnings)) return (*cheb_)(y);
     return get(y)->Q(0.0);
   }
   Mat3C epsAt(double x, double y, double z) const override { return at(y).epsAt(x, 0.0, z); }
@@ -1078,78 +1173,6 @@ class SectionedModel final : public LayerModel {
   /// Sequential callers (near-field reconstruction) use the reference immediately.
   const LayerModel& at(double y) const { return *get(y); }
 
-  /// Q blocks at K Chebyshev nodes (first kind) of the band and the barycentric weights.
-  struct Chebyshev {
-    std::vector<double> x, w;  ///< nodes in [-1, 1], weights
-    std::vector<QBlocks> Q;
-  };
-  Chebyshev chebyshev(int K) const {
-    Chebyshev c;
-    for (int k = 0; k < K; ++k) {
-      const double th = PI * (k + 0.5) / K;
-      c.x.push_back(-std::cos(th));
-      c.w.push_back((k % 2 ? -1.0 : 1.0) * std::sin(th));
-    }
-    // the sections of the nodes are independent (Plan section "M15", step 4)
-    c.Q.resize(static_cast<std::size_t>(K));
-    const bool fft = fourier::fftSampling();  // thread-local setting of the calling solver
-    parallelFor(K, innerThreads(), [&](int k) {
-      fourier::setFFTSampling(fft);
-      const auto i = static_cast<std::size_t>(k);
-      c.Q[i] = get(0.5 * h_ * (1.0 + c.x[i]))->Q(0.0);
-    });
-    return c;
-  }
-  static QBlocks interpolate(const Chebyshev& c, double y, double h) {
-    const double x = std::clamp(2.0 * y / h - 1.0, -1.0, 1.0);
-    std::vector<double> a(c.x.size());
-    double sum = 0;
-    for (std::size_t k = 0; k < c.x.size(); ++k) {
-      if (x == c.x[k]) return c.Q[k];
-      a[k] = c.w[k] / (x - c.x[k]);
-      sum += a[k];
-    }
-    QBlocks Q = c.Q[0];
-    for (int i = 0; i < 3; ++i)
-      for (int j = 0; j < 3; ++j) {
-        MatC m = MatC::Zero(c.Q[0](i, j).rows(), c.Q[0](i, j).cols());
-        for (std::size_t k = 0; k < c.x.size(); ++k) m += (a[k] / sum) * c.Q[k](i, j);
-        Q(i, j) = std::move(m);
-      }
-    return Q;
-  }
-  QBlocks interpolate(const Chebyshev& c, double y) const { return interpolate(c, y, h_); }
-  static double maxAbs(const QBlocks& Q) {
-    double m = 0;
-    for (int i = 0; i < 3; ++i)
-      for (int j = 0; j < 3; ++j) m = std::max(m, Q(i, j).size() ? Q(i, j).cwiseAbs().maxCoeff() : 0.0);
-    return m;
-  }
-  /// Builds the interpolant on first use: K and 2K nodes compared at the K midpoints (1e-10 max|Q|).
-  bool interpolant() const {
-    std::call_once(chebOnce_, [this] { buildInterpolant(); });
-    return static_cast<bool>(cheb_);
-  }
-  void buildInterpolant() const {
-    for (int K = l_.chebyshevNodes; K <= 256; K *= 2) {
-      const Chebyshev a = chebyshev(K), b = chebyshev(2 * K);
-      double err = 0, ref = 0;
-      for (int k = 0; k < K; ++k) {
-        const double y = 0.5 * h_ * (1.0 - std::cos(PI * (k + 1.0) / (K + 1.0)));
-        const QBlocks qa = interpolate(a, y), qb = interpolate(b, y);
-        ref = std::max(ref, maxAbs(qb));
-        for (int i = 0; i < 3; ++i)
-          for (int j = 0; j < 3; ++j)
-            if (qa(i, j).size()) err = std::max(err, (qa(i, j) - qb(i, j)).cwiseAbs().maxCoeff());
-      }
-      if (err <= 1e-10 * ref) {
-        cheb_ = std::make_unique<Chebyshev>(b);
-        return;
-      }
-    }
-    warnings.push_back("sectioned layer: Chebyshev interpolation in y did not reach 1e-10 with 256 nodes; exact sections used");
-  }
-
   SectionedLayer l_;
   Factorization fac_;
   IndexMap map_;
@@ -1158,8 +1181,187 @@ class SectionedModel final : public LayerModel {
   double h_ = 0;
   mutable std::mutex mu_;
   mutable std::map<double, std::shared_ptr<const LayerModel>> cache_;
-  mutable std::once_flag chebOnce_;
-  mutable std::unique_ptr<Chebyshev> cheb_;
+  std::unique_ptr<ChebyshevQ> cheb_;
+};
+
+// ------------------------------------------------------------------ height-dependent line sections (M23)
+/// Factorization of a Sectioned1DLayer (Plan section "M23: Annahmen", 5.): sign-free normal field, so
+/// FFF_sym (isotropic) / FFF_B (anisotropic) by default, as Contour2D.
+Factorization sectioned1DFactorization(Factorization fac, bool aniso) {
+  const Factorization f = fac == Factorization::Auto ? (aniso ? Factorization::FFF_B : Factorization::FFF_sym) : fac;
+  FG_REQUIRE(aniso ? (f == Factorization::Laurent || f == Factorization::FFF_B)
+                   : (f == Factorization::Laurent || f == Factorization::FFF_iso || f == Factorization::FFF_sym),
+             aniso ? std::string("sectioned1d layer (anisotropic): factorization must be laurent or FFF_B")
+                   : std::string("sectioned1d layer: factorization must be laurent, FFF_iso or FFF_sym (FFF_rig/FFF_A need "
+                                 "a signed normal field, Plan eq:cad1d_N has none)"));
+  return f;
+}
+
+/// One line section of a Sectioned1DLayer (Plan section "M23: Schichttyp Sectioned1DLayer"): intervals and
+/// the normal field eq:cad1d_N; Q as ProfileModel with the breaks and normals of the section.
+class LineSliceModel final : public LayerModel {
+ public:
+  LineSliceModel(const Stack& st, LineSection s, Factorization fac, bool aniso, const IndexMap& map,
+                 const ResolvedTransform& tr)
+      : s_(std::move(s)), dx_(st.dx_um), map_(map), xm_(tr.x), fac_(fac), aniso_(aniso) {
+    for (const auto& name : s_.materials) {
+      const Material& m = st.material(name);
+      tensors_.push_back(m.tensor());
+      eps_.push_back(m.isotropic ? m.eps : m.epsTensor.diagonal().mean());
+    }
+    epsList = eps_;
+    nf_ = normalField(s_, dx_, map_, xm_.get());
+    std::vector<double> br = s_.breaks;
+    if (aniso_) {
+      std::vector<Mat3C> tens = tensors_;
+      mapIntervals(xm_.get(), br, tens);  // transformed coordinates (Plan section "M17")
+      Q_ = anisotropicQ(br, tens, nfun(), fac_, dx_, map_);
+      return;
+    }
+    std::vector<cplx> ev = eps_;
+    mapIntervals(xm_.get(), br, ev);
+    SliceCoefficients sc;
+    isoGrids(br, ev, dx_, map_, sc);
+    sc.normal = &nf_;
+    Q_ = fac_ == Factorization::Laurent ? qLaurent(sc, map_) : qFFFIsotropic(sc, map_, fac_ == Factorization::FFF_sym);
+  }
+  double thickness_um() const override { return 0.0; }
+  QBlocks Q(double) const override { return Q_; }
+  Mat3C epsAt(double x, double, double) const override { return tensors_[interval(x)]; }
+  Vec3D normalAt(double x, double, double) const override { return geometry::lineNormal(s_, dx_, x); }
+  const NormalFieldCoefficients& NN(double) const override { return nf_; }
+  bool adjointSlice(double, AdjointSlice& a) const override {
+    std::vector<double> br = s_.breaks;
+    std::vector<std::size_t> idx(s_.materials.size());
+    for (std::size_t k = 0; k < idx.size(); ++k) idx[k] = k;
+    mapIntervals(xm_.get(), br, idx);
+    std::vector<Mat3C> tens;
+    std::vector<cplx> ev;
+    for (std::size_t k : idx) {
+      a.materials.push_back(s_.materials[k]);
+      tens.push_back(tensors_[k]);
+      ev.push_back(eps_[k]);
+    }
+    if (aniso_) {
+      anisoAdjointSlice(br, tens, nfun(), fac_, dx_, map_, a);
+      return true;
+    }
+    a.breaks = br;
+    isoGrids(br, ev, dx_, map_, a.sc);
+    a.sc.normal = &nf_;
+    a.fac = fac_;
+    a.chi = intervalIndicators(a.breaks, dx_, map_);
+    return true;
+  }
+  const LineSection& section() const { return s_; }
+
+ private:
+  /// Physical normal at x = f(X) (Plan section "M17").
+  std::function<Vec3D(double)> nfun() const {
+    const LineSection s = s_;
+    const double dx = dx_;
+    const std::shared_ptr<const CoordinateMap> xm = xm_;
+    return [s, dx, xm](double X) { return geometry::lineNormal(s, dx, xm ? xm->f(X) : X); };
+  }
+  std::size_t interval(double x) const {
+    const double xr = x - std::floor(x / dx_) * dx_;
+    std::size_t k = 0;
+    while (k + 1 < s_.materials.size() && xr >= s_.breaks[k + 1]) ++k;
+    return k;
+  }
+
+  LineSection s_;
+  double dx_;
+  IndexMap map_;
+  std::shared_ptr<const CoordinateMap> xm_;
+  Factorization fac_;
+  bool aniso_;
+  std::vector<Mat3C> tensors_;
+  std::vector<cplx> eps_;
+  NormalFieldCoefficients nf_;
+  QBlocks Q_;
+};
+
+/// Sectioned1DLayer (Plan section "M23: Schichttyp Sectioned1DLayer"): one LineSliceModel per height, built
+/// on demand and cached (key: y bit-exact), thread-safe; Chebyshev interpolation in y as SectionedModel.
+class Sectioned1DModel final : public LayerModel {
+ public:
+  Sectioned1DModel(const Stack& st, const Sectioned1DLayer& l, Factorization fac, const IndexMap& map,
+                   int defaultSlices, const ResolvedTransform& tr)
+      : l_(l), map_(map), tr_(tr) {
+    FG_REQUIRE(!st.is2D(), "sectioned1d layers need a 1D stack (\"dimension\": \"1D\")");
+    FG_REQUIRE(static_cast<bool>(l.provider), "sectioned1d layer: no line section provider");
+    h_ = l.provider->thickness_um();
+    FG_REQUIRE(h_ > 0, "sectioned1d layer: thickness must be positive");
+    stack_.dx_um = st.dx_um;
+    stack_.dz_um = st.dz_um;
+    stack_.materials = st.materials;
+    rcwaSlices = l.slices > 0 ? l.slices : defaultSlices;
+    // materials: the declared ones, else background and the sections at a few heights
+    std::vector<std::string> names = l.materials;
+    if (names.empty()) {
+      names.push_back(l.background);
+      for (double t : {0.02, 0.5, 0.98})
+        for (const auto& m : l.provider->section(t * h_).materials)
+          if (std::find(names.begin(), names.end(), m) == names.end()) names.push_back(m);
+    }
+    bool aniso = false;
+    for (const auto& n : names) {
+      const Material& m = st.material(n);
+      aniso = aniso || !m.isotropic;
+      epsList.push_back(m.isotropic ? m.eps : m.epsTensor.diagonal().mean());
+    }
+    aniso_ = aniso;
+    fac_ = sectioned1DFactorization(fac, aniso);
+    if (l.chebyshevNodes > 0)
+      cheb_ = std::make_unique<ChebyshevQ>(h_, l.chebyshevNodes, [this](double y) { return get(y)->Q(0.0); },
+                                           "sectioned1d layer");
+  }
+  double thickness_um() const override { return h_; }
+  bool yInvariant() const override { return false; }
+  QBlocks Q(double y) const override {
+    if (cheb_ && cheb_->ready(warnings)) return (*cheb_)(y);
+    return get(y)->Q(0.0);
+  }
+  Mat3C epsAt(double x, double y, double z) const override { return get(y)->epsAt(x, 0.0, z); }
+  Vec3D normalAt(double x, double y, double z) const override { return get(y)->normalAt(x, 0.0, z); }
+  const NormalFieldCoefficients& NN(double y) const override { return at(y).NN(0.0); }
+  bool adjointSlice(double y, AdjointSlice& a) const override {
+    if (l_.chebyshevNodes > 0) return false;  // interpolated Q: no exact sections
+    auto m = get(y);
+    if (!m->adjointSlice(0.0, a)) return false;
+    a.keep = std::move(m);
+    return true;
+  }
+  /// The line section at height y (shape derivatives, M19).
+  LineSection lineSectionAt(double y) const { return get(y)->section(); }
+
+ private:
+  std::shared_ptr<const LineSliceModel> get(double y) const {
+    const double yc = std::clamp(y, 1e-14 * h_, h_ * (1 - 1e-14));
+    {
+      const std::lock_guard<std::mutex> lock(mu_);
+      const auto it = cache_.find(yc);
+      if (it != cache_.end()) return it->second;
+    }
+    FG_PROF_SCOPE("sectioned1d.section_model");
+    auto m = std::make_shared<const LineSliceModel>(stack_, l_.provider->section(yc), fac_, aniso_, map_, tr_);
+    const std::lock_guard<std::mutex> lock(mu_);
+    if (cache_.size() >= 4096) cache_.clear();  // bounds the memory; holders keep their shared_ptr
+    return cache_.emplace(yc, std::move(m)).first->second;
+  }
+  const LineSliceModel& at(double y) const { return *get(y); }
+
+  Sectioned1DLayer l_;
+  Factorization fac_ = Factorization::Auto;
+  bool aniso_ = false;
+  IndexMap map_;
+  ResolvedTransform tr_;
+  Stack stack_;
+  double h_ = 0;
+  mutable std::mutex mu_;
+  mutable std::map<double, std::shared_ptr<const LineSliceModel>> cache_;
+  std::unique_ptr<ChebyshevQ> cheb_;
 };
 
 // ------------------------------------------------------------------ profile y = g(x, z) (2D)
@@ -1494,6 +1696,8 @@ std::unique_ptr<LayerModel> buildLayerModel(const Stack& stack, std::size_t k, c
                                                le.factorization, map, "polygon2d", tr);
   if (const auto* sl = std::get_if<SectionedLayer>(&le.spec))
     return std::make_unique<SectionedModel>(stack, *sl, le.factorization, map, defaultSlices, tr);
+  if (const auto* s1 = std::get_if<Sectioned1DLayer>(&le.spec))
+    return std::make_unique<Sectioned1DModel>(stack, *s1, le.factorization, map, defaultSlices, tr);
   if (const auto* cl = std::get_if<Contour2DLayer>(&le.spec))
     return std::make_unique<CrossSectionModel>(
         stack,

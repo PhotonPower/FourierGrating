@@ -17,6 +17,7 @@ add_library(fg_core
   geometry/aperiodic.cpp
   geometry/coordinate_transform.cpp
   geometry/contour.cpp
+  geometry/line_section.cpp
   geometry/normal_field.cpp
   geometry/profile.cpp
   physics/propagation_matrix.cpp

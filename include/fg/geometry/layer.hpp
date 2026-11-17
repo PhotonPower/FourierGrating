@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "fg/geometry/contour.hpp"
+#include "fg/geometry/line_section.hpp"
 #include "fg/geometry/material.hpp"
 #include "fg/geometry/section.hpp"
 
@@ -105,6 +106,20 @@ struct SectionedLayer {
   int chebyshevNodes = 0;
 };
 
+/// 1D layer whose line section changes with y (Plan section "M23: Schichttyp Sectioned1DLayer"; CAD
+/// slicer for 1D gratings): intervals with materials and boundary normals per height from the provider;
+/// Q(y) with the normal field of Plan eq:cad1d_N, cached per height. Factorizations as Contour2D. Not
+/// available in JSON (C++ API; M23: layer type "cad" in a 1D stack).
+struct Sectioned1DLayer {
+  std::shared_ptr<const LineSectionProvider> provider;
+  std::string background;
+  /// Every material that can occur (background included); empty: unknown (no TE/TM split, no reuse
+  /// across a wavelength scan).
+  std::vector<std::string> materials;
+  int slices = 0;          ///< RCWA staircase slices (0 = solver default)
+  int chebyshevNodes = 0;  ///< as SectionedLayer
+};
+
 /// Concentric rings around the cylinder axis (Plan section "M20: Schichttypen"): materials[i] on
 /// [radii[i-1], radii[i]] (radii[-1] = 0), the last material (one more than radii) for r > radii.back().
 /// Only with "cylindrical"; counterpart of lamellar1d.
@@ -115,7 +130,7 @@ struct RingsLayer {
 };
 
 using LayerSpec = std::variant<HomogeneousLayer, Lamellar1DLayer, Profile1DLayer, Polygon2DLayer,
-                               Profile2DLayer, Contour2DLayer, SectionedLayer, RingsLayer>;
+                               Profile2DLayer, Contour2DLayer, SectionedLayer, RingsLayer, Sectioned1DLayer>;
 
 struct LayerEntry {
   LayerSpec spec;
