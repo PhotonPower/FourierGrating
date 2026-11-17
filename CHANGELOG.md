@@ -15,6 +15,11 @@
     erst der Löser brach mit „regions overlap its periodic image“ ab.
   - Tests `CAD.BoundsOfTrimmedLids`, `CAD.ZInvariantLine`.
 
+### Geplant
+- Plan v2.22, Teil 9: M23 CAD-Import für 1D-Gitter. Z-invariante Körper werden einmal bei `z_cut_um` geschnitten, je Höhe
+  entsteht daraus ein Linienschnitt mit Intervallen und Normalen und daraus der neue interne Schichttyp
+  `Sectioned1DLayer`. Abnahme V24a–i, Roadmap-Eintrag.
+
 ## [0.19.0] – M22 (Dispersive Materialien), Teile von M20, Benutzerhandbuch
 
 ### Hinzugefügt
