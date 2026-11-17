@@ -39,17 +39,19 @@ struct Body {
   std::array<double, 6> box{};  ///< xmin, ymin, zmin, xmax, ymax, zmax
 };
 
+/// Bounding box of the trimmed body: the extreme critical heights along x, y, z (the extrema of a
+/// coordinate lie on vertices, edge extrema, face extrema inside the trim or planar faces normal to
+/// the axis). The control points of the untrimmed carrier surfaces would overestimate it, e.g. a
+/// lid trimmed out of a larger rectangle, and shift the default y range and cell origin.
 std::array<double, 6> bounds(const nf::Shell& s) {
-  std::array<double, 6> b{1e300, 1e300, 1e300, -1e300, -1e300, -1e300};
-  for (const auto& f : s.faces())
-    for (const auto& p : f.surface().control_points()) {
-      b[0] = std::min(b[0], p.x);
-      b[1] = std::min(b[1], p.y);
-      b[2] = std::min(b[2], p.z);
-      b[3] = std::max(b[3], p.x);
-      b[4] = std::max(b[4], p.y);
-      b[5] = std::max(b[5], p.z);
-    }
+  std::array<double, 6> b{};
+  const nf::Vec3 axes[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+  for (std::size_t i = 0; i < 3; ++i) {
+    const std::vector<double> h = nf::critical_heights(s, axes[i]);
+    FG_REQUIRE(!h.empty(), "cad: body without vertices, edges or faces");
+    b[i] = h.front();
+    b[i + 3] = h.back();
+  }
   return b;
 }
 
@@ -95,6 +97,12 @@ struct Model {
 };
 
 bool loadModel(const CadOptions& o, const Stack& st, Model& m, Report& r) {
+  // sections are cut in the (x, z) cell: a 1D stack has no z period (dz = 0 made every body its
+  // own "periodic image", divided the area fractions by zero and let periodic_union run on
+  // identical shells)
+  FG_REQUIRE(st.dx_um > 0 && st.dz_um > 0,
+             "cad layers need a 2D grating (\"dimension\": \"2D\", period_um.z > 0); z-invariant "
+             "1D gratings cannot be imported from CAD, use lamellar1d / profile1d");
   auto error = [&](const std::string& code, const std::string& msg,
                    std::array<double, 3> w = {kNaN, kNaN, kNaN}) {
     r.errors.push_back({code, msg, w});
@@ -467,6 +475,37 @@ bool overlap(const Flat& a, const Flat& b, double sx, double sz) {
   return false;
 }
 
+/// Do the boundaries of a and b + (sx, sz) share a piece longer than tol (collinear segments
+/// within tol)? A body touching its own periodic image this way spans the period (e.g. a
+/// z-invariant line extruded over exactly dz): its periodic union is a strip around the cell,
+/// which closed contours cannot describe, and the shared edge is no material interface.
+bool touches(const Flat& a, const Flat& b, double sx, double sz, double tol) {
+  if (a.loops.empty() || b.loops.empty()) return false;
+  if (b.box[0] + sx > a.box[2] + tol || a.box[0] > b.box[2] + sx + tol ||
+      b.box[1] + sz > a.box[3] + tol || a.box[1] > b.box[3] + sz + tol)
+    return false;
+  for (const auto& la : a.loops)
+    for (const auto& lb : b.loops)
+      for (std::size_t i = 0; i < la.size(); ++i) {
+        const auto& p = la[i];
+        const auto& q = la[(i + 1) % la.size()];
+        const double ux = q[0] - p[0], uz = q[1] - p[1], l = std::hypot(ux, uz);
+        if (l <= tol) continue;
+        for (std::size_t j = 0; j < lb.size(); ++j) {
+          const double rx = lb[j][0] + sx, rz = lb[j][1] + sz;
+          const double tx = lb[(j + 1) % lb.size()][0] + sx, tz = lb[(j + 1) % lb.size()][1] + sz;
+          // distances of r, t from the line pq; then the overlap of the projections onto pq
+          if (std::abs(ux * (rz - p[1]) - uz * (rx - p[0])) > tol * l ||
+              std::abs(ux * (tz - p[1]) - uz * (tx - p[0])) > tol * l)
+            continue;
+          const double sr = (ux * (rx - p[0]) + uz * (rz - p[1])) / l,
+                       stt = (ux * (tx - p[0]) + uz * (tz - p[1])) / l;
+          if (std::min(l, std::max(sr, stt)) - std::max(0.0, std::min(sr, stt)) > tol) return true;
+        }
+      }
+  return false;
+}
+
 /// BODY_OVERLAP / PERIODIC_OVERLAP from sections at three heights per band (the topology of the
 /// sections does not change inside a band); "priority" and periodic_union resolve them with
 /// Booleans.
@@ -552,9 +591,26 @@ void checkOverlaps(const CadOptions& o, const Stack& st, Model& m, Report& r) {
               for (int dk = -1; dk <= 1; ++dk) {
                 const bool periodic = di != 0 || dk != 0;
                 if (i == j && !periodic) continue;
-                if (!overlap(fl[i], fl[j], di * st.dx_um, dk * st.dz_um)) continue;
                 const std::array<int, 3> key{static_cast<int>(i), static_cast<int>(j),
                                              periodic ? 1 : 0};
+                if (i == j && touches(fl[i], fl[j], di * st.dx_um, dk * st.dz_um, tol)) {
+                  // not resolvable by periodic_union (the union would grow around the cell)
+                  if (std::find(reported.begin(), reported.end(), key) != reported.end()) continue;
+                  reported.push_back(key);
+                  const auto& bx = fl[i].box;
+                  r.errors.push_back(
+                      {"PERIODIC_OVERLAP",
+                       "body '" + m.bodies[i].name + "' touches its periodic image (shift " +
+                           fmt("%.6g, %.6g um", di * st.dx_um, dk * st.dz_um) +
+                           "): it spans the period, e.g. a z-invariant line extruded over the "
+                           "whole period; such sections wrap around the cell and are not closed "
+                           "contours (describe z-invariant gratings as 1D: lamellar1d / profile1d)",
+                       {0.5 * (bx[0] + bx[2]) + m.origin[0], y,
+                        0.5 * (bx[1] + bx[3]) + m.origin[1]}});
+                  r.ok = false;
+                  continue;
+                }
+                if (!overlap(fl[i], fl[j], di * st.dx_um, dk * st.dz_um)) continue;
                 if (o.overlap == "priority" && i != j && !periodic) {
                   m.bodies[i].shell =
                       nf::boolean(m.bodies[i].shell, m.bodies[j].shell, nf::BooleanOp::Difference);

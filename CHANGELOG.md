@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Behoben
+- CAD-Slicer (M14, Plan v2.21), gemeldet beim Import eines z-invarianten Liniengitters aus Nurbforge:
+  - Hüllquader aus den getrimmten Körpern (Extrema von `nf::critical_heights` entlang x, y, z) statt aus den
+    Kontrollpunkten der Trägerflächen. Ein aus einem größeren Rechteck getrimmter Deckel verschob vorher
+    `y_range_um` und `cell_origin_um` (zusätzliche Hintergrundbänder unter und über dem Körper).
+  - 1D-Stapel: Die `cad`-Schicht wird mit klarer Meldung abgelehnt. Vorher war `dz = 0`, jeder Körper wurde mit sich
+    selbst als „periodischem Bild“ verglichen (`PERIODIC_OVERLAP` je nach Startpunkt der Schleife), die Flächenanteile
+    waren NaN, und `periodic_union` vereinigte identische Shells (hing).
+  - Ein Körper, der sein eigenes periodisches Bild entlang eines Randstücks berührt (z. B. eine über genau `dz`
+    extrudierte Linie), meldet `PERIODIC_OVERLAP` (auch mit `periodic_union`). Vorher bestand er die Prüfung, und
+    erst der Löser brach mit „regions overlap its periodic image“ ab.
+  - Tests `CAD.BoundsOfTrimmedLids`, `CAD.ZInvariantLine`.
+
 ## [0.19.0] – M22 (Dispersive Materialien), Teile von M20, Benutzerhandbuch
 
 ### Hinzugefügt

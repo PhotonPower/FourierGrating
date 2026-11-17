@@ -37,6 +37,9 @@ werden auf $10^{-9}$ der Modellgröße verfolgt.
   \item In \textbf{Mikrometern} konstruieren und so schreiben (\texttt{unit="um"}).
   \item \textbf{Ein benannter Körper je Material}, z.\,B.\ \texttt{Pillar}, \texttt{Lid}.
   \item Geschlossene, konsistent orientierte Körper (Volumenkörper, keine offenen Flächen).
+  \item Nur für \textbf{2D-Gitter} (\key{period\_um}.z $>0$). Eine $z$-invariante Linie, über genau eine $z$-Periode
+        extrudiert, berührt ihr periodisches Bild und wird mit \texttt{PERIODIC\_OVERLAP} abgelehnt: Solche Gitter
+        beschreibt man als 1D-Gitter (\val{lamellar1d}, \val{profile1d}).
   \item Mit Nurbforge in Python:
 \end{itemize}
 \begin{lstlisting}[style=py]
@@ -70,7 +73,7 @@ Schlüssel & Bedeutung \\
 Deklarationen) \\
 \key{axes} & CAD-Achsen für FG-$y$ (Stapelrichtung) und FG-$x$; FG-$z=x\times y$. Gespiegelte (linkshändige) Achsen
 sind verboten, weil sie chirale Strukturen verfälschen \\
-\key{y\_range\_um} & $y$-Bereich (Standard: Hüllquader der Körper) \\
+\key{y\_range\_um} & $y$-Bereich (Standard: Hüllquader der getrimmten Körper) \\
 \key{cell\_origin\_um} & $(x_0,z_0)$ der Zelle in FG-Koordinaten (Standard: Minimum des Hüllquaders); Körper dürfen
 über die Zelle ragen \\
 \key{background} & Material außerhalb der Körper: Name, \val{superstrate} oder \val{substrate} \\
@@ -105,7 +108,8 @@ Code & Befund \\
 \texttt{SHELL\_OPEN} & Körper nicht geschlossen (freie Kanten), mit Position \\
 \texttt{SHELL\_ORIENTATION} & nicht konsistent orientiert oder negatives Volumen (korrigiert, Warnung) \\
 \texttt{BODY\_OVERLAP} & zwei Körper überlappen \\
-\texttt{PERIODIC\_OVERLAP} & ein Körper überlappt sein periodisches Bild oder das eines anderen \\
+\texttt{PERIODIC\_OVERLAP} & ein Körper überlappt sein periodisches Bild oder das eines anderen oder berührt sein
+eigenes entlang eines Randstücks (umspannt die Periode) \\
 \texttt{OUT\_OF\_RANGE} & Geometrie außerhalb des $y$-Bereichs \\
 \texttt{UNIT\_SUSPECT} & Abmessungen passen nicht zu Periode oder Wellenlänge (Faktor $10^3$ daneben) \\
 \texttt{FEATURE\_SMALL} & Merkmal kleiner als zwei Rasterabstände des Normalenfeldes oder dünnes Band (Warnung) \\

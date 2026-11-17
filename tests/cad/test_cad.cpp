@@ -72,6 +72,34 @@ nf::Shell cap(double cx, double cy, double rho, double hc, double z0) {
   return nf::Shell::sew({nf::TrimmedSurface(side), disk(cx, cy, z0, rho * std::cos(t0))});
 }
 
+/// Line of a 1D grating as a CAD body: profile (X, Z) extruded along CAD Y over [0, L]; the lids
+/// are trimmed out of rectangles enlarged by pad (carrier surfaces larger than the body).
+nf::Shell line(const std::vector<std::array<double, 2>>& xz, double L, double pad = 0) {
+  std::vector<nf::TrimmedSurface> f;
+  double x0 = 1e300, z0 = 1e300, x1 = -1e300, z1 = -1e300;
+  for (const auto& p : xz) {
+    x0 = std::min(x0, p[0]);
+    z0 = std::min(z0, p[1]);
+    x1 = std::max(x1, p[0]);
+    z1 = std::max(z1, p[1]);
+  }
+  for (std::size_t i = 0; i < xz.size(); ++i) {
+    const auto& a = xz[i];
+    const auto& b = xz[(i + 1) % xz.size()];
+    f.emplace_back(nf::extrude(nf::make_line({a[0], 0, a[1]}, {b[0], 0, b[1]}), {0, L, 0}));
+  }
+  const double X0 = x0 - pad, Z0 = z0 - pad, W = x1 - x0 + 2 * pad, H = z1 - z0 + 2 * pad;
+  std::vector<std::array<double, 2>> uv;
+  for (const auto& p : xz) uv.push_back({(p[0] - X0) / W, (p[1] - Z0) / H});
+  for (double y : {0.0, L})
+    f.emplace_back(nf::make_rectangle({X0, y, Z0}, {W, 0, 0}, {0, 0, H}), nf::polygon_loop(uv));
+  return nf::Shell::sew(std::move(f));
+}
+
+/// Trapezoidal line (CD 0.1 at half height, h = 0.1, 15 degree walls) in a 0.5 um cell.
+const std::vector<std::array<double, 2>> kLine{
+    {0.1866, 0.0}, {0.3134, 0.0}, {0.2866, 0.1}, {0.2134, 0.1}};
+
 std::string step(const std::vector<nf::Shell>& s, const std::vector<std::string>& names,
                  nf::StepLengthUnit unit = nf::StepLengthUnit::Micrometre) {
   nf::StepOptions o;
@@ -515,4 +543,55 @@ TEST(CAD_M19, FrustumTopRadiusGradient) {
   std::printf("CAD frustum r1: adjoint %.10e fd %.10e\n", g.grad[0], num);
   EXPECT_NEAR(g.value, L(r1), 1e-12);
   EXPECT_NEAR(g.grad[0], num, 1e-5 * std::max(1.0, std::abs(num)));
+}
+
+// ------------------------------------------------------------------ trimmed bounds, 1D, wrapping
+TEST(CAD, BoundsOfTrimmedLids) {
+  // lids trimmed out of enlarged rectangles: y range and cell origin from the trimmed body
+  // (before: from the carrier control points, adding 0.05 um background above and below)
+  const json bodies = json::array({{{"name", "Line"}, {"material", "pillar"}}});
+  json tight = cadLayer(step({line(kLine, 0.3)}, {"Line"}), bodies),
+       padded = cadLayer(step({line(kLine, 0.3, 0.05)}, {"Line"}), bodies);
+  tight.erase("cell_origin_um");
+  padded.erase("cell_origin_um");
+  const json a = report(base(json::array({tight}))), b = report(base(json::array({padded})));
+  EXPECT_TRUE(b["ok"].get<bool>());
+  ASSERT_EQ(b["bands"].size(), 1u);
+  EXPECT_NEAR(b["bands"][0]["y0_um"].get<double>(), 0.0, 1e-12);
+  EXPECT_NEAR(b["bands"][0]["y1_um"].get<double>(), 0.1, 1e-12);
+  EXPECT_NEAR(b["cell_origin_um"][0].get<double>(), 0.1866, 1e-12);
+  EXPECT_NEAR(b["cell_origin_um"][1].get<double>(), -0.3, 1e-12);
+  EXPECT_EQ(a["cell_origin_um"], b["cell_origin_um"]);
+  ASSERT_EQ(a["bands"].size(), 1u);
+  EXPECT_EQ(a["bands"][0]["kind"], b["bands"][0]["kind"]);
+  EXPECT_EQ(a["bands"][0]["y1_um"], b["bands"][0]["y1_um"]);
+  EXPECT_NEAR(b["bands"][0]["area_fractions"]["pillar"].get<double>(), 0.12, 1e-12);
+}
+
+TEST(CAD, ZInvariantLine) {
+  const json bodies = json::array({{{"name", "Line"}, {"material", "pillar"}}});
+  json cfg = base(json::array({cadLayer(step({line(kLine, 0.5)}, {"Line"}), bodies)}));
+  cfg["truncation"] = {{"Nx", 4}, {"Nz", 0}};
+  // extruded over the whole z period: touches its image, which check reported as ok and solve
+  // rejected ("regions overlap its periodic image")
+  EXPECT_EQ(codes(report(cfg)), std::vector<std::string>{"PERIODIC_OVERLAP"});
+  cfg["layers"][0]["periodic_union"] = true;  // cannot resolve it either
+  EXPECT_EQ(codes(report(cfg)), std::vector<std::string>{"PERIODIC_OVERLAP"});
+  EXPECT_THROW((void)solve(cfg), fg::Error);
+  // a shorter line (a 2D grating of dashes) is fine
+  cfg["layers"][0] = cadLayer(step({line(kLine, 0.3)}, {"Line"}), bodies);
+  EXPECT_EQ(codes(report(cfg)), std::vector<std::string>{});
+  EXPECT_NO_THROW((void)solve(cfg));
+  // 1D stacks have no z period: a clear error instead of PERIODIC_OVERLAP / NaN fractions / a
+  // periodic_union on identical shells
+  cfg["dimension"] = "1D";
+  cfg["period_um"] = {{"x", 0.5}};
+  cfg["layers"][0] = cadLayer(step({line(kLine, 0.5)}, {"Line"}), bodies);
+  cfg["layers"][0]["periodic_union"] = true;
+  try {
+    (void)report(cfg);
+    ADD_FAILURE() << "1D cad layer accepted";
+  } catch (const fg::Error& e) {
+    EXPECT_NE(std::string(e.what()).find("2D grating"), std::string::npos) << e.what();
+  }
 }
