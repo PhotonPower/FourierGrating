@@ -10,6 +10,9 @@ CLI (``fgsolve``) and Python share one parser and one semantics. See ``docs/pyth
     sim = fg.Simulation(cfg)                # layer models built once ...
     sim.solve(lambda_um=0.6328)             # ... many computations
     sim.set_parameter("/layers/0/thickness_um", 0.25)
+
+Agents without the repository: ``print(fg.llm_reference())`` (or ``python -m fouriergrating``) gives a compact
+reference of the configuration format and this API.
 """
 
 from __future__ import annotations
@@ -40,6 +43,7 @@ __all__ = [
     "core_variant",
     "cuda_available",
     "get_backend",
+    "llm_reference",
     "load_config",
     "material_eps",
     "materials",
@@ -80,6 +84,14 @@ def load_config(path: Union[str, "os.PathLike[str]"]) -> dict:
             if not os.path.isabs(layer["file"]):
                 layer["file"] = os.path.normpath(os.path.join(base, layer["file"]))
     return cfg
+
+
+def llm_reference() -> str:
+    """Compact reference of the configuration format and the Python API for language-model agents (shipped
+    with the wheel as ``LLM_REFERENCE.md``; also ``python -m fouriergrating``)."""
+    from importlib import resources
+
+    return resources.files(__name__).joinpath("LLM_REFERENCE.md").read_text(encoding="utf-8")
 
 
 def set_backend(preference: str = "auto", threshold: int = 160) -> None:

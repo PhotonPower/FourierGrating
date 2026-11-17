@@ -31,6 +31,7 @@ dokumentierten Korrekturen.
 | [`docs/user_guide.md`](docs/user_guide.md) | **Anwenderhandbuch**: Installation, Konfiguration, Löserwahl, Scans, Nahfeld, Laufzeiten |
 | [`docs/cad.md`](docs/cad.md) | CAD-Slicer: STEP → Schichten, Konfiguration, Geometrieprüfung |
 | [`docs/python.md`](docs/python.md) | Python-Anbindung: Installation (Wheels, CUDA), API, Tests |
+| [`python/fouriergrating/LLM_REFERENCE.md`](python/fouriergrating/LLM_REFERENCE.md) | Kompakte Referenz für Sprachmodell-Agenten (englisch), im Wheel enthalten: `python -m fouriergrating` bzw. `fg.llm_reference()` |
 | [`docs/benchmarks.md`](docs/benchmarks.md) | Laufzeiten CPU/GPU (`fgbench`) |
 | [`docs/implementation_plan/main.pdf`](docs/implementation_plan/main.pdf) | **Verbindliche Spezifikation**: alle Formeln mit Herleitungen, Algorithmen, Tests, Meilensteine (LaTeX-Quelle daneben) |
 | [`AGENTS.md`](AGENTS.md) | Arbeitsregeln für KI-Agenten und Entwickler |

@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Hinzugefügt
+- Kompakte Referenz für Sprachmodell-Agenten `python/fouriergrating/LLM_REFERENCE.md` (englisch, ca. 4000 Tokens):
+  Konventionen, alle Konfigurationsschlüssel, Python-API, Rezepte, CAD, Fallstricke. Wird mit dem Wheel
+  ausgeliefert; Abruf mit `fg.llm_reference()` oder `python -m fouriergrating` (neu `__main__.py`). Test
+  `tests/python/test_llm_reference.py`: jeder öffentliche Name, Schichttyp, vom Parser gelesene Schlüssel und
+  CAD-Prüfcode steht darin, jeder `json`-/`python`-Block läuft, die Datei liegt im installierten Paket.
+
 ### Behoben
 - Überlappungen in 2D (Plan v2.24): Körper bzw. Regionen mit kollinear verlaufenden Rändern (z. B. zwei Quader
   gleicher z-Ausdehnung) wurden weder vom Slicer noch von `contour2d`/`polygon2d`/CAD im Löser als überlappend

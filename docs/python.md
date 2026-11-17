@@ -156,6 +156,14 @@ Beispiele: [`optimize_littrow.py`](../examples/python/optimize_littrow.py) (L-BF
 mit dem Rasterscan) und [`optimize_nurbs_pillar.py`](../examples/python/optimize_nurbs_pillar.py) (PyTorch-Adam auf
 NURBS-Kontrollpunkten).
 
+## Referenz für Sprachmodell-Agenten
+
+`python/fouriergrating/LLM_REFERENCE.md` (englisch, ca. 4000 Tokens) wird mit dem Wheel ausgeliefert: Konventionen,
+alle Konfigurationsschlüssel, die Python-API, Rezepte und Fallstricke, damit ein Agent ohne Zugriff auf das Repository
+mit dem Paket arbeiten kann. Abruf: `fg.llm_reference()` oder `python -m fouriergrating`. Test
+`tests/python/test_llm_reference.py`: Jeder öffentliche Name, jeder Schichttyp, jeder vom Parser gelesene Schlüssel
+und jeder CAD-Prüfcode steht darin; jeder `json`- und `python`-Block läuft.
+
 ## Tests
 
 ```bash
