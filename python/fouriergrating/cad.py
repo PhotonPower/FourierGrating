@@ -46,9 +46,11 @@ def check(step: Step, cfg: Union[Mapping[str, Any], str, "os.PathLike[str]"]) ->
     return json.loads(_core.cad_report(_to_json(cfg), _base_dir(cfg), _step_text(step)))
 
 
-def preview(step: Step, cfg: Union[Mapping[str, Any], str, "os.PathLike[str]"], y_um: float) -> str:
-    """SVG of the section at height y_um (FG coordinates, one cell, materials coloured)."""
-    return str(_core.cad_preview(_to_json(cfg), _base_dir(cfg), _step_text(step), float(y_um)))
+def preview(step: Step, cfg: Union[Mapping[str, Any], str, "os.PathLike[str]"], y_um: Optional[float] = None) -> str:
+    """SVG of the section at height y_um (FG coordinates, one cell, materials coloured). 1D gratings (M23): the
+    profile in the (x, y) plane with its periodic images and the band boundaries; y_um is not needed."""
+    y = float("nan") if y_um is None else float(y_um)
+    return str(_core.cad_preview(_to_json(cfg), _base_dir(cfg), _step_text(step), y))
 
 
 def llm_tool_spec() -> dict:

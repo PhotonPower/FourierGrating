@@ -115,6 +115,8 @@ void checkPmlZones(const Stack& st) {
       for (int i = 0; i < 9; ++i) checkRegions(s->provider->section(t * (i + 0.5) / 9).regions, st, what + " (cad)");
     } else if (std::holds_alternative<Profile2DLayer>(spec)) {
       throw Error(what + ": profile2d layers are not supported with PML (use contour2d or cad)");
+    } else if (std::holds_alternative<Sectioned1DLayer>(spec)) {
+      throw Error(what + ": cad layers of 1D gratings (sectioned1d, M23) are not supported with PML");
     }
   }
 }
@@ -145,6 +147,8 @@ Stack backgroundStack(const Stack& st) {
       homogeneous(s->provider->thickness_um(), s->background);
     } else if (const auto* r = std::get_if<RingsLayer>(&spec)) {
       homogeneous(r->thickness_um, r->materials.back());  // M20: outside the rings
+    } else if (std::holds_alternative<Sectioned1DLayer>(spec)) {
+      throw Error("background stack: sectioned1d layers (cad, 1D) are not supported with PML");
     } else {
       throw Error("background stack: profile2d layers are not supported with PML");
     }

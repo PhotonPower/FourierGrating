@@ -50,3 +50,23 @@ def test_load_config_resolves_step_file():
     cfg = fg.load_config(ROOT / "examples" / "cad_pillar_array.json")
     assert cfg["layers"][0]["file"].endswith("pillar_array.step")
     assert fg.cad.check(None, cfg)["ok"]
+
+
+def test_line_grating_1d():
+    """M23 (V24i): the example line grating (z-invariant body, rounded corners) as a 1D grating."""
+    cfg = fg.load_config(ROOT / "examples" / "cad_line_grating_1d.json")
+    r = fg.cad.check(None, cfg)
+    assert r["ok"] and r["errors"] == [] and r["dimension"] == "1D"
+    assert [b["kind"] for b in r["bands"]] == ["sectioned1d"] * 3
+    assert abs(r["bands"][1]["area_fractions"]["resist"] - 0.1 / 0.3) < 1e-9  # CD at half height
+    svg = fg.cad.preview(None, cfg)
+    assert svg.startswith("<svg") and "resist" in svg
+    cfg["incidence"]["lambda_um"] = 0.5
+    cfg["materials"]["si"] = {"n": 1.5}  # lossless: energy balance
+    res = fg.solve(cfg)
+    assert abs(res.diagnostics["energy_balance"] - 1.0) < 1e-7
+    # a pillar is not z-invariant
+    bad = copy.deepcopy(cfg)
+    bad["layers"][0]["file"] = str(ROOT / "tests" / "data" / "cad" / "cylinder.step")
+    bad["layers"][0]["bodies"] = [{"name": "Pillar", "material": "resist"}]
+    assert {e["code"] for e in fg.cad.check(None, bad)["errors"]} == {"NOT_Z_INVARIANT"}

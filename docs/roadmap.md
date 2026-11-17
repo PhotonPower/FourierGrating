@@ -238,8 +238,14 @@ Abschnitt „Dispersive Materialien (M22)“.
 Setzt M14, M17 und M19 voraus. Spezifikation: Plan Abschnitt „Erweiterung ab Version 2.22: CAD-Import für 1D-Gitter
 (M23)“. Anlass: Meldung zum z-invarianten Liniengitter aus Nurbforge (v2.21).
 
-- [ ] **M23** CAD-Import für 1D-Gitter: Prüfung der z-Invarianz (`NOT_Z_INVARIANT`), ein Profilschnitt bei `z_cut_um`,
+- [x] **M23** CAD-Import für 1D-Gitter: Prüfung der z-Invarianz (`NOT_Z_INVARIANT`), ein Profilschnitt bei `z_cut_um`,
   Linienschnitt → Intervalle mit Normalen (Paritätsregel, Naht verschmolzen, Überlappungen als Intervall-Operationen),
   Normalenfeld mit linear interpoliertem Winkel (Plan eq:cad1d_N), `Sectioned1DLayer` (RK, RCWA, Tschebyschow, ASR,
   Nahfeld, Gradienten), Bänder `homogeneous`/`lamellar1d`/`sectioned1d`, Bericht und Vorschau in 1D
   - Abnahme: V24a–i (Plan)
+  - Erledigt (Plan v2.23): `src/geometry/line_section.cpp` (Linienschnitt, Intervalle, Normalenfeld),
+    `Sectioned1DLayer`/`Sectioned1DModel`, `ChebyshevQ` (gemeinsam mit `SectionedModel`), 1D-Zweig des Slicers
+    (`NOT_Z_INVARIANT`, `z_cut_um`, Bänder `homogeneous`/`lamellar1d`/`sectioned1d`, Vorschau des Profils),
+    Formgradienten über `AdjointSlice::gridsOfSection`; Tests `test_line_section`, `test_sectioned1d`, `CAD_V24`
+    (V24a–h), Python `test_line_grating_1d` (V24i); Beispiel `examples/cad_line_grating_1d.json` mit neuem Golden File
+  - Nicht enthalten: PML mit `sectioned1d` (klare Fehlermeldung)

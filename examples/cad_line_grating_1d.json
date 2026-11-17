@@ -1,0 +1,29 @@
+{
+  "dimension": "1D",
+  "solver": "rcwa",
+  "truncation": { "Nx": 12 },
+  "period_um": { "x": 0.3 },
+  "incidence": { "lambda_um": { "from": 0.4, "to": 0.6, "steps": 3 }, "phi_deg": 20, "psi_deg": 0, "delta_deg": 45 },
+  "rcwa": { "slices": 30 },
+  "materials": {
+    "air": { "n": 1.0 },
+    "si": { "n": [3.88, 0.02] },
+    "resist": { "n": 1.6 }
+  },
+  "superstrate": "air",
+  "substrate": "si",
+  "layers": [
+    {
+      "type": "cad",
+      "file": "cad/line_grating.step",
+      "unit": "um",
+      "axes": { "y": "+Z", "x": "+X" },
+      "cell_origin_um": 0.0,
+      "background": "superstrate",
+      "bodies": [ { "name": "Line", "material": "resist" } ],
+      "slicing": { "rcwa_slices": 30 },
+      "factorization": "auto"
+    }
+  ],
+  "output": { "dir": "out/cad_line_grating_1d" }
+}

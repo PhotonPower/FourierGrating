@@ -32,6 +32,9 @@ std::optional<std::vector<std::string>> materialsOf(const LayerSpec& spec) {
           std::vector<std::string> v{l.background};
           for (const auto& r : l.regions) v.push_back(r.material);
           return v;
+        } else if constexpr (std::is_same_v<T, Sectioned1DLayer>) {
+          if (l.materials.empty()) return std::nullopt;
+          return l.materials;
         } else {
           return std::nullopt;
         }

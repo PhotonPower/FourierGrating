@@ -67,13 +67,46 @@ nf.write_step("pillars.step", [pillar, lid], unit="um", names=["Pillar", "Lid"])
 | `slicing.y_interpolation` | `chebyshev`: Q(y) je Band aus `chebyshev_nodes` Tschebyschow-Knoten (verdoppelt bis K = 2K auf 1e-10, höchstens 256; sonst exakte Schnitte mit Warnung) |
 | `factorization`, `normal_field` | wie bei `contour2d` (Standard FFF_sym / FFF_B) |
 
-Nur für 2D-Gitter (`period_um.z > 0`); in einem 1D-Stapel wird die `cad`-Schicht abgelehnt. Eine z-invariante
-Linie, die über genau eine z-Periode extrudiert ist, berührt ihr periodisches Bild (`PERIODIC_OVERLAP`, auch mit
-`periodic_union`): Solche Gitter beschreibt man als 1D-Gitter (`lamellar1d`, `profile1d`). Hüllquader (Standard für
-`y_range_um` und `cell_origin_um`) sind die der getrimmten Körper, nicht die der Trägerflächen.
+In einem 2D-Gitter berührt eine z-invariante Linie, die über genau eine z-Periode extrudiert ist, ihr periodisches
+Bild (`PERIODIC_OVERLAP`, auch mit `periodic_union`): Liniengitter importiert man als **1D-Gitter** (nächster
+Abschnitt). Hüllquader (Standard für `y_range_um` und `cell_origin_um`) sind die der getrimmten Körper, nicht die der
+Trägerflächen.
 
 Der `cad`-Eintrag wird beim Laden in seine Bänder expandiert (von unten nach oben); Bandgrenzen sind
 Schichtgrenzen. Es wird nie auf einer kritischen Höhe geschnitten.
+
+## 1D-Gitter (M23)
+
+Mit `"dimension": "1D"` liest der Slicer z-invariante Körper, also Linien eines Liniengitters, die entlang FG z
+(standardmäßig −CAD Y) extrudiert sind. Die Extrusionslänge ist beliebig. Jeder Körper wird **einmal** in der Ebene
+`z = z_cut_um` geschnitten; das liefert sein Profil in der (x, y)-Ebene. Ab da rechnet FourierGrating ohne Nurbforge:
+Je Höhe schneidet es die Profilkurven (exakte rationale Bézierstücke, also auch Kreisbögen) mit der Waagerechten und
+erhält Intervalle mit Materialien und die Normalen an den Grenzen.
+
+```json
+{"dimension": "1D", "period_um": {"x": 0.3}, "truncation": {"Nx": 12},
+ "layers": [{"type": "cad", "file": "cad/line_grating.step", "unit": "um", "cell_origin_um": 0.0,
+             "z_cut_um": -0.15, "background": "superstrate", "bodies": [{"name": "Line", "material": "resist"}]}]}
+```
+
+| Schlüssel | Bedeutung in 1D |
+|---|---|
+| `cell_origin_um` | nur x₀: Zahl oder `[x0]` (Standard: Minimum des Hüllquaders in x) |
+| `z_cut_um` | FG z der Schnittebene (Standard: Mitte des gemeinsamen z-Bereichs aller Körper); nur in 1D erlaubt |
+| `normal_field` | nur `grid` für `FEATURE_SMALL`; das Normalenfeld ist analytisch (Plan eq:cad1d_N) |
+
+* Bänder: `homogeneous` (ein Material über die Periode), `lamellar1d` (alle Wände senkrecht, exakt mit der Li-Regel)
+  oder `sectioned1d` (y-variabel; RK an den Stufenknoten, RCWA-Treppe mit `rcwa_slices`, optional Tschebyschow).
+  Der Bericht gibt Längenanteile statt Flächenanteilen, dazu `"dimension": "1D"` und `z_cut_um`.
+* Periodizität: Ein Körper, der die ganze Periode füllt (Restschicht) oder über den Zellrand ragt, wird an der Naht
+  ohne Grenzfläche verschmolzen. Überlappt er sein Bild, folgt `PERIODIC_OVERLAP`; `periodic_union` vereinigt.
+  `overlap: "priority"` arbeitet mit Intervallen.
+* Faktorisierung: Standard `FFF_sym` (isotrop) bzw. `FFF_B` (anisotrop); erlaubt sind `laurent`, `FFF_iso`,
+  `FFF_sym` bzw. `laurent`, `FFF_B`. Das Normalenfeld interpoliert den Winkel zwischen den Grenzen linear.
+* Gradienten: Materialwerte wie gewohnt; Formparameter über `fg::StackParameter` (C++), auch für `sectioned1d`.
+* Nicht mit PML (`aperiodic`).
+* Beispiel: `examples/cad_line_grating_1d.json` (Linie mit CD 100 nm auf halber Höhe, h = 100 nm, 15°-Wänden und
+  Ecken mit r = 10 nm, Kopf konvex, Fuß konkav), STEP aus `scripts/make_cad_examples.py`.
 
 ## Bandzerlegung
 
@@ -95,18 +128,19 @@ Schichtgrenzen. Es wird nie auf einer kritischen Höhe geschnitten.
 | `SHELL_ORIENTATION` | nicht konsistent orientiert oder negatives Volumen (korrigiert, Warnung) |
 | `BODY_OVERLAP` | zwei Körper überlappen (Schnittprüfung an drei Höhen je Band) |
 | `PERIODIC_OVERLAP` | ein Körper überlappt sein periodisches Bild (bzw. das eines anderen) oder berührt sein eigenes entlang eines Randstücks (Körper umspannt die Periode) |
-| `OUT_OF_RANGE` | Geometrie außerhalb des y-Bereichs |
+| `OUT_OF_RANGE` | Geometrie außerhalb des y-Bereichs; 1D: `z_cut_um` schneidet nicht alle Körper |
 | `UNIT_SUSPECT` | Abmessungen passen nicht zu Periode / Wellenlänge (Faktor 10³ daneben) |
 | `FEATURE_SMALL` | Merkmal kleiner als zwei Rasterabstände des Normalenfeldes bzw. dünnes Band (Warnung) |
 | `BODY_UNASSIGNED` | Körper ohne Material bzw. Zuordnung ohne Körper |
 | `STEP_UNSUPPORTED` | nicht lesbare Datei oder nicht unterstützte Entität (Name und Instanz) |
+| `NOT_Z_INVARIANT` | 1D-Gitter: Körper ist nicht entlang z extrudiert |
 
 Positionen in µm, FG-Koordinaten. Python:
 
 ```python
 import fouriergrating as fg
 report = fg.cad.check(step_text, cfg)   # {"ok", "errors": [{"code", "message", "where_um"}], "warnings", "bands"}
-svg = fg.cad.preview(step_text, cfg, y_um=0.1)
+svg = fg.cad.preview(step_text, cfg, y_um=0.1)   # 1D: fg.cad.preview(step_text, cfg) zeigt das Profil
 tool = fg.cad.llm_tool_spec()           # Werkzeug "fouriergrating_check_cad(step, config)" als JSON-Schema
 ```
 
@@ -126,3 +160,5 @@ mit Nurbforge geschrieben:
   gegen den analytischen Provider aus M13: 1e-9; RCWA-Treppe konvergiert; Energie 1e-10; Tschebyschow = exakt (1e-9).
 * Zwei Materialien (Säule mit Deckel) und ein Block mit kugelförmigem Hohlraum: Bandfolge, Energie, RK ≈ RCWA.
 * Fehlerhafte Dateien liefern genau ihren Code, korrekte `ok`.
+* V24 (1D-Gitter, M23): siehe `docs/validation.md`; ohne Nurbforge `tests/unit/test_line_section.cpp` und
+  `tests/unit/test_sectioned1d.cpp`.

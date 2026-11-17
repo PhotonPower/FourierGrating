@@ -329,8 +329,22 @@ cad::CadOptions parseCadOptions(const json& j, const std::string& baseDir, const
     o.axisZ = j["axes"].value("z", o.axisZ);
   }
   if (j.contains("y_range_um")) o.yRange_um = std::array<double, 2>{j["y_range_um"][0].get<double>(), j["y_range_um"][1].get<double>()};
-  if (j.contains("cell_origin_um"))
-    o.cellOrigin_um = std::array<double, 2>{j["cell_origin_um"][0].get<double>(), j["cell_origin_um"][1].get<double>()};
+  const bool oneD = cfg.stack.dz_um <= 0;  // Plan section "M23: Konfiguration"
+  if (j.contains("cell_origin_um")) {
+    const json& c = j["cell_origin_um"];
+    if (oneD) {
+      FG_REQUIRE(c.is_number() || (c.is_array() && c.size() == 1),
+                 "cad.cell_origin_um: a 1D grating has only x0 (a number or [x0])");
+      o.cellOrigin_um = std::array<double, 2>{c.is_number() ? c.get<double>() : c[0].get<double>(), 0.0};
+    } else {
+      FG_REQUIRE(c.is_array() && c.size() == 2, "cad.cell_origin_um: [x0, z0]");
+      o.cellOrigin_um = std::array<double, 2>{c[0].get<double>(), c[1].get<double>()};
+    }
+  }
+  if (j.contains("z_cut_um")) {
+    FG_REQUIRE(oneD, "cad.z_cut_um is only used for 1D gratings");
+    o.zCut_um = j["z_cut_um"].get<double>();
+  }
   o.background = j.value("background", o.background);
   for (const auto& b : j.value("bodies", json::array())) {
     cad::BodyAssignment a;

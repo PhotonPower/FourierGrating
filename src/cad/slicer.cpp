@@ -16,6 +16,7 @@
 #include "fg/cad/cad.hpp"
 #include "fg/core/error.hpp"
 #include "fg/core/prof.hpp"
+#include "fg/geometry/line_section.hpp"
 #include "fg/geometry/section.hpp"
 
 namespace fg::cad {
@@ -94,15 +95,16 @@ struct Model {
   std::array<double, 2> origin{0, 0};
   std::array<double, 2> yRange{0, 0};
   std::string background;
+  // 1D gratings (Plan section "M23"): the cutting plane and the profiles of the bodies in (x, y)
+  bool oneD = false;
+  double zCut = kNaN;
+  std::shared_ptr<const std::vector<geometry::ProfileBody>> profiles;
 };
 
 bool loadModel(const CadOptions& o, const Stack& st, Model& m, Report& r) {
-  // sections are cut in the (x, z) cell: a 1D stack has no z period (dz = 0 made every body its
-  // own "periodic image", divided the area fractions by zero and let periodic_union run on
-  // identical shells)
-  FG_REQUIRE(st.dx_um > 0 && st.dz_um > 0,
-             "cad layers need a 2D grating (\"dimension\": \"2D\", period_um.z > 0); z-invariant "
-             "1D gratings cannot be imported from CAD, use lamellar1d / profile1d");
+  // 2D: sections in the (x, z) cell; 1D (dz = 0): z-invariant bodies cut once at z_cut (Plan "M23")
+  FG_REQUIRE(st.dx_um > 0, "cad: period_um.x must be positive");
+  m.oneD = st.dz_um <= 0;
   auto error = [&](const std::string& code, const std::string& msg,
                    std::array<double, 3> w = {kNaN, kNaN, kNaN}) {
     r.errors.push_back({code, msg, w});
@@ -189,6 +191,7 @@ bool loadModel(const CadOptions& o, const Stack& st, Model& m, Report& r) {
   if (m.bodies.empty()) return false;
   // ---- cell origin, y range, translation into the cell
   m.origin = o.cellOrigin_um ? *o.cellOrigin_um : std::array<double, 2>{all[0], all[2]};
+  if (m.oneD) m.origin[1] = 0;  // z stays FG z (z_cut_um)
   const nf::Transform shift = nf::Transform::translation({-m.origin[0], 0, -m.origin[1]});
   for (auto& b : m.bodies) {
     b.shell = transformed(b.shell, shift);
@@ -200,8 +203,10 @@ bool loadModel(const CadOptions& o, const Stack& st, Model& m, Report& r) {
   FG_REQUIRE(st.materials.count(m.background),
              "cad.background: unknown material '" + m.background + "'");
   // ---- units: dimensions far away from the period / wavelength (factor 1e3)
+  // 1D: the extrusion length in z is arbitrary and not checked
   const double period = std::max(st.dx_um, st.dz_um),
-               extent = std::max({all[3] - all[0], all[4] - all[1], all[5] - all[2]});
+               extent = m.oneD ? std::max(all[3] - all[0], all[4] - all[1])
+                               : std::max({all[3] - all[0], all[4] - all[1], all[5] - all[2]});
   const double ref = o.lambda_um > 0 ? std::max(period, o.lambda_um) : period;
   if (extent > 100 * ref || extent < 1e-3 * std::min(period, ref))
     error("UNIT_SUSPECT", fmt("bodies are %.6g um large for a period of %.6g um (factor 1000 off? "
@@ -212,6 +217,74 @@ bool loadModel(const CadOptions& o, const Stack& st, Model& m, Report& r) {
 }
 
 // ------------------------------------------------------------------ checks
+
+/// Bezier pieces (x, y) of a profile curve (section with a plane z = const) in FG 3D coordinates.
+geometry::Contour2D profileLoop(const nf::SectionLoop& loop) {
+  geometry::Contour2D c;
+  for (const auto& sc : loop.curves)
+    for (const auto& b : sc.curve3d.decompose_bezier()) {
+      FG_REQUIRE(b.degree() <= 9, "cad: profile curve of degree > 9");
+      geometry::BezierSegment s;
+      for (std::size_t j = 0; j < b.num_control_points(); ++j)
+        s.P.push_back({b.control_points()[j].x, b.control_points()[j].y});
+      if (b.is_rational()) s.w = b.weights();
+      c.segments.push_back(std::move(s));
+    }
+  return c;
+}
+
+/// 1D gratings (Plan section "M23: z-Invarianz und Schnittebene"): every body extruded along z, the
+/// cutting plane z_cut inside all of them, the profiles in (x, y).
+void checkProfiles(const CadOptions& o, Model& m, Report& r) {
+  auto error = [&](const std::string& code, const std::string& msg,
+                   std::array<double, 3> w = {kNaN, kNaN, kNaN}) {
+    r.errors.push_back({code, msg, w});
+    r.ok = false;
+  };
+  double zlo = -1e300, zhi = 1e300;
+  for (const auto& b : m.bodies) {
+    zlo = std::max(zlo, b.box[2]);
+    zhi = std::min(zhi, b.box[5]);
+    if (!nf::is_extrusion_band(b.shell, {0, 0, 1}, b.box[2], b.box[5]))
+      error("NOT_Z_INVARIANT",
+            "body '" + b.name +
+                "' is not extruded along z: a 1D grating needs z-invariant bodies (a line extruded "
+                "along FG z, by default -CAD Y); use a 2D grating for this body",
+            {0.5 * (b.box[0] + b.box[3]) + m.origin[0], 0.5 * (b.box[1] + b.box[4]),
+             0.5 * (b.box[2] + b.box[5])});
+  }
+  if (!r.ok) return;
+  if (zlo >= zhi) {
+    error("OUT_OF_RANGE", fmt("the bodies have no common z range (1D: one plane z = z_cut_um must cut all "
+                              "of them; overlap %.6g ... %.6g um)",
+                              zlo, zhi));
+    return;
+  }
+  m.zCut = o.zCut_um ? *o.zCut_um : 0.5 * (zlo + zhi);
+  for (const auto& b : m.bodies)
+    if (!(m.zCut > b.box[2] + o.criticalTol_um && m.zCut < b.box[5] - o.criticalTol_um))
+      error("OUT_OF_RANGE", "z_cut_um = " + fmt("%.6g um does not cut body '", m.zCut) + b.name +
+                                fmt("' (z = %.6g ... %.6g um)", b.box[2], b.box[5]),
+            {0.5 * (b.box[0] + b.box[3]) + m.origin[0], 0.5 * (b.box[1] + b.box[4]), m.zCut});
+  if (!r.ok) return;
+  auto profiles = std::make_shared<std::vector<geometry::ProfileBody>>();
+  try {
+    for (const auto& b : m.bodies) {
+      nf::SectionOptions so;
+      so.s_axis = {1, 0, 0};
+      const nf::PlanarSection s = nf::section(b.shell, {{0, 0, m.zCut}, {0, 0, 1}}, so);
+      geometry::ProfileBody p;
+      p.material = b.material;
+      p.name = b.name;
+      for (const auto& loop : s.loops) p.loops.push_back(profileLoop(loop));
+      profiles->push_back(std::move(p));
+    }
+  } catch (const std::exception& e) {
+    error("SHELL_OPEN", std::string("profile section at z_cut_um failed: ") + e.what());
+    return;
+  }
+  m.profiles = profiles;
+}
 
 void checkModel(const CadOptions& o, Model& m, Report& r) {
   auto error = [&](const std::string& code, const std::string& msg,
@@ -245,6 +318,7 @@ void checkModel(const CadOptions& o, Model& m, Report& r) {
              0.5 * (b.box[2] + b.box[5]) + m.origin[1]});
   }
   if (!r.ok) return;
+  if (m.oneD) checkProfiles(o, m, r);
 }
 
 // ------------------------------------------------------------------ sections
@@ -511,8 +585,121 @@ bool touches(const Flat& a, const Flat& b, double sx, double sz, double tol) {
 /// Booleans.
 void checkOverlaps(const CadOptions& o, const Stack& st, Model& m, Report& r);
 
+geometry::LineSectionOptions lineOptions(const CadOptions& o) {
+  geometry::LineSectionOptions lo;
+  lo.periodicUnion = o.periodicUnion;
+  lo.priority = o.overlap == "priority";
+  return lo;
+}
+
+/// 1D (Plan section "M23: Linienschnitt"): the line sections at three heights per band; the same
+/// function builds the layers, so check and solver cannot disagree.
+void checkOverlaps1D(const CadOptions& o, const Stack& st, Model& m, Report& r) {
+  const geometry::LineSectionOptions lo = lineOptions(o);
+  std::vector<int> selfDone;
+  std::vector<std::array<int, 2>> pairDone;
+  Report dummy;
+  for (const auto& band : bands(m, o, dummy))
+    for (double f : {0.2, 0.5, 0.8}) {
+      const double y = band[0] + f * (band[1] - band[0]);
+      geometry::LineSectionFindings fd;
+      try {
+        (void)geometry::lineSection(*m.profiles, y, st.dx_um, m.background, lo, &fd);
+      } catch (const std::exception& e) {
+        r.errors.push_back({"SHELL_OPEN", std::string("line section failed: ") + e.what(),
+                            {kNaN, y, m.zCut}});
+        r.ok = false;
+        return;
+      }
+      for (int i : fd.selfOverlap) {
+        if (o.periodicUnion || std::find(selfDone.begin(), selfDone.end(), i) != selfDone.end()) continue;
+        selfDone.push_back(i);
+        const auto& b = m.bodies[static_cast<std::size_t>(i)];
+        r.errors.push_back({"PERIODIC_OVERLAP",
+                            "body '" + b.name + "' overlaps its periodic image (period " +
+                                fmt("%.6g um; smaller body or cad.periodic_union)", st.dx_um),
+                            {0.5 * (b.box[0] + b.box[3]) + m.origin[0], y, m.zCut}});
+        r.ok = false;
+      }
+      for (const auto& ij : fd.bodyOverlap) {
+        if (std::find(pairDone.begin(), pairDone.end(), ij) != pairDone.end()) continue;
+        pairDone.push_back(ij);
+        const auto& bi = m.bodies[static_cast<std::size_t>(ij[0])];
+        const auto& bj = m.bodies[static_cast<std::size_t>(ij[1])];
+        if (lo.priority) {
+          r.warnings.push_back({"BODY_OVERLAP", "body '" + bi.name + "' overlaps '" + bj.name +
+                                                    "' (priority: the overlap belongs to '" + bj.name + "')"});
+        } else {
+          r.errors.push_back({"BODY_OVERLAP",
+                              "bodies '" + bi.name + "' and '" + bj.name +
+                                  "' overlap (cad.overlap = \"priority\" resolves it)",
+                              {0.5 * (bi.box[0] + bi.box[3]) + m.origin[0], y, m.zCut}});
+          r.ok = false;
+        }
+      }
+    }
+}
+
+/// 1D bands -> homogeneous / lamellar1d (extrusion in y, exact) / Sectioned1DLayer (Plan section "M23:
+/// Bandklassifikation in 1D"); length fractions in the report.
+std::vector<LayerEntry> layersOf1D(const Model& m, const CadOptions& o, const Stack& st, Report& r) {
+  const double dx = st.dx_um;
+  const int G = std::max(o.normalField.grid, 64);
+  const geometry::LineSectionOptions lo = lineOptions(o);
+  std::vector<std::string> materials{m.background};
+  for (const auto& b : m.bodies)
+    if (std::find(materials.begin(), materials.end(), b.material) == materials.end())
+      materials.push_back(b.material);
+  std::vector<LayerEntry> out;
+  for (const auto& band : bands(m, o, r)) {
+    const double y0 = band[0], y1 = band[1], ym = 0.5 * (y0 + y1);
+    const LineSection mid = geometry::lineSection(*m.profiles, ym, dx, m.background, lo);
+    std::map<std::string, double> len;
+    for (std::size_t k = 0; k < mid.materials.size(); ++k) {
+      const double l = mid.breaks[k + 1] - mid.breaks[k];
+      len[mid.materials[k]] += l / dx;
+      if (mid.materials.size() > 1 && l < 2 * dx / G)
+        r.warnings.push_back(
+            {"FEATURE_SMALL",
+             fmt("interval of %.3g um at y = %.6g um is smaller than two normal-field raster spacings", l, ym),
+             {0.5 * (mid.breaks[k] + mid.breaks[k + 1]) + m.origin[0], ym, m.zCut}});
+    }
+    Band rb{y0, y1, "", "", {}};
+    for (const auto& [mat, f] : len) rb.areaFractions.push_back({mat, f});
+    bool extrusion = true;
+    for (const auto& b : m.bodies) {
+      if (y1 <= b.box[1] || y0 >= b.box[4]) continue;
+      extrusion = extrusion && nf::is_extrusion_band(b.shell, {0, 1, 0}, y0, y1);
+    }
+    LayerEntry le;
+    le.factorization = o.factorization;
+    if (mid.materials.size() == 1) {
+      rb.kind = "homogeneous";
+      rb.material = mid.materials.front();
+      le.spec = HomogeneousLayer{y1 - y0, rb.material};
+    } else if (extrusion) {
+      rb.kind = "lamellar1d";  // exact (Li rule); the FFF variants coincide with it
+      le.factorization = o.factorization == Factorization::Laurent ? Factorization::Laurent : Factorization::Auto;
+      le.spec = Lamellar1DLayer{y1 - y0, mid.breaks, mid.materials};
+    } else {
+      rb.kind = "sectioned1d";
+      Sectioned1DLayer s;
+      s.provider = std::make_shared<ProfileLineProvider>(m.profiles, y0, y1 - y0, dx, m.background, lo);
+      s.background = m.background;
+      s.materials = materials;
+      s.slices = o.rcwaSlices;
+      s.chebyshevNodes = o.yInterpolation == "chebyshev" ? o.chebyshevNodes : 0;
+      le.spec = s;
+    }
+    r.bands.push_back(rb);
+    out.push_back(std::move(le));
+  }
+  return out;
+}
+
 /// Bands -> layers (and the report entries).
 std::vector<LayerEntry> layersOf(const Model& m, const CadOptions& o, const Stack& st, Report& r) {
+  if (m.oneD) return layersOf1D(m, o, st, r);
   const int G = std::max(o.normalField.grid, 64);
   const double h = std::min(st.dx_um, st.dz_um) / G, sampleTol = 1e-3 * h;
   const auto shared = std::make_shared<const std::vector<Body>>(m.bodies);
@@ -573,6 +760,10 @@ std::vector<LayerEntry> layersOf(const Model& m, const CadOptions& o, const Stac
 }
 
 void checkOverlaps(const CadOptions& o, const Stack& st, Model& m, Report& r) {
+  if (m.oneD) {
+    checkOverlaps1D(o, st, m, r);
+    return;
+  }
   const double tol = 1e-4 * std::min(st.dx_um, st.dz_um);
   std::vector<std::array<int, 3>> reported;  // (i, j, periodic)
   bool changed = true;
@@ -663,9 +854,11 @@ bool available() {
 Report check(const CadOptions& o, const Stack& st) {
   Report r;
   Model m;
+  r.oneD = st.dz_um <= 0;
   if (!loadModel(o, st, m, r)) return r;
   r.cellOrigin_um = m.origin;
   checkModel(o, m, r);
+  r.zCut_um = m.zCut;
   if (r.ok) checkOverlaps(o, st, m, r);
   if (!r.ok) return r;
   try {
@@ -681,9 +874,11 @@ std::vector<LayerEntry> slice(const CadOptions& o, const Stack& st, Report* repo
   Report r;
   Model m;
   std::vector<LayerEntry> layers;
+  r.oneD = st.dz_um <= 0;
   if (loadModel(o, st, m, r)) {
     r.cellOrigin_um = m.origin;
     checkModel(o, m, r);
+    r.zCut_um = m.zCut;
     if (r.ok) checkOverlaps(o, st, m, r);
     if (r.ok) layers = layersOf(m, o, st, r);
   }
@@ -696,11 +891,52 @@ std::vector<LayerEntry> slice(const CadOptions& o, const Stack& st, Report* repo
   return layers;
 }
 
+/// 1D: the profiles in the (x, y) plane over [0, dx] with the images at +- dx and the band boundaries.
+std::string previewSvg1D(const CadOptions& o, const Stack& st, Model& m, Report& r) {
+  checkModel(o, m, r);
+  if (!m.profiles)
+    throw Error("cad preview: " + (r.errors.empty() ? std::string() : r.errors.front().message));
+  static const char* palette[] = {"#3b6fb6", "#d1495b", "#edae49", "#66a182",
+                                  "#8d6cab", "#00798c", "#c97b84"};
+  std::map<std::string, std::string> colour;
+  for (const auto& p : *m.profiles)
+    if (!colour.count(p.material)) colour[p.material] = palette[colour.size() % 7];
+  const double dx = st.dx_um, ya = m.yRange[0], yb = m.yRange[1], H = yb - ya;
+  const double W = 400, sc = W / std::max(dx, H);
+  std::ostringstream svg;
+  // y up: the drawing uses (x, -y)
+  svg << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" << dx * sc << "\" height=\"" << H * sc
+      << "\" viewBox=\"0 " << -yb << " " << dx << " " << H << "\">\n";
+  svg << "<title>profile at z = " << m.zCut << " um</title>\n";
+  svg << "<rect x=\"0\" y=\"" << -yb << "\" width=\"" << dx << "\" height=\"" << H
+      << "\" fill=\"#f2f2f2\" stroke=\"#888\" stroke-width=\"" << 0.003 * dx << "\"/>\n";
+  for (int di = -1; di <= 1; ++di)
+    for (const auto& p : *m.profiles) {
+      svg << "<path fill-rule=\"evenodd\" fill=\"" << colour[p.material] << "\" transform=\"translate("
+          << di * dx << " 0)\" d=\"";
+      for (const auto& c : p.loops) {
+        const auto q = c.flatten(1e-3 * std::max(dx, H));
+        for (std::size_t k = 0; k < q.size(); ++k) svg << (k ? " L" : "M") << q[k][0] << " " << -q[k][1];
+        svg << " Z ";
+      }
+      svg << "\"><title>" << p.name << " (" << p.material << ")</title></path>\n";
+    }
+  Report dummy;
+  for (const auto& band : bands(m, o, dummy))
+    svg << "<line x1=\"0\" x2=\"" << dx << "\" y1=\"" << -band[1] << "\" y2=\"" << -band[1]
+        << "\" stroke=\"#555\" stroke-dasharray=\"" << 0.01 * dx << "\" stroke-width=\"" << 0.002 * dx
+        << "\"/>\n";
+  svg << "</svg>\n";
+  return svg.str();
+}
+
 std::string previewSvg(const CadOptions& o, const Stack& st, double y) {
   Report r;
   Model m;
   if (!loadModel(o, st, m, r))
     throw Error("cad preview: " + (r.errors.empty() ? std::string() : r.errors.front().message));
+  if (m.oneD) return previewSvg1D(o, st, m, r);
+  FG_REQUIRE(std::isfinite(y), "cad preview: y_um is required for 2D gratings");
   const double h = std::min(st.dx_um, st.dz_um) / 512;
   const CrossSection cs = sectionAt(m.bodies, y, 1e-3 * h);
   // colours per material (stable order)

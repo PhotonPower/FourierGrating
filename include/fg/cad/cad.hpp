@@ -35,7 +35,9 @@ struct CadOptions {
   std::string axisY = "+Z", axisX = "+X", axisZ;
   std::optional<std::array<double, 2>> yRange_um;  ///< default: bounding box of the bodies
   std::optional<std::array<double, 2>>
-      cellOrigin_um;                       ///< (x0, z0); default: minimum of the bounding box
+      cellOrigin_um;                       ///< (x0, z0); default: minimum of the bounding box (1D: x0 only)
+  /// 1D gratings (Plan section "M23"): FG z of the cutting plane; default: middle of the common z range
+  std::optional<double> zCut_um;
   std::string background = "superstrate";  ///< material name, "superstrate" or "substrate"
   std::vector<BodyAssignment> bodies;
   std::string overlap = "error";  ///< "error" | "priority" (earlier bodies win, Boolean difference)
@@ -63,7 +65,9 @@ struct Finding {
 /// One band [y0, y1] of the decomposition and the layer type it becomes.
 struct Band {
   double y0_um = 0, y1_um = 0;
-  std::string kind;      ///< "homogeneous" | "extrusion" (Contour2D) | "sectioned" (SectionedLayer)
+  /// "homogeneous" | "extrusion" (Contour2D) | "sectioned" (SectionedLayer); 1D: "homogeneous" |
+  /// "lamellar1d" | "sectioned1d" (Sectioned1DLayer)
+  std::string kind;
   std::string material;  ///< homogeneous bands
   std::vector<std::pair<std::string, double>>
       areaFractions;  ///< per material at mid height (incl. background)
@@ -74,6 +78,8 @@ struct Report {
   std::vector<Finding> errors, warnings;
   std::vector<Band> bands;
   std::array<double, 2> cellOrigin_um{0, 0};
+  bool oneD = false;  ///< 1D grating (Plan section "M23"): z_cut_um, cell origin x0 only, length fractions
+  double zCut_um = std::numeric_limits<double>::quiet_NaN();
   /// JSON (fgsolve --cad-report, Python fg.cad.check).
   std::string json() const;
 };
@@ -89,7 +95,8 @@ Report check(const CadOptions& opt, const Stack& context);
 std::vector<LayerEntry> slice(const CadOptions& opt, const Stack& context,
                               Report* report = nullptr);
 
-/// SVG of the section at height y (FG coordinates, micrometres) over one cell, materials coloured.
+/// SVG of the section at height y (FG coordinates, micrometres) over one cell, materials coloured; 1D
+/// gratings: the profile in the (x, y) plane with its images at +- dx (y is ignored).
 std::string previewSvg(const CadOptions& opt, const Stack& context, double y_um);
 
 /// Tool description (JSON schema) of the check for an LLM tool loop (e.g. Nurbforge's Ollama

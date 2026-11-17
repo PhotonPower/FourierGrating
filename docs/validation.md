@@ -321,3 +321,24 @@ Li in r; σ_sca in µm² (Mie: 2,448002):
 
 Extrapolation im Test (Ordnung in N aus κ_max = 4: p = 1,84; Richardson bei κ_max = 8; Rest κ^−2): 2,446596, also
 −5,7e-4 (Toleranz 1e-3). Mit der exakten Quelle (P = (ε − ε∞) E_bg) konvergiert σ_sca nur erster Ordnung in κ_max.
+
+## CAD-Import für 1D-Gitter (M23, V24)
+
+`tests/cad/test_cad.cpp` (`CAD_V24`, Label `validation`, nur mit Nurbforge), ohne Nurbforge
+`tests/unit/test_line_section.cpp` und `tests/unit/test_sectioned1d.cpp`, Python `tests/python/test_cad.py`.
+
+| Fall | Referenz | Abweichung |
+|---|---|---|
+| Linienschnitt Kreis (rationale Quadriken), bis 1e-9 an die Tangente | geschlossene Form | 2e-15 + 4e-16 r/h |
+| Normalenfeld eq:cad1d_N | geschlossene Form der Koeffizienten | ≤ 1e-14 |
+| V24a Rechtecklinie (senkrechte Wände) | `lamellar1d` (Li); Analytik-Provider: Q | 1e-12 / Q 1e-13 |
+| V24b Trapez, 15°-Wände, Laurent | `profile1d` `points`: RCWA / RK; Q an 5 Höhen | 1e-12 / 1e-10; Q 1e-13 |
+| V24b FFF_sym (anderes Normalenfeld im Inneren) | `profile1d` FFF_sym | 5,8e-5 (N = 5) → 1,3e-5 (N = 20) |
+| V24c gerundetes Trapez der Meldung (CD 100 nm, h 100 nm, r 10 nm) | `profile1d` `Function` mit analytischem g(x), RK | 2,6e-13 |
+| V24c Schnittpunkte / Normalen auf den Bögen | Analytik | ≤ 1e-13 / ≤ 1e-12 |
+| V24d Überhang mit Deckel (zweites Material) und Hohlraum | RCWA (100 Scheiben) gegen RK; R + T; Reziprozität | 2,4e-10; 1e-14; δ = 0°: 8,5e-7 → 3,4e-9, δ = 90°: 2,2e-5 → 3,5e-7 (N = 8 → 24) |
+| V24e z_cut, Extrusionslänge 0,1 … 1000 µm, Verschiebung über den Zellrand | Ausgangsfall | ≤ 1e-13 / 1e-12 |
+| V24f Restschicht + Linie als ein Körper | zwei Körper; Selbstüberlappung mit `periodic_union` = homogene Schicht | 1e-12 / 1e-13 |
+| V24g Befunde | `NOT_Z_INVARIANT`, `OUT_OF_RANGE`, `BODY_OVERLAP`, `priority` = `lamellar1d` | genau / 1e-12 |
+| V24h Gradienten (Oberbreite über `StackParameter`, n) | zentrale Differenzen, RCWA und RK | ≤ 1,7e-8 / ≤ 2,1e-9 relativ |
+| V24i Python, Beispiel `cad_line_grating_1d` | Golden File (neu) | bitgleich |
