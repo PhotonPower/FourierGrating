@@ -3,6 +3,20 @@
 ## [Unreleased]
 
 ### Behoben
+- Überlappungen in 2D (Plan v2.24): Körper bzw. Regionen mit kollinear verlaufenden Rändern (z. B. zwei Quader
+  gleicher z-Ausdehnung) wurden weder vom Slicer noch von `contour2d`/`polygon2d`/CAD im Löser als überlappend
+  erkannt; berührende Körper galten je nach Startpunkt der Schleife als überlappend. Jetzt: echte Kreuzung mit
+  Rundungstoleranz (`geometry::properCrossing`) oder Probepunkt knapp innerhalb einer Randkante
+  (`Region::interiorProbes`); eine Region, die ihr eigenes Bild entlang des Randes berührt, wird weiter abgelehnt
+  (`geometry::sharedBoundary`).
+- `periodic_union` in 2D (Planfehler, v2.24): Die Vereinigung eines Körpers mit seinem überlappenden Bild überlappt
+  wieder ihr Bild; nach vier Runden bestand die Prüfung trotzdem, erst der Löser brach ab. Jetzt `PERIODIC_OVERLAP`
+  mit Hinweis; `periodic_union` wirkt nur in 1D.
+- `overlap: "priority"`: höchstens n(n−1)/2 + 2 Runden mit abschließender Prüfung (vorher vier ohne); scheitert die
+  Boolesche Differenz in Nurbforge (koplanare Flächen, offene Ergebnishülle), meldet der Slicer `BODY_OVERLAP` statt
+  einer Ausnahme.
+- Tests `CAD.PeriodicUnionCannotResolveSelfOverlapIn2D`, `CAD.PriorityResolvesEveryOverlap`,
+  `CAD.OverlapWithCollinearEdgesIsFound`.
 - CAD-Slicer (M14, Plan v2.21), gemeldet beim Import eines z-invarianten Liniengitters aus Nurbforge:
   - Hüllquader aus den getrimmten Körpern (Extrema von `nf::critical_heights` entlang x, y, z) statt aus den
     Kontrollpunkten der Trägerflächen. Ein aus einem größeren Rechteck getrimmter Deckel verschob vorher

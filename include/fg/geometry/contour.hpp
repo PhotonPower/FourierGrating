@@ -53,6 +53,15 @@ struct Contour2D {
                          const std::vector<double>& weights);
 };
 
+/// Do the segments ab and cd cross properly, each end farther than tol from the other segment's line? Ends that
+/// lie on the other segment within rounding (touching bodies, results of Boolean operations) do not count (v2.24).
+bool properCrossing(const Point2& a, const Point2& b, const Point2& c, const Point2& d, double tol);
+
+/// Do the closed polylines p and q share a boundary piece longer than tol (segments collinear within tol)?
+/// A region sharing such a piece with its own periodic image spans the period: its periodic union wraps around the
+/// cell and the shared piece is no material interface (v2.21, v2.24).
+bool sharedBoundary(const std::vector<Point2>& p, const std::vector<Point2>& q, double tol);
+
 /// Material region: outer contour (counter-clockwise) with holes (clockwise) after normalize().
 struct Region {
   Contour2D outer;
@@ -63,6 +72,11 @@ struct Region {
   void normalize(double flattenTol);
   /// Point inside the region (not periodic; crossing test on the flattened contours).
   bool contains(double x, double z) const;
+  /// Overlap probes (v2.24): a point eps inside the region next to the parameter midpoint of every boundary segment
+  /// (exact normal; material on the left after normalize()). Together with the test for proper boundary
+  /// crossings this finds overlaps whose boundaries run along each other (collinear edges), where crossings and
+  /// boundary points alone fail; touching regions (common boundary, no common area) contain no probe of each other.
+  std::vector<Point2> interiorProbes(double eps) const;
   std::array<double, 4> bounds() const { return outer.bounds(); }
   double area() const;
 

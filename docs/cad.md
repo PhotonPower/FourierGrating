@@ -60,7 +60,7 @@ nf.write_step("pillars.step", [pillar, lid], unit="um", names=["Pillar", "Lid"])
 | `background` | Material außerhalb der Körper: Name, `"superstrate"` oder `"substrate"` |
 | `bodies` | Materialzuordnung je Körper über den STEP-Namen (`name`) oder die Position (`index`); nicht zugeordnete Körper sind ein Fehler |
 | `overlap` | `error` (Standard) oder `priority`: frühere Körper gewinnen (Boolesche Differenz) |
-| `periodic_union` | Körper vor dem Schneiden mit ihren überlappenden periodischen Bildern vereinigen |
+| `periodic_union` | nur 1D-Gitter: Körper mit ihren überlappenden periodischen Bildern vereinigen. In 2D wirkungslos: Überlappt ein Körper sein Bild, umläuft die Vereinigung die Zelle (`PERIODIC_OVERLAP`) |
 | `slicing.critical_tol_um` | kritische Höhen näher als dies werden zusammengelegt |
 | `slicing.min_band_um` | dünnere Bänder werden dem Nachbarband zugeschlagen (Warnung `FEATURE_SMALL`) |
 | `slicing.rcwa_slices` | RCWA-Treppenstufen je y-variablem Band |
@@ -126,7 +126,7 @@ erhält Intervalle mit Materialien und die Normalen an den Grenzen.
 |---|---|
 | `SHELL_OPEN` | Körper nicht geschlossen (freie Kanten), mit Position |
 | `SHELL_ORIENTATION` | nicht konsistent orientiert oder negatives Volumen (korrigiert, Warnung) |
-| `BODY_OVERLAP` | zwei Körper überlappen (Schnittprüfung an drei Höhen je Band) |
+| `BODY_OVERLAP` | zwei Körper überlappen (Schnittprüfung an drei Höhen je Band; berührende Körper sind erlaubt); bei `priority` auch, wenn die Boolesche Differenz in Nurbforge scheitert (z. B. koplanare Flächen) |
 | `PERIODIC_OVERLAP` | ein Körper überlappt sein periodisches Bild (bzw. das eines anderen) oder berührt sein eigenes entlang eines Randstücks (Körper umspannt die Periode) |
 | `OUT_OF_RANGE` | Geometrie außerhalb des y-Bereichs; 1D: `z_cut_um` schneidet nicht alle Körper |
 | `UNIT_SUSPECT` | Abmessungen passen nicht zu Periode / Wellenlänge (Faktor 10³ daneben) |
