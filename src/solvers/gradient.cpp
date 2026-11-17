@@ -64,6 +64,24 @@ struct Param {
   NormalFieldCoefficients dnf;
 };
 
+/// Sectioned1DLayer (Plan section "M23"): d grids / d theta of the slice at height y from the line sections of
+/// the stacks at theta +- delta (central difference; AdjointSlice::gridsOfSection).
+std::vector<Grid> lineShapeGrids(const detail::AdjointSlice& a, const Param& p, std::size_t layer, double y_um) {
+  FG_REQUIRE(static_cast<bool>(a.gridsOfSection), "gradient: sectioned1d slice without section grids");
+  auto sectionOf = [&](const Stack& s) {
+    const auto* l = std::get_if<Sectioned1DLayer>(&s.layers[layer].spec);
+    FG_REQUIRE(l != nullptr, "gradient: the parameter changes a layer type");
+    const double h = l->provider->thickness_um();
+    return l->provider->section(std::clamp(y_um, 1e-14 * h, h * (1 - 1e-14)));
+  };
+  const auto gp = a.gridsOfSection(sectionOf(*p.plus)), gm = a.gridsOfSection(sectionOf(*p.minus));
+  std::vector<Grid> d = gp;
+  for (std::size_t m = 0; m < d.size(); ++m)
+    for (int pp = -d[m].Px(); pp <= d[m].Px(); ++pp)
+      for (int qq = -d[m].Pz(); qq <= d[m].Pz(); ++qq) d[m](pp, qq) = (gp[m](pp, qq) - gm[m](pp, qq)) / (2 * p.delta);
+  return d;
+}
+
 std::vector<std::string> tokens(const std::string& ptr) {
   std::vector<std::string> t;
   std::stringstream ss(ptr);
@@ -427,7 +445,7 @@ GradientResult gradient(const SolverOptions& opt, const Stack& stack0, const Wav
     for (std::size_t k = 0; k < stack.layers.size(); ++k) {
       const auto& s = stack.layers[k].spec;
       if (std::holds_alternative<Contour2DLayer>(s) || std::holds_alternative<Polygon2DLayer>(s) ||
-          std::holds_alternative<SectionedLayer>(s))
+          std::holds_alternative<SectionedLayer>(s) || std::holds_alternative<Sectioned1DLayer>(s))
         p.layers.push_back(k);
       else
         FG_REQUIRE(p.plus->layers[k].spec.index() == s.index(), "gradient: parameter '" + sp.name + "' changes a layer type");
@@ -1191,6 +1209,8 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
             for (int pp = -d[m].Px(); pp <= d[m].Px(); ++pp)
               for (int qq = -d[m].Pz(); qq <= d[m].Pz(); ++qq) d[m](pp, qq) = (gp[m](pp, qq) - gm[m](pp, qq)) / (2 * p.delta);
           out.grad[q] += dotAll(d);
+        } else if (p.kind == Param::Kind::Shape && std::holds_alternative<Sectioned1DLayer>(st.layers[layer].spec)) {
+          out.grad[q] += dotAll(lineShapeGrids(a, p, layer, y_um));  // M23: grids of the sections at theta +- delta
         } else if (p.kind == Param::Kind::Shape) {  // 2D: Laurent eps_ij = sum_k t_k,ij chi_k; FFF_B: gridsShape
           FG_REQUIRE(a.fac == Factorization::Laurent || a.gridsShape,
                      "gradient: shapes of anisotropic layers need the Laurent or FFF_B factorization");
@@ -1281,6 +1301,14 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         // and d are no crossings; the extra breaks of the map have the same material on both sides)
         for (std::size_t jj = 1; jj + 1 < a.breaks.size(); ++jj)
           out.grad[q] += (tr.x ? 1.0 / tr.x->df(a.breaks[jj]) : 1.0) * jump(a.breaks[jj], a.materials[jj - 1], a.materials[jj]);
+      } else if (p.kind == Param::Kind::Shape && std::holds_alternative<Sectioned1DLayer>(st.layers[layer].spec)) {
+        // M23: eps, 1/eps and the normal field eq:cad1d_N of the sections at theta +- delta
+        const auto d = lineShapeGrids(a, p, layer, y_um);
+        out.grad[q] += gridDot(g.eps, d[0]) + gridDot(g.invEps, d[1]);
+        for (std::size_t ii = 0; ii < 3; ++ii) {
+          for (std::size_t kk = 0; kk < 3; ++kk) out.grad[q] += gridDot(g.NN[ii][kk], d[2 + 3 * ii + kk]);
+          out.grad[q] += gridDot(g.N[ii], d[11 + ii]);
+        }
       } else if (p.kind == Param::Kind::Shape) {
         // regions of this layer at this height for theta and theta +- delta (Plan eq:shape2d / eq:shape3d)
         auto regionsAt = [&](const Stack& s, const detail::LayerModel* mdl) {

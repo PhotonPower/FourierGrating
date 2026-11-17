@@ -1242,6 +1242,7 @@ class LineSliceModel final : public LayerModel {
       tens.push_back(tensors_[k]);
       ev.push_back(eps_[k]);
     }
+    a.gridsOfSection = sectionGrids();
     if (aniso_) {
       anisoAdjointSlice(br, tens, nfun(), fac_, dx_, map_, a);
       return true;
@@ -1256,6 +1257,43 @@ class LineSliceModel final : public LayerModel {
   const LineSection& section() const { return s_; }
 
  private:
+  /// Grids of another section (AdjointSlice::gridsOfSection; materials of this layer's stack).
+  std::function<std::vector<fourier::CoefficientGrid>(const LineSection&)> sectionGrids() const {
+    std::map<std::string, std::pair<cplx, Mat3C>> mats;
+    for (std::size_t k = 0; k < s_.materials.size(); ++k) mats[s_.materials[k]] = {eps_[k], tensors_[k]};
+    const double dx = dx_;
+    const IndexMap map = map_;
+    const std::shared_ptr<const CoordinateMap> xm = xm_;
+    const Factorization fac = fac_;
+    const bool aniso = aniso_;
+    return [mats, dx, map, xm, fac, aniso](const LineSection& s) {
+      std::vector<double> br = s.breaks;
+      auto material = [&](const std::string& n) {
+        const auto it = mats.find(n);
+        FG_REQUIRE(it != mats.end(), "gradient: material '" + n + "' appears in a sectioned1d section of theta +- delta "
+                                     "only (the parameter changes the section structure)");
+        return it->second;
+      };
+      if (aniso) {
+        std::vector<Mat3C> tens;
+        for (const auto& n : s.materials) tens.push_back(material(n).second);
+        mapIntervals(xm.get(), br, tens);
+        return anisoGridsOf(br, tens, [s, dx, xm](double X) { return geometry::lineNormal(s, dx, xm ? xm->f(X) : X); },
+                            fac, dx, map);
+      }
+      std::vector<cplx> ev;
+      for (const auto& n : s.materials) ev.push_back(material(n).first);
+      mapIntervals(xm.get(), br, ev);
+      SliceCoefficients sc;
+      isoGrids(br, ev, dx, map, sc);
+      const NormalFieldCoefficients nf = normalField(s, dx, map, xm.get());
+      std::vector<fourier::CoefficientGrid> g{sc.eps, sc.invEps};
+      for (std::size_t i = 0; i < 3; ++i)
+        for (std::size_t j = 0; j < 3; ++j) g.push_back(nf.NN[i][j]);
+      for (std::size_t i = 0; i < 3; ++i) g.push_back(nf.N[i]);
+      return g;
+    };
+  }
   /// Physical normal at x = f(X) (Plan section "M17").
   std::function<Vec3D(double)> nfun() const {
     const LineSection s = s_;

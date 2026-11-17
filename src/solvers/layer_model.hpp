@@ -52,6 +52,10 @@ struct AdjointSlice {
   /// 2D cross-sections: d grids for a change d chi of the indicator of region k (k >= 1; orders shapePx, shapePz)
   std::function<std::vector<fourier::CoefficientGrid>(std::size_t, const fourier::CoefficientGrid&)> gridsShape;
   int shapePx = 0, shapePz = 0;
+  /// sectioned1d layers (M23): the grids of another line section of this layer with the same factorization
+  /// (shape derivatives by central differences): isotropic {eps, 1/eps, N_i N_j (9, row-major), N_i (3)},
+  /// anisotropic the order of `grids`
+  std::function<std::vector<fourier::CoefficientGrid>(const LineSection&)> gridsOfSection;
   /// anisotropic FFF_B cross-sections: grids with the raster normal field of another model of this layer
   std::function<std::vector<fourier::CoefficientGrid>(const LayerModel&)> gridsRasterOf;
 };

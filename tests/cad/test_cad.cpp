@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 #include <numbers>
 #include <nurbforge/geometry/primitives.hpp>
+#include <nurbforge/geometry/transform.hpp>
 #include <nurbforge/io/step.hpp>
 #include <nurbforge/modeling/construct.hpp>
 #include <nurbforge/topology/boolean.hpp>
@@ -582,16 +583,360 @@ TEST(CAD, ZInvariantLine) {
   cfg["layers"][0] = cadLayer(step({line(kLine, 0.3)}, {"Line"}), bodies);
   EXPECT_EQ(codes(report(cfg)), std::vector<std::string>{});
   EXPECT_NO_THROW((void)solve(cfg));
-  // 1D stacks have no z period: a clear error instead of PERIODIC_OVERLAP / NaN fractions / a
-  // periodic_union on identical shells
+  // the same body in a 1D stack is a line grating (M23): no PERIODIC_OVERLAP, no NaN fractions
   cfg["dimension"] = "1D";
   cfg["period_um"] = {{"x", 0.5}};
   cfg["layers"][0] = cadLayer(step({line(kLine, 0.5)}, {"Line"}), bodies);
+  cfg["layers"][0]["cell_origin_um"] = 0.0;
   cfg["layers"][0]["periodic_union"] = true;
-  try {
-    (void)report(cfg);
-    ADD_FAILURE() << "1D cad layer accepted";
-  } catch (const fg::Error& e) {
-    EXPECT_NE(std::string(e.what()).find("2D grating"), std::string::npos) << e.what();
+  const json r1 = report(cfg);
+  EXPECT_EQ(codes(r1), std::vector<std::string>{});
+  EXPECT_EQ(r1["bands"][0]["kind"], "sectioned1d");
+  EXPECT_NEAR(r1["bands"][0]["area_fractions"]["pillar"].get<double>(), 0.2, 1e-12);
+}
+
+// ------------------------------------------------------------------ M23: CAD import for 1D gratings (V24)
+namespace {
+
+constexpr double kD = 0.3, kH = 0.1;  // period and line height of V24
+
+/// Closed chain of curves in the CAD X-Z plane (FG x, y): faces extruded along CAD Y over [0, L], lids trimmed
+/// by the same curves in (u, v) (first loop outer, the others holes).
+nf::Shell profileBody(const std::vector<std::vector<nf::NurbsCurve>>& loops, double L) {
+  double X0 = 1e300, Z0 = 1e300, X1 = -1e300, Z1 = -1e300;
+  for (const auto& l : loops)
+    for (const auto& c : l)
+      for (const auto& p : c.control_points()) {
+        X0 = std::min(X0, p.x);
+        Z0 = std::min(Z0, p.z);
+        X1 = std::max(X1, p.x);
+        Z1 = std::max(Z1, p.z);
+      }
+  const double W = X1 - X0, H = Z1 - Z0;
+  const nf::Transform uv({1 / W, 0, 0, -X0 / W, 0, 0, 1 / H, -Z0 / H, 0, 0, 0, 0});
+  std::vector<nf::TrimmedSurface> f;
+  std::vector<nf::TrimLoop> trims;
+  for (const auto& l : loops) {
+    nf::TrimLoop t;
+    for (const auto& c : l) {
+      f.emplace_back(nf::extrude(c, {0, L, 0}));
+      t.curves.push_back(c.transformed(uv));
+    }
+    trims.push_back(t);
+  }
+  const std::vector<nf::TrimLoop> holes(trims.begin() + 1, trims.end());
+  for (double y : {0.0, L})
+    f.emplace_back(nf::make_rectangle({X0, y, Z0}, {W, 0, 0}, {0, 0, H}), trims.front(), holes);
+  return nf::Shell::sew(std::move(f));
+}
+
+std::vector<nf::NurbsCurve> polyCurves(const std::vector<std::array<double, 2>>& xz) {
+  std::vector<nf::NurbsCurve> c;
+  for (std::size_t i = 0; i < xz.size(); ++i) {
+    const auto& a = xz[i];
+    const auto& b = xz[(i + 1) % xz.size()];
+    c.push_back(nf::make_line({a[0], 0, a[1]}, {b[0], 0, b[1]}));
+  }
+  return c;
+}
+
+/// The line of the report (v2.21): trapezoid, CD at half height, 15 degree walls, corners rounded with exact
+/// arcs of radius r (head convex, foot concave and tangent to the substrate line).
+struct RoundedLine {
+  double xc = 0.15, cd = 0.1, h = kH, r = 0.01, a = 15 * pi / 180;
+  double s() const { return std::sin(a); }
+  double c() const { return std::cos(a); }
+  double xf() const { return xc - 0.5 * cd - 0.5 * h * std::tan(a); }        // left foot of the trapezoid
+  double cfx() const { return xf() - r * (1 - s()) / c(); }                   // foot arc centre (cfx, r)
+  double ctx() const { return xf() + (s() * (h - r) + r) / c(); }             // head arc centre (ctx, h - r)
+  double yWF() const { return r * (1 - s()); }                                // wall / foot arc
+  double yWT() const { return h - r * (1 - s()); }                            // wall / head arc
+  double left(double y) const {                                               // left boundary x(y)
+    if (y < yWF()) return cfx() + std::sqrt(r * r - (r - y) * (r - y));
+    if (y < yWT()) return xf() + y * std::tan(a);
+    return ctx() - std::sqrt(r * r - (y - (h - r)) * (y - (h - r)));
+  }
+  double g(double x) const {  // profile y = g(x) (profile1d Function)
+    const double u = xc - std::abs(x - xc);  // mirrored onto the left half
+    if (u <= cfx()) return 0.0;
+    if (u <= cfx() + r * c()) return r - std::sqrt(std::max(0.0, r * r - (u - cfx()) * (u - cfx())));
+    if (u <= ctx() - r * c()) return (u - xf()) / std::tan(a);
+    if (u <= ctx()) return h - r + std::sqrt(std::max(0.0, r * r - (u - ctx()) * (u - ctx())));
+    return h;
+  }
+  std::vector<nf::NurbsCurve> curves() const {
+    auto arc = [&](double cx, double cz, double a0, double a1) {
+      return nf::make_arc({cx, 0, cz}, {1, 0, 0}, {0, 0, 1}, r, a0, a1);
+    };
+    auto start = [](const nf::NurbsCurve& k) { return k.evaluate(k.domain_start()); };
+    auto end = [](const nf::NurbsCurve& k) { return k.evaluate(k.domain_end()); };
+    const double m = 2 * xc, d2r = pi / 180, w = a / d2r;
+    const auto footR = arc(m - cfx(), r, (180 + w) * d2r, 270 * d2r).reversed();
+    const auto headR = arc(m - ctx(), h - r, w * d2r, 90 * d2r);
+    const auto headL = arc(ctx(), h - r, 90 * d2r, (180 - w) * d2r);
+    const auto footL = arc(cfx(), r, -90 * d2r, -w * d2r).reversed();
+    return {nf::make_line(end(footL), start(footR)), footR, nf::make_line(end(footR), start(headR)), headR,
+            nf::make_line(end(headR), start(headL)), headL, nf::make_line(end(headL), start(footL)), footL};
+  }
+};
+
+json base1D(const json& layers, const std::string& solver = "rcwa", int N = 6) {
+  json c = base(layers, solver, N);
+  c["dimension"] = "1D";
+  c["period_um"] = {{"x", kD}};
+  c["truncation"] = {{"Nx", N}};
+  c["incidence"] = {{"lambda_um", 0.633}, {"phi_deg", 20}, {"psi_deg", 30}, {"delta_deg", 35}};
+  c["rk"] = {{"tol", 1e-10}};
+  return c;
+}
+
+json cad1D(const std::string& stepText, const json& bodies, const std::string& fac = "laurent") {
+  return json{{"type", "cad"},           {"step", stepText},   {"cell_origin_um", 0.0},
+              {"background", "superstrate"}, {"bodies", bodies}, {"factorization", fac}};
+}
+
+const json kLineBody = json::array({{{"name", "Line"}, {"material", "pillar"}}});
+
+const std::vector<std::array<double, 2>> kTrap{
+    {0.0866, 0.0}, {0.2134, 0.0}, {0.2134 - kH * std::tan(15 * pi / 180), kH}, {0.0866 + kH * std::tan(15 * pi / 180), kH}};
+
+fg::Stack stackOf(const json& cfg) { return fg::io::parseConfig(cfg.dump()).stack; }
+
+/// Layers of the band decomposition (bottom to top) with their bottom heights.
+/// y0: bottom of the y range (the band boundaries are critical heights, e.g. -1.5e-12 for a foot arc tangent to
+/// y = 0, found by Newton in Nurbforge).
+std::vector<std::pair<double, const fg::Sectioned1DLayer*>> sectioned1D(const fg::Stack& st, double y0) {
+  std::vector<std::pair<double, const fg::Sectioned1DLayer*>> out;
+  double y = y0;
+  for (const auto& le : st.layers) {
+    const double t = std::visit(
+        [](const auto& l) -> double {
+          using T = std::decay_t<decltype(l)>;
+          if constexpr (std::is_same_v<T, fg::Sectioned1DLayer>) return l.provider->thickness_um();
+          else if constexpr (requires { l.thickness_um; }) return l.thickness_um;
+          else return 0.0;
+        },
+        le.spec);
+    if (const auto* s = std::get_if<fg::Sectioned1DLayer>(&le.spec)) out.push_back({y, s});
+    y += t;
+  }
+  return out;
+}
+
+}  // namespace
+
+TEST(CAD_V24, RectangleIsLamellar) {
+  const std::string s = step({line({{0.1, 0.0}, {0.2, 0.0}, {0.2, kH}, {0.1, kH}}, 0.3)}, {"Line"});
+  for (const std::string solver : {"rcwa", "rk"}) {
+    const json cad = base1D(json::array({cad1D(s, kLineBody, "auto")}), solver);
+    const json r = report(cad);
+    EXPECT_EQ(codes(r), std::vector<std::string>{});
+    EXPECT_EQ(r["dimension"], "1D");
+    ASSERT_EQ(r["bands"].size(), 1u);
+    EXPECT_EQ(r["bands"][0]["kind"], "lamellar1d");
+    const json lam = base1D(json::array({{{"type", "lamellar1d"}, {"thickness_um", kH},
+                                          {"breakpoints_um", {0.0, 0.1, 0.2, kD}},
+                                          {"materials", {"air", "pillar", "air"}}}}),
+                            solver);
+    EXPECT_LT(maxDiff(solve(cad), solve(lam)), 1e-12) << solver;
+  }
+}
+
+TEST(CAD_V24, TrapezoidIsProfile1DWithLaurent) {
+  const std::string s = step({line(kTrap, 0.3)}, {"Line"});
+  const json prof = {{"type", "profile1d"}, {"shape", "points"}, {"depth_um", kH},
+                     {"x_um", {0.0, kTrap[0][0], kTrap[3][0], kTrap[2][0], kTrap[1][0]}},
+                     {"y_um", {0.0, 0.0, kH, kH, 0.0}}, {"below", "pillar"}, {"above", "air"},
+                     {"factorization", "laurent"}};
+  const json r = report(base1D(json::array({cad1D(s, kLineBody)})));
+  ASSERT_EQ(r["bands"].size(), 1u);
+  EXPECT_EQ(r["bands"][0]["kind"], "sectioned1d");
+  const double mid = kTrap[1][0] - kTrap[0][0] - kH * std::tan(15 * pi / 180);  // width at half height
+  EXPECT_NEAR(r["bands"][0]["area_fractions"]["pillar"].get<double>(), mid / kD, 1e-12);
+  EXPECT_LT(maxDiff(solve(base1D(json::array({cad1D(s, kLineBody)}))), solve(base1D(json::array({prof})))), 1e-12);
+  EXPECT_LT(maxDiff(solve(base1D(json::array({cad1D(s, kLineBody)}), "rk")), solve(base1D(json::array({prof}), "rk"))),
+            1e-10);
+}
+
+TEST(CAD_V24, RoundedLineOfTheReport) {
+  const RoundedLine L;
+  const std::string s = step({profileBody({L.curves()}, 0.3)}, {"Line"});
+  const json cfg = base1D(json::array({cad1D(s, kLineBody)}), "rk");
+  const json r = report(cfg);
+  EXPECT_EQ(codes(r), std::vector<std::string>{});
+  ASSERT_EQ(r["bands"].size(), 3u);  // foot arcs, walls, head arcs
+  EXPECT_NEAR(r["bands"][0]["y1_um"].get<double>(), L.yWF(), 1e-12);
+  EXPECT_NEAR(r["bands"][1]["y1_um"].get<double>(), L.yWT(), 1e-12);
+  for (const auto& b : r["bands"]) EXPECT_EQ(b["kind"], "sectioned1d");
+  // the line sections: exact boundaries and radial normals on the arcs
+  const fg::Stack st = stackOf(cfg);
+  for (const auto& [y0, l] : sectioned1D(st, r["bands"][0]["y0_um"].get<double>())) {
+    const double t = l->provider->thickness_um();
+    for (double f : {0.01, 0.3, 0.5, 0.7, 0.99}) {
+      const double y = y0 + f * t;
+      const fg::LineSection sec = l->provider->section(f * t);
+      ASSERT_EQ(sec.materials, (std::vector<std::string>{"air", "pillar", "air"})) << y;
+      EXPECT_NEAR(sec.breaks[1], L.left(y), 1e-13) << y;
+      EXPECT_NEAR(sec.breaks[2], 2 * L.xc - L.left(y), 1e-13) << y;
+      if (y < L.yWF() || y > L.yWT()) {
+        const double cz = y < L.yWF() ? L.r : L.h - L.r, cx = y < L.yWF() ? L.cfx() : L.ctx();
+        const fg::Vec3D rad((sec.breaks[1] - cx) / L.r, (y - cz) / L.r, 0);
+        EXPECT_LT((sec.normals[1] * sec.normals[1].transpose() - rad * rad.transpose()).cwiseAbs().maxCoeff(), 1e-12);
+      }
+    }
+  }
+  // against profile1d with the analytic g(x) (Laurent, RK)
+  fg::Stack ref = st;
+  ref.layers.clear();
+  fg::Profile1DLayer p;
+  p.depth_um = L.h;
+  p.shape = fg::Profile1DLayer::Shape::Function;
+  p.g = [L](double x) { return L.g(x); };
+  p.below = "pillar";
+  p.above = "air";
+  ref.layers.push_back({p, fg::Factorization::Laurent});
+  const auto c = fg::io::parseConfig(cfg.dump());
+  const auto a = fg::makeSolver(c.solver)->solve(st, c.scan.front());
+  const auto b = fg::makeSolver(c.solver)->solve(ref, c.scan.front());
+  std::printf("V24c rounded line: |cad - profile1d| = %.3e\n", maxDiff(a, b));
+  EXPECT_LT(maxDiff(a, b), 1e-8);
+}
+
+TEST(CAD_V24, OverhangCapAndCavity) {
+  const auto lineLoops = std::vector<std::vector<nf::NurbsCurve>>{
+      polyCurves({{0.11, 0.0}, {0.19, 0.0}, {0.21, kH}, {0.09, kH}}),
+      polyCurves({{0.14, 0.03}, {0.16, 0.03}, {0.16, 0.06}, {0.14, 0.06}})};
+  const std::string s = step({profileBody(lineLoops, 0.3), line({{0.09, kH}, {0.21, kH}, {0.21, 0.13}, {0.09, 0.13}}, 0.3)},
+                             {"Line", "Cap"});
+  const json bodies = json::array({{{"name", "Line"}, {"material", "pillar"}}, {{"name", "Cap"}, {"material", "lid"}}});
+  json rc = base1D(json::array({cad1D(s, bodies, "auto")}), "rcwa", 8), rk = rc;
+  rc["rcwa"] = {{"slices", 100}};
+  rk["solver"] = "rk";
+  rk["rk"] = {{"tol", 1e-8}};
+  const json r = report(rc);
+  EXPECT_EQ(codes(r), std::vector<std::string>{});
+  std::vector<std::string> kinds;
+  for (const auto& b : r["bands"]) kinds.push_back(b["kind"]);
+  EXPECT_EQ(kinds, (std::vector<std::string>{"sectioned1d", "sectioned1d", "sectioned1d", "lamellar1d"}));
+  const auto a = solve(rc), b = solve(rk);
+  auto sum = [](const fg::Result& x) {
+    double v = 0;
+    for (const auto& o : x.reflected) v += o.efficiency;
+    for (const auto& o : x.transmitted) v += o.efficiency;
+    return v;
+  };
+  std::printf("V24d: |RCWA(100) - RK| = %.3e, energy RCWA %.3e RK %.3e\n", maxDiff(a, b), sum(a) - 1, sum(b) - 1);
+  EXPECT_NEAR(sum(a), 1.0, 1e-10);
+  EXPECT_NEAR(sum(b), 1.0, 1e-7);
+  EXPECT_LT(maxDiff(a, b), 2e-3);
+}
+
+TEST(CAD_V24, IndependentOfCutPlaneLengthAndOrigin) {
+  const fg::Result ref = solve(base1D(json::array({cad1D(step({line(kTrap, 0.3)}, {"Line"}), kLineBody)})));
+  for (double zc : {-0.01, -0.15, -0.29}) {
+    json l = cad1D(step({line(kTrap, 0.3)}, {"Line"}), kLineBody);
+    l["z_cut_um"] = zc;
+    const json cfg = base1D(json::array({l}));
+    EXPECT_NEAR(report(cfg)["z_cut_um"].get<double>(), zc, 1e-15);
+    EXPECT_LT(maxDiff(solve(cfg), ref), 1e-13) << zc;
+  }
+  for (double len : {0.1, 1000.0}) {
+    const json cfg = base1D(json::array({cad1D(step({line(kTrap, len)}, {"Line"}), kLineBody)}));
+    EXPECT_EQ(codes(report(cfg)), std::vector<std::string>{}) << len;  // no UNIT_SUSPECT for long lines
+    EXPECT_LT(maxDiff(solve(cfg), ref), 1e-13) << len;
+  }
+  // shifted over the cell boundary: only phases change
+  std::vector<std::array<double, 2>> shifted = kTrap;
+  for (auto& p : shifted) p[0] += 0.2;
+  EXPECT_LT(maxDiff(solve(base1D(json::array({cad1D(step({line(shifted, 0.3)}, {"Line"}), kLineBody)}))), ref), 1e-12);
+}
+
+TEST(CAD_V24, Periodicity) {
+  // residual layer and line as one body (spans the period: seam, no interface) = two touching bodies
+  const double t = 0.02, w = kH * std::tan(15 * pi / 180);
+  const std::string one = step({line({{0.0, 0.0}, {kD, 0.0}, {kD, t}, {0.2134, t}, {0.2134 - w, t + kH},
+                                      {0.0866 + w, t + kH}, {0.0866, t}, {0.0, t}},
+                                     0.3)},
+                               {"Line"});
+  std::vector<std::array<double, 2>> up = kTrap;
+  for (auto& p : up) p[1] += t;
+  const std::string two = step({line({{0.0, 0.0}, {kD, 0.0}, {kD, t}, {0.0, t}}, 0.3), line(up, 0.3)}, {"Slab", "Line"});
+  const json both = json::array({{{"name", "Slab"}, {"material", "pillar"}}, {{"name", "Line"}, {"material", "pillar"}}});
+  const json r1 = report(base1D(json::array({cad1D(one, kLineBody)})));
+  EXPECT_EQ(codes(r1), std::vector<std::string>{});
+  ASSERT_EQ(r1["bands"].size(), 2u);
+  EXPECT_EQ(r1["bands"][0]["kind"], "homogeneous");
+  EXPECT_EQ(r1["bands"][0]["material"], "pillar");
+  EXPECT_LT(maxDiff(solve(base1D(json::array({cad1D(one, kLineBody)}))), solve(base1D(json::array({cad1D(two, both)})))),
+            1e-12);
+  // wider than the period: PERIODIC_OVERLAP; periodic_union gives the homogeneous layer
+  json wide = cad1D(step({line({{0.0, 0.0}, {0.35, 0.0}, {0.35, 0.05}, {0.0, 0.05}}, 0.3)}, {"Line"}), kLineBody);
+  EXPECT_EQ(codes(report(base1D(json::array({wide})))), std::vector<std::string>{"PERIODIC_OVERLAP"});
+  wide["periodic_union"] = true;
+  const json hom = {{"type", "homogeneous"}, {"thickness_um", 0.05}, {"material", "pillar"}};
+  EXPECT_LT(maxDiff(solve(base1D(json::array({wide}))), solve(base1D(json::array({hom})))), 1e-13);
+}
+
+TEST(CAD_V24, Findings) {
+  using V = std::vector<std::string>;
+  // not z-invariant: a pillar
+  EXPECT_EQ(codes(report(base1D(json::array({cad1D(step({cylinder(0.15, 0.25, 0.05, 0, 0.1)}, {"Line"}), kLineBody)})))),
+            V{"NOT_Z_INVARIANT"});
+  // cutting plane outside the line
+  json l = cad1D(step({line(kTrap, 0.3)}, {"Line"}), kLineBody);
+  l["z_cut_um"] = 0.1;
+  EXPECT_EQ(codes(report(base1D(json::array({l})))), V{"OUT_OF_RANGE"});
+  // overlapping bodies, resolved by priority
+  const std::string two = step({line({{0.05, 0.0}, {0.15, 0.0}, {0.15, kH}, {0.05, kH}}, 0.3),
+                                line({{0.10, 0.0}, {0.20, 0.0}, {0.20, kH}, {0.10, kH}}, 0.3)},
+                               {"P", "Q"});
+  const json pq = json::array({{{"name", "P"}, {"material", "pillar"}}, {{"name", "Q"}, {"material", "lid"}}});
+  EXPECT_EQ(codes(report(base1D(json::array({cad1D(two, pq)})))), V{"BODY_OVERLAP"});
+  json pr = cad1D(two, pq);
+  pr["overlap"] = "priority";
+  const json rp = report(base1D(json::array({pr})));
+  EXPECT_EQ(codes(rp), V{});
+  EXPECT_EQ(codes(rp, "warnings"), V{"BODY_OVERLAP"});
+  const json lam = {{"type", "lamellar1d"}, {"thickness_um", kH}, {"breakpoints_um", {0.0, 0.05, 0.15, 0.2, kD}},
+                    {"materials", {"air", "pillar", "lid", "air"}}, {"factorization", "laurent"}};
+  EXPECT_LT(maxDiff(solve(base1D(json::array({pr}))), solve(base1D(json::array({lam})))), 1e-12);
+  // keys of the other dimension
+  json z = cad1D(step({line(kTrap, 0.3)}, {"Line"}), kLineBody);
+  z["cell_origin_um"] = {0.0, 0.0};
+  EXPECT_THROW((void)report(base1D(json::array({z}))), fg::Error);
+}
+
+TEST(CAD_V24, Gradients) {
+  // material (adjointSlice) and shape (wall angle via StackParameter) against central differences
+  auto trap = [](double top) {  // top width
+    const double c = 0.15;
+    return std::vector<std::array<double, 2>>{{0.0866, 0.0}, {0.2134, 0.0}, {c + 0.5 * top, kH}, {c - 0.5 * top, kH}};
+  };
+  fg::Objective obj;
+  obj.weights = {{fg::OrderRef{'R', 0, 0}, 1.0}, {fg::OrderRef{'T', -1, 0}, 0.7}};
+  auto L = [&](const json& cfg) {
+    const auto r = solve(cfg);
+    double v = 0;
+    for (const auto& e : r.reflected) v += e.n == 0 ? e.efficiency : 0.0;
+    for (const auto& e : r.transmitted) v += e.n == -1 ? 0.7 * e.efficiency : 0.0;
+    return v;
+  };
+  for (const std::string solver : {"rcwa", "rk"}) {
+    auto cfgFor = [&](double top, double n) {
+      json c = base1D(json::array({cad1D(step({line(trap(top), 0.3)}, {"Line"}), kLineBody, "auto")}), solver, 5);
+      c["materials"]["pillar"] = {{"n", n}};
+      return c;
+    };
+    const double top = 0.0732, n = 2.0;
+    const auto c = fg::io::parseConfig(cfgFor(top, n).dump());
+    const auto g = fg::gradient(c.solver, c.stack, c.scan.front(), obj,
+                                {fg::StackParameter{"top", [&](double d) { return stackOf(cfgFor(top + d, n)); }}});
+    const double h = 1e-5, fd = (L(cfgFor(top + h, n)) - L(cfgFor(top - h, n))) / (2 * h);
+    std::printf("V24h %s top width: adjoint %.10e fd %.10e\n", solver.c_str(), g.grad[0], fd);
+    EXPECT_NEAR(g.grad[0], fd, 1e-5 * std::max(1.0, std::abs(fd)));
+    const auto gm = fg::gradient(cfgFor(top, n).dump(), obj, {"/materials/pillar/n"});
+    const double hn = 1e-6, fdn = (L(cfgFor(top, n + hn)) - L(cfgFor(top, n - hn))) / (2 * hn);
+    std::printf("V24h %s material: adjoint %.10e fd %.10e\n", solver.c_str(), gm.grad[0], fdn);
+    EXPECT_NEAR(gm.grad[0], fdn, 1e-6 * std::max(1.0, std::abs(fdn)));
   }
 }

@@ -23,7 +23,13 @@ std::string Report::json() const {
   j["ok"] = ok;
   j["errors"] = findings(errors);
   j["warnings"] = findings(warnings);
-  j["cell_origin_um"] = {cellOrigin_um[0], cellOrigin_um[1]};
+  if (oneD) {
+    j["dimension"] = "1D";
+    j["cell_origin_um"] = {cellOrigin_um[0]};
+    if (std::isfinite(zCut_um)) j["z_cut_um"] = zCut_um;
+  } else {
+    j["cell_origin_um"] = {cellOrigin_um[0], cellOrigin_um[1]};
+  }
   j["bands"] = nlohmann::json::array();
   for (const auto& b : bands) {
     nlohmann::json bj{{"y0_um", b.y0_um}, {"y1_um", b.y1_um}, {"kind", b.kind}};
@@ -49,9 +55,11 @@ std::string llmToolSpec() {
        "(SHELL_OPEN, "
        "SHELL_ORIENTATION, BODY_OVERLAP, PERIODIC_OVERLAP, OUT_OF_RANGE, UNIT_SUSPECT, "
        "FEATURE_SMALL, "
-       "BODY_UNASSIGNED, STEP_UNSUPPORTED), positions in micrometres (FG axes: y = stacking "
-       "direction = CAD "
-       "+Z, x = CAD +X, z = -CAD Y by default) and the band decomposition. Fix every error and "
+       "BODY_UNASSIGNED, STEP_UNSUPPORTED, NOT_Z_INVARIANT), positions in micrometres (FG axes: y = "
+       "stacking direction = CAD "
+       "+Z, x = CAD +X, z = -CAD Y by default) and the band decomposition. 1D gratings (\"dimension\": "
+       "\"1D\"): every body must be extruded along FG z (a line of a line grating); it is cut once at "
+       "z_cut_um. Fix every error and "
        "check again."},
       {"parameters",
        {{"type", "object"},
