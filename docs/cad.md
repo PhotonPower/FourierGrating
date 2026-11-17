@@ -67,6 +67,11 @@ nf.write_step("pillars.step", [pillar, lid], unit="um", names=["Pillar", "Lid"])
 | `slicing.y_interpolation` | `chebyshev`: Q(y) je Band aus `chebyshev_nodes` Tschebyschow-Knoten (verdoppelt bis K = 2K auf 1e-10, höchstens 256; sonst exakte Schnitte mit Warnung) |
 | `factorization`, `normal_field` | wie bei `contour2d` (Standard FFF_sym / FFF_B) |
 
+Nur für 2D-Gitter (`period_um.z > 0`); in einem 1D-Stapel wird die `cad`-Schicht abgelehnt. Eine z-invariante
+Linie, die über genau eine z-Periode extrudiert ist, berührt ihr periodisches Bild (`PERIODIC_OVERLAP`, auch mit
+`periodic_union`): Solche Gitter beschreibt man als 1D-Gitter (`lamellar1d`, `profile1d`). Hüllquader (Standard für
+`y_range_um` und `cell_origin_um`) sind die der getrimmten Körper, nicht die der Trägerflächen.
+
 Der `cad`-Eintrag wird beim Laden in seine Bänder expandiert (von unten nach oben); Bandgrenzen sind
 Schichtgrenzen. Es wird nie auf einer kritischen Höhe geschnitten.
 
@@ -89,7 +94,7 @@ Schichtgrenzen. Es wird nie auf einer kritischen Höhe geschnitten.
 | `SHELL_OPEN` | Körper nicht geschlossen (freie Kanten), mit Position |
 | `SHELL_ORIENTATION` | nicht konsistent orientiert oder negatives Volumen (korrigiert, Warnung) |
 | `BODY_OVERLAP` | zwei Körper überlappen (Schnittprüfung an drei Höhen je Band) |
-| `PERIODIC_OVERLAP` | ein Körper überlappt sein periodisches Bild (bzw. das eines anderen) |
+| `PERIODIC_OVERLAP` | ein Körper überlappt sein periodisches Bild (bzw. das eines anderen) oder berührt sein eigenes entlang eines Randstücks (Körper umspannt die Periode) |
 | `OUT_OF_RANGE` | Geometrie außerhalb des y-Bereichs |
 | `UNIT_SUSPECT` | Abmessungen passen nicht zu Periode / Wellenlänge (Faktor 10³ daneben) |
 | `FEATURE_SMALL` | Merkmal kleiner als zwei Rasterabstände des Normalenfeldes bzw. dünnes Band (Warnung) |
