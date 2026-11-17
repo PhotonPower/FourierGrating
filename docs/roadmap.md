@@ -233,3 +233,13 @@ Abschnitt „Dispersive Materialien (M22)“.
   - Drude–Lorentz-Werte (Ag, Al nach Rakić) und Literaturangaben [D1]–[D4] geprüft (Plan v2.20): `fg.material_eps`
     gibt die Rakić-Tabellen von refractiveindex.info auf die 5 Stellen der Tabelle wieder
 
+## CAD-Import für 1D-Gitter (Plan v2.22, Teil 9: M23)
+
+Setzt M14, M17 und M19 voraus. Spezifikation: Plan Abschnitt „Erweiterung ab Version 2.22: CAD-Import für 1D-Gitter
+(M23)“. Anlass: Meldung zum z-invarianten Liniengitter aus Nurbforge (v2.21).
+
+- [ ] **M23** CAD-Import für 1D-Gitter: Prüfung der z-Invarianz (`NOT_Z_INVARIANT`), ein Profilschnitt bei `z_cut_um`,
+  Linienschnitt → Intervalle mit Normalen (Paritätsregel, Naht verschmolzen, Überlappungen als Intervall-Operationen),
+  Normalenfeld mit linear interpoliertem Winkel (Plan eq:cad1d_N), `Sectioned1DLayer` (RK, RCWA, Tschebyschow, ASR,
+  Nahfeld, Gradienten), Bänder `homogeneous`/`lamellar1d`/`sectioned1d`, Bericht und Vorschau in 1D
+  - Abnahme: V24a–i (Plan)

@@ -1,0 +1,225 @@
+%=====================================================================
+\clearpage
+\section{Erweiterung ab Version 2.22: CAD-Import für 1D-Gitter (M23)}\label{sec:cad1d}
+%=====================================================================
+Der CAD-Slicer (M14, Abschnitt~\ref{sec:cad}) schneidet Körper in der $(x,z)$-Zelle und ist deshalb auf 2D-Gitter
+beschränkt (v2.21). Liniengitter sind aber der häufigste Fall: ein in $z$ extrudiertes Profil, z.\,B. ein Trapez mit
+exakten Kreisbögen an Kopf und Fuß aus \verb|nurbforge.fillet_corners|. Als 2D-Gitter lässt sich so ein Körper nicht
+darstellen: Über eine $z$-Periode extrudiert, berührt er sein Bild, und der Schnitt ist ein Streifen um die Zelle,
+keine geschlossene Kontur (\verb|PERIODIC_OVERLAP|, v2.21). \verb|profile1d| deckt nur eine einzige Grenzfläche
+$y=g(x)$ ab, ohne Überhänge und ohne mehrere Materialien. M23 ergänzt den Slicer um einen 1D-Pfad: $z$-invariante
+Körper werden \emph{einmal} in einer Ebene $z=z_c$ geschnitten. Das liefert das Profil in der $(x,y)$-Ebene. Daraus
+entstehen dieselben Bänder wie in M14, aber mit 1D-Schichten.
+
+\subsection{Annahmen und Festlegungen}
+\begin{enumerate}[nosep]
+  \item Gleiche \verb|cad|-Schicht, gleiche Schlüssel und gleiche Prüfcodes wie M14. Der 1D-Pfad wird allein durch
+        \verb|"dimension": "1D"| gewählt. Der 2D-Pfad bleibt unverändert und bitgleich (alle M14-Tests, Golden Files).
+  \item Jeder Körper muss $z$-invariant sein, sonst Befund \verb|NOT_Z_INVARIANT| (neu). Die Extrusionslänge in $z$ ist
+        beliebig und geht in keine Prüfung ein, auch nicht in \verb|UNIT_SUSPECT|.
+  \item Nurbforge wird nur zum Lesen, für die Prüfungen, die kritischen Höhen und den \emph{einen} Schnitt bei $z_c$
+        gebraucht. Alles danach (Linienschnitt, Intervalle, Normalen, $Q(y)$) ist FG-Geometrie auf
+        \verb|geometry::BezierSegment| und hängt nicht von Nurbforge ab. So lässt es sich ohne
+        \verb|FG_ENABLE_NURBFORGE| testen. Nach dem Stand von v0.6.0 ist keine Vorleistung in Nurbforge nötig
+        (\verb|section| mit beliebiger Ebene, \verb|critical_heights|, \verb|is_extrusion_band| mit Richtung $z$).
+  \item Neuer interner Schichttyp \verb|Sectioned1DLayer|, wie \verb|SectionedLayer| nicht in JSON verfügbar. Ein
+        eigener JSON-Typ für Profile aus Bézierkurven wäre möglich, ist aber nicht Teil von M23 (keine Funktionen
+        auf Vorrat).
+  \item Normalenfeld ohne Vorzeichen (Projektorform): erlaubt sind dieselben Faktorisierungen wie bei
+        \verb|Contour2D|. Standard ist \verb|FFF_sym| (isotrop) bzw.\ \verb|FFF_B| (anisotrop).
+\end{enumerate}
+
+\subsection{Meilenstein und Abhängigkeiten}
+\begin{center}
+\small
+\begin{tabular}{p{1.0cm}p{6.6cm}p{3.0cm}p{3.8cm}}
+\toprule
+M & Inhalt & setzt voraus & prüfbar in der Sandbox \\
+\midrule
+M23 & CAD-Import für 1D-Gitter: $z$-Invarianzprüfung, Profilschnitt bei $z_c$, Linienschnitt $\to$ Intervalle mit
+      Normalen, \verb|Sectioned1DLayer| (RK, RCWA, Tschebyschow, ASR, Nahfeld, Gradienten), Bericht und Vorschau
+      & M14, M17, M19 & ja (Nurbforge per \verb|FetchContent|) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Datenfluss}
+{\footnotesize\begin{verbatim}
+STEP --read_step_named--> Körper --Einheit/Achsen--> FG-Koordinaten (µm)            (wie M14)
+  --is_extrusion_band(z)--> NOT_Z_INVARIANT?                                           (neu)
+  --section(z = z_c)--> Profilschleifen je Körper in (x, y), Bézierstücke              (neu, einmal)
+  --critical_heights(y)--> Bänder [y_k, y_k+1]                                         (wie M14)
+  --je Band: homogen | lamellar1d (Extrusion in y, ein Linienschnitt) | Sectioned1DLayer
+  --Linienschnitt y = const--> Intervalle (Material) + Normalen an den Bruchstellen    (neu, FG)
+\end{verbatim}}
+
+\subsection{$z$-Invarianz und Schnittebene}
+\begin{itemize}[nosep]
+  \item Prüfung je Körper mit dem getrimmten Hüllquader $[z_0,z_1]$ (v2.21):
+        \verb|nf::is_extrusion_band(shell, {0,0,1}, z0, z1)| muss wahr sein. Die Deckel liegen auf den Bandgrenzen und
+        zählen deshalb nicht. Ist die Prüfung falsch, gibt es den Befund \verb|NOT_Z_INVARIANT| mit der Körpermitte als Ort.
+  \item Schnittebene: \verb|"z_cut_um"| in FG-Koordinaten. Standard ist die Mitte des gemeinsamen $z$-Bereichs aller
+        Körper. Ist dieser Bereich leer oder liegt $z_c$ nicht im Inneren jedes Körpers, folgt \verb|OUT_OF_RANGE|.
+        Wegen der $z$-Invarianz hängt das Ergebnis nicht von $z_c$ ab (Test V24e).
+  \item Schnitt: \verb|nf::section(shell, {{0,0,z_c},{0,0,1}})|, \verb|s_axis| $=\hat{\mathbf x}$. Die Kurven werden wie in
+        M14 in Bézierstücke zerlegt, aber auf $(x,y)$ abgebildet. Die Orientierung der Schleifen wird nicht
+        verwendet, das Innere folgt aus der Paritätsregel (Abschnitt~\ref{sec:cad1d_line}). Löcher (Hohlräume) brauchen
+        deshalb keine eigene Behandlung.
+  \item \verb|cell_origin_um| ist in 1D eine Zahl $x_0$ oder \verb|[x0]|. Ein zweiter Eintrag ist ein Fehler. Standard
+        ist das Minimum der getrimmten Hüllquader in $x$.
+\end{itemize}
+
+\subsection{Linienschnitt: Intervalle, Materialien, Periodizität}\label{sec:cad1d_line}
+Für eine Höhe $y$ im Inneren eines Bandes werden je Körper $b$ die Schnittpunkte der Geraden $y=\text{const}$ mit allen
+Bézierstücken seines Profils bestimmt. Methode: Bernstein-Unterteilung, bis die konvexe Hülle die Gerade nur noch
+einmal kreuzt, dann Newton auf $y(t)-y$ für rationale Stücke; Toleranz $10^{-14}$ der Zellgröße. An jedem
+Schnittpunkt $x$ wird die Profilnormale
+\begin{equation}
+  \mathbf n=\frac{(\dot y(t),\,-\dot x(t),\,0)}{\sqrt{\dot x^2+\dot y^2}}\label{eq:cad1d_n}
+\end{equation}
+festgehalten (Vorzeichen egal). Bei $z$-invarianten Körpern ist sie die 3D-Flächennormale. Da im Inneren eines Bandes
+nie auf einer kritischen Höhe geschnitten wird, gibt es keine tangentialen Schnitte. Die Zahl der Schnittpunkte ist
+daher konstant und gerade.
+\begin{enumerate}[nosep]
+  \item Inneres je Körper nach der Paritätsregel: Schnittpunkte nach $x$ sortieren (ohne Rückfaltung). Innen liegt
+        $[x_1,x_2]$, $[x_3,x_4]$, \dots
+  \item Rückfaltung in die Zelle $[x_0,x_0+d_x)$, danach relativ zu $x_0$. Überlappen sich zwei Intervalle
+        \emph{desselben} Körpers nach der Rückfaltung um mehr als die Toleranz, ist das \verb|PERIODIC_OVERLAP|. Mit
+        \verb|"periodic_union": true| werden sie vereinigt (in 1D eine Intervall-Vereinigung, keine Boolesche Operation in 3D).
+  \item Berühren sich Intervalle desselben Körpers nur (gemeinsamer Endpunkt innerhalb der Toleranz, z.\,B. eine Schicht
+        über die ganze Periode oder ein Körper, der über den Zellrand ragt), werden sie ohne Befund verschmolzen. Die
+        Naht ist keine Materialgrenze, ihre Normale entfällt. Das ist der wesentliche Unterschied zu 2D (v2.21).
+  \item Überlappen sich Intervalle \emph{verschiedener} Körper: \verb|BODY_OVERLAP|. Bei \verb|"overlap": "priority"|
+        wird die Intervall-Differenz $B_i\leftarrow B_i\setminus\bigcup_{j<i}B_j$ je Schnitt gebildet; eine Boolesche
+        Operation in 3D entfällt. Berühren sie sich nur, bleibt die Bruchstelle (echte Materialgrenze).
+  \item Ergebnis: Bruchstellen $0=\xi_0<\xi_1<\dots<\xi_K=d_x$ und Materialien je Intervall. Der Hintergrund füllt die
+        Lücken, Intervalle der Länge $<$ Toleranz entfallen. Liegen zwei benachbarte Intervalle im selben Material,
+        entfällt die Bruchstelle. Jede verbleibende Bruchstelle $\xi_k$, $0<k<K$ (und eine Bruchstelle bei $0\equiv d_x$,
+        wenn dort das Material wechselt) trägt ihre Normale $\mathbf n_k$ aus \eqref{eq:cad1d_n}.
+\end{enumerate}
+Die Überlappungsprüfung des Slicers verwendet genau diese Funktion an drei Höhen je Band ($0{,}2$, $0{,}5$, $0{,}8$), wie in
+M14. Prüfung und Löser können damit nicht mehr auseinanderlaufen.
+
+\subsection{Normalenfeld im Linienschnitt}\label{sec:cad1d_nf}
+Seien $\xi_1<\dots<\xi_M$ die Materialgrenzen eines Schnitts (zyklisch, $\xi_{M+1}=\xi_1+d_x$) mit Winkeln
+$\theta_k=\operatorname{atan2}(n_{k,y},n_{k,x})\bmod\pi$. Auf $[\xi_k,\xi_{k+1}]$ gilt
+\begin{equation}
+  \theta(x)=\theta_k+\frac{x-\xi_k}{\xi_{k+1}-\xi_k}\,\delta_k,\qquad
+  \delta_k=\theta_{k+1}-\theta_k\ \text{reduziert auf}\ (-\tfrac\pi2,\tfrac\pi2],\qquad
+  \mathbf N(x)=(\cos\theta,\,\sin\theta,\,0).\label{eq:cad1d_N}
+\end{equation}
+$\mathbf N\mathbf N^{\mathsf T}$ ist stetig und an jeder Grenze exakt die Grenzflächennormale. Das ist die Bedingung der
+FFF (Abschnitt~\ref{sec:fff}). Wegen $\cos^2\theta=\tfrac12(1+\cos2\theta)$ und $\cos\theta\sin\theta=\tfrac12\sin2\theta$
+mit linearem $\theta$ haben die Koeffizienten von $N_iN_j$ geschlossene Form: Je Intervall ist es das Integral von
+$e^{\pm2i\theta(x)}e^{-iK_px}$, also eine Exponentialfunktion mit linearer Phase. Umsetzung über
+\verb|fourier::piecewiseSmoothCoefficients| mit Gauß-Legendre (Test gegen die geschlossene Form auf $10^{-14}$).
+Sonderfälle: $M=0$ (homogener Schnitt) braucht kein Feld. Sind alle $\theta_k=0$ (senkrechte Wände), ist
+$\mathbf N=\hat{\mathbf x}$, und \verb|FFF_sym| fällt mit der Li-Regel für Lamellen zusammen (Test V24a).
+
+Für ein einwertiges Profil $y=g(x)$ liefert \verb|profile1d| ein anderes Feld \eqref{eq:N1d}: $\mathbf N=\hat{\mathbf y}$
+auf Kopf und Grund statt interpoliert zwischen den Wänden. Beide Felder sind an den Grenzen gleich. Die Koeffizienten
+von $\varepsilon$ und $1/\varepsilon$ stimmen exakt überein, $Q$ nur bei Laurent (V24b). Die Effizienzen
+konvergieren gegen denselben Grenzwert.
+
+\subsection{Schichttyp \texttt{Sectioned1DLayer}}
+{\footnotesize\begin{verbatim}
+struct LineSection { std::vector<double> breaks;            // 0 = xi_0 < ... < xi_K = dx
+                     std::vector<std::string> materials;    // K Einträge
+                     std::vector<Vec3D> normals; };         // je Materialgrenze (Projektorform)
+class LineSectionProvider {                                 // M23: Profil aus CAD; Tests: analytisch
+ public: virtual LineSection section(double y_um) const = 0; // y relativ zur Schichtunterkante
+         virtual double thickness_um() const = 0; };
+struct Sectioned1DLayer { std::shared_ptr<const LineSectionProvider> provider;
+                          std::string background; int slices = 0; int chebyshevNodes = 0; };
+\end{verbatim}}
+\begin{itemize}[nosep]
+  \item Modell \verb|detail::Sectioned1DModel|: Es verlangt einen 1D-Stapel (ein 2D-Stapel ist ein Fehler, wie
+        umgekehrt bei \verb|SectionedLayer|). $Q(y)$ wird aus \verb|isoGrids| bzw.\ \verb|anisotropicQ| über den
+        Intervallen und dem Feld \eqref{eq:cad1d_N} gebildet, genau wie bei \verb|ProfileModel|, nur mit Bruchstellen und
+        Normalen vom Provider. Cache je $y$ (bitgenau) und thread-sicher wie bei \verb|SectionedModel|.
+  \item Tschebyschow-Interpolation in $y$ wie in M14. Der Interpolant (Knoten, Gewichte, Fehlerkontrolle $K$ gegen $2K$)
+        wird aus \verb|SectionedModel| in eine gemeinsame Hilfsklasse ausgelagert, nicht kopiert.
+  \item RCWA: Scheibenmitten, die Treppe besteht aus Lamellen. RK: Stufenknoten. Der Kontaminationsschutz
+        \eqref{eq:slicecrit} gilt unverändert.
+  \item M17 (ASR in $x$): Bruchstellen über \verb|mapIntervals| abbilden, die Normale an der physikalischen Stelle
+        $x=f(X)$ auswerten, wie bei \verb|ProfileModel|.
+  \item Nahfeld: \verb|epsAt| aus dem Schnitt bei $y$, \verb|normalAt|/\verb|NN| aus \eqref{eq:cad1d_N}.
+  \item M19: \verb|adjointSlice| wie bei \verb|ProfileModel| (Intervalle, Indikatoren, Normalenfeld, anisotrop über
+        \verb|anisoAdjointSlice|), nicht bei Tschebyschow-Interpolation. Formparameter laufen über
+        \verb|StackParameter| (Neuaufbau aus der STEP-Datei), wie im Test \verb|CAD_M19|.
+\end{itemize}
+
+\subsection{Bandklassifikation in 1D}
+Die Bänder entstehen wie in M14 aus \verb|nf::critical_heights| in $y$. Die Klassifikation stützt sich auf den
+Linienschnitt in Bandmitte:
+\begin{itemize}[nosep]
+  \item ein Material über die ganze Periode $\to$ \verb|homogeneous|;
+  \item alle Körper im Band erfüllen \verb|is_extrusion_band| in $y$ $\to$ \verb|lamellar1d| aus diesem Schnitt (exakt);
+  \item sonst \verb|Sectioned1DLayer| mit einem \verb|ProfileLineProvider| (Profilschleifen des Bandes,
+        Hintergrund, Toleranz).
+\end{itemize}
+\verb|FEATURE_SMALL| warnt in 1D, wenn ein Intervall in Bandmitte schmaler als $d_x/(2N_x+1)$ ist. Im Bericht heißen die
+Bandarten \verb|homogeneous|, \verb|lamellar1d| und \verb|sectioned1d|. Die Flächenanteile werden zu Längenanteilen
+(bezogen auf $d_x$).
+
+\subsection{Konfiguration, Bericht, Vorschau}
+{\footnotesize\begin{verbatim}
+{"dimension": "1D", "period_um": {"x": 0.3}, "truncation": {"Nx": 30},
+ "layers": [{"type": "cad", "file": "line_grating.step", "unit": "um", "axes": {"y": "+Z", "x": "+X"},
+             "z_cut_um": 0.15, "cell_origin_um": 0.0, "background": "superstrate",
+             "bodies": [{"name": "Line", "material": "si"}],
+             "slicing": {"rcwa_slices": 40, "y_interpolation": "chebyshev"}}]}
+\end{verbatim}}
+\begin{itemize}[nosep]
+  \item \verb|fg.cad.check| / \verb|--cad-report|: zusätzlich \verb|"z_cut_um"| und \verb|"dimension": "1D"| im Bericht.
+  \item \verb|fg.cad.preview| in 1D: SVG des Profils in der $(x,y)$-Ebene über $[0,d_x]$ mit den Bildern bei $\pm d_x$,
+        Bandgrenzen als waagrechte Linien. Das Argument \verb|y_um| entfällt.
+  \item \verb|llm_tool_spec()| nennt den 1D-Fall und \verb|NOT_Z_INVARIANT|.
+\end{itemize}
+
+\subsection{Tests und Abnahme (M23)}
+Der Provider-Teil wird ohne Nurbforge geprüft (\verb|tests/unit/test_line_section.cpp|, analytische Provider). Der
+CAD-Teil steht in \verb|tests/cad/test_cad.cpp| (Label \verb|validation|), STEP-Dateien werden zur Laufzeit geschrieben.
+\begin{itemize}[nosep]
+  \item \textbf{V24a} Rechtecklinie (senkrechte Wände): ein Band \verb|lamellar1d|. $Q$ gleich \verb|lamellar1d|
+        ($10^{-13}$), Effizienzen RK und RCWA gleich ($10^{-12}$); \verb|FFF_sym| des Providers ist gleich Li ($10^{-13}$).
+  \item \textbf{V24b} Trapez (Wandwinkel $15^\circ$): ein Band \verb|sectioned1d|. Mit Laurent stimmen $Q(y)$ an fünf
+        Höhen mit \verb|profile1d| \verb|points| überein ($10^{-13}$), ebenso die RK-Effizienzen ($10^{-10}$). Mit
+        \verb|FFF_sym| konvergieren beide gegen denselben Grenzwert (Differenz fällt mit $N_x$).
+  \item \textbf{V24c} Gerundetes Trapez wie in der Meldung zu v2.21 ($CD=100$\,nm auf halber Höhe, $h=100$\,nm,
+        Eckwinkel $105^\circ$, Radius 10\,nm, Kopf konvex, Fuß konkav, exakte Kreisbögen): gegen \verb|profile1d|
+        \verb|Function| mit analytischem $g(x)$ (Laurent, RK $10^{-10}$): $10^{-8}$. Mittlerer Querschnitt
+        $\frac1h\int\!\text{Länge}(y)\,dy=CD$ auf $10^{-12}$. Normalen \eqref{eq:cad1d_n} auf den Bögen gegen den
+        Radiusvektor ($10^{-12}$).
+  \item \textbf{V24d} Nicht als \verb|profile1d| darstellbar: hinterschnittenes Trapez mit Deckel aus zweitem Material
+        und einem Hohlraum. RK $\approx$ RCWA (Treppe konvergiert), $R+T=1$ ($10^{-10}$, verlustfrei), Reziprozität
+        ($10^{-10}$).
+  \item \textbf{V24e} Unabhängigkeit: drei Werte von $z_c$ und Extrusionslängen $10^{-1}$ bis $10^{3}$\,\textmu m liefern
+        bitgleiche Schichten. Die Verschiebung von \verb|cell_origin_um| ändert nur die Phasen, die Effizienzen auf $10^{-12}$.
+  \item \textbf{V24f} Periodizität: Ein Körper „Restschicht + Linie“ ergibt ein homogenes Band unter einem
+        \verb|sectioned1d|-Band, gleich zwei getrennten Körpern ($10^{-12}$). Eine Linie über den Zellrand ist gleich der
+        verschobenen. Selbstüberlappung gibt \verb|PERIODIC_OVERLAP|, mit \verb|periodic_union| ist das Ergebnis gleich
+        dem vereinigten Profil.
+  \item \textbf{V24g} Befunde: Zylinder mit Achse $y$ $\to$ \verb|NOT_Z_INVARIANT|. Eine Linie von 1\,mm Länge erzeugt
+        kein \verb|UNIT_SUSPECT|. $z_c$ außerhalb $\to$ \verb|OUT_OF_RANGE|. Zwei überlappende Körper $\to$
+        \verb|BODY_OVERLAP|, mit \verb|priority| aufgelöst. Ein 2D-Stapel liefert unverändert alle M14-Ergebnisse
+        (Golden File \verb|cad_pillar_array| bitgleich).
+  \item \textbf{V24h} Gradienten: Wandwinkel und Bogenradius über \verb|StackParameter| (RCWA und RK) gegen zentrale
+        Differenzen ($10^{-5}$ relativ). Materialgradient über \verb|adjointSlice| gegen Differenzen ($10^{-6}$).
+  \item \textbf{V24i} Python: \verb|fg.cad.check| und \verb|fg.cad.preview| in 1D. Das Beispiel
+        \verb|examples/cad/line_grating_1d.json| (STEP aus \verb|scripts/make_cad_examples.py|) bekommt ein neues Golden
+        File; bestehende Golden Files ändern sich nicht.
+\end{itemize}
+Zusätzlich Unit-Tests: Linienschnitt rationaler Bézierstücke (Kreisbogen, Viertelkreis bis an die Tangente) gegen die
+geschlossene Form; Paritätsregel mit Loch; Verschmelzen an der Naht; Koeffizienten von \eqref{eq:cad1d_N} gegen die
+geschlossene Form.
+
+\subsection{Reihenfolge der Umsetzung}
+\begin{enumerate}[nosep]
+  \item \verb|LineSection|, Linienschnitt und Normalenfeld \eqref{eq:cad1d_N} in \verb|src/geometry/| mit Unit-Tests.
+  \item \verb|Sectioned1DLayer| und \verb|Sectioned1DModel| mit analytischem Provider. Tschebyschow-Hilfsklasse aus
+        \verb|SectionedModel| auslagern (Golden Files bitgleich).
+  \item Slicer: 1D-Zweig in \verb|loadModel|/\verb|checkOverlaps|/\verb|layersOf|, \verb|NOT_Z_INVARIANT|, Konfiguration.
+        Die Ablehnung von 1D-Stapeln (v2.21) entfällt.
+  \item Bericht, Vorschau, Python, Beispiel, Handbuch Kapitel~12, \verb|docs/cad.md|; V24a--i.
+\end{enumerate}
