@@ -174,4 +174,7 @@ FG_FGSOLVE=build/cpu-release/apps/fgsolve pytest tests/python   # zusätzlich Na
   `FG_ENABLE_CUDA=ON`, Architekturen `86;89`).
 * `pyproject.toml` (scikit-build-core): setzt `FG_BUILD_PYTHON=ON`, ohne Tests und Programme; nur die
   CMake-Komponente `python` landet im Wheel.
-* Wheels: `.github/workflows/wheels.yml` (cibuildwheel, `v*`-Tags).
+* Wheels: `.github/workflows/wheels.yml` (cibuildwheel). Ein Tag `v<Version>` (gleich `CMakeLists.txt`) baut Wheels,
+  sdist und das Handbuch und hängt sie an ein GitHub-Release; der Upload zu PyPI läuft von Hand („Run workflow“
+  auf dem Tag mit `pypi = true`, Trusted Publishing: `fouriergrating` mit der Umgebung `pypi`,
+  `fouriergrating-cuda12` mit `pypi-cuda12`).
