@@ -365,8 +365,12 @@ Tag \verb|v0.6.0| ein.
   \item Zelle: Ursprung \verb|cell_origin_um| $=(x_0,z_0)$ (Standard: Minimum der Hüllquader-Projektion) und Perioden aus
         \verb|period_um|. Geometrie darf über die Zelle ragen (periodische Bilder, M13). Überlappen sich Bilder in
         einem Schnitt (Kurvenschnitt der Schleife mit ihren um $\pm d_x,\pm d_z$ verschobenen Kopien), bricht der Slicer
-        mit einer Meldung ab; \verb|"periodic_union": true| vereinigt vorher in 3D mit den verschobenen Kopien
-        (\verb|nf::boolean|, Union). Berührt ein Körper sein eigenes Bild entlang eines Randstücks (z.\,B. eine über genau
+        mit einer Meldung ab. \verb|"periodic_union": true| sollte vorher in 3D mit den verschobenen Kopien vereinigen
+        (\verb|nf::boolean|, Union). Das ist ein Planfehler (v2.24): Überlappt $B$ sein Bild $B+t$, dann überlappt auch
+        $B\cup(B+t)$ sein Bild, die Vereinigung wächst um die Zelle und wird nie eine geschlossene Kontur. In 2D löst
+        \verb|periodic_union| deshalb nichts auf; der Slicer meldet \verb|PERIODIC_OVERLAP| mit diesem Hinweis (v2.21
+        bestand die Prüfung nach vier Vereinigungen, erst der Löser brach ab). Wirksam ist \verb|periodic_union| nur in
+        1D-Gittern (M23, Intervall-Vereinigung). Berührt ein Körper sein eigenes Bild entlang eines Randstücks (z.\,B. eine über genau
         $d_z$ extrudierte Linie), umläuft seine periodische Vereinigung die Zelle als Streifen, der keine geschlossene
         Kontur ist, und die gemeinsame Kante ist keine Materialgrenze: \verb|PERIODIC_OVERLAP| auch mit
         \verb|periodic_union| (v2.21; vorher bestand die Prüfung, und erst der Löser lehnte die Schicht ab).
@@ -454,8 +458,19 @@ Tag \verb|v0.6.0|). Gelesen wird direkt in µm (gleichwertig zu mm $\times1000$)
 deren Höhe nur von einem Parameter abhängt (Extrusionen, Rotationen um die Schnittnormale), sonst verfolgt auf
 $10^{-9}$ der Modellgröße. \verb|BODY_OVERLAP|/\verb|PERIODIC_OVERLAP| werden an Schnitten geprüft (drei Höhen je Band,
 Kreuzung oder Enthaltensein der Schleifen samt periodischer Bilder) statt über Boolesche Volumina (bei gleichem
-Ergebnis um Größenordnungen schneller); Boolesche Operationen nur für \verb|"overlap": "priority"| und
-\verb|periodic_union|. Der Schnitt-Provider hält $10^{-8}$ der Zellgröße Abstand von den Bandgrenzen (dort liegen Deckel;
+Ergebnis um Größenordnungen schneller); Boolesche Operationen nur für \verb|"overlap": "priority"|.
+
+\paragraph{Überlappungstest (v2.24).} Der Test „ein Randpunkt der einen Schleife liegt in der anderen“ ist für sich
+berührende Körper mehrdeutig, und echte Kreuzungen fehlen, wenn Ränder kollinear verlaufen (zwei Quader gleicher
+$z$-Ausdehnung): Solche Überlappungen blieben in Slicer \emph{und} Löser unbemerkt. Seit v2.24 gilt in beiden
+(\verb|checkOverlaps|, \verb|checkDisjoint|): Überlappung $\Leftrightarrow$ echte Kreuzung (jedes Ende weiter als die
+Rundungstoleranz von der anderen Kante, \verb|geometry::properCrossing|) oder ein Probepunkt $\varepsilon$ innerhalb
+der Mitte einer Randkante der einen Region liegt in der anderen (\verb|Region::interiorProbes|, $\varepsilon=10^{-3}$
+der kleineren Ausdehnung). Sich berührende Regionen sind erlaubt, außer eine Region berührt ihr eigenes Bild entlang
+eines Randstücks (\verb|geometry::sharedBoundary|). \verb|"priority"| prüft nach jeder Differenz neu, höchstens
+$n(n-1)/2+2$ Runden ($n$ Körper; vorher vier Runden ohne abschließende Prüfung). Liefert \verb|nf::boolean| eine
+offene Hülle oder eine Ausnahme (koplanare Flächen, Differenzen mit Ergebnissen früherer Differenzen in Nurbforge
+v0.6.0), meldet der Slicer \verb|BODY_OVERLAP| statt abzubrechen. Der Schnitt-Provider hält $10^{-8}$ der Zellgröße Abstand von den Bandgrenzen (dort liegen Deckel;
 betrifft nur Auswertungen an Intervallenden). Tschebyschow-Interpolation: Q-Blöcke an Knoten erster Art.
 
 \subsection{Tests und Abnahme (M14)}

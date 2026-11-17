@@ -80,7 +80,8 @@ sind verboten, weil sie chirale Strukturen verfälschen \\
 \key{bodies} & Zuordnung Körper $\to$ Material über den Namen (\key{name}) oder die Position (\key{index});
 nicht zugeordnete Körper sind ein Fehler \\
 \key{overlap} & \val{error} (Standard) oder \val{priority}: frühere Körper gewinnen \\
-\key{periodic\_union} & Körper vor dem Schneiden mit ihren überlappenden periodischen Bildern vereinigen \\
+\key{periodic\_union} & nur 1D-Gitter: Körper mit ihren überlappenden periodischen Bildern vereinigen (in 2D wirkungslos,
+die Vereinigung umliefe die Zelle) \\
 \key{slicing.critical\_tol\_um} & nähere kritische Höhen werden zusammengelegt \\
 \key{slicing.min\_band\_um} & dünnere Bänder werden dem Nachbarn zugeschlagen (Warnung \texttt{FEATURE\_SMALL}) \\
 \key{slicing.rcwa\_slices} & RCWA-Treppenstufen je $y$-variablem Band \\

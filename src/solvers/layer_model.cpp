@@ -589,19 +589,13 @@ class ContourGeometry final : public CrossSectionGeometry {
     return out;
   }
 
-  /// Regions must be pairwise disjoint (incl. periodic images): no boundary crossings, no
-  /// containment of one region's point in another (Plan M13 "Neuer Schichttyp Contour2D").
+  /// Regions must be pairwise disjoint (incl. periodic images): no proper boundary crossings, no probe of one
+  /// region inside another, no region touching its own image along its boundary (Plan M13 "Neuer Schichttyp
+  /// Contour2D"; v2.24: probes and rounding tolerance instead of an ambiguous boundary point).
   void checkDisjoint(const char* name) const {
     const double tol = 1e-6 * std::min(dx_, dz_);
     std::vector<std::vector<geometry::Point2>> poly;
     for (const auto& r : regions_) poly.push_back(r.outer.flatten(tol));
-    auto cross = [](const geometry::Point2& a, const geometry::Point2& b, const geometry::Point2& c,
-                    const geometry::Point2& d) {
-      auto o = [](const geometry::Point2& p, const geometry::Point2& q, const geometry::Point2& r) {
-        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
-      };
-      return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0;
-    };
     for (std::size_t a = 0; a < regions_.size(); ++a)
       for (std::size_t b = a; b < regions_.size(); ++b)
         for (int di = -1; di <= 1; ++di)
@@ -617,13 +611,23 @@ class ContourGeometry final : public CrossSectionGeometry {
               qb[2] = std::max(qb[2], q[0]); qb[3] = std::max(qb[3], q[1]);
             }
             if (qb[0] > ba[2] || qb[2] < ba[0] || qb[1] > ba[3] || qb[3] < ba[1]) continue;
-            FG_REQUIRE(!regions_[a].contains(Q[0][0], Q[0][1]) &&
-                           !regions_[b].contains(P[0][0] - di * dx_, P[0][1] - dj * dz_),
-                       std::string(name) + ": regions overlap (or a region overlaps its periodic image)");
+            // a region touching its own image along a boundary piece spans the period (v2.21, v2.24)
+            FG_REQUIRE(a != b || !geometry::sharedBoundary(P, Q, 10 * tol),
+                       std::string(name) + ": a region touches its periodic image along its boundary (it spans the "
+                                           "period; z-invariant lines are 1D gratings)");
             for (std::size_t i = 0; i < P.size(); ++i)
               for (std::size_t j = 0; j < Q.size(); ++j)
-                FG_REQUIRE(!cross(P[i], P[(i + 1) % P.size()], Q[j], Q[(j + 1) % Q.size()]),
+                FG_REQUIRE(!geometry::properCrossing(P[i], P[(i + 1) % P.size()], Q[j], Q[(j + 1) % Q.size()], tol),
                            std::string(name) + ": region boundaries intersect");
+            // collinear boundaries (no proper crossing, boundary points ambiguous): probes just inside (v2.24)
+            const auto bb = regions_[b].bounds();
+            const double eps = 1e-3 * std::min({ba[2] - ba[0], ba[3] - ba[1], bb[2] - bb[0], bb[3] - bb[1]});
+            for (const auto& q : regions_[b].interiorProbes(eps))
+              FG_REQUIRE(!regions_[a].contains(q[0] + di * dx_, q[1] + dj * dz_),
+                         std::string(name) + ": regions overlap (or a region overlaps its periodic image)");
+            for (const auto& q : regions_[a].interiorProbes(eps))
+              FG_REQUIRE(!regions_[b].contains(q[0] - di * dx_, q[1] - dj * dz_),
+                         std::string(name) + ": regions overlap (or a region overlaps its periodic image)");
           }
   }
 

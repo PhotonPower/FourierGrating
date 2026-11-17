@@ -257,6 +257,36 @@ Contour2D Contour2D::nurbs(int p, const std::vector<double>& U, const std::vecto
   return c;
 }
 
+bool properCrossing(const Point2& a, const Point2& b, const Point2& c, const Point2& d, double tol) {
+  auto o = [](const Point2& p, const Point2& q, const Point2& r) {
+    return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  };
+  const double lab = std::hypot(b[0] - a[0], b[1] - a[1]), lcd = std::hypot(d[0] - c[0], d[1] - c[1]);
+  const double c1 = o(a, b, c), c2 = o(a, b, d), c3 = o(c, d, a), c4 = o(c, d, b);
+  return c1 * c2 < 0 && c3 * c4 < 0 && std::min(std::abs(c1), std::abs(c2)) > tol * lab &&
+         std::min(std::abs(c3), std::abs(c4)) > tol * lcd;
+}
+
+bool sharedBoundary(const std::vector<Point2>& p, const std::vector<Point2>& q, double tol) {
+  for (std::size_t i = 0; i < p.size(); ++i) {
+    const Point2& a = p[i];
+    const Point2& b = p[(i + 1) % p.size()];
+    const double ux = b[0] - a[0], uz = b[1] - a[1], l = std::hypot(ux, uz);
+    if (l <= tol) continue;
+    for (std::size_t j = 0; j < q.size(); ++j) {
+      const Point2& r = q[j];
+      const Point2& t = q[(j + 1) % q.size()];
+      // distances of r, t from the line ab; then the overlap of the projections onto ab
+      if (std::abs(ux * (r[1] - a[1]) - uz * (r[0] - a[0])) > tol * l ||
+          std::abs(ux * (t[1] - a[1]) - uz * (t[0] - a[0])) > tol * l)
+        continue;
+      const double sr = (ux * (r[0] - a[0]) + uz * (r[1] - a[1])) / l, st = (ux * (t[0] - a[0]) + uz * (t[1] - a[1])) / l;
+      if (std::min(l, std::max(sr, st)) - std::max(0.0, std::min(sr, st)) > tol) return true;
+    }
+  }
+  return false;
+}
+
 // ------------------------------------------------------------------ Region
 void Region::normalize(double flattenTol) {
   outer.validate();
@@ -276,6 +306,25 @@ bool Region::contains(double x, double z) const {
   for (std::size_t k = 1; k < poly_.size(); ++k)
     if (insidePoly(poly_[k], x, z)) return false;
   return true;
+}
+
+std::vector<Point2> Region::interiorProbes(double eps) const {
+  FG_REQUIRE(!poly_.empty(), "region: normalize() not called");
+  // one probe per Bezier segment at t = 1/2 with the exact normal: independent of the flattening (a finely
+  // flattened circle has no chord longer than a few eps); outer counter-clockwise, holes clockwise, so the
+  // material is on the left of every segment
+  std::vector<Point2> out;
+  auto add = [&](const Contour2D& c) {
+    for (const auto& seg : c.segments) {
+      Point2 r, d;
+      seg.eval(0.5, r, d);
+      const double l = std::hypot(d[0], d[1]);
+      if (l > 0) out.push_back({r[0] - eps * d[1] / l, r[1] + eps * d[0] / l});
+    }
+  };
+  add(outer);
+  for (const auto& h : holes) add(h);
+  return out;
 }
 
 double Region::area() const {

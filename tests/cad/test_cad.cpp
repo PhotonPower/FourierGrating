@@ -962,3 +962,68 @@ TEST(CAD_V24, Gradients) {
     EXPECT_NEAR(gm.grad[0], fdn, 1e-6 * std::max(1.0, std::abs(fdn)));
   }
 }
+
+// ------------------------------------------------------------------ periodic_union in 2D, priority rounds (v2.24)
+TEST(CAD, PeriodicUnionCannotResolveSelfOverlapIn2D) {
+  // B overlaps B + t, so B u (B + t) overlaps its image again: the union wraps around the cell and is no closed
+  // contour. Before v2.24 the check passed after four unions and only the solver rejected the layer.
+  const json pillar = json::array({{{"name", "P"}, {"material", "pillar"}}});
+  json l = cadLayer(step({cylinder(0.25, 0.25, 0.3, 0, 0.2)}, {"P"}), pillar);
+  l["periodic_union"] = true;
+  const json cfg = base(json::array({l}));
+  EXPECT_EQ(codes(report(cfg)), std::vector<std::string>{"PERIODIC_OVERLAP"});
+  EXPECT_THROW((void)solve(cfg), fg::Error);
+}
+
+TEST(CAD, PriorityResolvesEveryOverlap) {
+  // five pairs of overlapping boxes: five Boolean differences, more than the four rounds of v2.21. The second box
+  // of a pair lies strictly inside the first in y and z (a planar cut without coplanar faces; Nurbforge v0.6.0
+  // cannot form differences with coplanar faces or with results of earlier differences reliably)
+  std::vector<nf::Shell> boxes;
+  std::vector<std::string> names;
+  json bodies = json::array();
+  for (int k = 0; k < 5; ++k) {
+    const double x = 0.02 + 0.16 * (k % 3), y = 0.05 + 0.22 * (k / 3);
+    boxes.push_back(prism({{x, y}, {x + 0.08, y}, {x + 0.08, y + 0.15}, {x, y + 0.15}}, 0.0, 0.1));
+    boxes.push_back(prism({{x + 0.05, y + 0.01}, {x + 0.13, y + 0.01}, {x + 0.13, y + 0.14}, {x + 0.05, y + 0.14}},
+                          0.005, 0.095));
+    for (int q = 0; q < 2; ++q) {
+      names.push_back("B" + std::to_string(2 * k + q));
+      bodies.push_back({{"name", names.back()}, {"material", q ? "lid" : "pillar"}});
+    }
+  }
+  json l = cadLayer(step(boxes, names), bodies);
+  l["overlap"] = "priority";
+  const json r = report(base(json::array({l})));
+  EXPECT_EQ(codes(r), std::vector<std::string>{});
+  EXPECT_EQ(codes(r, "warnings").size(), 5u);
+  EXPECT_NO_THROW((void)solve(base(json::array({l}))));
+}
+
+TEST(CAD, OverlapWithCollinearEdgesIsFound) {
+  // two boxes of the same z range: the boundaries only run along each other (no proper crossing); before v2.24
+  // neither the slicer nor the solver noticed the overlap
+  const std::string s = step({prism({{0.05, 0.2}, {0.15, 0.2}, {0.15, 0.3}, {0.05, 0.3}}, 0.0, 0.1),
+                              prism({{0.12, 0.2}, {0.22, 0.2}, {0.22, 0.3}, {0.12, 0.3}}, 0.0, 0.1)},
+                             {"P", "Q"});
+  const json pq = json::array({{{"name", "P"}, {"material", "pillar"}}, {{"name", "Q"}, {"material", "lid"}}});
+  EXPECT_EQ(codes(report(base(json::array({cadLayer(s, pq)})))), std::vector<std::string>{"BODY_OVERLAP"});
+  // priority: the coplanar difference fails in Nurbforge v0.6.0 -> a finding, no exception
+  json l = cadLayer(s, pq);
+  l["overlap"] = "priority";
+  EXPECT_EQ(codes(report(base(json::array({l})))), std::vector<std::string>{"BODY_OVERLAP"});
+  // touching boxes (common edge) are fine
+  const std::string t = step({prism({{0.05, 0.2}, {0.15, 0.2}, {0.15, 0.3}, {0.05, 0.3}}, 0.0, 0.1),
+                              prism({{0.15, 0.2}, {0.25, 0.2}, {0.25, 0.3}, {0.15, 0.3}}, 0.0, 0.1)},
+                             {"P", "Q"});
+  EXPECT_EQ(codes(report(base(json::array({cadLayer(t, pq)})))), std::vector<std::string>{});
+  // the solver's check of contour2d regions (same configuration as polygons)
+  auto rect = [](double x0, double x1, const std::string& m) {
+    return json{{"material", m}, {"polygon_um", {{x0, 0.2}, {x1, 0.2}, {x1, 0.3}, {x0, 0.3}}}};
+  };
+  json c = base(json::array({{{"type", "contour2d"}, {"thickness_um", 0.1}, {"background", "air"},
+                               {"regions", {rect(0.05, 0.15, "pillar"), rect(0.12, 0.22, "lid")}}}}));
+  EXPECT_THROW((void)solve(c), fg::Error);
+  c["layers"][0]["regions"] = {rect(0.05, 0.15, "pillar"), rect(0.15, 0.25, "lid")};
+  EXPECT_NO_THROW((void)solve(c));
+}

@@ -521,16 +521,19 @@ Flat flatSection(const Body& b, double y, double tol) {
   return f;
 }
 
-/// Do the sections a and b + (sx, sz) overlap (boundaries cross or one contains the other)?
+/// Length scale of the overlap probes: the smaller section extent.
+double probeTol(const Flat& a, const Flat& b) {
+  return std::min({a.box[2] - a.box[0], a.box[3] - a.box[1], b.box[2] - b.box[0], b.box[3] - b.box[1]});
+}
+
+/// Do the sections a and b + (sx, sz) overlap (proper boundary crossings or a probe of one inside the other)?
 bool overlap(const Flat& a, const Flat& b, double sx, double sz) {
   if (a.loops.empty() || b.loops.empty()) return false;
   if (b.box[0] + sx >= a.box[2] || a.box[0] >= b.box[2] + sx || b.box[1] + sz >= a.box[3] ||
       a.box[1] >= b.box[3] + sz)
     return false;
-  const auto o = [](const geometry::Point2& p, const geometry::Point2& q,
-                    const geometry::Point2& r) {
-    return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
-  };
+  // rounding of touching bodies (e.g. faces of Boolean differences) is no crossing (v2.24)
+  const double scale = std::max({a.box[2] - a.box[0], a.box[3] - a.box[1], b.box[2] - b.box[0], b.box[3] - b.box[1]});
   for (const auto& la : a.loops)
     for (const auto& lb : b.loops)
       for (std::size_t i = 0; i < la.size(); ++i) {
@@ -539,13 +542,20 @@ bool overlap(const Flat& a, const Flat& b, double sx, double sz) {
         for (std::size_t j = 0; j < lb.size(); ++j) {
           const geometry::Point2 r{lb[j][0] + sx, lb[j][1] + sz},
               t{lb[(j + 1) % lb.size()][0] + sx, lb[(j + 1) % lb.size()][1] + sz};
-          if (o(p, q, r) * o(p, q, t) < 0 && o(r, t, p) * o(r, t, q) < 0) return true;
+          if (geometry::properCrossing(p, q, r, t, 1e-9 * scale)) return true;
         }
       }
-  for (const auto& ra : a.regions)
-    if (ra.contains(b.loops[0][0][0] + sx, b.loops[0][0][1] + sz)) return true;
+  // containment and collinear boundaries (e.g. boxes of the same z range): probes just inside every edge (v2.24;
+  // the former test of a boundary point is ambiguous for touching bodies)
+  const double eps = 1e-3 * probeTol(a, b);
   for (const auto& rb : b.regions)
-    if (rb.contains(a.loops[0][0][0] - sx, a.loops[0][0][1] - sz)) return true;
+    for (const auto& q : rb.interiorProbes(eps))
+      for (const auto& ra : a.regions)
+        if (ra.contains(q[0] + sx, q[1] + sz)) return true;
+  for (const auto& ra : a.regions)
+    for (const auto& q : ra.interiorProbes(eps))
+      for (const auto& rb : b.regions)
+        if (rb.contains(q[0] - sx, q[1] - sz)) return true;
   return false;
 }
 
@@ -559,24 +569,10 @@ bool touches(const Flat& a, const Flat& b, double sx, double sz, double tol) {
       b.box[1] + sz > a.box[3] + tol || a.box[1] > b.box[3] + sz + tol)
     return false;
   for (const auto& la : a.loops)
-    for (const auto& lb : b.loops)
-      for (std::size_t i = 0; i < la.size(); ++i) {
-        const auto& p = la[i];
-        const auto& q = la[(i + 1) % la.size()];
-        const double ux = q[0] - p[0], uz = q[1] - p[1], l = std::hypot(ux, uz);
-        if (l <= tol) continue;
-        for (std::size_t j = 0; j < lb.size(); ++j) {
-          const double rx = lb[j][0] + sx, rz = lb[j][1] + sz;
-          const double tx = lb[(j + 1) % lb.size()][0] + sx, tz = lb[(j + 1) % lb.size()][1] + sz;
-          // distances of r, t from the line pq; then the overlap of the projections onto pq
-          if (std::abs(ux * (rz - p[1]) - uz * (rx - p[0])) > tol * l ||
-              std::abs(ux * (tz - p[1]) - uz * (tx - p[0])) > tol * l)
-            continue;
-          const double sr = (ux * (rx - p[0]) + uz * (rz - p[1])) / l,
-                       stt = (ux * (tx - p[0]) + uz * (tz - p[1])) / l;
-          if (std::min(l, std::max(sr, stt)) - std::max(0.0, std::min(sr, stt)) > tol) return true;
-        }
-      }
+    for (auto lb : b.loops) {
+      for (auto& p : lb) p = {p[0] + sx, p[1] + sz};
+      if (geometry::sharedBoundary(la, lb, tol)) return true;
+    }
   return false;
 }
 
@@ -766,9 +762,11 @@ void checkOverlaps(const CadOptions& o, const Stack& st, Model& m, Report& r) {
   }
   const double tol = 1e-4 * std::min(st.dx_um, st.dz_um);
   std::vector<std::array<int, 3>> reported;  // (i, j, periodic)
+  // priority changes one pair per round, then everything is checked again; one round more than pairs
+  // verifies the last change (v2.24; v2.21 stopped after four rounds without a final check)
+  const std::size_t n = m.bodies.size(), rounds = n * (n - 1) / 2 + 2;
   bool changed = true;
-  for (int round = 0; round < 4 && changed;
-       ++round) {  // priority / union change the bodies: check again
+  for (std::size_t round = 0; round < rounds && changed; ++round) {
     changed = false;
     Report dummy;
     for (const auto& band : bands(m, o, dummy)) {
@@ -803,22 +801,23 @@ void checkOverlaps(const CadOptions& o, const Stack& st, Model& m, Report& r) {
                 }
                 if (!overlap(fl[i], fl[j], di * st.dx_um, dk * st.dz_um)) continue;
                 if (o.overlap == "priority" && i != j && !periodic) {
-                  m.bodies[i].shell =
-                      nf::boolean(m.bodies[i].shell, m.bodies[j].shell, nf::BooleanOp::Difference);
+                  try {
+                    nf::Shell d = nf::boolean(m.bodies[i].shell, m.bodies[j].shell, nf::BooleanOp::Difference);
+                    if (!d.free_edges().empty()) throw Error("the result is not closed");
+                    m.bodies[i].shell = std::move(d);
+                  } catch (const std::exception& e) {  // e.g. coplanar faces (Nurbforge v0.6.0)
+                    r.errors.push_back({"BODY_OVERLAP",
+                                        "bodies '" + m.bodies[i].name + "' and '" + m.bodies[j].name +
+                                            "' overlap and the Boolean difference of cad.overlap = \"priority\" "
+                                            "failed (" + e.what() + "); remove the overlap in the model"});
+                    r.ok = false;
+                    return;
+                  }
                   m.bodies[i].box = bounds(m.bodies[i].shell);
                   r.warnings.push_back(
                       {"BODY_OVERLAP",
                        "body '" + m.bodies[i].name + "' overlaps '" + m.bodies[j].name +
                            "' (priority: the overlap belongs to '" + m.bodies[j].name + "')"});
-                  changed = true;
-                  break;
-                }
-                if (o.periodicUnion && i == j) {
-                  const nf::Shell img =
-                      transformed(m.bodies[i].shell,
-                                  nf::Transform::translation({di * st.dx_um, 0, dk * st.dz_um}));
-                  m.bodies[i].shell = nf::boolean(m.bodies[i].shell, img, nf::BooleanOp::Union);
-                  m.bodies[i].box = bounds(m.bodies[i].shell);
                   changed = true;
                   break;
                 }
@@ -830,7 +829,8 @@ void checkOverlaps(const CadOptions& o, const Stack& st, Model& m, Report& r) {
                      periodic && i == j
                          ? "body '" + m.bodies[i].name + "' overlaps its periodic image (period " +
                                fmt("%.6g x %.6g um", st.dx_um, st.dz_um) +
-                               "; smaller body or cad.periodic_union)"
+                               "; make the body smaller; cad.periodic_union cannot resolve this in 2D: the "
+                               "united body would wrap around the cell)"
                          : "bodies '" + m.bodies[i].name + "' and '" + m.bodies[j].name + "'" +
                                (periodic ? " (periodic image)" : "") +
                                " overlap (cad.overlap = \"priority\" resolves it)",
@@ -842,6 +842,11 @@ void checkOverlaps(const CadOptions& o, const Stack& st, Model& m, Report& r) {
       }
       if (changed) break;
     }
+  }
+  if (changed) {
+    r.errors.push_back({"BODY_OVERLAP", "cad.overlap = \"priority\": overlaps not resolved after " +
+                                            std::to_string(rounds) + " Boolean differences"});
+    r.ok = false;
   }
 }
 
