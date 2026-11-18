@@ -546,6 +546,35 @@ $e_\pm,h_\pm$, $h_y=\tfrac12\kappa(e_++e_-)$ und $e_y=Q_{yy}^{-1}(d_y-p_y)$ mit 
         $\kappa_{\max}=2$, 24 Höhen: 56\,s gegenüber 1\,s mit RCWA).
 \end{itemize}
 
+\paragraph{Umsetzung (v2.27): Strahl als Streufeld (V21e).}
+Mit \verb|"scattered_field": true| wird ein Strahl in der Streufeldformulierung gerechnet (ebene Wellen sind es immer).
+Festlegungen:
+\begin{itemize}[nosep]
+  \item \textbf{Hintergrund:} Stapel, in dem jede Ringschicht durch ihr äußeres Material ersetzt ist, je Harmonischer mit
+        der Totalfeld-Assemblierung auf dem Gitter gelöst (nur homogene Schichten, jeder Knoten ein Dünnschichtproblem).
+        In jeder Schicht wird sein Feld als $N=4N_k$ Exponentiallösungen der Schicht dargestellt (Amplituden aus den
+        Zuständen an Unter- und Oberkante, abwärts bezogen auf die Oberkante, aufwärts auf die Unterkante); die
+        einzelne Ordnung der ebenen Welle ist der Sonderfall $N=4$.
+  \item \textbf{Quelle:} $\sigma=(M-M_{\text{bg}})F_{\text{bg}}$ in den Ringschichten, $M_{\text{bg}}$ die Matrix
+        \eqref{eq:cyl_M} des äußeren Materials (dieselbe Faktorisierung, keine Deltaanteile, da $F_{\text{bg}}$ ein
+        Gittervektor ist). RCWA: partikuläre Lösungen aller Exponentialterme auf einmal mit
+        $(\kappa-M)^{-1}=W(\kappa-\Lambda)^{-1}W^{-1}$, $W$ die Moden der Scheibe. RK integriert $\sigma(y)$ mit.
+  \item \textbf{Fast-Resonanz:} Der Knoten $k\approx0$ wird von den Ringen kaum gestört (Gewicht $w_jk_j$ klein): eine
+        Mode der Scheibe liegt dort bis auf $10^{-14}$ beim Exponenten des Hintergrundes. Statt des RK-Rückfalls von M18
+        nimmt jeder Term mit $|\kappa-\lambda_j|<10^{-4}\max|\lambda|$ die Form der dividierten Differenz
+        $q\,(e^{\kappa t}-e^{\lambda_jt})/(\kappa-\lambda_j)=q\,t\,e^{\lambda_jt}\varphi_1((\kappa-\lambda_j)t)$ an,
+        $\varphi_1(z)=(e^z-1)/z$ (Reihe für $|z|<10^{-2}$). Sie ist ebenfalls eine partikuläre Lösung und für
+        $\kappa=\lambda_j$ beschränkt.
+  \item \textbf{Ausgaben:} Amplituden oben und im Substrat $=$ Quellenamplituden des Streufeldes $+$ Hintergrund; $R$,
+        $T$, $A$, $A_{\text{Ringe}}$ und das Nahfeld (Totalfeld $=$ Streufeld $+$ Hintergrund, beide auf dem Gitter) wie
+        beim Totalfeld. Der Nutzen ist der Test der Quellen (V21e); \verb|"field": "scattered"| bleibt bei Strahlen
+        wirkungslos (Warnung).
+  \item \textbf{Befund (V21e):} zwei Ringschichten (äußeres Material Film bzw.\ Luft, verlustbehaftete Ringe) zwischen
+        Filmen, $\kappa_{\max}=2$: $R$, $T$, $A_{\text{Ringe}}$ je Harmonischer gleich dem Totalfeld auf $10^{-13}$
+        (Laurent und Li in $r$, $x$- und radiale Polarisation), Nahfeld auf $10^{-12}$; RK gegen RCWA auf $5\cdot10^{-9}$
+        ($\kappa_{\max}=1$, reeller Weg).
+\end{itemize}
+
 \subsection{Differenzierbarkeit}
 Die Rückwärtsregeln von M19 gelten für $M$, $\mathfrak A^{-1}$, S-Matrizen und Sternprodukte unverändert. Neu sind
 Formableitungen der Galerkin-Matrizen nach einem Wandradius $r_i$ (Leibniz):

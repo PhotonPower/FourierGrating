@@ -16,6 +16,12 @@
   Toleranz ≤ 0 oder NaN jetzt mit einer Fehlermeldung ab (Test `Contour.FlattenRejectsANonPositiveTolerance`).
 
 ### Hinzugefügt
+- M20 Strahl als Streufeld (Plan v2.27, V21e): `"scattered_field": true` gilt jetzt auch für Zylinderstapel mit
+  Gauß-Strahl. Hintergrund = Stapel mit dem äußeren Material jeder Ringschicht, auf dem Hankel-Gitter gelöst und je
+  Schicht als 4 N_k Exponentiallösungen dargestellt; Quelle σ = (M − M_bg) F_bg, partikuläre Lösungen über die Moden
+  der Scheibe, fast resonante Terme (Knoten k ≈ 0) in der Form der dividierten Differenz. R, T, A_Ringe und Nahfeld
+  gleich dem Totalfeld auf 1e-13 bzw. 1e-12, RK auf 5e-9 (`V21e.BeamScatteredFieldEqualsTotalField`). Der
+  kartesische Pfad bleibt bitgleich.
 - M20 Nahfeld und Querschnitte (Plan v2.25): `nearField` für Zylinderstapel (horizontaler Schnitt x–z, vertikaler
   Schnitt x–y bei `vertical_z_um`; `nearfield.extent_um`, Standard 1,5 R_s). Spektren je Harmonischer aus den
   Zustandsvektoren, Synthese mit Bessel-Tabellen, kartesische Komponenten nach eq:cyl_pm; bei Li in r

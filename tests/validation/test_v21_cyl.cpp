@@ -557,3 +557,69 @@ TEST(V21c, OpticalTheoremAndGoldSphere) {
   EXPECT_NEAR(g.extinction_um2 / (qe * geo), 1.0, 0.05);
   EXPECT_NEAR(g.extinctionTheorem_um2 / g.extinction_um2, 1.0, 0.05);
 }
+
+// V21e (Plan "Tests und Abnahme (M20)"): a Gaussian beam in the scattered-field formulation. The background
+// (every ring layer replaced by its outer material) lies on the Hankel grid, the source of a ring layer is
+// sigma = (M - M_bg) F_bg (Plan sec:cylexc, "Konsistenz"); scattered field + background = total field: RCWA to
+// 1e-10, RK to its tolerance, Laurent and Li in r, x (m = +-1) and radial (m = 0) polarization.
+namespace {
+
+/// Two ring layers (outer materials air and film) between films, lossy pillar.
+std::string ringStack(const std::string& fac, const std::string& pol, int kappa, bool scattered,
+                      const std::string& spectrum = "") {
+  return R"({)" + std::string(scattered ? R"("scattered_field": true, )" : "") +
+         R"("cylindrical": {"spectrum": {"kappa_max": )" + std::to_string(kappa) + spectrum + R"(}, "factorization": ")" + fac +
+         R"("},
+    "materials": {"air": {"n": 1.0}, "glass": {"n": 1.5}, "film": {"n": 1.38}, "p": {"n": [1.7, 0.05]}, "q": {"n": 2.0}},
+    "superstrate": "air", "substrate": "glass",
+    "incidence": {"type": "gaussian_beam", "lambda_um": 1.0, "waist_um": 0.5, "focus_y_um": 0.9, "polarization": ")" +
+         pol + R"("},
+    "layers": [{"type": "homogeneous", "thickness_um": 0.15, "material": "film"},
+               {"type": "rings", "thickness_um": 0.2, "radii_um": [0.2, 0.35], "materials": ["q", "p", "film"]},
+               {"type": "rings", "thickness_um": 0.25, "radii_um": [0.3], "materials": ["p", "air"]},
+               {"type": "homogeneous", "thickness_um": 0.1, "material": "air"}]})";
+}
+
+}  // namespace
+
+TEST(V21e, BeamScatteredFieldEqualsTotalField) {
+  for (const std::string fac : {"laurent", "li_r"})
+    for (const std::string pol : {"x", "radial"}) {
+      const fg::CylindricalResult t = solveConfig(ringStack(fac, pol, 2, false)).cylindrical,
+                                  s = solveConfig(ringStack(fac, pol, 2, true)).cylindrical;
+      std::printf("V21e %-7s %-6s: R = %.12f (%.1e)  T = %.12f (%.1e)  A_rings = %.12f (%.1e)\n", fac.c_str(),
+                  pol.c_str(), t.reflected, s.reflected - t.reflected, t.transmitted, s.transmitted - t.transmitted,
+                  t.absorbedRings, s.absorbedRings - t.absorbedRings);
+      EXPECT_GT(t.absorbedRings, 1e-3);
+      EXPECT_NEAR(s.reflected, t.reflected, 1e-10) << fac << " " << pol;
+      EXPECT_NEAR(s.transmitted, t.transmitted, 1e-10) << fac << " " << pol;
+      EXPECT_NEAR(s.absorbedRings, t.absorbedRings, 1e-10) << fac << " " << pol;
+      ASSERT_EQ(s.reflectedPerHarmonic.size(), t.reflectedPerHarmonic.size());
+      for (std::size_t i = 0; i < t.reflectedPerHarmonic.size(); ++i) {
+        EXPECT_NEAR(s.reflectedPerHarmonic[i], t.reflectedPerHarmonic[i], 1e-10);
+        EXPECT_NEAR(s.transmittedPerHarmonic[i], t.transmittedPerHarmonic[i], 1e-10);
+      }
+    }
+  // near field (total field, both cuts through the rings and the half spaces)
+  const std::string nfb =
+      R"("horizontal_y_um": 0.3, "nx": 9, "nz": 5, "ny": 7, "y_range_um": [-0.1, 0.8], "extent_um": 0.6)";
+  const fg::NearFieldResult a = nearFieldOf(withNearField(ringStack("li_r", "x", 2, false), nfb)),
+                            b = nearFieldOf(withNearField(ringStack("li_r", "x", 2, true), nfb));
+  double err = 0, ref = 0;
+  for (auto cut : {&fg::NearFieldResult::horizontal, &fg::NearFieldResult::vertical})
+    for (int c = 0; c < 3; ++c)
+      for (std::size_t i = 0; i < (a.*cut).E[c].size(); ++i) {
+        err = std::max({err, std::abs((a.*cut).E[c][i] - (b.*cut).E[c][i]), std::abs((a.*cut).H[c][i] - (b.*cut).H[c][i])});
+        ref = std::max(ref, std::abs((a.*cut).E[c][i]));
+      }
+  std::printf("V21e near field: max |F_s + F_bg - F| = %.1e (max |E| = %.2f)\n", err, ref);
+  EXPECT_LT(err, 1e-10 * ref);
+  // RK with the source integrated along (kappa_max = 1 on the real path: RK records are expensive): within
+  // the RK tolerance (measured 5e-9)
+  const std::string real = R"(, "deform": false)";
+  const fg::CylindricalResult p = solveConfig(ringStack("laurent", "x", 1, false, real)).cylindrical,
+                              q = solveConfig(ringStack("laurent", "x", 1, true, real), fg::SolverKind::RK).cylindrical;
+  EXPECT_NEAR(q.reflected, p.reflected, 1e-8);
+  EXPECT_NEAR(q.transmitted, p.transmitted, 1e-8);
+  EXPECT_NEAR(q.absorbedRings, p.absorbedRings, 1e-8);
+}

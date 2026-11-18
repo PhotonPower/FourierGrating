@@ -203,10 +203,15 @@ struct Setup {
   bool scattered = false;
   struct BgLayer {
     double y0 = 0, y1 = 0;
-    MatC Psi;          ///< 4 x 4 single-order modes (down x, down z | up x, up z)
-    VecC lambda, amp;  ///< amplitudes: down referenced at y1, up at y0
+    MatC Psi;          ///< 4 x 4 single-order modes (down x, down z | up x, up z); on the grid: N x N
+    VecC lambda, amp;  ///< amplitudes: down (first half) referenced at y1, up (second half) at y0
     MatC M, MB;        ///< propagation matrix of the background material (computation / Bloch basis)
     QBlocks Q, Q1;     ///< background permittivity (n_f orders / the incidence order)
+    /// Background on the grid (cylindrical beam, V21e): Psi are the N modes of the background layer in the
+    /// basis of the computation and sigma = (M - M_bg) F_bg with M_bg = M (Plan sec:cylexc, "Konsistenz").
+    bool onGrid = false;
+    Eigen::Index count() const { return lambda.size(); }
+    double ref(Eigen::Index k) const { return k < count() / 2 ? y1 : y0; }
   };
   std::vector<BgLayer> bg;
   VecC bgTop, bgSub;        ///< single order: up amplitudes at the top (superstrate), down at y = 0 (substrate)
@@ -357,10 +362,24 @@ struct Element {
   std::vector<VecC> pVec, f;
   std::vector<cplx> pKap;
   std::vector<double> pRef;
+  // background on the grid (cylindrical beam, V21e): terms of an exponent kappa next to a slice mode lambda
+  // in the divided-difference form q (e^{kappa t} - e^{lambda t}) / (kappa - lambda), t = y - yref
+  std::vector<VecC> qVec;
+  std::vector<cplx> qKap, qLam;
+  std::vector<double> qRef;
+  bool hasParticular() const { return !pVec.empty() || !qVec.empty(); }
   VecC particular(double y) const {
-    VecC F = VecC::Zero(pVec.empty() ? 0 : pVec.front().size());
+    VecC F = VecC::Zero(pVec.empty() ? (qVec.empty() ? 0 : qVec.front().size()) : pVec.front().size());
     for (std::size_t j = 0; j < pVec.size(); ++j) F += pVec[j] * std::exp(pKap[j] * (y - pRef[j]));
+    for (std::size_t j = 0; j < qVec.size(); ++j) F += qVec[j] * dividedExp(qKap[j], qLam[j], y - qRef[j]);
     return F;
+  }
+  /// (e^{kappa t} - e^{lambda t}) / (kappa - lambda) = t e^{lambda t} phi_1((kappa - lambda) t), bounded at kappa = lambda.
+  static cplx dividedExp(cplx kappa, cplx lambda, double t) {
+    const cplx z = (kappa - lambda) * t;
+    const cplx phi = std::abs(z) < 1e-2 ? 1.0 + z * (1.0 / 2 + z * (1.0 / 6 + z * (1.0 / 24 + z * (1.0 / 120 + z / 720.0))))
+                                        : (std::exp(z) - 1.0) / z;
+    return t * std::exp(lambda * t) * phi;
   }
 };
 
@@ -650,6 +669,11 @@ class StackSolver final : public Solver {
     double kpar = 0, Psi = 0;  ///< plane wave: lateral wave number and azimuth of the incidence
     VecC g0, g1;        ///< beam: spectra of order 0 and 1 (Plan sec:cylexc)
     std::string polarization;
+    /// Beam in the scattered-field formulation (scattered_field, V21e): background stack with every ring
+    /// layer replaced by its outer material
+    bool beamScattered = false;
+    std::vector<std::unique_ptr<detail::CylLayer>> bgLayers;
+    std::vector<const detail::StackLayer*> bgPtrs;
   };
 
   CylContext cylContext(const Stack& stack, const Wavelength& wl) const {
@@ -657,9 +681,8 @@ class StackSolver final : public Solver {
     detail::applyThreadSettings(opt_);
     setEigenThreads({1, sliceThreads(), std::max(1, opt_.threadsBlas)});
     const CylindricalSpec& cs = stack.cylindrical;
-    FG_REQUIRE(!stack.aperiodic.enabled && !stack.superstrateStructure && !stack.substrateStructure &&
-                   !opt_.scatteredField,
-               "cylindrical: aperiodic, structured half spaces and scattered_field are not available (M20)");
+    FG_REQUIRE(!stack.aperiodic.enabled && !stack.superstrateStructure && !stack.substrateStructure,
+               "cylindrical: aperiodic and structured half spaces are not available (M20)");
     FG_REQUIRE(cs.planeWave || cs.waist_um > 0, "cylindrical: incidence gaussian_beam with waist_um > 0");
     CylContext c;
     Setup& s = c.s;
@@ -752,6 +775,15 @@ class StackSolver final : public Solver {
       c.g0(j) = 0.5 * w0 * w0 * ph;
       c.g1(j) = 0.25 * k * w0 * w0 * w0 * w0 * ph;
     }
+    if (opt_.scatteredField) {  // plane waves are always a scattered field
+      c.beamScattered = true;
+      Stack bs = stack;
+      for (LayerEntry& le : bs.layers)
+        if (const auto* r = std::get_if<RingsLayer>(&le.spec)) le.spec = HomogeneousLayer{r->thickness_um, r->materials.back()};
+      c.bgLayers = detail::buildCylLayers(bs, s.k0);
+      for (const auto& L : c.bgLayers) c.bgPtrs.push_back(L.get());
+      s.scattered = true;
+    }
     c.ms = cs.harmonics;
     if (c.ms.empty()) {
       const std::string& p = cs.polarization;
@@ -806,6 +838,42 @@ class StackSolver final : public Solver {
     return basis;
   }
 
+  /// Background of a beam in the scattered-field formulation (V21e), harmonic m: the background stack
+  /// (homogeneous layers only) solved on the grid by the total-field assembly; its field in every layer as
+  /// N exponentials (c.s.bg, on the grid) for the sources sigma = (M - M_bg) F_bg of the ring layers.
+  struct CylBackground {
+    Setup s;  ///< total-field setup of the background
+    std::unique_ptr<detail::CylBasis> basis;
+    Assembly as;
+  };
+  CylBackground cylBackground(CylContext& c, int m, const VecC& aIn, Diagnostics& diag) {
+    CylBackground b;
+    c.s.bg.clear();
+    b.s = c.s;
+    b.s.scattered = false;
+    b.basis = std::make_unique<detail::CylBasis>(c.grid, m, c.epsSup, c.epsSub, c.bgLayers, c.fac);
+    b.as = assemble(b.s, *b.basis, c.bgPtrs, true, {}, diag);
+    std::vector<double> yb{0.0};
+    for (const auto* l : c.bgPtrs) yb.push_back(yb.back() + l->thickness_um() * c.s.k0);
+    const std::vector<StateSample> st = stateSamples(b.s, b.basis->ref(), b.basis->sub(), b.as, aIn, yb);
+    for (std::size_t l = 0; l < c.bgLayers.size(); ++l) {
+      const ModeBasis mb = cyl::homogeneousModes(c.bgLayers[l]->eps, c.grid.k);
+      const Eigen::Index nh = mb.lambda.size() / 2;
+      Setup::BgLayer L;
+      L.onGrid = true;
+      L.y0 = yb[l];
+      L.y1 = yb[l + 1];
+      L.Psi = mb.Psi;
+      L.lambda = mb.lambda;
+      const VecC c0 = mb.PsiInv * st[l].F, c1 = mb.PsiInv * st[l + 1].F;
+      L.amp.resize(2 * nh);
+      L.amp << c1.head(nh), c0.tail(nh);
+      if (!c.layers[l]->homogeneous()) L.M = b.basis->M(*c.bgLayers[l], 0.0);
+      c.s.bg.push_back(std::move(L));
+    }
+    return b;
+  }
+
   /// Spectra of one harmonic at a normalized height (Plan eq:cyl_spec); plane waves: the scattered field
   /// and the background (Ex, Ey, Ez, Hx, Hy, Hz) of the incidence order on the axis.
   struct CylSpectra {
@@ -817,9 +885,14 @@ class StackSolver final : public Solver {
   };
 
   std::vector<CylSpectra> cylSpectra(const CylContext& c, const detail::CylBasis& basis, const Assembly& as,
-                                     const VecC& aIn, const std::vector<double>& yn) const {
+                                     const VecC& aIn, const std::vector<double>& yn,
+                                     const CylBackground* bg = nullptr) const {
     const Setup& s = c.s;
-    const std::vector<StateSample> st = stateSamples(s, basis.ref(), basis.sub(), as, aIn, yn);
+    std::vector<StateSample> st = stateSamples(s, basis.ref(), basis.sub(), as, aIn, yn);
+    if (bg) {  // beam as scattered field: total = scattered + background (both on the grid)
+      const std::vector<StateSample> sb = stateSamples(bg->s, bg->basis->ref(), bg->basis->sub(), bg->as, aIn, yn);
+      for (std::size_t i = 0; i < st.size(); ++i) st[i].F += sb[i].F;
+    }
     const Eigen::Index n = c.grid.k.size();
     const VecC& k = c.grid.k;
     std::vector<double> tops;
@@ -836,7 +909,7 @@ class StackSolver final : public Solver {
       sp.hm = F.segment(3 * n, n);
       sp.hy = 0.5 * k.cwiseProduct(sp.ep + sp.em);
       cplx cp = 0.0, cm = 0.0, eyb = 0.0;
-      if (s.scattered) {
+      if (c.planeWave) {
         QBlocks Q1;
         const VecC a0 = VecC::Constant(1, s.inc.alpha0), g0 = VecC::Constant(1, s.inc.gamma0);
         const VecC Fb = backgroundAt(s, yn[i], sp.region, as.yTop, Q1);
@@ -1039,8 +1112,12 @@ class StackSolver final : public Solver {
         continue;
       }
       const auto basis = cylBasis(c, m);
+      std::optional<CylBackground> bg;
+      if (c.beamScattered) bg = cylBackground(c, m, aIn, res.diag);
       const Assembly as = assemble(c.s, *basis, c.ptrs, volume, ys, res.diag);
-      const VecC b = as.total.S12 * aIn, aSub = as.total.S22 * aIn;
+      // scattered field (V21e): up/down amplitudes of the sources plus those of the background
+      const VecC b = bg ? VecC(as.totalSrc.u + bg->as.total.S12 * aIn) : VecC(as.total.S12 * aIn);
+      const VecC aSub = bg ? VecC(as.totalSrc.v + bg->as.total.S22 * aIn) : VecC(as.total.S22 * aIn);
       VecC V = VecC::Zero(4 * n);
       V.head(2 * n) = aIn;
       pInc -= cyl::flux(c.grid, basis->ref().Psi * V);
@@ -1052,7 +1129,7 @@ class StackSolver final : public Solver {
       tm.push_back(-cyl::flux(c.grid, basis->sub().Psi * V));
       pR += rm.back();
       pT += tm.back();
-      if (volume) pAbs += cylVolume(c, m, cylSpectra(c, *basis, as, aIn, ys), yq, rad).first;
+      if (volume) pAbs += cylVolume(c, m, cylSpectra(c, *basis, as, aIn, ys, bg ? &*bg : nullptr), yq, rad).first;
     }
     FG_REQUIRE(pInc > 0, "cylindrical: the incident beam carries no power (harmonics?)");
     for (double& v : rm) v /= pInc;
@@ -1098,8 +1175,10 @@ class StackSolver final : public Solver {
     for (const int m : c.ms) {
       const VecC aIn = c.planeWave ? VecC() : cylIncident(c, m);
       const auto basis = cylBasis(c, m);
+      std::optional<CylBackground> bg;
+      if (c.beamScattered) bg = cylBackground(c, m, aIn, diag);
       const Assembly as = assemble(c.s, *basis, c.ptrs, true, sorted, diag);
-      sp.push_back(cylSpectra(c, *basis, as, aIn, yn));
+      sp.push_back(cylSpectra(c, *basis, as, aIn, yn, bg ? &*bg : nullptr));
       c.s.cylSource = nullptr;
     }
     const bool fff = req.reconstruction == Reconstruction::FFF && c.fac == cyl::CylFactorization::LiR;
@@ -1390,8 +1469,9 @@ class StackSolver final : public Solver {
   }
   /// Background field (4 components, incidence order) at normalized y.
   static VecC bgField(const Setup::BgLayer& L, double y) {
-    VecC f = VecC::Zero(4);
-    for (int k = 0; k < 4; ++k) f += L.Psi.col(k) * (L.amp(k) * std::exp(L.lambda(k) * (y - (k < 2 ? L.y1 : L.y0))));
+    VecC f = VecC::Zero(L.Psi.rows());
+    for (Eigen::Index k = 0; k < L.count(); ++k)
+      if (!L.onGrid || L.amp(k) != 0.0) f += L.Psi.col(k) * (L.amp(k) * std::exp(L.lambda(k) * (y - L.ref(k))));
     return f;
   }
   /// sigma = (M - M_bg) F_bg for a single-order background field w (Plan eq:scat_ode in the form
@@ -1399,6 +1479,7 @@ class StackSolver final : public Solver {
   static VecC sourceOf(const Setup& s, const detail::StackLayer& layer, const MatC& M, const MatC* MB,
                        const Setup::BgLayer& L, const VecC& w) {
     if (s.cylSource) return s.cylSource(layer, L, w);
+    if (L.onGrid) return layer.homogeneous() ? VecC(VecC::Zero(w.size())) : VecC(M * w - L.M * w);
     const int nf = s.map.size(), c = s.map.center();
     VecC sig = VecC::Zero(4 * nf);
     for (int k = 0; k < 4; ++k)
@@ -1415,6 +1496,62 @@ class StackSolver final : public Solver {
     c.push_back(yb);
     return c;
   }
+  /// Particular solution at both ends of a modal slice with the background on the grid (cylindrical beam,
+  /// V21e): all exponentials at once with (kappa - M)^-1 = W (kappa - Lambda)^-1 W^-1, W = (W_u, W_d) the
+  /// slice modes; sigma = (M - M_bg) F_bg. No RK fallback: exponents next to a mode use the divided difference.
+  static void gridParticular(const MatC& M, const LayerModes& modes, double y0, double y1, const Setup::BgLayer& L,
+                             double lmax, VecC& F0, VecC& F1, Element* rec) {
+    const Eigen::Index N = M.rows();
+    VecC lam(N);
+    lam << modes.lu, modes.ld;
+    std::vector<Eigen::Index> ks;  // background exponentials with nonzero amplitude
+    for (Eigen::Index k = 0; k < L.count(); ++k)
+      if (L.amp(k) != 0.0) ks.push_back(k);
+    if (ks.empty()) return;
+    const auto K = static_cast<Eigen::Index>(ks.size());
+    MatC Fb(N, K);
+    for (Eigen::Index i = 0; i < K; ++i) Fb.col(i) = L.Psi.col(ks[static_cast<std::size_t>(i)]) * L.amp(ks[static_cast<std::size_t>(i)]);
+    MatC W(N, N);
+    W << modes.Wu, modes.Wd;
+    MatC C = W.partialPivLu().solve(MatC(M * Fb - L.M * Fb));  // sigma in the slice modes
+    // an exponent next to a slice mode (e.g. the node k ~ 0, which the rings hardly perturb: |kappa - lambda|
+    // ~ 1e-14) takes the divided-difference form, exact and bounded at kappa = lambda
+    for (Eigen::Index i = 0; i < K; ++i) {
+      const Eigen::Index k = ks[static_cast<std::size_t>(i)];
+      const cplx kap = L.lambda(k);
+      const double yr = L.ref(k);
+      for (Eigen::Index j = 0; j < N; ++j) {
+        const cplx d = kap - lam(j);
+        if (std::abs(d) >= 1e-4 * lmax) {
+          C(j, i) /= d;
+          continue;
+        }
+        const VecC q = W.col(j) * C(j, i);
+        C(j, i) = 0.0;
+        F0 += q * Element::dividedExp(kap, lam(j), y0 - yr);
+        F1 += q * Element::dividedExp(kap, lam(j), y1 - yr);
+        if (rec) {
+          rec->qVec.push_back(q);
+          rec->qKap.push_back(kap);
+          rec->qLam.push_back(lam(j));
+          rec->qRef.push_back(yr);
+        }
+      }
+    }
+    const MatC P = W * C;
+    for (Eigen::Index i = 0; i < K; ++i) {
+      const Eigen::Index k = ks[static_cast<std::size_t>(i)];
+      const cplx kap = L.lambda(k);
+      const double yr = L.ref(k);
+      F0 += P.col(i) * std::exp(kap * (y0 - yr));
+      F1 += P.col(i) * std::exp(kap * (y1 - yr));
+      if (rec) {
+        rec->pVec.push_back(P.col(i));
+        rec->pKap.push_back(kap);
+        rec->pRef.push_back(yr);
+      }
+    }
+  }
   /// Source amplitudes of a modal slice [y0, y1] (Plan "RCWA: partikulaere Loesung je Exponentialterm"):
   /// F_p = sum (kappa - M)^-1 sigma_kappa e^{kappa y}; with g = Psi_ref^-1 F_p at both ends,
   /// u = g1_b - S11 g0_b - S12 g1_a, v = g0_a - S21 g0_b - S22 g1_a. False if kappa is within 1e-8 max|lambda|
@@ -1425,23 +1562,26 @@ class StackSolver final : public Solver {
     const double lmax = std::max(modes.lu.cwiseAbs().maxCoeff(), modes.ld.cwiseAbs().maxCoeff());
     const Eigen::Index N = M.rows();
     VecC F0 = VecC::Zero(N), F1 = VecC::Zero(N);
-    for (int k = 0; k < 4; ++k) {
-      if (L.amp(k) == 0.0) continue;
-      const cplx kap = L.lambda(k);
-      double dist = 1e300;
-      for (Eigen::Index j = 0; j < modes.lu.size(); ++j)
-        dist = std::min({dist, std::abs(kap - modes.lu(j)), std::abs(kap - modes.ld(j))});
-      if (dist < 1e-8 * lmax) return false;
-      const VecC p = (kap * MatC::Identity(N, N) - M).partialPivLu().solve(sourceOf(s, layer, M, MB, L, L.Psi.col(k))) * L.amp(k);
-      const double yr = k < 2 ? L.y1 : L.y0;
-      F0 += p * std::exp(kap * (y0 - yr));
-      F1 += p * std::exp(kap * (y1 - yr));
-      if (rec) {
-        rec->pVec.push_back(p);
-        rec->pKap.push_back(kap);
-        rec->pRef.push_back(yr);
+    if (L.onGrid)
+      gridParticular(M, modes, y0, y1, L, lmax, F0, F1, rec);
+    else
+      for (int k = 0; k < 4; ++k) {
+        if (L.amp(k) == 0.0) continue;
+        const cplx kap = L.lambda(k);
+        double dist = 1e300;
+        for (Eigen::Index j = 0; j < modes.lu.size(); ++j)
+          dist = std::min({dist, std::abs(kap - modes.lu(j)), std::abs(kap - modes.ld(j))});
+        if (dist < 1e-8 * lmax) return false;
+        const VecC p = (kap * MatC::Identity(N, N) - M).partialPivLu().solve(sourceOf(s, layer, M, MB, L, L.Psi.col(k))) * L.amp(k);
+        const double yr = k < 2 ? L.y1 : L.y0;
+        F0 += p * std::exp(kap * (y0 - yr));
+        F1 += p * std::exp(kap * (y1 - yr));
+        if (rec) {
+          rec->pVec.push_back(p);
+          rec->pKap.push_back(kap);
+          rec->pRef.push_back(yr);
+        }
       }
-    }
     const Eigen::Index n = S.nh();
     const VecC g0 = ref.PsiInv * F0, g1 = ref.PsiInv * F1;
     u = g1.tail(n) - S.S11 * g0.tail(n) - S.S12 * g1.head(n);
@@ -2315,7 +2455,7 @@ class StackSolver final : public Solver {
           const Eigen::Index n = e.modes.lu.size();
           VecC rhs(2 * n);
           rhs << lo.tail(n), hi.head(n);  // (b_bottom; a_top)
-          if (!e.pVec.empty()) {  // homogeneous part = total - particular solution
+          if (e.hasParticular()) {  // homogeneous part = total - particular solution
             const VecC g0 = ref.PsiInv * e.particular(e.y0), g1 = ref.PsiInv * e.particular(e.y1);
             rhs.head(n) -= g0.tail(n);
             rhs.tail(n) -= g1.head(n);
@@ -2328,7 +2468,7 @@ class StackSolver final : public Solver {
             cd(j) *= std::exp(e.modes.ld(j) * (y - e.y1));
           }
           st.F = e.modes.Wu * cu + e.modes.Wd * cd;
-          if (!e.pVec.empty()) st.F += e.particular(y);
+          if (e.hasParticular()) st.F += e.particular(y);
         } else {
           const VecC F0 = ref.Psi * lo;
           st.F = F0;

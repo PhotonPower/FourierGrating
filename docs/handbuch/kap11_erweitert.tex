@@ -220,7 +220,9 @@ Harmonischen. Bei der ebenen Welle stehen Streuquerschnitte in \textmu m$^2$ in 
 absorbierendem Hintergrund). Weicht \texttt{C\_Sext\_ot}
 deutlich von \texttt{C\_Sext} ab, ist die Rechnung nicht konvergiert. Bei einem Strahl auf verlustbehafteten Ringen
 steht in Python \texttt{res.cylindrical["absorbed\_rings"]} die in den Ringen absorbierte Leistung; die Differenz zu
-\texttt{C\_A} ist der seitliche Abfluss. Python: \texttt{res.cylindrical}. Rechenzeit des Beispiels: etwa 14\,s für
+\texttt{C\_A} ist der seitliche Abfluss. Mit \val{"scattered\_field": true} rechnet auch ein Strahl in der
+Streufeldformulierung; das Ergebnis ist dasselbe wie beim Totalfeld (eine Kontrolle der Quellen, keine andere Physik).
+Python: \texttt{res.cylindrical}. Rechenzeit des Beispiels: etwa 14\,s für
 drei Wellenlängen auf zwei Kernen. Konvergenz prüfen Sie über \key{kappa\_max} und \key{dk\_factor}.
 
 \begin{achtung}[Kleine Metallteilchen]
