@@ -126,6 +126,8 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
     `--cad-report`, optionale Tschebyschow-Interpolation in y
   - Abnahme: V16b (Prisma/Chiralität), V17 (Zylinder), V18 (Kugelkappe, Kegelstumpf), zwei Materialien, Hohlraum;
     absichtlich fehlerhafte Dateien liefern den erwarteten Fehlercode; `docs/cad.md`, Beispiel `examples/cad_pillar_array.json`
+  - Nurbforge-Pin v0.12.1 (Plan v2.26): exakte Randkurven, koplanare Boolesche Differenzen; Fehler in
+    `critical_heights` in Nurbforge behoben (Issue #83, PR #84)
   - Erledigt: Nurbforge v0.6.0 (PR #43, gemergt und getaggt; STEP-Leser war schon vorhanden): `section`, `critical_heights`,
     `is_extrusion_band`, `read_step_named`/`shell_names`, `Micrometre`, TSAN-Job. FG: `fg::cad` (`include/fg/cad`,
     `src/cad`), Schichttyp `cad` (expandiert beim Laden), `fgsolve --cad-report`, `fg.cad.check/preview/llm_tool_spec`,

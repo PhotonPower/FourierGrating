@@ -190,7 +190,7 @@ print(L, g, sim.solve(lambda_um=0.6, delta_deg=90).efficiency("R", -1))
   Codes: `SHELL_OPEN`, `SHELL_ORIENTATION`, `BODY_OVERLAP`, `PERIODIC_OVERLAP`, `OUT_OF_RANGE`, `UNIT_SUSPECT`,
   `FEATURE_SMALL`, `BODY_UNASSIGNED`, `STEP_UNSUPPORTED`, `NOT_Z_INVARIANT`.
 - A body that overlaps its own periodic image is `PERIODIC_OVERLAP` in 2D, even with `periodic_union`; import line
-  gratings as 1D. `priority` uses Booleans in 2D; if they fail (e.g. coplanar faces), the check reports
+  gratings as 1D. `priority` uses Booleans in 2D; if one fails (open result shell), the check reports
   `BODY_OVERLAP`. Then separate the bodies in CAD.
 
 ## Choices and pitfalls

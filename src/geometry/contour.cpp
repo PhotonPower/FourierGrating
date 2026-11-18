@@ -174,6 +174,8 @@ void Contour2D::validate() const {
 }
 
 std::vector<Point2> Contour2D::flatten(double tol) const {
+  // tol <= 0 (e.g. from a degenerate bounding box) would subdivide every curved segment to depth 40
+  FG_REQUIRE(std::isfinite(tol) && tol > 0, "contour: flattening tolerance must be finite and > 0");
   std::vector<Point2> out;
   for (const auto& s : segments) flattenSegment(s, tol, 0, out);
   return out;

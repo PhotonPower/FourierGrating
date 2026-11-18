@@ -9,7 +9,7 @@ option(FG_BUILD_APPS    "Build command line applications"              ON)
 option(FG_WARNINGS_AS_ERRORS "Treat compiler warnings as errors"       OFF)
 option(FG_BUILD_PYTHON  "Build the Python module (scikit-build sets ON)" OFF)
 option(FG_ENABLE_NURBFORGE "CAD slicer: STEP files via Nurbforge (layer type cad, M14)" OFF)
-set(FG_NURBFORGE_TAG "v0.6.0" CACHE STRING "Nurbforge tag fetched with FG_ENABLE_NURBFORGE")
+set(FG_NURBFORGE_TAG "v0.12.1" CACHE STRING "Nurbforge tag fetched with FG_ENABLE_NURBFORGE")
 set(FG_PYTHON_PACKAGE "fouriergrating" CACHE STRING
     "Python package receiving the _core module (fouriergrating | fouriergrating_cuda12)")
 

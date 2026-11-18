@@ -805,7 +805,7 @@ void checkOverlaps(const CadOptions& o, const Stack& st, Model& m, Report& r) {
                     nf::Shell d = nf::boolean(m.bodies[i].shell, m.bodies[j].shell, nf::BooleanOp::Difference);
                     if (!d.free_edges().empty()) throw Error("the result is not closed");
                     m.bodies[i].shell = std::move(d);
-                  } catch (const std::exception& e) {  // e.g. coplanar faces (Nurbforge v0.6.0)
+                  } catch (const std::exception& e) {  // e.g. an open result shell
                     r.errors.push_back({"BODY_OVERLAP",
                                         "bodies '" + m.bodies[i].name + "' and '" + m.bodies[j].name +
                                             "' overlap and the Boolean difference of cad.overlap = \"priority\" "
