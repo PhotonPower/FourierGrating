@@ -322,6 +322,29 @@ Li in r; σ_sca in µm² (Mie: 2,448002):
 Extrapolation im Test (Ordnung in N aus κ_max = 4: p = 1,84; Richardson bei κ_max = 8; Rest κ^−2): 2,446596, also
 −5,7e-4 (Toleranz 1e-3). Mit der exakten Quelle (P = (ε − ε∞) E_bg) konvergiert σ_sca nur erster Ordnung in κ_max.
 
+**Nahfeld und Volumenintegrale (Plan v2.25).** `V21NearField` und `V21c.OpticalTheoremAndGoldSphere`:
+
+| Fall | Referenz | Abweichung |
+|---|---|---|
+| Brennebene eines Gauß-Strahls in Luft (x, z, radial) | vorgegebenes Profil | 2e-10 (Apertur), radial 5e-9 |
+| verlustbehaftete Säule (n = 1,5 + 0,1i), Laurent, κ_max = 4 | A_Ringe = 1 − R − T | 4e-14 |
+| dasselbe, Li in r über G±, κ_max = 2 / 4 / 8 | 1 − R − T | 2,3e-3 / 5,8e-4 / 1,5e-4 (direkt: 7,5e-3 / 3,5e-3 / 1,9e-3) |
+| Wand der Säule, D_r innen/außen (Abstand 2e-6 µm) | stetig | FFF 1e-5, direkt 56 % |
+| dielektrische Kugel (V21c, N = 20, κ_max = 4) | optisches Theorem = σ_sca | 1,1e-4 |
+| Goldkugel, Laurent (N = 10, κ_max = 16) | optisches Theorem = σ_sca + σ_abs | Rundung |
+
+Goldkugel (a = 50 nm, λ = 550 nm, n = 0,43 + 2,45i), Li in r, σ in 1e-3 µm² (Mie: 9,76 / 10,93 / 20,70):
+
+| N, κ_max | σ_sca | σ_abs | σ_ext | Theorem |
+|---|---|---|---|---|
+| 20, 16 | 6,82 | 13,45 | 20,27 | 18,00 |
+| 20, 32 | 8,24 | 12,43 | 20,67 | 20,02 |
+| 20, 64 | 10,03 | 12,71 | 22,74 | 22,62 |
+| 40, 32 | 7,60 | 12,49 | 20,09 | 19,48 |
+
+Die Extinktion trifft Mie auf wenige Prozent, die Aufteilung konvergiert langsam (Treppenecken der Metallkugel);
+der Plan verlangt hier nur einen qualitativen Vergleich.
+
 ## CAD-Import für 1D-Gitter (M23, V24)
 
 `tests/cad/test_cad.cpp` (`CAD_V24`, Label `validation`, nur mit Nurbforge), ohne Nurbforge

@@ -97,6 +97,7 @@ PlaneWaveSource planeWaveSource(const SpectralGrid& grid, int m, const Rings& ri
   MatC Qf(2 * n, 2 * n);
   Qf << Q.Qpp, Q.Qpm, Q.Qmp, Q.Qmm;
   B.Bpm = bh - Qf * ah;
+  B.Apm = std::move(ah);
   return B;
 }
 

@@ -202,8 +202,13 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
   - Erledigt (ebene Wellen, Plan v2.16): Einfall `plane_wave` (Streufeld, Hintergrund wie M18, Jacobi–Anger,
     konsistente Quelle bei Li in r), Streuquerschnitte oben/unten je Harmonischer (CSV `C_Sup`/`C_Sdown`/`C_Ssca`);
     V21c (Mie −5,7e-4), Drehsymmetrie und RK = RCWA mit Quelle – `tests/validation/test_v21_cyl.cpp`
-  - Als Nächstes: Nahfeld (damit σ_abs, σ_ext, optisches Theorem, Goldkugel), V21e (Strahl als Streufeld);
-    `rings_profile`, CAD; V21d/f/g/h/i
+  - Erledigt (Nahfeld, Plan v2.25): Nahfeld in Zylinderkoordinaten (Schnitte x–z und x–y, `nearfield.extent_um`,
+    FFF-Rekonstruktion über G± bei Li in r, Hintergrund der ebenen Welle im Ortsraum), Volumenintegrale über die
+    Ringe: σ_abs, σ_ext und optisches Theorem (Volumenform) für ebene Wellen (CSV `C_Sabs`, `C_Sext`, `C_Sext_ot`),
+    `absorbed_rings` für Strahlen; Zustandsvektoren an beliebigen Höhen basisunabhängig (kartesisch bitgleich) –
+    `tests/unit/test_cyl.cpp` (`CylField`), `tests/validation/test_v21_cyl.cpp` (`V21NearField`, V21c
+    optisches Theorem und Goldkugel)
+  - Als Nächstes: V21e (Strahl als Streufeld); `rings_profile`, CAD; Fernfeld und Winkelspektrum; V21d/f/g/h/i
 - [ ] **M21** P-zählige Drehsymmetrie: gekoppelte Harmonische m0 + lP, Winkelkoeffizienten aus `polygon2d`/
   `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)
   - Abnahme: V22a–g (Plan)

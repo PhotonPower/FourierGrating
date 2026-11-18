@@ -116,6 +116,11 @@ py::dict toDict(const fg::Result& r, double seconds, const std::vector<fg::prof:
       cy["scattered_up_um2"] = r.cylindrical.scatteredUp_um2;
       cy["scattered_down_um2"] = r.cylindrical.scatteredDown_um2;
       cy["scattering_um2"] = r.cylindrical.scattering_um2;
+      cy["absorption_um2"] = r.cylindrical.absorption_um2;
+      cy["extinction_um2"] = r.cylindrical.extinction_um2;
+      cy["extinction_theorem_um2"] = r.cylindrical.extinctionTheorem_um2;  // optical theorem (control)
+    } else {
+      cy["absorbed_rings"] = r.cylindrical.absorbedRings;  // volume integral over the rings
     }
     d["cylindrical"] = cy;
   }
@@ -388,6 +393,7 @@ PYBIND11_MODULE(_core, m) {
         d["horizontal"] = cutDict(nf.horizontal);
         d["vertical"] = cutDict(nf.vertical);
         d["incidence"] = wavelength(w);
+        d["warnings"] = nf.warnings;
         return d;
       },
       py::arg("config_json"), "Near-field cuts for the first scan point (block \"nearfield\").");

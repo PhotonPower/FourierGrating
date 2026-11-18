@@ -42,6 +42,7 @@ add_library(fg_core
   cyl/galerkin.cpp
   cyl/propagation.cpp
   cyl/excitation.cpp
+  cyl/field.cpp
   linalg/cpu_backend.cpp
   io/config.cpp
 )

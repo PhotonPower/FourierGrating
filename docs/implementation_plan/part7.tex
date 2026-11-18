@@ -480,6 +480,72 @@ $y$-invariant). Kartesisch bleiben vorerst die Quellen der Streufeldformulierung
         dennoch deutlich schneller (Laurent erster Ordnung).
 \end{itemize}
 
+\paragraph{Umsetzung (v2.25): Nahfeld, Absorption, Extinktion.}
+Die Zustandsvektoren an beliebigen Höhen (\eqref{eq:internal}, Sternprodukte unterhalb/oberhalb jeder Grenzfläche) sind
+basisunabhängig ausgelagert; der kartesische Pfad bleibt bitgleich. Je Harmonischer entstehen daraus die Spektren
+$e_\pm,h_\pm$, $h_y=\tfrac12\kappa(e_++e_-)$ und $e_y=Q_{yy}^{-1}(d_y-p_y)$ mit $d_y=-\tfrac12\kappa(h_++h_-)$
+\eqref{eq:cyl_spec}, \eqref{eq:cyl_scat} ($p_y$ nur bei ebenen Wellen). Festlegungen:
+\begin{itemize}[nosep]
+  \item \textbf{FFF-Rekonstruktion (Li in $r$):} $\mathfrak A$ aus \eqref{eq:cyl_li} wird mitgeführt; die Spektren von
+        $G_\pm$ sind $\mathfrak A^{-1}(e_\pm)$. Bei ebenen Wellen gilt für das Totalfeld $D=Q(E_s+E_{\text{bg}})$ (konsistente
+        Quelle) und $\mathfrak AE_{\text{bg}}=E_{\text{bg}}+\hat a$ ($\hat a$ wie in \eqref{eq:cyl_scat}), also
+        $G=\mathfrak A^{-1}(e_s-\hat ac)+E_{\text{bg}}$: synthetisiert wird der erste Teil, der Hintergrund wird im Ortsraum
+        als $B_\pm=e^{\mp i\varphi}(B_x\pm iB_z)$ addiert, danach $E_\pm$ punktweise aus \eqref{eq:cyl_G}. Laurent und
+        \verb|"reconstruction": "direct"|: $e_\pm$ direkt. Der Hintergrund einer ebenen Welle wird kartesisch und
+        ungekürzt ausgewertet ($e^{i(\alpha_0x+\gamma_0z)}\mathbf e_{\text{bg}}(y)$), \verb|"field": "scattered"| zieht ihn ab;
+        Strahlen liefern das Totalfeld.
+  \item \textbf{Schnitte:} $x$ (und $z$) symmetrisch auf $[-X,X]$ mit $n_x$ ($n_z$) Punkten einschließlich der Ränder,
+        $X=$\,\verb|nearfield.extent_um|, Standard $1{,}5R_s$; vertikaler Schnitt in der Ebene $z=$\,\verb|vertical_z_um|
+        ($z=0$: Meridianebene $\varphi=0,\pi$). Bessel-Tabellen je verschiedenem Radius (parallel). Deformierter Weg:
+        Punkte mit $\delta r>\ln10^3$ sind NaN, Warnung in \verb|NearFieldResult::warnings|.
+  \item \textbf{Genauigkeit der Synthese:} Mit 8 Knoten je Panel (Dichte $\pi/(2R_s)$) ist die Nyström-Summe für
+        $r<R_s/2$ auf $10^{-12}$, bei $r=1{,}2R_s$ auf $10^{-10}$ genau, mit 12 Knoten auf Rundung (Unit-Test, Gauß-Paar);
+        jenseits von etwa $2R_s$ nimmt die Genauigkeit ab.
+  \item \textbf{Volumenintegrale} über die Ringschichten bis zum äußersten Radius: Gauß in $r$ (gemeinsame Regel mit
+        Brüchen bei allen Ringradien des Stapels, Panels $\le\pi/(2k_{\max})$, 16 Knoten), in $y$ je Ringschicht Panels
+        $\le2/k_{\max}$ mit 8 Knoten (diese Höhen werden bei der Assemblierung aufgezeichnet); je Harmonischer
+        $|\mathbf E|^2=\tfrac12(|E_+|^2+|E_-|^2)+|E_y|^2$, $\varphi$-Integral $2\pi$, Summe über $m$.
+        $\sigma_{\text{abs}}=\tfrac1{2I_{\text{inc}}}\int\operatorname{Im}\varepsilon|\mathbf E|^2dV$,
+        $\sigma_{\text{ext}}=\sigma_{\text{sca}}+\sigma_{\text{abs}}$.
+  \item \textbf{Optisches Theorem} (Kontrolle) in Volumenform:
+        $\sigma_{\text{ext}}^{\text{OT}}=\tfrac1{2I_{\text{inc}}}\operatorname{Im}\int(\varepsilon-\varepsilon_\infty)\,\mathbf E\cdot
+        \bar{\mathbf E}_{\text{bg}}\,dV$ mit $\mathbf E\cdot\bar{\mathbf B}=\tfrac12(E_+\bar B_++E_-\bar B_-)+E_y\bar B_y$ je
+        Harmonischer, $B$ aus \eqref{eq:cyl_jacobi}. Das ist die Vorwärtsstreuamplitude
+        $\hat{\mathbf e}^*\cdot\mathbf f(\hat{\mathbf k}_{\text{inc}})\propto\int e^{-i\mathbf k\cdot\mathbf r}\hat{\mathbf e}^*\cdot\mathbf P\,dV$
+        (Volumendarstellung der Streuamplitude); sie gilt auch für einen verlustfreien Schichthintergrund
+        (Interferenzterm des Poynting-Satzes). Absorbiert der Hintergrund (Halbräume, homogene Schichten,
+        $\varepsilon_\infty$), sind $\sigma_{\text{abs}}$ und das Theorem nicht definiert: $\sigma_{\text{abs}}$ zählt dann nur
+        die Ringe, das Theorem ist NaN (Warnung).
+  \item \textbf{Strahl:} bei verlustbehafteten Ringen zusätzlich $A_{\text{Ringe}}$ (Volumenintegral, bezogen auf
+        $P_{\text{inc}}$); $A-A_{\text{Ringe}}$ ist der seitliche Abfluss plus die Absorption außerhalb der Ringe. Bei
+        verlustfreien Ringen entfällt das Integral (Golden File unverändert). \textbf{Aufwand:} Die Volumenintegrale
+        brauchen die Zustände an allen Grenzflächen (kumulierte S-Matrizen von unten und oben) und kosten etwa so viel wie
+        die Lösung selbst (Kugel, 40 Scheiben, $\kappa_{\max}=8$: 100\,s $\to$ 186\,s). Sie laufen daher nur bei
+        verlustbehafteten Ringen (sonst exakt $\sigma_{\text{abs}}=0$, $\sigma_{\text{ext}}=\sigma_{\text{sca}}$) oder mit
+        \verb|"cylindrical": {"optical_theorem": true}|; ohne sie ist das Theorem NaN (keine CSV-Zeile).
+        Ausgaben: CSV \verb|C_Sabs|, \verb|C_Sext|,
+        \verb|C_Sext_ot|; Python \verb|absorption_um2|, \verb|extinction_um2|, \verb|extinction_theorem_um2|,
+        \verb|absorbed_rings|.
+  \item \textbf{Befunde:} Brennebene eines Gauß-Strahls in Luft $=$ vorgegebenes Profil auf $2\cdot10^{-10}$ (Apertur;
+        $x$, $z$, radial). Verlustbehaftete Säule ($n=1{,}5+0{,}1i$) auf Glas: Laurent $A_{\text{Ringe}}=1-R-T$ auf
+        $4\cdot10^{-14}$ (diskreter Energiesatz); Li in $r$ mit $G_\pm$: Differenz $2{,}3\cdot10^{-3}$, $5{,}8\cdot10^{-4}$,
+        $1{,}5\cdot10^{-4}$ bei $\kappa_{\max}=2,4,8$ (zweite Ordnung), direkte Rekonstruktion nur erster Ordnung
+        ($7{,}5\cdot10^{-3}$, $3{,}5\cdot10^{-3}$, $1{,}9\cdot10^{-3}$). An der Wand ist $D_r$ mit $G_\pm$ auf $10^{-5}$ stetig
+        (direkt: Sprung $56\,\%$). Dielektrische Kugel (V21c, 20 Scheiben, $\kappa_{\max}=4$): Theorem $=\sigma_{\text{sca}}$
+        auf $1{,}1\cdot10^{-4}$. Laurent erhält die Energie diskret: Theorem $=\sigma_{\text{sca}}+\sigma_{\text{abs}}$ auf Rundung
+        (Goldkugel); bei Li in $r$ weicht es um den Abschneidefehler ab (einige Prozent bei Metallen).
+        \textbf{Goldkugel} ($a=50$\,nm, $\lambda=550$\,nm, $n=0{,}43+2{,}45i$, Mie: $\sigma_{\text{sca}}=9{,}76\cdot10^{-3}$,
+        $\sigma_{\text{abs}}=1{,}093\cdot10^{-2}$, $\sigma_{\text{ext}}=2{,}070\cdot10^{-2}$\,µm$^2$): Da
+        $k_{\max}=\kappa_{\max}\max\operatorname{Re}n$ bei Metallen klein ist, braucht $k_0a=0{,}57$ ein $\kappa_{\max}\approx32$.
+        Li in $r$, $N$ Scheiben (sca/abs/ext in $10^{-3}$\,µm$^2$): $N=20$: $6{,}82/13{,}45/20{,}27$ ($\kappa_{\max}=16$),
+        $8{,}24/12{,}43/20{,}67$ (32), $10{,}03/12{,}71/22{,}74$ (64); $N=40$, $\kappa_{\max}=32$: $7{,}60/12{,}49/20{,}09$.
+        Die Extinktion stimmt auf wenige Prozent, die Aufteilung in Streuung und Absorption konvergiert langsam
+        ($\pm15\,\%$): Treppenecken einer Metallkugel; Abhilfe wäre die FFF mit Normalenfeld in der Meridianebene
+        (Abschnitt~\ref{sec:cylfact}, nicht Teil von M20). Test: qualitativ ($25\,\%$, Extinktion $5\,\%$).
+  \item \textbf{Aufwand:} RK mit aufgezeichneten Höhen ist teuer (je Höhe eine Transfermatrix; verlustbehaftete Säule,
+        $\kappa_{\max}=2$, 24 Höhen: 56\,s gegenüber 1\,s mit RCWA).
+\end{itemize}
+
 \subsection{Differenzierbarkeit}
 Die Rückwärtsregeln von M19 gelten für $M$, $\mathfrak A^{-1}$, S-Matrizen und Sternprodukte unverändert. Neu sind
 Formableitungen der Galerkin-Matrizen nach einem Wandradius $r_i$ (Leibniz):

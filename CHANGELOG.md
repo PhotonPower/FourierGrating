@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Hinzugefügt
+- M20 Nahfeld und Querschnitte (Plan v2.25): `nearField` für Zylinderstapel (horizontaler Schnitt x–z, vertikaler
+  Schnitt x–y bei `vertical_z_um`; `nearfield.extent_um`, Standard 1,5 R_s). Spektren je Harmonischer aus den
+  Zustandsvektoren, Synthese mit Bessel-Tabellen, kartesische Komponenten nach eq:cyl_pm; bei Li in r
+  FFF-konsistent über die stetigen G± (`CylQ::A`, `PlaneWaveSource::Apm`), D_r an Ringwänden stetig. Ebene Wellen:
+  Hintergrund im Ortsraum, Total- oder Streufeld. Punkte jenseits r_max eines deformierten Weges sind NaN mit
+  Warnung (`NearFieldResult::warnings`, `fgsolve` und Python `near_field(...)["warnings"]`).
+- Volumenintegrale über die Ringe: Absorptionsquerschnitt σ_abs, σ_ext = σ_sca + σ_abs und das optische Theorem in
+  Volumenform als Kontrolle (CSV `C_Sabs`, `C_Sext`, `C_Sext_ot`; Python `absorption_um2`, `extinction_um2`,
+  `extinction_theorem_um2`); bei Strahlen auf verlustbehafteten Ringen `absorbed_rings`. Die Volumenintegrale laufen
+  nur bei verlustbehafteten Ringen oder mit `"cylindrical": {"optical_theorem": true}` (etwa doppelte Rechenzeit);
+  verlustfreie ebene Wellen rechnen so schnell wie bisher. Neue Bausteine
+  `fg/cyl/field.hpp` (`synthesis`, `besselTable`, `radialRule`, `fieldsFromG`).
+- Tests `CylField.*` (Gauß-Paar, radiale Regel, 𝔄 und â am Knoten, G±), `V21NearField.*` (Brennebene = Gauß-Profil
+  2e-10; A_Ringe = 1 − R − T: Laurent 4e-14, Li zweiter Ordnung; D_r an der Wand stetig), `V21c.OpticalTheoremAndGoldSphere`.
+
+### Geändert
+- Zustandsvektoren an beliebigen Höhen (`stateSamples`) und Hintergrundfeld (`backgroundAt`) sind aus dem kartesischen
+  Nahfeld ausgelagert und basisunabhängig; das LU von `G` wird je Element einmal statt je Höhe berechnet. Kartesische
+  Ergebnisse und Golden Files bitgleich.
+- `cylindricalSolve` teilt Gitter, Schichten und Anregung mit dem Nahfeld (`CylContext`); Strahl-Ergebnisse unverändert.
+
 ## [0.20.0] – M23 (CAD-Import für 1D-Gitter), Überlappungsprüfung in 2D, Agentenreferenz
 
 ### Hinzugefügt

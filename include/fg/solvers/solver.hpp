@@ -139,6 +139,16 @@ struct CylindricalResult {
   /// Per harmonic: beam relative to the total incident power; plane wave the cross sections up/down (um^2).
   std::vector<double> reflectedPerHarmonic, transmittedPerHarmonic;
   int nodes = 0;  ///< N_k of the spectral grid
+  /// Volume integrals over the rings (Plan "M20: Ausgaben", Gauss nodes in r and y, summed over the
+  /// harmonics). Plane wave: absorption cross section sigma_abs = 1/(2 I_inc) int Im eps |E|^2 dV,
+  /// extinction sigma_ext = sigma_sca + sigma_abs and, as a control, the optical theorem in volume form
+  /// sigma_ext = 1/(2 I_inc) Im int (eps - eps_inf) E . conj(E_bg) dV (the forward-scattering amplitude);
+  /// evaluated with lossy rings or cylindrical.optical_theorem, NaN otherwise and when the background
+  /// (superstrate, substrate, homogeneous layers, outer ring material) is lossy.
+  double absorption_um2 = 0, extinction_um2 = 0, extinctionTheorem_um2 = 0;
+  /// Beam: power absorbed inside the rings relative to the incident power (A minus absorbedRings is the
+  /// lateral outflow plus the absorption outside the rings).
+  double absorbedRings = 0;
 };
 
 struct Result {

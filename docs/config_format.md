@@ -77,7 +77,8 @@ Eine Einführung mit Beispielen steht im Anwenderhandbuch `docs/user_guide.md`.
     "y_range_um": [-0.2, 0.5],
     "nx": 400, "ny": 300, "nz": 200, "periods": 2,
     "quantities": ["E", "H", "absE2"],     // derzeit ohne Wirkung: es werden stets alle Größen geschrieben
-    "reconstruction": "fff"              // "direct" | "fff"
+    "reconstruction": "fff",             // "direct" | "fff"
+    "extent_um": 0                       // nur "cylindrical" (M20): x, z in [-extent, extent]; 0 = 1,5 R_s
   },
   "output": { "dir": "out/example", "efficiencies": "efficiencies.csv",
               "materials": "materials.csv" }    // optional (M22): n, ε je Scan-Wellenlänge
@@ -220,7 +221,8 @@ angeregt durch einen Strahl auf der Achse oder eine ebene Welle; `period_um`, `t
   "harmonics": "auto",                                    // oder Liste, z. B. [-1, 1]
   "spectrum": {"kappa_max": 6, "dk_factor": 1.0, "nodes_per_panel": 8,
                "deform": "auto"},                          // "auto" | false | {"delta": 0.05} (relativ zu k_b - k_a)
-  "factorization": "li_r"                                  // oder "laurent"
+  "factorization": "li_r",                                 // oder "laurent"
+  "optical_theorem": false                                 // ebene Welle: optisches Theorem als Kontrolle (teurer)
 },
 "incidence": {"type": "gaussian_beam", "lambda_um": 1.0, "waist_um": 0.5, "focus_y_um": 0.8,
               "polarization": "x"},  // x | z | circular_plus | circular_minus | radial | azimuthal
@@ -230,7 +232,9 @@ angeregt durch einen Strahl auf der Achse oder eine ebene Welle; `period_um`, `t
 `rings`: n Radien und n + 1 Materialien von innen nach außen (das letzte gilt außerhalb). Erlaubt sind `homogeneous`
 und `rings`, isotrope Materialien, homogene Halbräume. Ausgabe in `efficiencies.csv`: Seiten `C_R`, `C_T`, `C_A`
 (Leistungen bezogen auf den einfallenden Strahl; `C_A` = 1 − R − T enthält auch den seitlichen Abfluss geführter
-Moden) und je Harmonischer `C_Rm`, `C_Tm` (n = m).
+Moden) und je Harmonischer `C_Rm`, `C_Tm` (n = m). Sind Ringmaterialien verlustbehaftet, steht in Python
+`result.cylindrical["absorbed_rings"]` die in den Ringen absorbierte Leistung (Volumenintegral); `C_A` minus
+dieser Wert ist der seitliche Abfluss plus die Absorption außerhalb der Ringe.
 
 Ebene Welle (Streufeldformulierung, Hintergrund = Stapel mit dem äußersten Ringmaterial): Winkel wie beim
 kartesischen Einfall, Polarisation über `delta_deg`; Strahlparameter entfallen.
@@ -242,8 +246,19 @@ kartesischen Einfall, Polarisation über `delta_deg`; Strahlparameter entfallen.
 Harmonische `"auto"`: bei Normaleinfall m = ±1, sonst |m| ≤ m_cut = ⌈x + 4x^{1/3} + 2⌉ mit x = k₀ n_sup sin φ R_s
 (R_s: größter Ringradius; darüber verschwindet die Quelle). Ausgabe: Streuquerschnitte in µm² `C_Sup` (ins
 Superstrat), `C_Sdown` (ins Substrat), `C_Ssca` (Summe), je Harmonischer `C_Supm`, `C_Sdownm` (n = m); Python
-`result.cylindrical["scattering_um2"]` usw. Absorptions- und Extinktionsquerschnitt, Nahfeld, `rings_profile` und CAD
-folgen.
+`result.cylindrical["scattering_um2"]` usw. Dazu `C_Sabs` (Absorptionsquerschnitt: ½∫Im ε |E|² dV über die Ringe,
+bezogen auf die einfallende Intensität), `C_Sext` = `C_Ssca` + `C_Sabs` und als Kontrolle `C_Sext_ot` (optisches
+Theorem in Volumenform, ½ Im ∫(ε − ε_∞) E·Ē_bg dV). Die Volumenintegrale laufen nur bei verlustbehafteten Ringen
+(sonst σ_abs = 0, σ_ext = σ_sca) oder mit `"optical_theorem": true` (etwa doppelte Rechenzeit); `C_Sext_ot` fehlt
+sonst, ebenso bei verlustbehaftetem Hintergrund (Python dann `nan`). Python
+`absorption_um2`, `extinction_um2`, `extinction_theorem_um2`. `rings_profile` und CAD folgen.
+
+Nahfeld (`"nearfield"`, M20): horizontaler Schnitt bei `horizontal_y_um` als Karte x–z, vertikaler Schnitt x–y in der
+Ebene z = `vertical_z_um` (z = 0: Meridianebene); x und z laufen symmetrisch über [−`extent_um`, `extent_um`] mit
+`nx` bzw. `nz` Punkten einschließlich der Ränder (Standard 1,5 R_s; `periods` entfällt). Strahlen liefern das
+Totalfeld, ebene Wellen Total- oder Streufeld (`"field"`). `"reconstruction": "fff"` setzt bei Li in r das Feld
+aus den stetigen Hilfsgrößen G± zusammen (D_r stetig an den Wänden). Auf einem deformierten Weg sind Punkte mit
+δ r > ln 10³ `nan` (Warnung).
 
 Bei einem Sweep beginnen die CSV-Zeilen mit `sweep_parameter, sweep_value`; das Nahfeld wird für den ersten
 Scanpunkt des ersten Sweep-Werts berechnet. Darstellung: `scripts/plot_efficiencies.py`.

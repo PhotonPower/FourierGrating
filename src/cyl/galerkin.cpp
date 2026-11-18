@@ -164,6 +164,7 @@ CylQ cylQ(const SpectralGrid& grid, int m, const Rings& rings, CylFactorization 
   Q.Qpm = Qf.topRightCorner(n, n);
   Q.Qmp = Qf.bottomLeftCorner(n, n);
   Q.Qmm = Qf.bottomRightCorner(n, n);
+  Q.A = std::move(A);
   return Q;
 }
 

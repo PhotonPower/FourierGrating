@@ -10,6 +10,7 @@
 #include "fg/core/quadrature.hpp"
 #include "fg/cyl/bessel.hpp"
 #include "fg/cyl/excitation.hpp"
+#include "fg/cyl/field.hpp"
 #include "fg/cyl/galerkin.hpp"
 #include "fg/cyl/propagation.hpp"
 #include "fg/cyl/spectrum.hpp"
@@ -354,4 +355,85 @@ TEST(CylExcitation, LiConsistentSourceOnNode) {
     const VecC ref = Qf * E - rings.epsInf * E, got = B.Bpm * Eigen::Vector2cd(cp, cm);
     EXPECT_LT((got - ref).cwiseAbs().maxCoeff() / ref.cwiseAbs().maxCoeff(), 1e-12) << m;
   }
+}
+
+// Near-field building blocks (Plan "M20: S-Matrix, Loeser und Nahfeld"): synthesis, radial rule,
+// frak A for G_pm and the background column a^.
+TEST(CylField, SynthesisOfTheGaussianHankelPair) {
+  // order nu: r^nu e^{-r^2} <-> k^nu / 2^{nu+1} e^{-k^2/4} (Plan eq:hankel); harmonic m = nu + 1 uses
+  // T_m for order nu, m = nu - 1 uses T_p, m = nu uses T_0; negative orders through J_{-n} = (-1)^n J_n.
+  // 12 nodes per panel: the Nystroem sum is then exact to rounding up to r = 1.2 R_s (8 nodes, the
+  // default: 1e-12 for r < R_s / 2, 1e-10 at r = 1.2 R_s)
+  const auto grid = realGrid(14.0, 3.0, {1.0, 1.5}, 12);
+  const std::vector<double> r{0.0, 0.3, 1.1, 2.4, 3.7};
+  for (const int nu : {0, 1, 2}) {
+    VecC f(grid.k.size());
+    for (Eigen::Index j = 0; j < f.size(); ++j)
+      f(j) = std::pow(grid.k(j), nu) / std::pow(2.0, nu + 1) * std::exp(-grid.k(j) * grid.k(j) / 4.0);
+    for (const int m : {nu + 1, nu - 1, nu, -nu}) {
+      const cyl::Synthesis S = cyl::synthesis(grid, m, r);
+      const MatC& T = m == nu + 1 ? S.Tm : m == nu - 1 ? S.Tp : S.T0;
+      const double sign = (m == -nu && nu % 2 == 1) ? -1.0 : 1.0;  // J_{-nu} = (-1)^nu J_nu
+      const VecC got = T * f;
+      for (std::size_t s = 0; s < r.size(); ++s)
+        EXPECT_NEAR(std::abs(got(static_cast<Eigen::Index>(s)) - sign * std::pow(r[s], nu) * std::exp(-r[s] * r[s])), 0.0,
+                    1e-12)
+            << nu << " " << m << " " << r[s];
+    }
+  }
+}
+
+TEST(CylField, RadialRuleIntegratesBesselProducts) {
+  const std::vector<double> radii{0.4, 1.0, 2.5};
+  const cyl::RadialRule q = cyl::radialRule(radii, 9.0);
+  ASSERT_EQ(q.r.size(), q.w.size());
+  double area = 0;
+  for (std::size_t s = 0; s < q.r.size(); ++s) {
+    area += q.w[s];
+    EXPECT_TRUE(q.r[s] < radii[q.ring[s]] && q.r[s] > (q.ring[s] ? radii[q.ring[s] - 1] : 0.0));
+  }
+  EXPECT_NEAR(area, 0.5 * 2.5 * 2.5, 1e-14);
+  // the Lommel integral of the galerkin matrices on the rule (J_3(7.9 r) J_3(8.6 r) r over [0, 2.5])
+  cplx s = 0.0;
+  for (std::size_t i = 0; i < q.r.size(); ++i) s += q.w[i] * cyl::besselJ(3, 7.9 * q.r[i]) * cyl::besselJ(3, 8.6 * q.r[i]);
+  const cplx ref = integrate([](double r) { return cyl::besselJ(3, 7.9 * r) * cyl::besselJ(3, 8.6 * r) * r; }, 0.0, 2.5);
+  EXPECT_LT(std::abs(s - ref), 1e-14);
+}
+
+TEST(CylField, FrakAAndBackgroundColumnOnNode) {
+  // Li in r: A E_bg = E_bg + Apm (c_+; c_-) (Plan eq:cyl_li, the delta parts of a plane wave); with kpar
+  // on a node E_bg lies on the grid, as in LiConsistentSourceOnNode
+  const cyl::Rings rings{{0.6, 1.3}, {cplx(2.25, 0.1), 3.0}, 1.2};
+  const auto grid = realGrid(5.0, 1.3, {1.0});
+  const Eigen::Index n = grid.k.size(), l = 9;
+  const double kpar = grid.k(l).real(), Psi = 0.3;
+  for (const int m : {0, 2, -1}) {
+    const cyl::CylQ Q = cyl::cylQ(grid, m, rings, cyl::CylFactorization::LiR);
+    ASSERT_EQ(Q.A.rows(), 2 * n);
+    const cyl::PlaneWaveSource B = cyl::planeWaveSource(grid, m, rings, kpar, Psi, cyl::CylFactorization::LiR, Q);
+    ASSERT_EQ(B.Apm.rows(), 2 * n);
+    const cplx cp(0.4, -1.1), cm(-0.7, 0.2);
+    auto phase = [Psi](int nu) { return std::polar(1.0, nu * (0.5 * fg::PI - Psi)); };
+    VecC E = VecC::Zero(2 * n);
+    E(l) = cp * phase(m + 1) / (grid.w(l) * grid.k(l));
+    E(n + l) = cm * phase(m - 1) / (grid.w(l) * grid.k(l));
+    const VecC ref = Q.A * E - E, got = B.Apm * Eigen::Vector2cd(cp, cm);
+    EXPECT_LT((got - ref).cwiseAbs().maxCoeff() / ref.cwiseAbs().maxCoeff(), 1e-12) << m;
+    // Q = B A^{-1}: Q A = B, so (Q A - eps_inf) E_bg = b^ (the other half of the consistent source)
+    MatC Qf(2 * n, 2 * n);
+    Qf << Q.Qpp, Q.Qpm, Q.Qmp, Q.Qmm;
+    const VecC bh = B.Bpm * Eigen::Vector2cd(cp, cm) + Qf * got;
+    EXPECT_LT((Qf * (Q.A * E) - rings.epsInf * E - bh).cwiseAbs().maxCoeff() / bh.cwiseAbs().maxCoeff(), 1e-10) << m;
+  }
+  EXPECT_EQ(cyl::cylQ(grid, 1, rings, cyl::CylFactorization::Laurent).A.size(), 0);
+}
+
+TEST(CylField, FieldsFromGInvertTheAuxiliaryFields) {
+  // G_pm = D_r / eps_inf +- i E_phi (Plan eq:cyl_G) from E_r, E_phi and back
+  const cplx eps(-9.0, 1.3), ei = 1.7, Er(0.3, -0.8), Ephi(1.1, 0.4);
+  const cplx gp = eps * Er / ei + fg::I * Ephi, gm = eps * Er / ei - fg::I * Ephi;
+  cplx ep, em;
+  cyl::fieldsFromG(eps, ei, gp, gm, ep, em);
+  EXPECT_LT(std::abs(ep - (Er + fg::I * Ephi)), 1e-15);
+  EXPECT_LT(std::abs(em - (Er - fg::I * Ephi)), 1e-15);
 }

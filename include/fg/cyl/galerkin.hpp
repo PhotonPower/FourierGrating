@@ -34,8 +34,11 @@ struct Rings {
 };
 
 /// Factorization matrices of one harmonic m: d_pm = Q_pm+ e_+ + Q_pm- e_-, d_y = Q_yy e_y.
+/// Li in r additionally keeps frak A of Plan eq:cyl_li (2 N_k x 2 N_k): the spectra of the
+/// continuous G_pm are A^{-1} (e_+; e_-) (near fields, Plan eq:cyl_G); empty for Laurent.
 struct CylQ {
   MatC Qpp, Qpm, Qmp, Qmm, Qyy;
+  MatC A;
 };
 
 enum class CylFactorization { Laurent, LiR };
