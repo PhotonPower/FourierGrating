@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Geändert
+- Nurbforge-Pin `FG_NURBFORGE_TAG` v0.6.0 → v0.12.1 (Plan v2.26): exakte Randkurven (Kreise statt kubischer
+  Interpolanten), Boolesche Differenzen mit koplanaren Flächen (`overlap: "priority"` bei Körpern gleicher Höhe, Test
+  `CAD.PriorityWithCoplanarLids`). Golden File `cad_line_grating_1d.csv` neu erzeugt (Grund: die Schnittkanten der
+  gerundeten Linie liegen jetzt auf 8e-17 µm statt 3,9e-10 µm auf der exakten Geometrie; Effizienzen ändern sich um
+  höchstens 8e-11); alle anderen Golden Files bitgleich.
+
+### Behoben
+- Der Wechsel deckte einen Fehler in Nurbforge auf: `critical_heights` verlor Extrema auf Abtastpunkten (exakte Kreise
+  ab 0.7.0), der Hüllquader eines Zylinders fiel quer zur Achse zusammen und die Abflachung rekursierte mit Toleranz 0
+  (`CAD.TwoMaterialsAndCavity` hing). Behoben in Nurbforge 0.12.1 (Issue #83, PR #84). `Contour2D::flatten` lehnt eine
+  Toleranz ≤ 0 oder NaN jetzt mit einer Fehlermeldung ab (Test `Contour.FlattenRejectsANonPositiveTolerance`).
+
 ### Hinzugefügt
 - M20 Nahfeld und Querschnitte (Plan v2.25): `nearField` für Zylinderstapel (horizontaler Schnitt x–z, vertikaler
   Schnitt x–y bei `vertical_z_um`; `nearfield.extent_um`, Standard 1,5 R_s). Spektren je Harmonischer aus den

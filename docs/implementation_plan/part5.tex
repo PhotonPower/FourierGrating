@@ -340,7 +340,8 @@ Tag \verb|v0.6.0| ein.
 \subsection{Einbindung in FourierGrating}
 \begin{itemize}[nosep]
   \item CMake-Option \verb|FG_ENABLE_NURBFORGE| (Standard \verb|OFF| im Kern-CI, eigener CI-Job mit \verb|ON|);
-        \verb|FetchContent| auf das Tag \verb|v0.6.0| (\verb|NF_BUILD_PYTHON=OFF|, \verb|NF_BUILD_TESTS=OFF|), statisch gelinkt.
+        \verb|FetchContent| auf das Tag \verb|v0.6.0| (\verb|NF_BUILD_PYTHON=OFF|, \verb|NF_BUILD_TESTS=OFF|), statisch gelinkt;
+        seit v2.26 \verb|v0.12.1| (Abschnitt „Nurbforge-Version (v2.26)“).
         Die Python-Wheels (M12) werden mit \verb|ON| gebaut. Lizenzhinweis (MIT) in \verb|README.md|.
   \item Neuer Namensraum \verb|fg::cad| (\verb|include/fg/cad|, \verb|src/cad|). Kein anderes Modul inkludiert Nurbforge-Header.
   \item Python-Nutzer von Nurbforge übergeben Geometrie als STEP-Text (\verb|nf.to_step(shells)|); C++-Objekte werden
@@ -460,6 +461,18 @@ $10^{-9}$ der Modellgröße. \verb|BODY_OVERLAP|/\verb|PERIODIC_OVERLAP| werden 
 Kreuzung oder Enthaltensein der Schleifen samt periodischer Bilder) statt über Boolesche Volumina (bei gleichem
 Ergebnis um Größenordnungen schneller); Boolesche Operationen nur für \verb|"overlap": "priority"|.
 
+\paragraph{Nurbforge-Version (v2.26).} Der Pin steigt von \verb|v0.6.0| auf \verb|v0.12.1|. Gründe: seit v0.7.0 sind
+die Randkurven ebener Flächen und Kanten entlang Isolinien exakt (rationale Kreise statt kubischer Interpolanten;
+die Schnittkanten des Liniengitters \verb|examples/cad_line_grating_1d.json| liegen jetzt auf $8\cdot10^{-17}$\,µm
+statt $3{,}9\cdot10^{-10}$\,µm auf der exakten Geometrie, das Golden File ändert sich um höchstens $8\cdot10^{-11}$), und
+Boolesche Differenzen mit koplanaren Flächen gelingen (Nurbforge \#45; \verb|"priority"| bei Körpern gleicher Höhe,
+Test \verb|CAD.PriorityWithCoplanarLids|). Die exakten Kanten deckten einen Fehler in \verb|critical_heights| auf:
+Extrema, die genau auf einem Abtastpunkt der Vorzeichensuche liegen (Knoten der Viertelkreise), gingen verloren, der
+Hüllquader eines Zylinders fiel quer zur Achse auf eine Linie zusammen, und die Abflachung mit Toleranz 0 rekursierte
+$2^{40}$-fach (\verb|CAD.TwoMaterialsAndCavity| hing). Behoben in Nurbforge (Issue \#83, PR \#84, Release 0.12.1);
+FourierGrating lehnt eine Abflachungstoleranz $\le0$ seither mit einer Fehlermeldung ab. Die Schnittstellen von
+0.6.0 sind unverändert; die übrigen Golden Files bleiben bitgleich.
+
 \paragraph{Überlappungstest (v2.24).} Der Test „ein Randpunkt der einen Schleife liegt in der anderen“ ist für sich
 berührende Körper mehrdeutig, und echte Kreuzungen fehlen, wenn Ränder kollinear verlaufen (zwei Quader gleicher
 $z$-Ausdehnung): Solche Überlappungen blieben in Slicer \emph{und} Löser unbemerkt. Seit v2.24 gilt in beiden
@@ -469,8 +482,8 @@ der Mitte einer Randkante der einen Region liegt in der anderen (\verb|Region::i
 der kleineren Ausdehnung). Sich berührende Regionen sind erlaubt, außer eine Region berührt ihr eigenes Bild entlang
 eines Randstücks (\verb|geometry::sharedBoundary|). \verb|"priority"| prüft nach jeder Differenz neu, höchstens
 $n(n-1)/2+2$ Runden ($n$ Körper; vorher vier Runden ohne abschließende Prüfung). Liefert \verb|nf::boolean| eine
-offene Hülle oder eine Ausnahme (koplanare Flächen, Differenzen mit Ergebnissen früherer Differenzen in Nurbforge
-v0.6.0), meldet der Slicer \verb|BODY_OVERLAP| statt abzubrechen. Der Schnitt-Provider hält $10^{-8}$ der Zellgröße Abstand von den Bandgrenzen (dort liegen Deckel;
+offene Hülle oder eine Ausnahme (in Nurbforge v0.6.0: koplanare Flächen, Differenzen mit Ergebnissen früherer
+Differenzen; koplanare Flächen gehen seit v0.7.0), meldet der Slicer \verb|BODY_OVERLAP| statt abzubrechen. Der Schnitt-Provider hält $10^{-8}$ der Zellgröße Abstand von den Bandgrenzen (dort liegen Deckel;
 betrifft nur Auswertungen an Intervallenden). Tschebyschow-Interpolation: Q-Blöcke an Knoten erster Art.
 
 \subsection{Tests und Abnahme (M14)}

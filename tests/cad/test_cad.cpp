@@ -977,8 +977,8 @@ TEST(CAD, PeriodicUnionCannotResolveSelfOverlapIn2D) {
 
 TEST(CAD, PriorityResolvesEveryOverlap) {
   // five pairs of overlapping boxes: five Boolean differences, more than the four rounds of v2.21. The second box
-  // of a pair lies strictly inside the first in y and z (a planar cut without coplanar faces; Nurbforge v0.6.0
-  // cannot form differences with coplanar faces or with results of earlier differences reliably)
+  // of a pair lies strictly inside the first in y and z (a planar cut without coplanar faces; coplanar faces:
+  // PriorityWithCoplanarLids)
   std::vector<nf::Shell> boxes;
   std::vector<std::string> names;
   json bodies = json::array();
@@ -1000,6 +1000,23 @@ TEST(CAD, PriorityResolvesEveryOverlap) {
   EXPECT_NO_THROW((void)solve(base(json::array({l}))));
 }
 
+TEST(CAD, PriorityWithCoplanarLids) {
+  // two boxes of the same y range overlap (coplanar lids and coplanar side faces): Nurbforge v0.6.0 returned an
+  // open shell for this difference (BODY_OVERLAP since v2.24), v0.7.0 fixed it (Nurbforge #45). The earlier body
+  // wins: the result equals the model in which the overlap is already cut out of Q
+  const auto P = prism({{0.05, 0.2}, {0.15, 0.2}, {0.15, 0.3}, {0.05, 0.3}}, 0.0, 0.1),
+             Q = prism({{0.12, 0.2}, {0.22, 0.2}, {0.22, 0.3}, {0.12, 0.3}}, 0.0, 0.1),
+             Qcut = prism({{0.15, 0.2}, {0.22, 0.2}, {0.22, 0.3}, {0.15, 0.3}}, 0.0, 0.1);
+  const json pq = json::array({{{"name", "P"}, {"material", "pillar"}}, {{"name", "Q"}, {"material", "lid"}}});
+  json l = cadLayer(step({P, Q}, {"P", "Q"}), pq);
+  l["overlap"] = "priority";
+  const json r = report(base(json::array({l})));
+  EXPECT_EQ(codes(r), std::vector<std::string>{});
+  EXPECT_EQ(codes(r, "warnings"), std::vector<std::string>{"BODY_OVERLAP"});
+  const json ref = cadLayer(step({P, Qcut}, {"P", "Q"}), pq);
+  EXPECT_LT(maxDiff(solve(base(json::array({l}))), solve(base(json::array({ref})))), 1e-10);
+}
+
 TEST(CAD, OverlapWithCollinearEdgesIsFound) {
   // two boxes of the same z range: the boundaries only run along each other (no proper crossing); before v2.24
   // neither the slicer nor the solver noticed the overlap
@@ -1008,10 +1025,7 @@ TEST(CAD, OverlapWithCollinearEdgesIsFound) {
                              {"P", "Q"});
   const json pq = json::array({{{"name", "P"}, {"material", "pillar"}}, {{"name", "Q"}, {"material", "lid"}}});
   EXPECT_EQ(codes(report(base(json::array({cadLayer(s, pq)})))), std::vector<std::string>{"BODY_OVERLAP"});
-  // priority: the coplanar difference fails in Nurbforge v0.6.0 -> a finding, no exception
-  json l = cadLayer(s, pq);
-  l["overlap"] = "priority";
-  EXPECT_EQ(codes(report(base(json::array({l})))), std::vector<std::string>{"BODY_OVERLAP"});
+  // with priority the coplanar difference works since Nurbforge v0.7.0: CAD.PriorityWithCoplanarLids
   // touching boxes (common edge) are fine
   const std::string t = step({prism({{0.05, 0.2}, {0.15, 0.2}, {0.15, 0.3}, {0.05, 0.3}}, 0.0, 0.1),
                               prism({{0.15, 0.2}, {0.25, 0.2}, {0.25, 0.3}, {0.15, 0.3}}, 0.0, 0.1)},

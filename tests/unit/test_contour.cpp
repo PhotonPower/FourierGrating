@@ -165,3 +165,11 @@ TEST(Contour, Contour2DDisjointRegions) {
   EXPECT_THROW(solveRegions(R"({"material": "si", "circle": {"center_um": [0.25, 0.25], "radius_um": 0.3}})"), fg::Error);
   EXPECT_THROW(solveRegions(R"({"material": "si", "square": {"size_um": 0.1}})"), fg::Error);
 }
+
+TEST(Contour, FlattenRejectsANonPositiveTolerance) {
+  // a zero tolerance (degenerate bounding box of a CAD body) subdivided a circle 2^40 times
+  const Contour2D c = Contour2D::circle({0.25, 0.25}, 0.12);
+  EXPECT_THROW((void)c.flatten(0.0), fg::Error);
+  EXPECT_THROW((void)c.flatten(std::nan("")), fg::Error);
+  EXPECT_GT(c.flatten(1e-6).size(), 8u);
+}

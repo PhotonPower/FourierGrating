@@ -3,7 +3,8 @@
 Eine STEP-Datei beschreibt den Inhalt einer Einheitszelle (B-rep-Körper). FourierGrating zerlegt sie entlang
 der Stapelrichtung y in **Bänder** zwischen den kritischen Höhen und erzeugt daraus homogene, y-invariante
 (`contour2d`) und y-variable (`SectionedLayer`) Schichten. Gelesen und geschnitten wird mit
-[Nurbforge](https://github.com/PhotonPower/Nurbforge) (MIT) ≥ 0.6.0.
+[Nurbforge](https://github.com/PhotonPower/Nurbforge) (MIT), eingebaut v0.12.1. STEP-Dateien können mit jeder
+Nurbforge-Version ab 0.6.0 (oder einem anderen CAD-Programm) geschrieben werden.
 
 ```text
 STEP --nf::read_step_named--> Körper (+ Namen) --Einheit/Achsen--> FG-Koordinaten (µm)
@@ -20,7 +21,7 @@ STEP --nf::read_step_named--> Körper (+ Namen) --Einheit/Achsen--> FG-Koordinat
 | CMake (Windows, MinGW) | `cmake --preset win-cad` |
 | Python | `pip install fouriergrating` (Wheels mit Slicer) bzw. `pip install .` |
 
-`FG_ENABLE_NURBFORGE=ON` lädt Nurbforge (Tag `FG_NURBFORGE_TAG`, Standard `v0.6.0`) per `FetchContent` und linkt
+`FG_ENABLE_NURBFORGE=ON` lädt Nurbforge (Tag `FG_NURBFORGE_TAG`, Standard `v0.12.1`) per `FetchContent` und linkt
 es statisch; für eine lokale Kopie `-DFETCHCONTENT_SOURCE_DIR_NURBFORGE=<Pfad>`. Ohne die Option meldet eine
 `cad`-Schicht `NotImplemented`. `fgsolve --info` zeigt, ob der Slicer eingebaut ist. Nur `src/cad/` inkludiert
 Nurbforge-Header.
@@ -126,7 +127,7 @@ erhält Intervalle mit Materialien und die Normalen an den Grenzen.
 |---|---|
 | `SHELL_OPEN` | Körper nicht geschlossen (freie Kanten), mit Position |
 | `SHELL_ORIENTATION` | nicht konsistent orientiert oder negatives Volumen (korrigiert, Warnung) |
-| `BODY_OVERLAP` | zwei Körper überlappen (Schnittprüfung an drei Höhen je Band; berührende Körper sind erlaubt); bei `priority` auch, wenn die Boolesche Differenz in Nurbforge scheitert (z. B. koplanare Flächen) |
+| `BODY_OVERLAP` | zwei Körper überlappen (Schnittprüfung an drei Höhen je Band; berührende Körper sind erlaubt); bei `priority` auch, wenn die Boolesche Differenz in Nurbforge scheitert (offene Ergebnishülle) |
 | `PERIODIC_OVERLAP` | ein Körper überlappt sein periodisches Bild (bzw. das eines anderen) oder berührt sein eigenes entlang eines Randstücks (Körper umspannt die Periode) |
 | `OUT_OF_RANGE` | Geometrie außerhalb des y-Bereichs; 1D: `z_cut_um` schneidet nicht alle Körper |
 | `UNIT_SUSPECT` | Abmessungen passen nicht zu Periode / Wellenlänge (Faktor 10³ daneben) |

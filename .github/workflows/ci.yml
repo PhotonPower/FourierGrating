@@ -56,7 +56,7 @@ jobs:
         run: ctest --preset cpu-tsan -L unit -E Performance --timeout 3000
 
   cad:
-    # CAD slicer (M14): FG_ENABLE_NURBFORGE=ON (Nurbforge v0.6.0 via FetchContent)
+    # CAD slicer (M14): FG_ENABLE_NURBFORGE=ON (Nurbforge v0.12.1 via FetchContent)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
