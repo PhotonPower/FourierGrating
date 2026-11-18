@@ -22,6 +22,8 @@
 #include "fg/linalg/backend.hpp"
 #include "fg/physics/anisotropic.hpp"
 #include "fg/physics/efficiency.hpp"
+#include "fg/cyl/bessel.hpp"
+#include "fg/cyl/field.hpp"
 #include "fg/cyl/propagation.hpp"
 #include "cyl_basis.hpp"
 #include "fg/physics/modes.hpp"
@@ -590,7 +592,7 @@ class StackSolver final : public Solver {
   // ------------------------------------------------------------------ field coefficients
   FieldSampleSet fieldCoefficients(const Stack& stack, const Wavelength& wl, const std::vector<double>& y_um) override {
     if (stack.dispersive()) return fieldCoefficients(detail::resolveStack(stack, wl.lambda_um), wl, y_um);  // M22
-    if (stack.cylindrical.enabled) throw NotImplemented("cylindrical near fields (M20)");
+    if (stack.cylindrical.enabled) throw NotImplemented("cylindrical stacks: field coefficients (use nearField, M20)");
     const Setup s = setup(stack, wl);
     const auto models = buildModels(stack, s);
     return samples(s, models, y_um, nullptr);
@@ -600,7 +602,7 @@ class StackSolver final : public Solver {
   NearFieldResult nearField(const Stack& stack, const Wavelength& wl, const NearFieldRequest& req) override {
     FG_PROF_SCOPE("nearfield");
     if (stack.dispersive()) return nearField(detail::resolveStack(stack, wl.lambda_um), wl, req);  // M22
-    if (stack.cylindrical.enabled) throw NotImplemented("cylindrical near fields (M20)");
+    if (stack.cylindrical.enabled) return cylNearField(stack, wl, req);
     const Setup s = setup(stack, wl);
     const auto models = buildModels(stack, s);
     std::vector<double> ys;
@@ -630,143 +632,429 @@ class StackSolver final : public Solver {
 
  private:
   // ------------------------------------------------------------------ cylindrical (M20)
-  /// Beam on the axis or plane wave through a stack with ring layers (Plan sections "M20: Anregung",
-  /// "M20: S-Matrix, Loeser und Nahfeld"): one assembly per azimuthal harmonic with the Hankel basis,
-  /// powers from Plan eq:cyl_flux.
-  Result cylindricalSolve(const Stack& stack, const Wavelength& wl) {
+  /// Everything a cylindrical computation shares (Plan sections "M20: Anregung", "M20: S-Matrix, Loeser
+  /// und Nahfeld"): normalized setup, layers, spectral grid, harmonics and the excitation.
+  struct CylContext {
+    Setup s;
+    std::vector<std::unique_ptr<detail::CylLayer>> layers;
+    std::vector<const detail::StackLayer*> ptrs;
+    cyl::SpectralGrid grid;
+    cyl::CylFactorization fac = cyl::CylFactorization::LiR;
+    cplx epsSup = 1.0, epsSub = 1.0;
+    std::vector<int> ms;
+    bool planeWave = false;
+    double kmax = 0;    ///< cut-off of the spectrum (normalized)
+    double RsUm = 0;    ///< R_s of the spectrum in um: max(outer ring radius, 2 w0)
+    double delta = 0;   ///< depth of the deformed path (normalized; 0: real path)
+    double yTop = 0;    ///< normalized
+    double kpar = 0, Psi = 0;  ///< plane wave: lateral wave number and azimuth of the incidence
+    VecC g0, g1;        ///< beam: spectra of order 0 and 1 (Plan sec:cylexc)
+    std::string polarization;
+  };
+
+  CylContext cylContext(const Stack& stack, const Wavelength& wl) const {
     detail::requireResolved(stack);
-    FG_PROF_SCOPE("solve.cylindrical");
     detail::applyThreadSettings(opt_);
     setEigenThreads({1, sliceThreads(), std::max(1, opt_.threadsBlas)});
-    const CylindricalSpec& c = stack.cylindrical;
+    const CylindricalSpec& cs = stack.cylindrical;
     FG_REQUIRE(!stack.aperiodic.enabled && !stack.superstrateStructure && !stack.substrateStructure &&
                    !opt_.scatteredField,
                "cylindrical: aperiodic, structured half spaces and scattered_field are not available (M20)");
-    FG_REQUIRE(c.planeWave || c.waist_um > 0, "cylindrical: incidence gaussian_beam with waist_um > 0");
-    Result res;
-    res.diag.precision = linalg::precisionName(linalg::precision());
-    Setup s;
+    FG_REQUIRE(cs.planeWave || cs.waist_um > 0, "cylindrical: incidence gaussian_beam with waist_um > 0");
+    CylContext c;
+    Setup& s = c.s;
     s.k0 = 2.0 * PI / wl.lambda_um;
     const Material& sup = stack.material(stack.superstrate);
     const Material& sub = stack.material(stack.substrate);
     FG_REQUIRE(sup.isotropic && std::abs(sup.eps.imag()) < 1e-14 && sup.eps.real() > 0,
                "superstrate must be isotropic and lossless");
     FG_REQUIRE(sub.isotropic, "cylindrical: the substrate must be isotropic (M20)");
-    const auto layers = detail::buildCylLayers(stack, s.k0);
-    std::vector<const detail::StackLayer*> ptrs;
-    double yTop = 0, Rs_um = 2.0 * c.waist_um, nLayers = 0;
+    c.epsSup = sup.eps;
+    c.epsSub = sub.eps;
+    c.planeWave = cs.planeWave;
+    c.polarization = cs.polarization;
+    c.layers = detail::buildCylLayers(stack, s.k0);
+    double Rs_um = 2.0 * cs.waist_um, nLayers = 0, RingsUm = 0;
     std::vector<cplx> metals, dielectrics{sup.eps, sub.eps};
-    for (std::size_t k = 0; k < layers.size(); ++k) {
-      ptrs.push_back(layers[k].get());
-      yTop += layers[k]->thickness_um() * s.k0;
-      if (const auto* r = std::get_if<RingsLayer>(&stack.layers[k].spec)) Rs_um = std::max(Rs_um, r->radii_um.back());
-      for (const cplx e : layers[k]->epsList) {
+    for (std::size_t k = 0; k < c.layers.size(); ++k) {
+      c.ptrs.push_back(c.layers[k].get());
+      c.yTop += c.layers[k]->thickness_um() * s.k0;
+      if (const auto* r = std::get_if<RingsLayer>(&stack.layers[k].spec)) {
+        Rs_um = std::max(Rs_um, r->radii_um.back());
+        RingsUm = std::max(RingsUm, r->radii_um.back());
+      }
+      for (const cplx e : c.layers[k]->epsList) {
         nLayers = std::max(nLayers, std::sqrt(e).real());
         (e.real() < 0 ? metals : dielectrics).push_back(e);
       }
     }
+    c.RsUm = Rs_um;
     // spectrum (Plan sec:cylgrid): branch points of the half spaces, complex path over [k_a, k_b] when
     // the background can carry guided modes (a layer of higher index than both half spaces, or a metal)
     const double nSup = std::sqrt(sup.eps).real(), nSub = std::sqrt(sub.eps).real(), ka = std::max(nSup, nSub);
     const double nMax = std::max(ka, nLayers);
     cyl::SpectrumOptions o;
-    o.kmax = c.kappaMax * nMax;
+    o.kmax = cs.kappaMax * nMax;
     o.Rs = Rs_um * s.k0;
-    o.dkFactor = c.dkFactor;
-    o.nodesPerPanel = c.nodesPerPanel;
+    o.dkFactor = cs.dkFactor;
+    o.nodesPerPanel = cs.nodesPerPanel;
     o.branchPoints = {nSub, nSup};
     double kb = 1.2 * nMax;
     for (const cplx em : metals)
       for (const cplx ed : dielectrics) kb = std::max(kb, 1.2 * std::sqrt(em * ed / (em + ed)).real());
     const bool guided = nLayers > ka || !metals.empty();
-    if (c.deform == CylindricalSpec::Deform::On || (c.deform == CylindricalSpec::Deform::Auto && guided)) {
+    if (cs.deform == CylindricalSpec::Deform::On || (cs.deform == CylindricalSpec::Deform::Auto && guided)) {
       FG_REQUIRE(kb < o.kmax, "cylindrical: k_b of the deformed path must be below k_max (raise kappa_max)");
       o.deformA = ka;
       o.deformB = kb;
-      o.delta = c.deltaRel * (kb - ka);
+      o.delta = cs.deltaRel * (kb - ka);
     }
-    const cyl::SpectralGrid grid = cyl::spectralGrid(o);
-    const Eigen::Index n = grid.k.size();
-    const cyl::CylFactorization fac = c.liR ? cyl::CylFactorization::LiR : cyl::CylFactorization::Laurent;
+    c.grid = cyl::spectralGrid(o);
+    c.kmax = o.kmax;
+    c.delta = o.delta;
+    c.fac = cs.liR ? cyl::CylFactorization::LiR : cyl::CylFactorization::Laurent;
+    const Eigen::Index n = c.grid.k.size();
     if (c.planeWave) {
-      FG_REQUIRE(Rs_um > 0, "cylindrical plane wave: the stack needs a rings layer");
-      cylindricalPlaneWave(stack, wl, s, layers, ptrs, grid, fac, res);
-      return res;
+      FG_REQUIRE(RingsUm > 0, "cylindrical plane wave: the stack needs a rings layer");
+      // background stack (rings -> outer material) at the incidence order, solved as M18 (Airy)
+      Stack bs = stack;  // Cartesian background problem (one order, the period is not used)
+      bs.cylindrical = {};
+      bs.dx_um = 1.0;
+      bs.dz_um = 0.0;
+      s.map = IndexMap(0, 0);
+      s.epsSup = sup.eps;
+      s.inc = makeIncidence(std::sqrt(sup.eps.real()), wl.phi, wl.psi, wl.delta);
+      s.alpha = VecC::Constant(1, s.inc.alpha0);
+      s.gamma = VecC::Constant(1, s.inc.gamma0);
+      s.sub = &sub;
+      s.scattered = true;
+      background(bs, wl, s);
+      c.kpar = std::hypot(s.inc.alpha0, s.inc.gamma0);
+      c.Psi = c.kpar > 0 ? std::atan2(s.inc.gamma0, s.inc.alpha0) : 0.0;
+      c.ms = cs.harmonics;
+      if (c.ms.empty()) {
+        // the source of harmonic m vanishes for |m| > m_cut (Plan eq:cyl_scat); normal incidence: m = +-1
+        const int mc = c.kpar < 1e-12 ? 1 : cyl::harmonicCutoff(c.kpar * RingsUm * s.k0);
+        for (int m = -mc; m <= mc; ++m)
+          if (c.kpar >= 1e-12 || m != 0) c.ms.push_back(m);
+      }
+      return c;
     }
-
     // incident beam (Plan sec:cylexc): spectra of order 0 (w0^2/2 e^{-k^2 w0^2/4}) and order 1
     // (k w0^4/4 e^{-k^2 w0^2/4}, of r e^{-r^2/w0^2}); phase referenced at the top, aperture <= 1
-    const double w0 = c.waist_um * s.k0, yf = c.focus_y_um * s.k0;
-    VecC g0 = VecC::Zero(n), g1 = VecC::Zero(n);
+    const double w0 = cs.waist_um * s.k0, yf = cs.focus_y_um * s.k0;
+    c.g0 = VecC::Zero(n);
+    c.g1 = VecC::Zero(n);
     for (Eigen::Index j = 0; j < n; ++j) {
-      const cplx k = grid.k(j);
+      const cplx k = c.grid.k(j);
       if (k.imag() != 0.0 || k.real() >= nSup) continue;
-      const cplx ph = std::exp(I * std::sqrt(sup.eps - k * k) * (yf - yTop)) * std::exp(-k * k * w0 * w0 / 4.0);
-      g0(j) = 0.5 * w0 * w0 * ph;
-      g1(j) = 0.25 * k * w0 * w0 * w0 * w0 * ph;
+      const cplx ph = std::exp(I * std::sqrt(sup.eps - k * k) * (yf - c.yTop)) * std::exp(-k * k * w0 * w0 / 4.0);
+      c.g0(j) = 0.5 * w0 * w0 * ph;
+      c.g1(j) = 0.25 * k * w0 * w0 * w0 * w0 * ph;
     }
-    // harmonic -> (a_+, a_-) by Plan eq:cyl_pm
-    auto incident = [&](int m, VecC& ap, VecC& am) {
-      ap = VecC::Zero(n);
-      am = VecC::Zero(n);
-      const std::string& p = c.polarization;
-      if (p == "x") {
-        if (m == -1) ap = g0;
-        if (m == 1) am = g0;
-      } else if (p == "z") {
-        if (m == -1) ap = I * g0;
-        if (m == 1) am = -I * g0;
-      } else if (p == "circular_plus") {  // E_z = +i E_x: only E_x - i E_z = 2 f
-        if (m == 1) am = 2.0 * g0;
-      } else if (p == "circular_minus") {
-        if (m == -1) ap = 2.0 * g0;
-      } else if (p == "radial") {  // E_r = f: E_+ = E_- = f; spectrum of order -1 = -(order 1)
-        if (m == 0) ap = g1, am = -g1;
-      } else if (p == "azimuthal") {  // E_phi = f: E_pm = +-i f
-        if (m == 0) ap = I * g1, am = I * g1;
-      } else {
-        throw Error("cylindrical: polarization must be x, z, circular_plus, circular_minus, radial or azimuthal");
+    c.ms = cs.harmonics;
+    if (c.ms.empty()) {
+      const std::string& p = cs.polarization;
+      c.ms = (p == "radial" || p == "azimuthal") ? std::vector<int>{0}
+             : p == "circular_plus"              ? std::vector<int>{1}
+             : p == "circular_minus"             ? std::vector<int>{-1}
+                                                 : std::vector<int>{-1, 1};
+    }
+    return c;
+  }
+
+  /// Incident amplitudes (a_+; a_-) of harmonic m of the beam (Plan eq:cyl_pm, sec:cylexc).
+  static VecC cylIncident(const CylContext& c, int m) {
+    const Eigen::Index n = c.grid.k.size();
+    VecC ap = VecC::Zero(n), am = VecC::Zero(n);
+    const std::string& p = c.polarization;
+    if (p == "x") {
+      if (m == -1) ap = c.g0;
+      if (m == 1) am = c.g0;
+    } else if (p == "z") {
+      if (m == -1) ap = I * c.g0;
+      if (m == 1) am = -I * c.g0;
+    } else if (p == "circular_plus") {  // E_z = +i E_x: only E_x - i E_z = 2 f
+      if (m == 1) am = 2.0 * c.g0;
+    } else if (p == "circular_minus") {
+      if (m == -1) ap = 2.0 * c.g0;
+    } else if (p == "radial") {  // E_r = f: E_+ = E_- = f; spectrum of order -1 = -(order 1)
+      if (m == 0) ap = c.g1, am = -c.g1;
+    } else if (p == "azimuthal") {  // E_phi = f: E_pm = +-i f
+      if (m == 0) ap = I * c.g1, am = I * c.g1;
+    } else {
+      throw Error("cylindrical: polarization must be x, z, circular_plus, circular_minus, radial or azimuthal");
+    }
+    VecC a(2 * n);
+    a << ap, am;
+    return a;
+  }
+
+  /// Basis of harmonic m; plane waves: sources of the ring layers (Plan eq:cyl_scat) as the hook of the
+  /// scattered-field assembly (s.cylSource refers to the basis: reset it before the basis goes).
+  std::unique_ptr<detail::CylBasis> cylBasis(CylContext& c, int m) const {
+    auto basis = std::make_unique<detail::CylBasis>(c.grid, m, c.epsSup, c.epsSub, c.layers, c.fac);
+    if (c.planeWave) {
+      basis->setPlaneWave(c.kpar, c.Psi);
+      const detail::CylBasis* b = basis.get();
+      Setup* s = &c.s;
+      c.s.cylSource = [b, s](const detail::StackLayer& l, const Setup::BgLayer& L, const VecC& w) {
+        const cplx ey = computeEy(L.Q1, s->alpha, s->gamma, w)(0);
+        return b->source(l, w(0) + I * w(1), w(0) - I * w(1), ey);
+      };
+    }
+    return basis;
+  }
+
+  /// Spectra of one harmonic at a normalized height (Plan eq:cyl_spec); plane waves: the scattered field
+  /// and the background (Ex, Ey, Ez, Hx, Hy, Hz) of the incidence order on the axis.
+  struct CylSpectra {
+    int region = 0;          ///< -1 substrate, 0 layers, +1 superstrate
+    std::size_t layer = 0;   ///< region 0
+    VecC ep, em, ey, hp, hm, hy;
+    VecC g;                  ///< Li in r, ring layers: spectra of (G_+; G_-), without the background
+    Eigen::Matrix<cplx, 6, 1> bg = Eigen::Matrix<cplx, 6, 1>::Zero();
+  };
+
+  std::vector<CylSpectra> cylSpectra(const CylContext& c, const detail::CylBasis& basis, const Assembly& as,
+                                     const VecC& aIn, const std::vector<double>& yn) const {
+    const Setup& s = c.s;
+    const std::vector<StateSample> st = stateSamples(s, basis.ref(), basis.sub(), as, aIn, yn);
+    const Eigen::Index n = c.grid.k.size();
+    const VecC& k = c.grid.k;
+    std::vector<double> tops;
+    double y = 0;
+    for (const auto* l : c.ptrs) tops.push_back(y += l->thickness_um() * s.k0);
+    std::vector<CylSpectra> out;
+    for (std::size_t i = 0; i < yn.size(); ++i) {
+      CylSpectra sp;
+      sp.region = st[i].region;
+      const VecC& F = st[i].F;
+      sp.ep = F.segment(0, n);
+      sp.em = F.segment(n, n);
+      sp.hp = F.segment(2 * n, n);
+      sp.hm = F.segment(3 * n, n);
+      sp.hy = 0.5 * k.cwiseProduct(sp.ep + sp.em);
+      cplx cp = 0.0, cm = 0.0, eyb = 0.0;
+      if (s.scattered) {
+        QBlocks Q1;
+        const VecC a0 = VecC::Constant(1, s.inc.alpha0), g0 = VecC::Constant(1, s.inc.gamma0);
+        const VecC Fb = backgroundAt(s, yn[i], sp.region, as.yTop, Q1);
+        eyb = computeEy(Q1, a0, g0, Fb)(0);
+        sp.bg << Fb(0), eyb, Fb(1), Fb(2), computeHy(a0, g0, Fb)(0), Fb(3);
+        cp = Fb(0) + I * Fb(1);
+        cm = Fb(0) - I * Fb(1);
       }
-    };
-    std::vector<int> ms = c.harmonics;
-    if (ms.empty()) {
-      const std::string& p = c.polarization;
-      ms = (p == "radial" || p == "azimuthal") ? std::vector<int>{0}
-           : p == "circular_plus"              ? std::vector<int>{1}
-           : p == "circular_minus"             ? std::vector<int>{-1}
-                                               : std::vector<int>{-1, 1};
+      if (sp.region != 0) {
+        sp.ey = -0.5 * k.cwiseProduct(sp.hp + sp.hm) / (sp.region > 0 ? c.epsSup : c.epsSub);
+      } else {
+        while (sp.layer + 1 < tops.size() && yn[i] > tops[sp.layer]) ++sp.layer;
+        sp.ey = basis.ey(sp.layer, sp.hp, sp.hm, eyb);
+        VecC epm(2 * n);
+        epm << sp.ep, sp.em;
+        sp.g = basis.g(sp.layer, epm, cp, cm);
+      }
+      out.push_back(std::move(sp));
     }
-    double pInc = 0, pR = 0, pT = 0;
+    return out;
+  }
+
+  /// Gauss nodes in y over the ring layers (volume integrals, Plan "M20: Ausgaben"): panels <= 2/k_max
+  /// (|E|^2 of the evanescent modes decays like e^{-2 k_max y}), 8 nodes each.
+  struct CylYNode {
+    double y, w;
+    std::size_t layer;
+  };
+  static std::vector<CylYNode> cylYNodes(const CylContext& c) {
+    std::vector<CylYNode> out;
+    const auto& gl = quadrature::gaussLegendre(8);
+    double y0 = 0;
+    for (std::size_t l = 0; l < c.layers.size(); ++l) {
+      const double H = c.layers[l]->thickness_um() * c.s.k0;
+      if (!c.layers[l]->homogeneous() && H > 0) {
+        const int panels = std::max(1, static_cast<int>(std::ceil(H * c.kmax / 2.0)));
+        const double h = H / panels;
+        for (int p = 0; p < panels; ++p)
+          for (std::size_t q = 0; q < gl.x.size(); ++q)
+            out.push_back({y0 + h * (p + 0.5 * (gl.x[q] + 1)), 0.5 * h * gl.w[q], l});
+      }
+      y0 += H;
+    }
+    return out;
+  }
+
+  /// Common radial rule over [0, R] with breaks at every ring radius of the stack; eps of each ring
+  /// layer at the nodes (eps_inf beyond its outer radius).
+  struct CylRadial {
+    cyl::RadialRule rule;
+    std::vector<std::vector<cplx>> eps;  ///< per layer (empty for homogeneous layers)
+  };
+  static CylRadial cylRadial(const CylContext& c) {
+    std::vector<double> br;
+    for (const auto& L : c.layers)
+      if (!L->homogeneous()) br.insert(br.end(), L->rings.radii.begin(), L->rings.radii.end());
+    std::sort(br.begin(), br.end());
+    std::vector<double> u;
+    for (const double r : br)
+      if (u.empty() || r > u.back() * (1 + 1e-12)) u.push_back(r);
+    CylRadial out;
+    out.rule = cyl::radialRule(u, c.kmax);
+    for (const auto& L : c.layers) {
+      out.eps.emplace_back();
+      if (L->homogeneous()) continue;
+      for (const double r : out.rule.r) {
+        const auto it = std::lower_bound(L->rings.radii.begin(), L->rings.radii.end(), r);
+        out.eps.back().push_back(it == L->rings.radii.end() ? L->rings.epsInf
+                                                            : L->rings.eps[static_cast<std::size_t>(it - L->rings.radii.begin())]);
+      }
+    }
+    return out;
+  }
+
+  /// i^nu e^{-i nu Psi} of the Jacobi-Anger expansion (Plan eq:cyl_jacobi).
+  static cplx jacobiPhase(int nu, double Psi) { return std::polar(1.0, nu * (0.5 * PI - Psi)); }
+
+  /// Volume integrals of harmonic m over the rings (normalized powers, phi integrated): absorbed
+  /// 1/2 int Im eps |E|^2 dV and extinction 1/2 Im int (eps - eps_inf) E . conj(E_bg) dV (plane waves).
+  /// E is the total field, Li in r through G_pm (Plan eq:cyl_G), the background by Jacobi-Anger.
+  std::pair<double, double> cylVolume(const CylContext& c, int m, const std::vector<CylSpectra>& sp,
+                                      const std::vector<CylYNode>& yn, const CylRadial& rad) const {
+    const cyl::RadialRule& q = rad.rule;
+    const cyl::Synthesis T = cyl::synthesis(c.grid, m, q.r);
+    const std::size_t nr = q.r.size();
+    std::vector<cplx> Jp(nr, 0.0), Jm(nr, 0.0), J0(nr, 0.0);
+    if (c.planeWave)
+      for (std::size_t s = 0; s < nr; ++s) {
+        Jp[s] = jacobiPhase(m + 1, c.Psi) * cyl::besselJ(m + 1, c.kpar * q.r[s]);
+        Jm[s] = jacobiPhase(m - 1, c.Psi) * cyl::besselJ(m - 1, c.kpar * q.r[s]);
+        J0[s] = jacobiPhase(m, c.Psi) * cyl::besselJ(m, c.kpar * q.r[s]);
+      }
+    const Eigen::Index n = c.grid.k.size();
+    double absorbed = 0;
+    cplx ext = 0.0;
+    for (std::size_t l = 0; l < c.layers.size(); ++l) {
+      std::vector<std::size_t> idx;
+      for (std::size_t i = 0; i < yn.size(); ++i)
+        if (yn[i].layer == l) idx.push_back(i);
+      if (idx.empty()) continue;
+      const auto ny = static_cast<Eigen::Index>(idx.size());
+      const bool li = c.fac == cyl::CylFactorization::LiR;
+      MatC P(n, ny), Mn(n, ny), Y(n, ny);
+      for (Eigen::Index t = 0; t < ny; ++t) {
+        const CylSpectra& f = sp[idx[static_cast<std::size_t>(t)]];
+        P.col(t) = li ? VecC(f.g.head(n)) : f.ep;
+        Mn.col(t) = li ? VecC(f.g.tail(n)) : f.em;
+        Y.col(t) = f.ey;
+      }
+      const MatC Pr = T.Tp * P, Mr = T.Tm * Mn, Yr = T.T0 * Y;
+      const cplx ei = c.layers[l]->rings.epsInf;
+      const auto& eps = rad.eps[l];
+      for (Eigen::Index t = 0; t < ny; ++t) {
+        const CylSpectra& f = sp[idx[static_cast<std::size_t>(t)]];
+        const double wy = yn[idx[static_cast<std::size_t>(t)]].w;
+        const cplx cp = f.bg(0) + I * f.bg(2), cm = f.bg(0) - I * f.bg(2), eyb = f.bg(1);
+        for (std::size_t s = 0; s < nr; ++s) {
+          const auto si = static_cast<Eigen::Index>(s);
+          const cplx Bp = cp * Jp[s], Bm = cm * Jm[s], By = eyb * J0[s];
+          cplx Ep = Pr(si, t) + Bp, Em = Mr(si, t) + Bm;
+          if (li) cyl::fieldsFromG(eps[s], ei, Pr(si, t) + Bp, Mr(si, t) + Bm, Ep, Em);
+          const cplx Ey = Yr(si, t) + By;
+          const double w = q.w[s] * wy;
+          absorbed += w * eps[s].imag() * (0.5 * (std::norm(Ep) + std::norm(Em)) + std::norm(Ey));
+          ext += w * (eps[s] - ei) * (0.5 * (Ep * std::conj(Bp) + Em * std::conj(Bm)) + Ey * std::conj(By));
+        }
+      }
+    }
+    return {PI * absorbed, PI * ext.imag()};  // 1/2 * 2 pi (phi)
+  }
+
+  /// Beam on the axis or plane wave through a stack with ring layers (Plan sections "M20: Anregung",
+  /// "M20: S-Matrix, Loeser und Nahfeld", "M20: Ausgaben"): one assembly per azimuthal harmonic with the
+  /// Hankel basis, powers from Plan eq:cyl_flux, volume integrals over the rings.
+  Result cylindricalSolve(const Stack& stack, const Wavelength& wl) {
+    FG_PROF_SCOPE("solve.cylindrical");
+    CylContext c = cylContext(stack, wl);
+    Result res;
+    res.diag.precision = linalg::precisionName(linalg::precision());
+    const Eigen::Index n = c.grid.k.size();
+    bool lossyRings = false;
+    for (const auto& L : c.layers)
+      if (!L->homogeneous())
+        for (const cplx e : L->rings.eps) lossyRings = lossyRings || e.imag() != 0.0;
+    // volume integrals (Plan v2.25): only lossy rings absorb; lossless rings have sigma_abs = 0 and
+    // sigma_ext = sigma_sca exactly, the optical theorem is then an optional control
+    const bool volume = lossyRings || (c.planeWave && stack.cylindrical.opticalTheorem);
+    const std::vector<CylYNode> yq = volume ? cylYNodes(c) : std::vector<CylYNode>{};
+    const CylRadial rad = volume ? cylRadial(c) : CylRadial{};
+    std::vector<double> ys;
+    for (const auto& q : yq) ys.push_back(q.y);
+    CylindricalResult& cr = res.cylindrical;
+    cr.present = true;
+    cr.planeWave = c.planeWave;
+    cr.harmonics = c.ms;
+    cr.nodes = static_cast<int>(n);
+    if (c.planeWave) {
+      const double toArea = 1.0 / (c.s.incIntensity * c.s.k0 * c.s.k0);  // normalized power -> um^2
+      double pAbs = 0, pExt = 0;
+      for (const int m : c.ms) {
+        const auto basis = cylBasis(c, m);
+        const Assembly as = assemble(c.s, *basis, c.ptrs, volume, ys, res.diag);
+        VecC V = VecC::Zero(4 * n);
+        V.tail(2 * n) = as.totalSrc.u;  // scattered field, nothing comes in
+        const double up = cyl::flux(c.grid, basis->ref().Psi * V);
+        V.setZero();
+        V.head(2 * n) = as.totalSrc.v;
+        const double down = -cyl::flux(c.grid, basis->sub().Psi * V);
+        cr.reflectedPerHarmonic.push_back(up * toArea);
+        cr.transmittedPerHarmonic.push_back(down * toArea);
+        cr.scatteredUp_um2 += up * toArea;
+        cr.scatteredDown_um2 += down * toArea;
+        if (volume) {
+          const auto [a, e] = cylVolume(c, m, cylSpectra(c, *basis, as, VecC(), ys), yq, rad);
+          pAbs += a;
+          pExt += e;
+        }
+        c.s.cylSource = nullptr;
+      }
+      cr.scattering_um2 = cr.scatteredUp_um2 + cr.scatteredDown_um2;
+      cr.absorption_um2 = pAbs * toArea;
+      cr.extinction_um2 = cr.scattering_um2 + cr.absorption_um2;
+      bool lossless = std::abs(c.epsSub.imag()) < 1e-14;
+      for (const auto& L : c.layers)
+        lossless = lossless && std::abs((L->homogeneous() ? L->eps : L->rings.epsInf).imag()) < 1e-14;
+      cr.extinctionTheorem_um2 = lossless && volume ? pExt * toArea : std::nan("");
+      if (!lossless && volume)
+        res.diag.warnings.push_back(
+            "cylindrical plane wave: lossy background, sigma_abs counts the rings only and the optical theorem is not "
+            "evaluated");
+      return res;
+    }
+    double pInc = 0, pR = 0, pT = 0, pAbs = 0;
     std::vector<double> rm, tm;
-    for (const int m : ms) {
-      VecC ap, am;
-      incident(m, ap, am);
-      VecC aIn(2 * n);
-      aIn << ap, am;
+    for (const int m : c.ms) {
+      const VecC aIn = cylIncident(c, m);
       if (aIn.isZero(0.0)) {
         rm.push_back(0);
         tm.push_back(0);
         continue;
       }
-      const detail::CylBasis basis(grid, m, sup.eps, sub.eps, layers, fac);
-      const Assembly as = assemble(s, basis, ptrs, false, {}, res.diag);
+      const auto basis = cylBasis(c, m);
+      const Assembly as = assemble(c.s, *basis, c.ptrs, volume, ys, res.diag);
       const VecC b = as.total.S12 * aIn, aSub = as.total.S22 * aIn;
       VecC V = VecC::Zero(4 * n);
       V.head(2 * n) = aIn;
-      pInc -= cyl::flux(grid, basis.ref().Psi * V);
+      pInc -= cyl::flux(c.grid, basis->ref().Psi * V);
       V.setZero();
       V.tail(2 * n) = b;
-      rm.push_back(cyl::flux(grid, basis.ref().Psi * V));
+      rm.push_back(cyl::flux(c.grid, basis->ref().Psi * V));
       V.setZero();
       V.head(2 * n) = aSub;
-      tm.push_back(-cyl::flux(grid, basis.sub().Psi * V));
+      tm.push_back(-cyl::flux(c.grid, basis->sub().Psi * V));
       pR += rm.back();
       pT += tm.back();
+      if (volume) pAbs += cylVolume(c, m, cylSpectra(c, *basis, as, aIn, ys), yq, rad).first;
     }
     FG_REQUIRE(pInc > 0, "cylindrical: the incident beam carries no power (harmonics?)");
-    CylindricalResult& cr = res.cylindrical;
-    cr.present = true;
-    cr.harmonics = ms;
     for (double& v : rm) v /= pInc;
     for (double& v : tm) v /= pInc;
     cr.reflectedPerHarmonic = rm;
@@ -774,74 +1062,169 @@ class StackSolver final : public Solver {
     cr.reflected = pR / pInc;
     cr.transmitted = pT / pInc;
     cr.absorbed = 1.0 - cr.reflected - cr.transmitted;
-    cr.nodes = static_cast<int>(n);
+    cr.absorbedRings = pAbs / pInc;
     res.absorption = cr.absorbed;
     res.diag.energyBalance = cr.reflected + cr.transmitted;
     return res;
   }
 
-  /// Plane wave on a cylindrical stack (Plan sec:cylexc, "Ebene Welle (Streufeld)"): the background
-  /// stack (rings -> outer material) at the incidence order (Airy), the sources of the ring layers from
-  /// Jacobi-Anger (Plan eq:cyl_jacobi, eq:cyl_scat), scattered powers up and down per harmonic.
-  void cylindricalPlaneWave(const Stack& stack, const Wavelength& wl, Setup& s,
-                            const std::vector<std::unique_ptr<detail::CylLayer>>& layers,
-                            const std::vector<const detail::StackLayer*>& ptrs, const cyl::SpectralGrid& grid,
-                            cyl::CylFactorization fac, Result& res) {
-    const CylindricalSpec& c = stack.cylindrical;
-    const Material& sup = stack.material(stack.superstrate);
-    const Material& sub = stack.material(stack.substrate);
-    const Eigen::Index n = grid.k.size();
-    Stack cs = stack;  // Cartesian background problem (one order, the period is not used)
-    cs.cylindrical = {};
-    cs.dx_um = 1.0;
-    cs.dz_um = 0.0;
-    s.map = IndexMap(0, 0);
-    s.epsSup = sup.eps;
-    s.inc = makeIncidence(std::sqrt(sup.eps.real()), wl.phi, wl.psi, wl.delta);
-    s.alpha = VecC::Constant(1, s.inc.alpha0);
-    s.gamma = VecC::Constant(1, s.inc.gamma0);
-    s.sub = &sub;
-    s.scattered = true;
-    background(cs, wl, s);
-    const double kpar = std::hypot(s.inc.alpha0, s.inc.gamma0);
-    const double Psi = kpar > 0 ? std::atan2(s.inc.gamma0, s.inc.alpha0) : 0.0;
-    double Rs = 0;
-    for (const auto& L : layers)
-      if (!L->homogeneous()) Rs = std::max(Rs, L->rings.radii.back());
-    std::vector<int> ms = c.harmonics;
-    if (ms.empty()) {
-      // the source of harmonic m vanishes for |m| > m_cut (Plan eq:cyl_scat); normal incidence: m = +-1
-      const int mc = kpar < 1e-12 ? 1 : cyl::harmonicCutoff(kpar * Rs);
-      for (int m = -mc; m <= mc; ++m)
-        if (kpar >= 1e-12 || m != 0) ms.push_back(m);
+  /// Near-field cuts of a cylindrical stack (Plan "M20: S-Matrix, Loeser und Nahfeld"): spectra per
+  /// harmonic at the heights of the cuts, synthesis E_pm(r) = sum_j w_j k_j e_pm,j J_{m+-1}(k_j r), sum over
+  /// m with e^{i m phi}, Cartesian components by Plan eq:cyl_pm. Li in r (FFF reconstruction): G_pm
+  /// synthesized and E_pm from Plan eq:cyl_G at the point; plane waves add the background in real space.
+  NearFieldResult cylNearField(const Stack& stack, const Wavelength& wl, const NearFieldRequest& req) {
+    FG_PROF_SCOPE("nearfield.cylindrical");
+    CylContext c = cylContext(stack, wl);
+    const double k0 = c.s.k0;
+    const Eigen::Index n = c.grid.k.size();
+    std::vector<double> ys;  // um: ny rows of the vertical cut, then the horizontal cut
+    for (int k = 0; k < req.ny; ++k)
+      ys.push_back(req.ny == 1 ? req.y_min_um : req.y_min_um + (req.y_max_um - req.y_min_um) * k / (req.ny - 1));
+    ys.push_back(req.horizontal_y_um);
+    std::vector<double> yn;
+    for (const double y : ys) yn.push_back(y * k0);
+    std::vector<double> sorted = yn;
+    std::sort(sorted.begin(), sorted.end());
+    const double X = req.extent_um > 0 ? req.extent_um : 1.5 * c.RsUm;
+    auto axis = [X](int N) {
+      std::vector<double> v;
+      for (int k = 0; k < N; ++k) v.push_back(N == 1 ? 0.0 : -X + 2 * X * k / (N - 1));
+      return v;
+    };
+    const std::vector<double> xs = axis(req.nx), zs = axis(req.nz);
+    // spectra of every harmonic at every height
+    Diagnostics diag;
+    std::vector<std::vector<CylSpectra>> sp;
+    for (const int m : c.ms) {
+      const VecC aIn = c.planeWave ? VecC() : cylIncident(c, m);
+      const auto basis = cylBasis(c, m);
+      const Assembly as = assemble(c.s, *basis, c.ptrs, true, sorted, diag);
+      sp.push_back(cylSpectra(c, *basis, as, aIn, yn));
+      c.s.cylSource = nullptr;
     }
-    CylindricalResult& cr = res.cylindrical;
-    cr.present = true;
-    cr.planeWave = true;
-    cr.harmonics = ms;
-    cr.nodes = static_cast<int>(n);
-    const double toArea = 1.0 / (s.incIntensity * s.k0 * s.k0);  // normalized power -> um^2
-    for (const int m : ms) {
-      detail::CylBasis basis(grid, m, sup.eps, sub.eps, layers, fac);
-      basis.setPlaneWave(kpar, Psi);
-      s.cylSource = [&](const detail::StackLayer& l, const Setup::BgLayer& L, const VecC& w) {
-        const cplx ey = computeEy(L.Q1, s.alpha, s.gamma, w)(0);
-        return basis.source(l, w(0) + I * w(1), w(0) - I * w(1), ey);
-      };
-      const Assembly as = assemble(s, basis, ptrs, false, {}, res.diag);
-      VecC V = VecC::Zero(4 * n);
-      V.tail(2 * n) = as.totalSrc.u;  // scattered field, nothing comes in
-      const double up = cyl::flux(grid, basis.ref().Psi * V);
-      V.setZero();
-      V.head(2 * n) = as.totalSrc.v;
-      const double down = -cyl::flux(grid, basis.sub().Psi * V);
-      cr.reflectedPerHarmonic.push_back(up * toArea);
-      cr.transmittedPerHarmonic.push_back(down * toArea);
-      cr.scatteredUp_um2 += up * toArea;
-      cr.scatteredDown_um2 += down * toArea;
+    const bool fff = req.reconstruction == Reconstruction::FFF && c.fac == cyl::CylFactorization::LiR;
+    const double rmax = c.delta > 0 ? std::log(1e3) / c.delta : 1e300;  // deformed path: J grows like e^{|Im k| r}
+    NearFieldResult out;
+    bool beyond = false;
+    // permittivity at (r, sample)
+    auto epsAt = [&](const CylSpectra& f, double r) -> std::pair<cplx, cplx> {  // (eps, eps_inf of the layer)
+      if (f.region > 0) return {c.epsSup, c.epsSup};
+      if (f.region < 0) return {c.epsSub, c.epsSub};
+      const detail::CylLayer& L = *c.layers[f.layer];
+      if (L.homogeneous()) return {L.eps, L.eps};
+      const auto it = std::lower_bound(L.rings.radii.begin(), L.rings.radii.end(), r);
+      return {it == L.rings.radii.end() ? L.rings.epsInf : L.rings.eps[static_cast<std::size_t>(it - L.rings.radii.begin())],
+              L.rings.epsInf};
+    };
+    // one cut: points (x, z) at the samples i0..i1-1
+    auto cut = [&](const std::string& name, const std::vector<double>& x1, const std::vector<double>& z1, int i0, int i1) {
+      FieldCut fc;
+      fc.cut = name;
+      fc.lambda_um = wl.lambda_um;
+      fc.axis1_um = x1;
+      for (int i = i0; i < i1; ++i) fc.axis2_um.push_back(ys[static_cast<std::size_t>(i)]);
+      // radial values per unique radius (normalized): 6 components per harmonic and sample
+      std::vector<double> radii;
+      for (const double z : z1)
+        for (const double x : x1) radii.push_back(std::hypot(x, z) * k0);
+      std::sort(radii.begin(), radii.end());
+      radii.erase(std::unique(radii.begin(), radii.end()), radii.end());
+      const int mmax = [&] {
+        int v = 0;
+        for (const int m : c.ms) v = std::max(v, std::abs(m) + 1);
+        return v;
+      }();
+      const std::size_t nm = c.ms.size(), ns = static_cast<std::size_t>(i1 - i0), nrad = radii.size();
+      std::vector<std::array<cplx, 6>> val(nrad * nm * ns);  // (E+ or G+, E- or G-, Ey, H+, H-, Hy)
+      const VecC wk = c.grid.w.cwiseProduct(c.grid.k);
+      const Settings settings = currentSettings();
+      parallelFor(static_cast<int>(nrad), opt_.threadsSlices > 0 ? opt_.threadsSlices : availableThreads(), [&](int ri) {
+        settings.apply();
+        const double r = radii[static_cast<std::size_t>(ri)];
+        if (r > rmax) return;
+        const MatC t = cyl::besselTable(c.grid.k, mmax, r);
+        for (std::size_t h = 0; h < nm; ++h) {
+          const int m = c.ms[h];
+          VecC Jp(n), Jm(n), J0(n);
+          for (Eigen::Index j = 0; j < n; ++j) {
+            Jp(j) = wk(j) * cyl::tableJ(t, m + 1, j);
+            Jm(j) = wk(j) * cyl::tableJ(t, m - 1, j);
+            J0(j) = wk(j) * cyl::tableJ(t, m, j);
+          }
+          for (std::size_t i = 0; i < ns; ++i) {
+            const CylSpectra& f = sp[h][static_cast<std::size_t>(i0) + i];
+            const bool useG = fff && f.g.size();
+            auto& v = val[(static_cast<std::size_t>(ri) * nm + h) * ns + i];
+            v[0] = (Jp.transpose() * (useG ? VecC(f.g.head(n)) : f.ep)).value();
+            v[1] = (Jm.transpose() * (useG ? VecC(f.g.tail(n)) : f.em)).value();
+            v[2] = (J0.transpose() * f.ey).value();
+            v[3] = (Jp.transpose() * f.hp).value();
+            v[4] = (Jm.transpose() * f.hm).value();
+            v[5] = (J0.transpose() * f.hy).value();
+          }
+        }
+      });
+      for (int i = i0; i < i1; ++i)
+        for (const double z : z1)
+          for (const double x : x1) {
+            const double r = std::hypot(x, z) * k0, phi = std::atan2(z, x);
+            const std::size_t ri = static_cast<std::size_t>(std::lower_bound(radii.begin(), radii.end(), r) - radii.begin());
+            const std::size_t si = static_cast<std::size_t>(i - i0);
+            const CylSpectra& f0 = sp.front()[static_cast<std::size_t>(i)];
+            const auto [eps, ei] = epsAt(f0, r);
+            fc.material.push_back(eps.real());
+            if (r > rmax) {
+              beyond = true;
+              for (int a = 0; a < 3; ++a) {
+                fc.E[a].push_back(std::nan(""));
+                fc.H[a].push_back(std::nan(""));
+              }
+              continue;
+            }
+            std::array<cplx, 6> S{};  // sum over the harmonics
+            for (std::size_t h = 0; h < nm; ++h) {
+              const cplx e = std::polar(1.0, c.ms[h] * phi);
+              const auto& v = val[(ri * nm + h) * ns + si];
+              for (int a = 0; a < 6; ++a) S[static_cast<std::size_t>(a)] += v[static_cast<std::size_t>(a)] * e;
+            }
+            // background in real space (plane wave): E_bg e^{i (alpha0 x + gamma0 z)}, circular B_pm = e^{-+i phi} (B_x +- i B_z)
+            std::array<cplx, 6> B{};
+            if (c.planeWave) {
+              const cplx ph = std::exp(I * k0 * (c.s.inc.alpha0 * x + c.s.inc.gamma0 * z));
+              for (int a = 0; a < 6; ++a) B[static_cast<std::size_t>(a)] = ph * f0.bg(a);
+            }
+            const cplx ep = std::polar(1.0, phi), emi = std::conj(ep);
+            const cplx Bp = emi * (B[0] + I * B[2]), Bm = ep * (B[0] - I * B[2]);
+            cplx Ep = S[0] + Bp, Em = S[1] + Bm;  // total circular components
+            if (fff && f0.g.size()) cyl::fieldsFromG(eps, ei, S[0] + Bp, S[1] + Bm, Ep, Em);
+            const cplx Hp = S[3] + emi * (B[3] + I * B[5]), Hm = S[4] + ep * (B[3] - I * B[5]);
+            cplx E[3] = {0.5 * (ep * Ep + emi * Em), S[2] + B[1], (ep * Ep - emi * Em) / (2.0 * I)};
+            cplx H[3] = {0.5 * (ep * Hp + emi * Hm), S[5] + B[4], (ep * Hp - emi * Hm) / (2.0 * I)};
+            if (req.scattered)
+              for (int a = 0; a < 3; ++a) {
+                E[a] -= B[static_cast<std::size_t>(a)];
+                H[a] -= B[static_cast<std::size_t>(3 + a)];
+              }
+            for (int a = 0; a < 3; ++a) {
+              fc.E[a].push_back(E[a]);
+              fc.H[a].push_back(H[a]);
+            }
+          }
+      return fc;
+    };
+    out.vertical = cut("vertical", xs, {req.vertical_z_um}, 0, req.ny);
+    out.horizontal = cut("horizontal", xs, zs, req.ny, req.ny + 1);
+    out.horizontal.axis2Name = "z";
+    out.horizontal.axis2_um = zs;
+    if (beyond) {
+      std::ostringstream w;
+      w << "cylindrical near field: points beyond r_max = " << rmax / k0
+        << " um of the deformed spectral path are NaN (choose a smaller delta or extent_um)";
+      out.warnings.push_back(w.str());
     }
-    s.cylSource = nullptr;
-    cr.scattering_um2 = cr.scatteredUp_um2 + cr.scatteredDown_um2;
+    if (req.scattered && !c.planeWave)
+      out.warnings.push_back("cylindrical near field: a beam is the total field (field \"scattered\" ignored)");
+    return out;
   }
 
   detail::LayerModels buildModels(const Stack& stack, const Setup& s) const {
@@ -1861,18 +2244,20 @@ class StackSolver final : public Solver {
   }
 
   // ------------------------------------------------------------------ field coefficients
-  FieldSampleSet samples(const Setup& s, const std::vector<std::unique_ptr<LayerModel>>& models,
-                         const std::vector<double>& y_um, std::vector<const Element*>* where) {
-    FG_PROF_SCOPE("nearfield.coefficients");
-    std::vector<double> yn;
-    for (double y : y_um) yn.push_back(y * s.k0);
-    std::vector<double> sorted = yn;
-    std::sort(sorted.begin(), sorted.end());
-    Diagnostics diag;
-    assembly_ = assemble(s, CartesianBasis(s), layerPtrs(models), true, sorted, diag);
-    const auto& el = assembly_.elems;
+  /// Field state at a normalized height (Plan eq:internal): region -1 substrate, 0 layers (element e),
+  /// +1 superstrate.
+  struct StateSample {
+    int region = 0;
+    VecC F;
+    const Element* e = nullptr;
+  };
+  /// States F at the normalized heights yn from a recorded assembly, for any modal basis (ref: reference
+  /// medium = superstrate, sub: substrate); a_in: incident amplitudes (ignored for the scattered field).
+  static std::vector<StateSample> stateSamples(const Setup& s, const ModeBasis& ref, const ModeBasis& sub,
+                                               const Assembly& as, const VecC& a_inc, const std::vector<double>& yn) {
+    const auto& el = as.elems;
     const std::size_t K = el.size() - 1;
-    const int nf = s.map.size(), nh = 2 * nf;
+    const Eigen::Index nh = ref.Psi.rows() / 2;
     const VecC b_in = VecC::Zero(nh);
     std::vector<VecC> amp(K + 1);  // (a_q; b_q) in the reference basis (Plan eq:internal)
     VecC a_in, a_sub;
@@ -1885,7 +2270,7 @@ class StackSolver final : public Solver {
       std::vector<SourcedSMatrix> SL(K + 1), SU(K + 1);
       SL[0] = src(0);
       for (std::size_t q = 1; q <= K; ++q) SL[q] = star(SL[q - 1], src(q));
-      SU[K] = SourcedSMatrix::identity(nh);
+      SU[K] = SourcedSMatrix::identity(static_cast<int>(nh));
       for (std::size_t q = K; q-- > 0;) SU[q] = star(src(q + 1), SU[q + 1]);
       a_in = VecC::Zero(nh);
       for (std::size_t q = 0; q <= K; ++q) amp[q] = interfaceAmplitudes(SL[q], SU[q], b_in, a_in);
@@ -1895,12 +2280,107 @@ class StackSolver final : public Solver {
       std::vector<SMatrix> SL(K + 1), SU(K + 1);
       SL[0] = el[0].S;
       for (std::size_t q = 1; q <= K; ++q) SL[q] = star(SL[q - 1], el[q].S);
-      SU[K] = SMatrix::identity(nh);
+      SU[K] = SMatrix::identity(static_cast<int>(nh));
       for (std::size_t q = K; q-- > 0;) SU[q] = star(el[q + 1].S, SU[q + 1]);
-      a_in = incidentAmplitudes(s);
+      a_in = a_inc;
       for (std::size_t q = 0; q <= K; ++q) amp[q] = interfaceAmplitudes(SL[q], SU[q], b_in, a_in);
       a_sub = SL[K].S22 * a_in;  // substrate amplitudes at y = 0 (total = SL[K])
     }
+    std::vector<StateSample> out;
+    std::vector<std::unique_ptr<Eigen::PartialPivLU<MatC>>> Glu(K + 1);  // one LU per element, not per height
+    for (const double y : yn) {
+      StateSample st;
+      if (y < 0) {
+        st.region = -1;
+        VecC ph(nh);
+        for (Eigen::Index c = 0; c < nh; ++c) ph(c) = std::exp(sub.lambda(c) * y);
+        st.F = sub.Psi.leftCols(nh) * ph.cwiseProduct(a_sub);
+      } else if (y > as.yTop) {
+        st.region = 1;
+        const double d = y - as.yTop;
+        VecC v(2 * nh);
+        for (Eigen::Index c = 0; c < nh; ++c) {
+          v(c) = a_in(c) * std::exp(ref.lambda(c) * d);
+          v(nh + c) = amp[K](nh + c) * std::exp(ref.lambda(nh + c) * d);
+        }
+        st.F = ref.Psi * v;
+      } else {
+        std::size_t k = 1;
+        while (k < K && y > el[k].y1) ++k;
+        const Element& e = el[k];
+        st.e = &e;
+        const VecC& lo = amp[k - 1];  // (a_{k-1}; b_{k-1}) at the bottom
+        const VecC& hi = amp[k];      // (a_k; b_k) at the top
+        if (e.kind == Element::Kind::Modes) {
+          const Eigen::Index n = e.modes.lu.size();
+          VecC rhs(2 * n);
+          rhs << lo.tail(n), hi.head(n);  // (b_bottom; a_top)
+          if (!e.pVec.empty()) {  // homogeneous part = total - particular solution
+            const VecC g0 = ref.PsiInv * e.particular(e.y0), g1 = ref.PsiInv * e.particular(e.y1);
+            rhs.head(n) -= g0.tail(n);
+            rhs.tail(n) -= g1.head(n);
+          }
+          if (!Glu[k]) Glu[k] = std::make_unique<Eigen::PartialPivLU<MatC>>(e.G);
+          const VecC cc = Glu[k]->solve(rhs);
+          VecC cu = cc.head(n), cd = cc.tail(n);
+          for (Eigen::Index j = 0; j < n; ++j) {
+            cu(j) *= std::exp(e.modes.lu(j) * (y - e.y0));
+            cd(j) *= std::exp(e.modes.ld(j) * (y - e.y1));
+          }
+          st.F = e.modes.Wu * cu + e.modes.Wd * cd;
+          if (!e.pVec.empty()) st.F += e.particular(y);
+        } else {
+          const VecC F0 = ref.Psi * lo;
+          st.F = F0;
+          for (std::size_t j = 0; j < e.ys.size(); ++j)
+            if (std::abs(e.ys[j] - y) <= 1e-14 * std::max(1.0, std::abs(y)))
+              st.F = e.f.empty() ? VecC(e.T[j] * F0) : VecC(e.T[j] * F0 + e.f[j]);
+          if (y >= e.y1 - 1e-14 * std::max(1.0, std::abs(y))) st.F = ref.Psi * hi;
+        }
+      }
+      out.push_back(std::move(st));
+    }
+    return out;
+  }
+
+  /// Background field (Ex, Ez, Hx, Hz) of the incidence order at normalized y (scattered-field
+  /// formulation) and the permittivity Q1 of its medium (single order).
+  static VecC backgroundAt(const Setup& s, double y, int region, double yTop, QBlocks& Q1) {
+    const VecC a0 = VecC::Constant(1, s.inc.alpha0), g0 = VecC::Constant(1, s.inc.gamma0);
+    if (region > 0) {
+      const ModeBasis sup = isotropicModes(s.epsSup, a0, g0);
+      const double d = y - yTop;
+      VecC v(4);
+      v << s.inc.A(0) * std::exp(sup.lambda(0) * d), s.inc.A(2) * std::exp(sup.lambda(1) * d),
+          s.bgTop(0) * std::exp(sup.lambda(2) * d), s.bgTop(1) * std::exp(sup.lambda(3) * d);
+      Q1 = homogeneousIsotropicQ(s.epsSup, 1);
+      return sup.Psi * v;
+    }
+    if (region < 0) {
+      const ModeBasis sb = s.sub->isotropic ? isotropicModes(s.sub->eps, a0, g0) : anisotropicModes(s.sub->epsTensor, a0, g0);
+      VecC v = VecC::Zero(4);
+      v(0) = s.bgSub(0) * std::exp(sb.lambda(0) * y);
+      v(1) = s.bgSub(1) * std::exp(sb.lambda(1) * y);
+      Q1 = s.sub->isotropic ? homogeneousIsotropicQ(s.sub->eps, 1) : homogeneousTensorQ(s.sub->epsTensor, 1);
+      return sb.Psi * v;
+    }
+    const Setup::BgLayer& L = bgLayer(s, y);
+    Q1 = L.Q1;
+    return bgField(L, y);
+  }
+
+  FieldSampleSet samples(const Setup& s, const std::vector<std::unique_ptr<LayerModel>>& models,
+                         const std::vector<double>& y_um, std::vector<const Element*>* where) {
+    FG_PROF_SCOPE("nearfield.coefficients");
+    std::vector<double> yn;
+    for (double y : y_um) yn.push_back(y * s.k0);
+    std::vector<double> sorted = yn;
+    std::sort(sorted.begin(), sorted.end());
+    Diagnostics diag;
+    assembly_ = assemble(s, CartesianBasis(s), layerPtrs(models), true, sorted, diag);
+    const int nf = s.map.size();
+    const std::vector<StateSample> st =
+        stateSamples(s, s.ref, s.subModes, assembly_, s.scattered ? VecC() : incidentAmplitudes(s), yn);
 
     FieldSampleSet out;
     out.k0 = s.k0;
@@ -1914,97 +2394,36 @@ class StackSolver final : public Solver {
       const double y = yn[i];
       FieldSample fsm;
       fsm.y_um = y_um[i];
+      fsm.region = st[i].region;
+      fsm.F = st[i].F;
       QBlocks Q;
-      if (y < 0) {
-        fsm.region = -1;
-        VecC ph(nh);
-        for (int c = 0; c < nh; ++c) ph(c) = std::exp(s.subModes.lambda(c) * y);
-        fsm.F = s.subModes.Psi.leftCols(nh) * ph.cwiseProduct(a_sub);
+      if (fsm.region < 0) {
         Q = s.subQ                ? *s.subQ
             : s.sub->isotropic ? homogeneousIsotropicQ(s.sub->eps, nf)
                                : homogeneousTensorQ(s.sub->epsTensor, nf);
-      } else if (y > assembly_.yTop) {
-        fsm.region = 1;
-        const double d = y - assembly_.yTop;
-        VecC v(2 * nh);
-        for (int c = 0; c < nh; ++c) {
-          v(c) = a_in(c) * std::exp(s.ref.lambda(c) * d);
-          v(nh + c) = amp[K](nh + c) * std::exp(s.ref.lambda(nh + c) * d);
-        }
-        fsm.F = s.ref.Psi * v;
+      } else if (fsm.region > 0) {
         Q = s.supQ ? *s.supQ : homogeneousIsotropicQ(s.epsSup, nf);
       } else {
-        std::size_t k = 1;
-        while (k < K && y > el[k].y1) ++k;
-        const Element& e = el[k];
+        const Element& e = *st[i].e;
         if (where) (*where)[i] = &e;
-        const VecC& lo = amp[k - 1];  // (a_{k-1}; b_{k-1}) at the bottom
-        const VecC& hi = amp[k];      // (a_k; b_k) at the top
-        if (e.kind == Element::Kind::Modes) {
-          const Eigen::Index n = e.modes.lu.size();
-          VecC rhs(2 * n);
-          rhs << lo.tail(n), hi.head(n);  // (b_bottom; a_top)
-          if (!e.pVec.empty()) {  // homogeneous part = total - particular solution
-            const VecC g0 = s.ref.PsiInv * e.particular(e.y0), g1 = s.ref.PsiInv * e.particular(e.y1);
-            rhs.head(n) -= g0.tail(n);
-            rhs.tail(n) -= g1.head(n);
-          }
-          const VecC cc = e.G.partialPivLu().solve(rhs);
-          VecC cu = cc.head(n), cd = cc.tail(n);
-          for (Eigen::Index j = 0; j < n; ++j) {
-            cu(j) *= std::exp(e.modes.lu(j) * (y - e.y0));
-            cd(j) *= std::exp(e.modes.ld(j) * (y - e.y1));
-          }
-          fsm.F = e.modes.Wu * cu + e.modes.Wd * cd;
-          if (!e.pVec.empty()) fsm.F += e.particular(y);
-          Q = e.model->Q(e.qHeight_um >= 0 ? e.qHeight_um : 0.0);
-        } else {
-          const VecC F0 = s.ref.Psi * lo;
-          fsm.F = F0;
-          for (std::size_t j = 0; j < e.ys.size(); ++j)
-            if (std::abs(e.ys[j] - y) <= 1e-14 * std::max(1.0, std::abs(y)))
-              fsm.F = e.f.empty() ? VecC(e.T[j] * F0) : VecC(e.T[j] * F0 + e.f[j]);
-          if (y >= e.y1 - 1e-14 * std::max(1.0, std::abs(y))) fsm.F = s.ref.Psi * hi;
-          Q = e.model->Q((y - e.layerY0) / s.k0);
-        }
+        Q = e.kind == Element::Kind::Modes ? e.model->Q(e.qHeight_um >= 0 ? e.qHeight_um : 0.0)
+                                           : e.model->Q((y - e.layerY0) / s.k0);
       }
       VecC eyCorr;
       if (s.scattered) {
         // background field (incidence order): superstrate incident + reflected, substrate transmitted
         const VecC a0 = VecC::Constant(1, s.inc.alpha0), g0 = VecC::Constant(1, s.inc.gamma0);
-        VecC Fb(4);
-        const QBlocks* Qb1 = nullptr;
-        QBlocks Qh;
-        if (fsm.region > 0) {
-          const ModeBasis sup = isotropicModes(s.epsSup, a0, g0);
-          const double d = y - assembly_.yTop;
-          VecC v(4);
-          v << s.inc.A(0) * std::exp(sup.lambda(0) * d), s.inc.A(2) * std::exp(sup.lambda(1) * d),
-              s.bgTop(0) * std::exp(sup.lambda(2) * d), s.bgTop(1) * std::exp(sup.lambda(3) * d);
-          Fb = sup.Psi * v;
-          Qh = homogeneousIsotropicQ(s.epsSup, 1);
-          Qb1 = &Qh;
-        } else if (fsm.region < 0) {
-          const ModeBasis sb = s.sub->isotropic ? isotropicModes(s.sub->eps, a0, g0) : anisotropicModes(s.sub->epsTensor, a0, g0);
-          VecC v = VecC::Zero(4);
-          v(0) = s.bgSub(0) * std::exp(sb.lambda(0) * y);
-          v(1) = s.bgSub(1) * std::exp(sb.lambda(1) * y);
-          Fb = sb.Psi * v;
-          Qh = s.sub->isotropic ? homogeneousIsotropicQ(s.sub->eps, 1) : homogeneousTensorQ(s.sub->epsTensor, 1);
-          Qb1 = &Qh;
-        } else {
+        QBlocks Qb1;
+        const VecC Fb = backgroundAt(s, y, fsm.region, assembly_.yTop, Qb1);
+        if (fsm.region == 0 && s.blochSource) {
+          // E_y of the scattered field: Q_yy^-1 (... - P_y) = E_y(Q, F_s) + [E_y(Q, F_bg) - E_y(Q_bg, F_bg)]
           const Setup::BgLayer& L = bgLayer(s, y);
-          Fb = bgField(L, y);
-          Qb1 = &L.Q1;
-          if (s.blochSource) {
-            // E_y of the scattered field: Q_yy^-1 (... - P_y) = E_y(Q, F_s) + [E_y(Q, F_bg) - E_y(Q_bg, F_bg)]
-            VecC FB = VecC::Zero(4 * nf);
-            for (int c = 0; c < 4; ++c) FB(c * nf + s.map.center()) = Fb(c);
-            eyCorr = s.Tsrc * (computeEy(Q, s.alphaB, s.gammaB, FB) - computeEy(L.Q, s.alphaB, s.gammaB, FB));
-          }
+          VecC FB = VecC::Zero(4 * nf);
+          for (int c = 0; c < 4; ++c) FB(c * nf + s.map.center()) = Fb(c);
+          eyCorr = s.Tsrc * (computeEy(Q, s.alphaB, s.gammaB, FB) - computeEy(L.Q, s.alphaB, s.gammaB, FB));
         }
         fsm.bg.resize(6);
-        fsm.bg << Fb(0), computeEy(*Qb1, a0, g0, Fb)(0), Fb(1), Fb(2), computeHy(a0, g0, Fb)(0), Fb(3);
+        fsm.bg << Fb(0), computeEy(Qb1, a0, g0, Fb)(0), Fb(1), Fb(2), computeHy(a0, g0, Fb)(0), Fb(3);
         if (!s.blochSource)
           for (int c = 0; c < 4; ++c) fsm.F(c * nf + s.map.center()) += Fb(c);  // total field
       }

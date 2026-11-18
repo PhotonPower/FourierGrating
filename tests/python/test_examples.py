@@ -88,11 +88,31 @@ def test_cylindrical_plane_wave():
     cfg = fg.load_config(ROOT / "examples" / "cyl_pillar_beam.json")
     cfg["cylindrical"]["spectrum"]["kappa_max"] = 2
     cfg["incidence"] = {"type": "plane_wave", "lambda_um": 1.0, "phi_deg": 0}
+    cfg["cylindrical"]["optical_theorem"] = True
     cy = fg.solve(cfg).cylindrical
     assert cy["plane_wave"] and cy["harmonics"] == [-1, 1]
     assert cy["scattering_um2"] > 0
     assert abs(cy["scattered_up_um2"] + cy["scattered_down_um2"] - cy["scattering_um2"]) < 1e-14
     assert abs(cy["reflected_per_harmonic"][0] - cy["reflected_per_harmonic"][1]) < 1e-12
+    # lossless rings: no absorption, the optical theorem as a control (Plan v2.25)
+    assert cy["absorption_um2"] == 0 and cy["extinction_um2"] == cy["scattering_um2"]
+    assert abs(cy["extinction_theorem_um2"] / cy["scattering_um2"] - 1) < 0.05
+
+
+def test_cylindrical_near_field():
+    # M20 (Plan v2.25): cuts x-z and x-y of the beam on the pillar; mirror symmetry of |E|^2 in x and z
+    cfg = fg.load_config(ROOT / "examples" / "cyl_pillar_beam.json")
+    cfg["incidence"]["lambda_um"] = 1.0
+    cfg["cylindrical"]["spectrum"]["kappa_max"] = 2
+    cfg["nearfield"] = {"enabled": True, "horizontal_y_um": 0.15, "y_range_um": [-0.2, 1.0], "nx": 21, "ny": 7,
+                        "nz": 21, "extent_um": 0.8}
+    nf = fg.near_field(cfg)
+    assert nf["warnings"] == []
+    h = nf["horizontal"]
+    assert h["axis1_um"][0] == -0.8 and h["axis1_um"][-1] == 0.8 and h["axis2_name"] == "z"
+    e2 = np.asarray(h["absE2"]).reshape(21, 21)
+    assert np.allclose(e2, e2[::-1, :], rtol=1e-8) and np.allclose(e2, e2[:, ::-1], rtol=1e-8)
+    assert np.asarray(nf["vertical"]["absE2"]).size == 7 * 21
 
 
 def test_cylindrical_simulation_and_gradient_guard():

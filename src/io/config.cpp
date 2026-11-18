@@ -573,6 +573,7 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
     const std::string fac = cj.value("factorization", std::string("li_r"));
     FG_REQUIRE(fac == "li_r" || fac == "laurent", "cylindrical.factorization must be \"li_r\" or \"laurent\"");
     c.liR = fac == "li_r";
+    c.opticalTheorem = cj.value("optical_theorem", false);  // Plan v2.25: control of sigma_ext (volume integrals)
     const std::string type = inc.value("type", std::string());
     FG_REQUIRE(type == "gaussian_beam" || type == "plane_wave",
                "cylindrical: incidence.type must be \"gaussian_beam\" or \"plane_wave\"");
@@ -683,6 +684,8 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
     cfg.field.ny = nf.value("ny", cfg.field.ny);
     cfg.field.nz = nf.value("nz", cfg.field.nz);
     cfg.field.periods = nf.value("periods", cfg.field.periods);
+    cfg.field.extent_um = nf.value("extent_um", 0.0);  // cylindrical stacks (M20)
+    FG_REQUIRE(cfg.field.extent_um >= 0, "nearfield.extent_um must be >= 0 (0: 1.5 R_s)");
     cfg.field.reconstruction =
         nf.value("reconstruction", std::string("fff")) == "direct" ? Reconstruction::Direct : Reconstruction::FFF;
     if (nf.contains("quantities")) cfg.field.quantities = nf["quantities"].get<std::vector<std::string>>();
@@ -737,8 +740,10 @@ void writeRows(std::ofstream& out, const std::string& prefix, const std::vector<
     const CylindricalResult& cr = results[k].cylindrical;  // M20: R, T, A of the beam; per harmonic n = m
     if (cr.present && cr.planeWave) {  // plane wave: cross sections (um^2) up, down, total; per harmonic
       for (const auto& [side, v] : {std::pair<const char*, double>{"C_Sup", cr.scatteredUp_um2},
-                                    {"C_Sdown", cr.scatteredDown_um2}, {"C_Ssca", cr.scattering_um2}})
-        row(side, OrderEfficiency{0, 0, v, 0, 0});
+                                    {"C_Sdown", cr.scatteredDown_um2}, {"C_Ssca", cr.scattering_um2},
+                                    {"C_Sabs", cr.absorption_um2}, {"C_Sext", cr.extinction_um2},
+                                    {"C_Sext_ot", cr.extinctionTheorem_um2}})
+        if (!std::isnan(v)) row(side, OrderEfficiency{0, 0, v, 0, 0});  // C_Sext_ot only when evaluated
       for (std::size_t i = 0; i < cr.harmonics.size(); ++i) {
         row("C_Supm", OrderEfficiency{cr.harmonics[i], 0, cr.reflectedPerHarmonic[i], 0, 0});
         row("C_Sdownm", OrderEfficiency{cr.harmonics[i], 0, cr.transmittedPerHarmonic[i], 0, 0});

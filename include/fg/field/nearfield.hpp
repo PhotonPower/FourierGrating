@@ -20,6 +20,8 @@ struct NearFieldRequest {
   std::vector<std::string> quantities{"E", "H", "absE2"};
   /// Scattered-field formulation (M18): the scattered field E - E_bg instead of the total field.
   bool scattered = false;
+  /// Cylindrical stacks (M20): half width of the cuts, x (and z) in [-extent, extent]; 0: 1.5 R_s.
+  double extent_um = 0;
 };
 
 /// Real-space field on a cut. Arrays are row-major with axis2 outer (size n2 * n1);
@@ -36,6 +38,7 @@ struct FieldCut {
 
 struct NearFieldResult {
   FieldCut horizontal, vertical;
+  std::vector<std::string> warnings;  ///< e.g. points beyond r_max of a deformed spectral path (M20)
 };
 
 /// |E|^2, |H|^2 and S_y = 1/2 Re(E x H*)_y of a cut (layout of the field arrays).

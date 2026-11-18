@@ -211,8 +211,9 @@ def solve_scan(cfg: Config, profile: bool = False) -> ScanResult:
 
 
 def near_field(cfg: Config) -> dict:
-    """Near-field cuts (block "nearfield") for the first scan point: ``{"horizontal", "vertical"}``,
-    each a dict with the axes, Ex..Hz (complex), absE2, absH2, Sy, material and meta (as meta.json)."""
+    """Near-field cuts (block "nearfield") for the first scan point: ``{"horizontal", "vertical", "warnings"}``,
+    each cut a dict with the axes, Ex..Hz (complex), absE2, absH2, Sy, material and meta (as meta.json).
+    Cylindrical stacks (M20): x (and z) in [-extent_um, extent_um], the vertical cut is the plane z = vertical_z_um."""
     d = _core.near_field(_to_json(cfg))
     for k in ("horizontal", "vertical"):
         d[k]["meta"] = json.loads(d[k]["meta"])

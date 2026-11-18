@@ -18,6 +18,9 @@ struct CylindricalSpec {
   enum class Deform { Auto, Off, On } deform = Deform::Auto;
   double deltaRel = 0.05;  ///< depth delta = delta_rel (k_b - k_a)
   bool liR = true;         ///< factorization: Li in r (true) or Laurent
+  /// Plane wave: evaluate the optical theorem as a control of sigma_ext (volume integrals over the rings,
+  /// Plan v2.25); with lossy rings they are computed anyway (sigma_abs).
+  bool opticalTheorem = false;
   /// Plane wave (scattered field, angles of the scan) instead of the beam (Plan sec:cylexc).
   bool planeWave = false;
   // incidence: beam on the axis, waist in the superstrate (Plan sec:cylexc)

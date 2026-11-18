@@ -112,6 +112,7 @@ int main(int argc, char** argv) {
     }
     if (cfg.nearField && !cfg.scan.empty()) {
       const auto nf = solver->nearField(cfg.stack, cfg.scan.front(), cfg.field);
+      for (const auto& w : nf.warnings) std::cerr << "fgsolve: warning: " << w << "\n";
       const auto base = std::filesystem::path(cfg.outputDir);
       fg::NearFieldWriter::write(nf.horizontal, (base / "nearfield_horizontal").string());
       fg::NearFieldWriter::write(nf.vertical, (base / "nearfield_vertical").string());

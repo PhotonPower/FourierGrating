@@ -151,8 +151,9 @@ bleibt ein Problem in $(r,y)$. Das ist viel günstiger, als die isolierte Strukt
 
 \begin{achtung}[Stand]
 Meilenstein M20 ist teilweise umgesetzt: Schichttypen \val{homogeneous} und \val{rings}, isotrope Materialien,
-Gauß-Strahlen auf der Achse und ebene Wellen (Streufeld), Leistungen und Streuquerschnitte. Es fehlen noch: Nahfeld,
-Absorptions- und Extinktionsquerschnitt, Ringe mit $y$-abhängigem Radius (\val{rings\_profile}), CAD-Rotationskörper.
+Gauß-Strahlen auf der Achse und ebene Wellen (Streufeld), Leistungen, Streu-, Absorptions- und
+Extinktionsquerschnitt, Nahfeld. Es fehlen noch: Ringe mit $y$-abhängigem Radius (\val{rings\_profile}),
+CAD-Rotationskörper.
 \end{achtung}
 
 \begin{lstlisting}[language=json]
@@ -188,6 +189,8 @@ $|m|\le m_{\text{cut}}$ \\
 \key{spectrum.deform} & \val{auto} & komplexer Integrationsweg um Verzweigungspunkte: \val{auto}, \val{false} oder
 \val{\{"delta": 0.05\}} \\
 \key{factorization} & \val{li\_r} & \val{li\_r} (Li-Regel in $r$) oder \val{laurent} \\
+\key{optical\_theorem} & \val{false} & ebene Welle: optisches Theorem als Kontrolle (\texttt{C\_Sext\_ot}); kostet
+etwa die doppelte Rechenzeit, bei verlustbehafteten Ringen ohnehin berechnet \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -211,5 +214,32 @@ lambda_um,...,side,n,m,efficiency,...
 \texttt{C\_R}, \texttt{C\_T} sind die reflektierte und transmittierte Leistung relativ zum Strahl, \texttt{C\_A}
 $=1-R-T$ (enthält auch den seitlichen Abfluss in geführte Moden). \texttt{C\_Rm}, \texttt{C\_Tm} zerlegen nach
 Harmonischen. Bei der ebenen Welle stehen Streuquerschnitte in \textmu m$^2$ in \texttt{C\_Sup}, \texttt{C\_Sdown},
-\texttt{C\_Ssca}. Python: \texttt{res.cylindrical}. Rechenzeit des Beispiels: etwa 14\,s für drei Wellenlängen
-auf zwei Kernen. Konvergenz prüfen Sie über \key{kappa\_max} und \key{dk\_factor}.
+\texttt{C\_Ssca}, dazu der Absorptionsquerschnitt \texttt{C\_Sabs} ($\tfrac1{2I_{\text{inc}}}\int\operatorname{Im}\varepsilon
+|\mathbf E|^2\,dV$ über die Ringe), \texttt{C\_Sext} $=$ \texttt{C\_Ssca} $+$ \texttt{C\_Sabs} und zur Kontrolle
+\texttt{C\_Sext\_ot} (optisches Theorem; mit \key{optical\_theorem} oder verlustbehafteten Ringen, nicht bei
+absorbierendem Hintergrund). Weicht \texttt{C\_Sext\_ot}
+deutlich von \texttt{C\_Sext} ab, ist die Rechnung nicht konvergiert. Bei einem Strahl auf verlustbehafteten Ringen
+steht in Python \texttt{res.cylindrical["absorbed\_rings"]} die in den Ringen absorbierte Leistung; die Differenz zu
+\texttt{C\_A} ist der seitliche Abfluss. Python: \texttt{res.cylindrical}. Rechenzeit des Beispiels: etwa 14\,s für
+drei Wellenlängen auf zwei Kernen. Konvergenz prüfen Sie über \key{kappa\_max} und \key{dk\_factor}.
+
+\begin{achtung}[Kleine Metallteilchen]
+$k_{\max}=\kappa_{\max}\max\operatorname{Re}n$ richtet sich nach dem größten Realteil der Brechzahl. Bei Metallen
+($\operatorname{Re}n<1$) und Teilchen, die klein gegen die Wellenlänge sind, braucht es deshalb ein großes
+\key{kappa\_max}: $k_{\max}R$ sollte mindestens 15 sein ($R$: Teilchenradius in Einheiten von $1/k_0$). Eine Goldkugel
+als Treppe aus Scheiben trifft die Extinktion schnell, die Aufteilung in Streuung und Absorption konvergiert langsam
+(Abschnitt~\ref{sec:zylinder_nf}).
+\end{achtung}
+
+\paragraph{Nahfeld.}\label{sec:zylinder_nf}
+Der Block \key{nearfield} (Abschnitt~\ref{ch:nahfeld}) gilt auch hier. Der horizontale Schnitt ist eine Karte in $x$
+und $z$, der vertikale Schnitt die Ebene $z=$\,\key{vertical\_z\_um} ($z=0$: Schnitt durch die Achse). $x$ und $z$ laufen
+symmetrisch über $[-$\key{extent\_um}$,\,$\key{extent\_um}$]$ mit \key{nx} bzw.\ \key{nz} Punkten einschließlich der
+Ränder; Standard ist das 1,5-Fache des äußeren Radius $R_s$, \key{periods} entfällt. Strahlen liefern das Totalfeld,
+ebene Wellen Total- oder Streufeld (\key{field}). Mit \val{"reconstruction": "fff"} und Li in $r$ ist die
+Normalkomponente $D_r$ an den Ringwänden stetig, $E_r$ springt; \val{direct} glättet den Sprung (Gibbs). Jenseits
+von etwa $2R_s$ wird die Synthese ungenauer (die Stützstellendichte ist auf $R_s$ abgestimmt).
+\begin{lstlisting}[language=json]
+"nearfield": { "enabled": true, "horizontal_y_um": 0.15, "vertical_z_um": 0.0,
+               "y_range_um": [-0.3, 1.0], "nx": 201, "ny": 131, "nz": 201, "extent_um": 1.0 }
+\end{lstlisting}

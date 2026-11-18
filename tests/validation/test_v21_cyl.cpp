@@ -362,3 +362,198 @@ TEST(V21c, MieSphere) {
   EXPECT_GT(p, 1.5);
   EXPECT_NEAR(est / mie, 1.0, 1e-3);
 }
+
+// Near field and volume integrals (Plan "M20: S-Matrix, Loeser und Nahfeld", "M20: Ausgaben"):
+// focal plane of the beam = Gaussian, absorption inside the rings = flux balance, FFF reconstruction
+// at a wall, optical theorem, gold sphere against Mie.
+namespace {
+
+fg::NearFieldResult nearFieldOf(const std::string& json, fg::SolverKind kind = fg::SolverKind::RCWA) {
+  fg::io::RunConfig cfg = fg::io::parseConfig(json);
+  cfg.solver.kind = kind;
+  return fg::makeSolver(cfg.solver)->nearField(cfg.stack, cfg.scan.front(), cfg.field);
+}
+
+/// json with a "nearfield" block (inserted before the closing brace).
+std::string withNearField(const std::string& json, const std::string& block) {
+  const auto p = json.rfind('}');
+  return json.substr(0, p) + R"(, "nearfield": {"enabled": true, )" + block + "}}";
+}
+
+std::string airBeam(const std::string& pol) {
+  return R"({"cylindrical": {"spectrum": {"kappa_max": 2}},
+    "materials": {"air": {"n": 1.0}}, "superstrate": "air", "substrate": "air",
+    "incidence": {"type": "gaussian_beam", "lambda_um": 1.0, "waist_um": 1.5, "focus_y_um": 0.5,
+                  "polarization": ")" + pol + R"("},
+    "layers": [{"type": "homogeneous", "thickness_um": 0.2, "material": "air"}]})";
+}
+
+/// Beam on a pillar of `pillar` (n or [n, k]) in air on glass.
+std::string pillarBeam(const std::string& pillar, const std::string& fac, int kappa) {
+  return R"({"cylindrical": {"spectrum": {"kappa_max": )" + std::to_string(kappa) + R"(}, "factorization": ")" + fac +
+         R"("},
+    "materials": {"air": {"n": 1.0}, "glass": {"n": 1.5}, "p": {"n": )" + pillar + R"(}},
+    "superstrate": "air", "substrate": "glass",
+    "incidence": {"type": "gaussian_beam", "lambda_um": 1.0, "waist_um": 0.5, "focus_y_um": 0.8, "polarization": "x"},
+    "layers": [{"type": "rings", "thickness_um": 0.3, "radii_um": [0.4], "materials": ["p", "air"]}]})";
+}
+
+/// Mie efficiencies (Q_ext, Q_sca) of a sphere with complex relative index m (Bohren-Huffman BHMIE).
+std::pair<double, double> mieQ(double x, cplx m) {
+  const int nstop = static_cast<int>(x + 4 * std::cbrt(x) + 2);
+  const int nmx = static_cast<int>(std::max<double>(nstop, std::abs(m * x))) + 16;
+  std::vector<cplx> D(static_cast<std::size_t>(nmx) + 1, 0.0);
+  for (int n = nmx; n > 0; --n) D[n - 1] = double(n) / (m * x) - 1.0 / (D[n] + double(n) / (m * x));
+  double psi0 = std::cos(x), psi1 = std::sin(x), chi0 = -std::sin(x), chi1 = std::cos(x), qe = 0, qs = 0;
+  cplx xi1(psi1, -chi1);
+  for (int n = 1; n <= nstop; ++n) {
+    const double psi = (2 * n - 1) * psi1 / x - psi0, chi = (2 * n - 1) * chi1 / x - chi0;
+    const cplx xi(psi, -chi);
+    const cplx da = D[n] / m + double(n) / x, db = m * D[n] + double(n) / x;
+    const cplx an = (da * psi - psi1) / (da * xi - xi1), bn = (db * psi - psi1) / (db * xi - xi1);
+    qe += (2 * n + 1) * (an + bn).real();
+    qs += (2 * n + 1) * (std::norm(an) + std::norm(bn));
+    psi0 = psi1, psi1 = psi, chi0 = chi1, chi1 = chi, xi1 = xi;
+  }
+  return {2 * qe / (x * x), 2 * qs / (x * x)};
+}
+
+/// Sphere of radius a in air (N rings slices, radius at the slice centre), plane wave at normal incidence.
+fg::CylindricalResult sphere(const std::string& n, double a, double lambda, int N, double kappa,
+                             const std::string& fac = "li_r") {
+  const double h = 2 * a / N;
+  std::string layers;
+  for (int i = 0; i < N; ++i) {
+    const double yc = (i + 0.5) * h;
+    char buf[200];
+    std::snprintf(buf, sizeof buf, R"(%s{"type": "rings", "thickness_um": %.17g, "radii_um": [%.17g], "materials": ["sph", "air"]})",
+                  i ? ", " : "", h, std::sqrt(a * a - (yc - a) * (yc - a)));
+    layers += buf;
+  }
+  char head[400];
+  std::snprintf(head, sizeof head, R"({"cylindrical": {"spectrum": {"kappa_max": %.17g}, "factorization": "%s", "optical_theorem": true},
+    "materials": {"air": {"n": 1.0}, "sph": {"n": %s}}, "superstrate": "air", "substrate": "air",
+    "incidence": {"type": "plane_wave", "lambda_um": %.17g, "phi_deg": 0, "psi_deg": 0, "delta_deg": 0}, "layers": [)",
+                kappa, fac.c_str(), n.c_str(), lambda);
+  return solveConfig(std::string(head) + layers + "]}").cylindrical;
+}
+
+}  // namespace
+
+TEST(V21NearField, FocalPlaneOfTheBeamIsGaussian) {
+  // all air, focus above the stack: the field in the focal plane is the prescribed beam, E_x = e^{-r^2/w0^2}
+  // (x polarization), E_z = e^{-r^2/w0^2} (z), E_r = k0 r e^{-r^2/w0^2} (radial, the order-1 profile);
+  // the aperture <= 1 cuts the spectrum at e^{-(k0 w0)^2/4} = 3e-10
+  const double w0 = 1.5, k0 = 2 * fg::PI;
+  for (const std::string pol : {"x", "z", "radial"}) {
+    const fg::NearFieldResult nf = nearFieldOf(withNearField(
+        airBeam(pol), R"("horizontal_y_um": 0.5, "nx": 13, "nz": 9, "ny": 3, "y_range_um": [0.5, 0.9], "extent_um": 2.5)"));
+    const fg::FieldCut& c = nf.horizontal;
+    ASSERT_EQ(c.E[0].size(), 13u * 9u);
+    EXPECT_TRUE(nf.warnings.empty());
+    double err = 0;
+    for (std::size_t iz = 0; iz < 9; ++iz)
+      for (std::size_t ix = 0; ix < 13; ++ix) {
+        const double x = c.axis1_um[ix], z = c.axis2_um[iz], g = std::exp(-(x * x + z * z) / (w0 * w0));
+        const cplx ex = pol == "z" ? 0.0 : pol == "x" ? g : k0 * x * g, ez = pol == "z" ? g : pol == "x" ? 0.0 : k0 * z * g;
+        err = std::max({err, std::abs(c.E[0][iz * 13 + ix] - ex), std::abs(c.E[2][iz * 13 + ix] - ez)});
+      }
+    std::printf("V21 near field, focal plane %-6s: max |E - E_beam| = %.2e\n", pol.c_str(), err);
+    EXPECT_LT(err, 1e-8) << pol;  // radial: amplitude up to 4
+    // the vertical cut (z = 0) contains the focal plane as its first row
+    for (std::size_t ix = 0; ix < 13; ++ix) EXPECT_LT(std::abs(nf.vertical.E[0][ix] - c.E[0][4 * 13 + ix]), 1e-12);
+  }
+}
+
+TEST(V21NearField, AbsorptionInsideTheRingsEqualsTheFluxBalance) {
+  // lossy pillar in air on glass: no guided modes, so A = 1 - R - T is the power absorbed in the rings,
+  // here from the volume integral 1/2 int Im eps |E|^2 dV of the synthesized field. Laurent: the discrete
+  // energy theorem holds, A_rings = A to quadrature accuracy (measured 4e-14 at kappa_max = 4). Li in r
+  // (G_pm, Plan eq:cyl_G): A_rings - A is its discretization error and falls like kappa^-2 (2.3e-3,
+  // 5.8e-4, 1.5e-4 at kappa_max = 2, 4, 8; the direct reconstruction only like 1/kappa: 7.5e-3, 3.5e-3, 1.9e-3)
+  const fg::CylindricalResult l = solveConfig(pillarBeam("[1.5, 0.1]", "laurent", 4)).cylindrical;
+  std::printf("V21 lossy pillar laurent: A = %.12f  A_rings = %.12f  (%.1e)\n", l.absorbed, l.absorbedRings,
+              l.absorbedRings - l.absorbed);
+  EXPECT_GT(l.absorbed, 0.1);
+  EXPECT_NEAR(l.absorbedRings, l.absorbed, 1e-12);
+  double d[2];
+  for (int i = 0; i < 2; ++i) {
+    const fg::CylindricalResult c = solveConfig(pillarBeam("[1.5, 0.1]", "li_r", 2 + 2 * i)).cylindrical;
+    d[i] = c.absorbedRings - c.absorbed;
+    std::printf("V21 lossy pillar li_r, kappa_max %d: A = %.12f  A_rings = %.12f  (%.1e)\n", 2 + 2 * i, c.absorbed,
+                c.absorbedRings, d[i]);
+  }
+  EXPECT_LT(std::abs(d[1]), 4e-3 * l.absorbed);
+  EXPECT_GT(d[0] / d[1], 3.0);  // second order
+  // RK with the recorded heights = RCWA within the RK tolerance (kappa_max = 1: RK records are expensive)
+  const fg::Result p = solveConfig(pillarBeam("[1.5, 0.1]", "laurent", 1)),
+                   q = solveConfig(pillarBeam("[1.5, 0.1]", "laurent", 1), fg::SolverKind::RK);
+  EXPECT_NEAR(q.cylindrical.absorbedRings, p.cylindrical.absorbedRings, 1e-8);
+  // lossless rings: no volume integral
+  EXPECT_EQ(solveConfig(pillarBeam("1.5", "li_r", 2)).cylindrical.absorbedRings, 0.0);
+}
+
+TEST(V21NearField, FFFReconstructionAtTheWall) {
+  // at the wall r = R of the pillar D_r = eps E_r, E_phi and E_y are continuous (Plan sec:cylfact); the
+  // FFF reconstruction (G_pm, Plan eq:cyl_G) keeps D_r continuous, the direct one has the Gibbs jump
+  const double R = 0.4, d = 1e-6;
+  const cplx epsIn = 1.5 * 1.5, epsOut = 1.0;
+  double jump[2];
+  int k = 0;
+  for (const std::string rec : {"fff", "direct"}) {
+    cplx D[2], Ez[2];
+    for (int side = 0; side < 2; ++side) {
+      // point (x, z = 0.05) at r = R -+ d: x = +extent of the vertical cut
+      const double z = 0.05, r = R + (side ? d : -d), x = std::sqrt(r * r - z * z);
+      char nfb[220];
+      std::snprintf(nfb, sizeof nfb, R"("horizontal_y_um": 0.15, "nx": 2, "nz": 1, "ny": 1, "y_range_um": [0.15, 0.15], "extent_um": %.17g, "reconstruction": "%s", "vertical_z_um": %.17g)",
+                    x, rec.c_str(), z);
+      const fg::NearFieldResult nf = nearFieldOf(withNearField(pillarBeam("1.5", "li_r", 2), nfb));
+      // E_r = (x E_x + z E_z) / r, E_phi = (x E_z - z E_x) / r
+      const cplx Ex = nf.vertical.E[0][1], Ezz = nf.vertical.E[2][1];
+      D[side] = (side ? epsOut : epsIn) * (x * Ex + z * Ezz) / r;
+      Ez[side] = (x * Ezz - z * Ex) / r;  // E_phi
+    }
+    jump[k++] = std::abs(D[1] - D[0]) / std::abs(D[0]);
+    std::printf("V21 wall (%s): |[D_r]| / |D_r| = %.2e, |[E_phi]| / |E_phi| = %.2e\n", rec.c_str(), jump[k - 1],
+                std::abs(Ez[1] - Ez[0]) / std::abs(Ez[0]));
+  }
+  EXPECT_LT(jump[0], 1e-3);
+  EXPECT_LT(10 * jump[0], jump[1]);
+}
+
+TEST(V21c, OpticalTheoremAndGoldSphere) {
+  // dielectric sphere (V21c): sigma_abs = 0, the optical theorem (volume form, forward amplitude) equals
+  // sigma_sca to the discretization error of the staircase
+  const double a = 3.0 / (2 * fg::PI);
+  const fg::CylindricalResult d = sphere("1.5", a, 1.0, 20, 4);
+  std::printf("V21c dielectric: sigma_sca = %.6f  sigma_abs = %.1e  optical theorem %.6f (%.1e)\n", d.scattering_um2,
+              d.absorption_um2, d.extinctionTheorem_um2, d.extinctionTheorem_um2 / d.scattering_um2 - 1);
+  EXPECT_EQ(d.absorption_um2, 0.0);
+  EXPECT_EQ(d.extinction_um2, d.scattering_um2);
+  // without "optical_theorem" (lossless rings): no volume integrals, the theorem is NaN, sigma_sca unchanged
+  const fg::CylindricalResult q = solveConfig(planeWaveConfig(kPillar, 0, 0, 0)).cylindrical;
+  EXPECT_TRUE(std::isnan(q.extinctionTheorem_um2));
+  EXPECT_EQ(q.extinction_um2, q.scattering_um2);
+  EXPECT_NEAR(d.extinctionTheorem_um2 / d.scattering_um2, 1.0, 1e-2);
+  // gold sphere (a = 50 nm, lambda = 550 nm, n = 0.43 + 2.45 i): k_max = kappa max Re n = kappa, so k_max a
+  // needs kappa_max = 32 (k0 a = 0.57). Laurent conserves energy in the discrete sense: the optical theorem
+  // equals sigma_sca + sigma_abs to rounding. Li in r, qualitative against Mie (Plan V21c): the staircase
+  // of a metal sphere converges slowly in N and kappa_max (docs/validation.md)
+  const cplx nAu(0.43, 2.45);
+  const double aAu = 0.05, lam = 0.55, x = 2 * fg::PI * aAu / lam, geo = fg::PI * aAu * aAu;
+  const auto [qe, qs] = mieQ(x, nAu);
+  const fg::CylindricalResult l = sphere("[0.43, 2.45]", aAu, lam, 10, 16, "laurent");
+  std::printf("V21c gold, Laurent: sigma_ext %.10e  theorem %.10e (%.1e)\n", l.extinction_um2, l.extinctionTheorem_um2,
+              l.extinctionTheorem_um2 / l.extinction_um2 - 1);
+  EXPECT_NEAR(l.extinctionTheorem_um2 / l.extinction_um2, 1.0, 1e-8);
+  const fg::CylindricalResult g = sphere("[0.43, 2.45]", aAu, lam, 20, 32);
+  std::printf("V21c gold: sigma_sca %.6e (Mie %.6e)  sigma_abs %.6e (Mie %.6e)  sigma_ext %.6e (Mie %.6e, theorem %.6e)\n",
+              g.scattering_um2, qs * geo, g.absorption_um2, (qe - qs) * geo, g.extinction_um2, qe * geo,
+              g.extinctionTheorem_um2);
+  EXPECT_NEAR(qe * geo, 2.069503e-2, 1e-7);  // reference implementation (complex m)
+  EXPECT_NEAR(g.scattering_um2 / (qs * geo), 1.0, 0.25);
+  EXPECT_NEAR(g.absorption_um2 / ((qe - qs) * geo), 1.0, 0.25);
+  EXPECT_NEAR(g.extinction_um2 / (qe * geo), 1.0, 0.05);
+  EXPECT_NEAR(g.extinctionTheorem_um2 / g.extinction_um2, 1.0, 0.05);
+}
