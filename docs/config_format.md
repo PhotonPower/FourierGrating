@@ -196,7 +196,7 @@ einer Rechenzelle mit absorbierenden Randzonen (PML, komplexe Koordinatenstrecku
 },
 "superstrate_structure": {"type": "lamellar1d", "breakpoints_um": [0, 1.3, 1.7, 3.0], "materials": ["air", "core", "air"]},
 "substrate_structure": {...},     // y-invariante Querschnitte (lamellar1d, polygon2d, contour2d), Dicke entfällt
-"scattered_field": false          // Streufeldformulierung für periodische Gitter (Test, V20d)
+"scattered_field": false          // Streufeldformulierung für periodische Gitter (Test, V20d) und Strahlen (M20, V21e)
 ```
 
 Physikalischer Bereich: [w, d − w] (bzw. das Rechteck in 2D); Strukturen dürfen nicht in die Zonen reichen
@@ -234,7 +234,9 @@ und `rings`, isotrope Materialien, homogene Halbräume. Ausgabe in `efficiencies
 (Leistungen bezogen auf den einfallenden Strahl; `C_A` = 1 − R − T enthält auch den seitlichen Abfluss geführter
 Moden) und je Harmonischer `C_Rm`, `C_Tm` (n = m). Sind Ringmaterialien verlustbehaftet, steht in Python
 `result.cylindrical["absorbed_rings"]` die in den Ringen absorbierte Leistung (Volumenintegral); `C_A` minus
-dieser Wert ist der seitliche Abfluss plus die Absorption außerhalb der Ringe.
+dieser Wert ist der seitliche Abfluss plus die Absorption außerhalb der Ringe. Mit `"scattered_field": true`
+rechnet auch ein Strahl in der Streufeldformulierung (Hintergrund = Stapel mit dem äußeren Material jeder
+Ringschicht, Quelle σ = (M − M_bg) F_bg); die Ergebnisse sind dieselben wie beim Totalfeld (Test V21e).
 
 Ebene Welle (Streufeldformulierung, Hintergrund = Stapel mit dem äußersten Ringmaterial): Winkel wie beim
 kartesischen Einfall, Polarisation über `delta_deg`; Strahlparameter entfallen.
