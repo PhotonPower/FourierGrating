@@ -21,9 +21,12 @@ VecC besselProjection(const SpectralGrid& grid, int nu, int nup, const RadialSte
 /// consistent with the factorization, P = Q E_bg - eps_inf E_bg = b^ - Q a^ (Q = B A^{-1} of Plan
 /// eq:cyl_li, a^, b^ the columns of [[a]], [[b]] at k' = kpar; the delta parts cancel since
 /// eps_bg = eps_inf).
+/// Li in r also keeps Apm = a^ (2 N_k x 2, the same phases): A E_bg = E_bg + Apm (c_+; c_-), so the
+/// spectra of G for the total field are A^{-1} (e_s - Apm c) plus the background itself (near fields).
 struct PlaneWaveSource {
   MatC Bpm;  ///< 2 N_k x 2
   VecC By;
+  MatC Apm;  ///< Li in r only
 };
 PlaneWaveSource planeWaveSource(const SpectralGrid& grid, int m, const Rings& rings, double kpar, double Psi,
                                 CylFactorization f, const CylQ& Q);

@@ -93,6 +93,22 @@ VecC CylBasis::source(const StackLayer& layer, cplx cp, cplx cm, cplx ey) const 
   return cyl::scatteredSource(grid_.k, Qyy_[i], src_[i], cp, cm, ey);
 }
 
+VecC CylBasis::ey(std::size_t i, const VecC& hp, const VecC& hm, cplx eyBg) const {
+  const VecC dy = -0.5 * grid_.k.cwiseProduct(hp + hm);
+  const auto& L = static_cast<const CylLayer&>(*layers_.at(i));
+  if (L.homogeneous()) return dy / L.eps;
+  if (eyBg == 0.0 || src_.empty()) return Qyy_[i].solve(dy);
+  return Qyy_[i].solve(VecC(dy - eyBg * src_[i].By));
+}
+
+VecC CylBasis::g(std::size_t i, const VecC& epm, cplx cp, cplx cm) const {
+  if (f_ != cyl::CylFactorization::LiR || layers_.at(i)->homogeneous()) return VecC();
+  if (Alu_.size() != layers_.size()) Alu_.resize(layers_.size());
+  if (!Alu_[i]) Alu_[i] = std::make_unique<Eigen::PartialPivLU<MatC>>(Q_[i].A);
+  if ((cp == 0.0 && cm == 0.0) || src_.empty()) return Alu_[i]->solve(epm);
+  return Alu_[i]->solve(VecC(epm - src_[i].Apm * Eigen::Vector2cd(cp, cm)));
+}
+
 MatC CylBasis::M(const StackLayer& layer, double /*y_um*/) const {
   const std::size_t i = index(layer);
   const auto& L = static_cast<const CylLayer&>(layer);
@@ -101,7 +117,7 @@ MatC CylBasis::M(const StackLayer& layer, double /*y_um*/) const {
     const Eigen::Index n = grid_.k.size();
     const MatC Id = MatC::Identity(n, n);
     return cyl::propagationMatrix(
-        grid_.k, {L.eps * Id, MatC::Zero(n, n), MatC::Zero(n, n), L.eps * Id, L.eps * Id});
+        grid_.k, {L.eps * Id, MatC::Zero(n, n), MatC::Zero(n, n), L.eps * Id, L.eps * Id, MatC()});
   }
   return M_[i];
 }

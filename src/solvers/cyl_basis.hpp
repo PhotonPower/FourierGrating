@@ -49,8 +49,18 @@ class CylBasis final : public ModalBasis {
   /// zero vector for homogeneous layers (their material is the background).
   VecC source(const StackLayer& layer, cplx cp, cplx cm, cplx ey) const;
 
- private:
+  // ---- near fields (Plan "M20: S-Matrix, Loeser und Nahfeld")
+  int harmonic() const { return m_; }
+  cyl::CylFactorization factorization() const { return f_; }
   std::size_t index(const StackLayer& layer) const;
+  /// e_y = Q_yy^{-1} (d_y - p_y) with d_y = -1/2 kappa (h_+ + h_-) (Plan eq:cyl_spec, eq:cyl_scat); p_y of
+  /// the plane-wave background e_y on the axis (zero for beams). Homogeneous layers: d_y / eps.
+  VecC ey(std::size_t layer, const VecC& hp, const VecC& hm, cplx eyBg = 0.0) const;
+  /// Spectra of G_pm = A^{-1} ((e_+; e_-) - Apm (c_+; c_-)) in a ring layer with Li in r (Plan eq:cyl_li,
+  /// eq:cyl_G); the plane-wave background itself is added in real space. Empty for Laurent.
+  VecC g(std::size_t layer, const VecC& epm, cplx cp = 0.0, cplx cm = 0.0) const;
+
+ private:
   const cyl::SpectralGrid& grid_;
   ModeBasis ref_, sub_;
   std::vector<const StackLayer*> layers_;
@@ -60,6 +70,7 @@ class CylBasis final : public ModalBasis {
   std::vector<MatC> M_;
   std::vector<Eigen::PartialPivLU<MatC>> Qyy_;
   std::vector<cyl::PlaneWaveSource> src_;
+  mutable std::vector<std::unique_ptr<Eigen::PartialPivLU<MatC>>> Alu_;  ///< LU of frak A, on demand
 };
 
 }  // namespace fg::detail
