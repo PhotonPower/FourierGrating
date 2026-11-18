@@ -2,12 +2,32 @@
 
 ## [Unreleased]
 
+## [0.20.0] – M23 (CAD-Import für 1D-Gitter), Überlappungsprüfung in 2D, Agentenreferenz
+
 ### Hinzugefügt
+- M23 CAD-Import für 1D-Gitter (Plan Teil 9, v2.22–v2.23): Eine `cad`-Schicht in einem 1D-Stapel schneidet
+  z-invariante Körper einmal bei `z_cut_um` und bildet je Höhe Intervalle mit Materialien und Normalen
+  (exakte Kreisbögen bleiben exakt). Neuer interner Schichttyp `Sectioned1DLayer` (RK, RCWA, Tschebyschow, ASR,
+  Nahfeld, Gradienten), Normalenfeld mit linear interpoliertem Winkel (eq:cad1d_N), Bänder `homogeneous`,
+  `lamellar1d`, `sectioned1d`, Befund `NOT_Z_INVARIANT`, `cell_origin_um` in 1D als Zahl oder `[x0]`,
+  `fg.cad.preview(step, cfg)` ohne `y_um` für das Profil. Nähte (Restschicht, Körper über dem Zellrand) ohne
+  Grenzfläche; `periodic_union` und `priority` als Intervall-Operationen. Formgradienten über `StackParameter`
+  auch für `sectioned1d`. PML mit `sectioned1d` wird abgelehnt.
+- Tests `test_line_section`, `test_sectioned1d`, `CAD_V24` (V24a–h), Python `test_line_grating_1d` (V24i).
+- Beispiel `examples/cad_line_grating_1d.json` (gerundete Linie aus der Meldung zu v2.21) mit STEP aus
+  `scripts/make_cad_examples.py`; neues Golden File `cad_line_grating_1d.csv`, bestehende unverändert.
+- Plan v2.22 (Teil 9: Spezifikation M23), v2.23 (Umsetzung, Abweichungen: `FEATURE_SMALL` mit dem Rasterabstand
+  wie in 2D, PML nicht unterstützt).
 - Kompakte Referenz für Sprachmodell-Agenten `python/fouriergrating/LLM_REFERENCE.md` (englisch, ca. 4000 Tokens):
   Konventionen, alle Konfigurationsschlüssel, Python-API, Rezepte, CAD, Fallstricke. Wird mit dem Wheel
   ausgeliefert; Abruf mit `fg.llm_reference()` oder `python -m fouriergrating` (neu `__main__.py`). Test
   `tests/python/test_llm_reference.py`: jeder öffentliche Name, Schichttyp, vom Parser gelesene Schlüssel und
   CAD-Prüfcode steht darin, jeder `json`-/`python`-Block läuft, die Datei liegt im installierten Paket.
+- Release 0.20.0: Version, README-Status, Handbuch (Programmstand, Plan v2.24).
+
+### Geändert
+- Die Tschebyschow-Interpolation in y ist eine gemeinsame Klasse `ChebyshevQ` (`SectionedModel` bitgleich).
+- 1D-Stapel lehnen `cad`-Schichten nicht mehr ab (v2.21 → M23).
 
 ### Behoben
 - Überlappungen in 2D (Plan v2.24): Körper bzw. Regionen mit kollinear verlaufenden Rändern (z. B. zwei Quader
@@ -35,25 +55,6 @@
     extrudierte Linie), meldet `PERIODIC_OVERLAP` (auch mit `periodic_union`). Vorher bestand er die Prüfung, und
     erst der Löser brach mit „regions overlap its periodic image“ ab.
   - Tests `CAD.BoundsOfTrimmedLids`, `CAD.ZInvariantLine`.
-
-### Hinzugefügt
-- M23 CAD-Import für 1D-Gitter (Plan Teil 9, v2.22–v2.23): Eine `cad`-Schicht in einem 1D-Stapel schneidet
-  z-invariante Körper einmal bei `z_cut_um` und bildet je Höhe Intervalle mit Materialien und Normalen
-  (exakte Kreisbögen bleiben exakt). Neuer interner Schichttyp `Sectioned1DLayer` (RK, RCWA, Tschebyschow, ASR,
-  Nahfeld, Gradienten), Normalenfeld mit linear interpoliertem Winkel (eq:cad1d_N), Bänder `homogeneous`,
-  `lamellar1d`, `sectioned1d`, Befund `NOT_Z_INVARIANT`, `cell_origin_um` in 1D als Zahl oder `[x0]`,
-  `fg.cad.preview(step, cfg)` ohne `y_um` für das Profil. Nähte (Restschicht, Körper über dem Zellrand) ohne
-  Grenzfläche; `periodic_union` und `priority` als Intervall-Operationen. Formgradienten über `StackParameter`
-  auch für `sectioned1d`. PML mit `sectioned1d` wird abgelehnt.
-- Tests `test_line_section`, `test_sectioned1d`, `CAD_V24` (V24a–h), Python `test_line_grating_1d` (V24i).
-- Beispiel `examples/cad_line_grating_1d.json` (gerundete Linie aus der Meldung zu v2.21) mit STEP aus
-  `scripts/make_cad_examples.py`; neues Golden File `cad_line_grating_1d.csv`, bestehende unverändert.
-- Plan v2.22 (Teil 9: Spezifikation M23), v2.23 (Umsetzung, Abweichungen: `FEATURE_SMALL` mit dem Rasterabstand
-  wie in 2D, PML nicht unterstützt).
-
-### Geändert
-- Die Tschebyschow-Interpolation in y ist eine gemeinsame Klasse `ChebyshevQ` (`SectionedModel` bitgleich).
-- 1D-Stapel lehnen `cad`-Schichten nicht mehr ab (v2.21 → M23).
 
 ## [0.19.0] – M22 (Dispersive Materialien), Teile von M20, Benutzerhandbuch
 
