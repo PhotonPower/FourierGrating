@@ -425,6 +425,28 @@ class StackSolver final : public Solver {
     p.ms = c.ms;
     p.planeWave = c.planeWave;
     p.beamScattered = c.beamScattered;
+    double y = 0;
+    for (const auto& L : p.layers) {
+      p.y0.push_back(y);
+      const double y1 = y + L->thickness_um() * c.s.k0;
+      p.bg.emplace_back();
+      if (c.planeWave && !L->homogeneous()) {  // as modalSources: one background layer per ring layer
+        FG_REQUIRE(bgCuts(c.s, y, y1).size() == 2, "cylindrical: a ring layer crosses a background boundary");
+        const Setup::BgLayer& B = bgLayer(c.s, 0.5 * (y + y1));
+        for (int k = 0; k < 4; ++k) {
+          if (B.amp(k) == 0.0) continue;
+          const VecC w = B.Psi.col(k);
+          const cplx ey = computeEy(B.Q1, c.s.alpha, c.s.gamma, w)(0);
+          p.bg.back().push_back({B.lambda(k), B.amp(k), w(0) + I * w(1), w(0) - I * w(1), ey, k < 2 ? B.y1 : B.y0});
+        }
+      }
+      y = y1;
+    }
+    if (c.planeWave) {
+      p.kpar = c.kpar;
+      p.Psi = c.Psi;
+      p.toArea = 1.0 / (c.s.incIntensity * c.s.k0 * c.s.k0);
+    }
     return p;
   }
 

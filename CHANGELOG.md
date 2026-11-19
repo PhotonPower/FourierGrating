@@ -22,6 +22,11 @@
   als reeller Weg gerechnet; in der C++-Schnittstelle bedeutet δ < 0 jetzt die falsche Seite, für V21f).
 
 ### Hinzugefügt
+- M20 V21i, Stufe 2 (Plan v2.35): Gradienten für ebene Wellen (Streufeld). Zielfunktion auf den Streuquerschnitten
+  nach oben/unten (`("cylindrical", "R")`/`"T"`, je Harmonischer mit m); Parameter Ringradien, Ring- und
+  Schichtmaterialien, Dicken (nicht die Halbräume). Die Hintergrundlösung der Einfallsordnung geht wie in M19 (B2)
+  über zentrale Differenzen ein, alles Übrige analytisch. Gegen Differenzenquotienten auf ≤ 1,2e-7
+  (`CylAdjoint.PlaneWaveSource`, `V21i.PlaneWave`).
 - M20 V21i, Stufe 1 (Plan v2.34): Gradienten zylindrischer Strukturen (Gauß-Strahl, Totalfeld, RCWA) durch den
   diskreten Adjungierten. Zielfunktion R und T gesamt oder je Harmonischer (`("cylindrical", "R")`,
   `("cylindrical", "T", m)`); Parameter Ringradien `/layers/k/radii_um/i`, Dicken, Materialien (nicht die

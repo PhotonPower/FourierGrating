@@ -91,6 +91,15 @@ struct CylProblem {
   std::vector<int> ms;
   std::vector<VecC> aIn;
   bool planeWave = false, beamScattered = false;
+  /// Plane wave (scattered field): lateral wave number, azimuth, normalized power -> um^2, and per layer the
+  /// background exponentials (kappa, amplitude, reference height, c_+, c_-, e_y on the axis; Plan eq:cyl_scat).
+  double kpar = 0, Psi = 0, toArea = 0;
+  struct BgTerm {
+    cplx kappa, amp, cp, cm, ey;
+    double yr = 0;
+  };
+  std::vector<std::vector<BgTerm>> bg;
+  std::vector<double> y0;  ///< normalized bottom of every layer
 };
 CylProblem cylProblem(const SolverOptions& opt, const Stack& stack, const Wavelength& wl);
 

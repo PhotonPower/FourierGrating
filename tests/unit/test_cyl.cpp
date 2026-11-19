@@ -548,3 +548,50 @@ TEST(CylAdjoint, PropagationMatrixAndFactorization) {
       check([](cyl::Rings& r, double d) { r.epsInf += cplx(0, d); }, b.epsInf.imag(), "Im eps_inf");
     }
 }
+
+TEST(CylAdjoint, PlaneWaveSource) {
+  cyl::SpectrumOptions o;
+  o.kmax = 4.0;
+  o.Rs = 2.0;
+  o.branchPoints = {1.0, 1.5};
+  o.deformA = 1.5;
+  o.deformB = 2.4;
+  o.delta = 0.05;
+  const auto g = cyl::spectralGrid(o);
+  const Eigen::Index n = g.k.size();
+  const cyl::Rings rings{{0.7, 1.6}, {cplx(4.0, 0.3), cplx(-6.0, 1.0)}, cplx(2.25, 0.0)};
+  const double kpar = 0.8, Psi = 0.6, h = 1e-6;
+  for (const auto f : {cyl::CylFactorization::Laurent, cyl::CylFactorization::LiR})
+    for (const int m : {0, 2, -1}) {
+      const MatC Bb = randomMat(2 * n, 2, 21 + m);
+      const VecC yb = randomMat(n, 1, 31 + m);
+      auto L = [&](const cyl::Rings& r) {
+        const auto B = cyl::planeWaveSource(g, m, r, kpar, Psi, f, cyl::cylQ(g, m, r, f));
+        return reDot(Bb, B.Bpm) + reDot(yb, B.By);
+      };
+      const cyl::CylQ Q = cyl::cylQ(g, m, rings, f);
+      const auto B = cyl::planeWaveSource(g, m, rings, kpar, Psi, f, Q);
+      cyl::CylQ Qb{MatC::Zero(n, n), MatC::Zero(n, n), MatC::Zero(n, n), MatC::Zero(n, n), MatC::Zero(n, n), MatC()};
+      cyl::CylQBar b;
+      cyl::planeWaveSourceBar(g, m, rings, kpar, Psi, f, Q, B, Bb, yb, Qb, b);
+      const cyl::CylQBar c = cyl::cylQBar(g, m, rings, f, Q, Qb);  // the path through Q (Li in r)
+      for (std::size_t i = 0; i < 2; ++i) {
+        b.eps[i] += c.eps[i];
+        b.radii[i] += c.radii[i];
+      }
+      b.epsInf += c.epsInf;
+      auto check = [&](const std::function<void(cyl::Rings&, double)>& move, double analytic, const char* what) {
+        cyl::Rings a = rings, d = rings;
+        move(a, h);
+        move(d, -h);
+        const double fd = (L(a) - L(d)) / (2 * h);
+        EXPECT_NEAR(analytic, fd, 1e-6 * (1 + std::abs(fd))) << what << " m = " << m << " f = " << int(f);
+      };
+      for (std::size_t i = 0; i < 2; ++i) {
+        check([i](cyl::Rings& r, double d) { r.eps[i] += d; }, b.eps[i].real(), "Re eps");
+        check([i](cyl::Rings& r, double d) { r.eps[i] += cplx(0, d); }, b.eps[i].imag(), "Im eps");
+        check([i](cyl::Rings& r, double d) { r.radii[i] += d; }, b.radii[i], "radius");
+      }
+      check([](cyl::Rings& r, double d) { r.epsInf += d; }, b.epsInf.real(), "Re eps_inf");
+    }
+}

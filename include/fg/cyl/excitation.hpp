@@ -35,6 +35,19 @@ PlaneWaveSource planeWaveSource(const SpectralGrid& grid, int m, const Rings& ri
 VecC scatteredSource(const VecC& k, const Eigen::PartialPivLU<MatC>& Qyy, const PlaneWaveSource& B, cplx cp,
                      cplx cm, cplx ey);
 
+// ---- reverse-mode rules (gradients V21i, Stufe 2; convention of fg::adjoint)
+
+/// Cotangents of the values and radii of g from that of v = besselProjection(grid, nu, nup, g, kp): linear in the
+/// values; radii by the jump (g_i - g_{i+1}) J_nu(k_j r_i) J_nup(kp r_i) r_i (as Plan eq:cyl_shape). Adds.
+void besselProjectionBar(const SpectralGrid& grid, int nu, int nup, const RadialSteps& g, cplx kp, const VecC& vbar,
+                         std::vector<cplx>& valueBar, std::vector<double>& radiiBar);
+
+/// Cotangents of B = planeWaveSource(grid, m, rings, kpar, Psi, f, Q) (Bpm, By; kpar, Psi fixed): adds those of the
+/// ring permittivities, eps_inf and radii to qb and, for Li in r (Bpm = b^ - Q a^), those of Q_pp ... Q_mm to Qbar.
+void planeWaveSourceBar(const SpectralGrid& grid, int m, const Rings& rings, double kpar, double Psi, CylFactorization f,
+                        const CylQ& Q, const PlaneWaveSource& B, const MatC& Bpmbar, const VecC& Bybar, CylQ& Qbar,
+                        CylQBar& qb);
+
 /// Harmonic cut-off m_cut = ceil(x + 4 x^{1/3} + 2) (Wiscombe; Plan eq:cyl_scat).
 int harmonicCutoff(double x);
 
