@@ -87,6 +87,14 @@ void isolate(const std::vector<double>& full, const std::vector<double>& c, doub
   isolate(full, r, m, b, depth + 1, roots);
 }
 
+/// Message of an error without the source location FG_REQUIRE puts in front ("file.cpp:123: ").
+std::string withoutLocation(const std::string& w) {
+  const auto p = w.find(".cpp:");
+  if (p == std::string::npos) return w;
+  const auto q = w.find(": ", p + 5);
+  return q == std::string::npos ? w : w.substr(q + 2);
+}
+
 std::string fmt(double v) {
   std::ostringstream o;
   o.precision(10);
@@ -130,14 +138,14 @@ std::vector<double> yExtremaParameters(const BezierSegment& s) {
 
 NurbsProfile::NurbsProfile(const NurbsCurve& c, double dx_um, std::string below, std::string above)
     : dx_(dx_um), below_(std::move(below)), above_(std::move(above)) {
-  FG_REQUIRE(dx_ > 0, "[NURBS_INPUT] nurbs: the period must be positive");
+  if (!(dx_ > 0)) throw Error("[NURBS_INPUT] nurbs: the period must be positive");
   try {
     FG_REQUIRE(c.points.size() >= 2, "nurbs: at least two control points");
     pieces_ = Contour2D::nurbs(c.degree, c.knots, c.points, c.weights).segments;
   } catch (const Error& e) {
-    throw Error(std::string("[NURBS_INPUT] ") + e.what());
+    throw Error("[NURBS_INPUT] " + withoutLocation(e.what()));
   }
-  FG_REQUIRE(!pieces_.empty(), "[NURBS_INPUT] nurbs: the curve has no non-empty knot span");
+  if (pieces_.empty()) throw Error("[NURBS_INPUT] nurbs: the curve has no non-empty knot span");
   const Point2 a = pieces_.front().P.front(), b = pieces_.back().P.back();
   double ext = dx_;
   for (const auto& s : pieces_)
@@ -219,8 +227,26 @@ LineSection NurbsProfile::section(double y) const {
     ks.push_back({x, c.n, c.n(0) > 0});
   }
   std::sort(ks.begin(), ks.end(), [](const K& p, const K& q) { return p.x < q.x; });
-  // the seam found from both sides (t = 0 of the first piece and t -> 1 of the last within rounding): once
-  if (ks.size() > 1 && ks.front().x <= tol && ks[1].x <= tol && ks.front().below == ks[1].below) ks.erase(ks.begin() + 1);
+  // crossings closer than tol: the same direction is one crossing found twice (the seam: t = 0 of the first piece
+  // and t -> 1 of the last), opposite directions bound a sliver narrower than tol next to an extremum (e.g. a valley
+  // at the layer bottom, sampled 1e-14 above it), which is dropped
+  {
+    std::vector<K> m;
+    for (const K& k : ks) {
+      if (!m.empty() && k.x - m.back().x <= tol) {
+        if (k.below != m.back().below) m.pop_back();
+        continue;
+      }
+      m.push_back(k);
+    }
+    ks = std::move(m);
+  }
+  if (ks.empty()) {
+    out.breaks = {0.0, dx_};
+    out.materials = {y < 0.5 * (ymin_ + ymax_) ? below_ : above_};
+    out.normals = {Vec3D(1, 0, 0)};
+    return out;
+  }
   for (std::size_t k = 0; k < ks.size(); ++k)
     if (ks[k].below == ks[(k + 1) % ks.size()].below || (k + 1 < ks.size() && ks[k + 1].x - ks[k].x <= tol))
       throw Error("[NURBS_SELF_INTERSECTION] nurbs: at y = " + fmt(y) +

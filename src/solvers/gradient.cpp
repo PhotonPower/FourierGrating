@@ -267,6 +267,9 @@ struct Elem {
   MatC T, Mc;
   RKSteps steps;
   double ya = 0, yb = 0, rho = 0;  ///< RK: slice range (normalized) and spectral bound, to recompute it
+  /// RK in a layer with band boundaries (M24): Q is evaluated at heights clamped into [qlo, qhi] inside the cut
+  /// slice (one-sided limits at a boundary, as the solver); unbounded otherwise.
+  double qlo = -1e300, qhi = 1e300;
   bool stored = true;              ///< false: slice data dropped (checkpoint_every > 1), recomputed backwards
   // scattered-field formulation (M18, Plan v2.13 Stufe B): slice [y0n, y1n] (normalized, absolute), background
   // layer, particular solution F_p = sum_k p_k e^{kappa_k (y - y_ref,k)} and the source amplitudes su, sv
@@ -776,7 +779,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
                       : layerModesHomogeneous(mat.isotropic ? isotropicModes(mat.eps, al, ga) : anisotropicModes(mat.epsTensor, al, ga));
       e.S = stableLayerSMatrix(e.modes, e.h, ref);
     } else if (e.rk) {
-      auto Mfun = [&m, &Mof, k0](double yl) { return Mof(m.Q(yl / k0)); };
+      auto Mfun = [&m, &Mof, k0, &e](double yl) { return Mof(m.Q(std::clamp(yl, e.qlo, e.qhi) / k0)); };
       RKStats rs;
       e.steps = RKSteps{};
       if (scat) {  // affine transfer F(yb) = T F(ya) + f: the augmented linear system (F; 1) (as the solver)
@@ -784,7 +787,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         const Eigen::Index n = 4 * nf;
         auto aug = [&](double yl) {
           const MatC Mm = e.constant ? e.Mc : Mfun(yl);
-          const MatC MB = bloch ? buildPropagationMatrix(m.Q(yl / k0), alB, gaB) : MatC();
+          const MatC MB = bloch ? buildPropagationMatrix(m.Q(std::clamp(yl, e.qlo, e.qhi) / k0), alB, gaB) : MatC();
           MatC A = MatC::Zero(n + 1, n + 1);
           A.topLeftCorner(n, n) = Mm;
           A.topRightCorner(n, 1) = sourceOf(Mm, MB, e.bgl, bgFieldAt(e.bgl, e.y0n + yl));
@@ -922,10 +925,13 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       }
       const double growth = opt.growthLimit > 0 ? opt.growthLimit : 1e8;
       const int K = std::max(1, static_cast<int>(std::ceil(rho * H / std::log(growth))));
+      double qlo = -1e300, qhi = 1e300;  // clamp range of the current cut slice (M24)
       std::function<void(double, double, int)> slice = [&](double ya, double yb, int depth) {
         Elem e;
         e.layer = k;
         e.rk = true;
+        e.qlo = qlo;
+        e.qhi = qhi;
         e.constant = m.yInvariant();
         e.y_um = 0.5 * (ya + yb) / k0;
         e.ya = ya;
@@ -941,7 +947,22 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         }
         push(std::move(e));
       };
-      for (int s = 0; s < K; ++s) slice(H * s / K, H * (s + 1) / K, 0);
+      // M24: also cut at the band boundaries of the layer, as the solver
+      const std::vector<double> breaks = m.yBreaks_um();
+      for (int is = 0; is < K; ++is) {
+        std::vector<double> cuts{H * is / K, H * (is + 1) / K};
+        for (double bk : breaks)
+          if (bk * k0 > cuts.front() + 1e-12 * std::max(1.0, H) && bk * k0 < H * (is + 1) / K - 1e-12 * std::max(1.0, H))
+            cuts.insert(cuts.end() - 1, bk * k0);
+        for (std::size_t q = 0; q + 1 < cuts.size(); ++q) {
+          if (!breaks.empty()) {  // one-sided limits at the band boundaries (Plan "M24: Kritische Höhen und Bänder")
+            const double d = 1e-9 * (cuts[q + 1] - cuts[q]);
+            qlo = cuts[q] + d;
+            qhi = cuts[q + 1] - d;
+          }
+          slice(cuts[q], cuts[q + 1], 0);
+        }
+      }
       continue;
     }
     const int K = m.yInvariant() ? 1 : m.rcwaSlices;
@@ -1407,8 +1428,9 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       }
       const Eigen::Index n = 4 * nf;
       auto augAt = [&](double yl) {
-        const MatC Mm = e.constant ? e.Mc : MatC(Mof(model.Q(yl / k0)));
-        const MatC MB = bloch ? buildPropagationMatrix(model.Q(yl / k0), alB, gaB) : MatC();
+        const double yq = std::clamp(yl, e.qlo, e.qhi);
+        const MatC Mm = e.constant ? e.Mc : MatC(Mof(model.Q(yq / k0)));
+        const MatC MB = bloch ? buildPropagationMatrix(model.Q(yq / k0), alB, gaB) : MatC();
         MatC A = MatC::Zero(n + 1, n + 1);
         A.topLeftCorner(n, n) = Mm;
         A.topRightCorner(n, 1) = sourceOf(Mm, MB, e.bgl, bgFieldAt(e.bgl, e.y0n + yl));
@@ -1439,7 +1461,8 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         adjoint::rkStep(nodesAt(k), e.steps.h[k], tab, Pb, nb, &hb);
         dLdH += hb * e.steps.h[k];  // h_k proportional to the thickness
         for (int s2 = 0; s2 < tab.stages(); ++s2) {
-          const double yl = e.steps.y[k] + tab.c(s2) * e.steps.h[k], y_um = yl / k0, y = e.y0n + yl;
+          const double yl = e.steps.y[k] + tab.c(s2) * e.steps.h[k], y_um = std::clamp(yl, e.qlo, e.qhi) / k0,
+                       y = e.y0n + yl;
           const MatC& N2 = nb[static_cast<std::size_t>(s2)];
           MatC Mb = N2.topLeftCorner(n, n);
           const VecC sigb = N2.topRightCorner(n, 1);
@@ -1515,7 +1538,8 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       auto nodesAt = [&](std::size_t k) {
         std::vector<MatC> nodes;
         for (int s = 0; s < tab.stages(); ++s)
-          nodes.push_back(e.constant ? e.Mc : MatC(Mof(model.Q((e.steps.y[k] + tab.c(s) * e.steps.h[k]) / k0))));
+          nodes.push_back(e.constant ? e.Mc
+                                     : MatC(Mof(model.Q(std::clamp(e.steps.y[k] + tab.c(s) * e.steps.h[k], e.qlo, e.qhi) / k0))));
         return nodes;
       };
       std::vector<MatC> Pk(ms), Lk(ms);  // step propagators and prefix products L_k = P_k ... P_1
@@ -1537,7 +1561,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
             for (const auto& m : nb) Msum += m;
           } else {
             for (int s = 0; s < tab.stages(); ++s) {
-              const double y_um = (e.steps.y[k] + tab.c(s) * e.steps.h[k]) / k0;
+              const double y_um = std::clamp(e.steps.y[k] + tab.c(s) * e.steps.h[k], e.qlo, e.qhi) / k0;
               fromMbar(model.Q(y_um), nb[static_cast<std::size_t>(s)], y_um, false);
             }
           }
