@@ -5,6 +5,8 @@
 #include "../support/std_bessel.hpp"
 
 #include <algorithm>
+#include <cstdlib>
+#include <functional>
 #include <cmath>
 
 #include "fg/core/quadrature.hpp"
@@ -480,3 +482,69 @@ TEST(CylField, FieldsFromGInvertTheAuxiliaryFields) {
   EXPECT_LT(std::abs(em - (Er - fg::I * Ephi)), 1e-15);
 }
 
+// ---- reverse-mode rules of the cylindrical building blocks (gradients V21i): central difference quotients
+
+namespace {
+
+double reDot(const MatC& Xbar, const MatC& dX) { return (Xbar.conjugate().array() * dX.array()).sum().real(); }
+
+MatC randomMat(Eigen::Index r, Eigen::Index c, unsigned seed) {
+  std::srand(seed);
+  return MatC::Random(r, c);
+}
+
+}  // namespace
+
+TEST(CylAdjoint, FluxBar) {
+  const auto g = deformedGrid();
+  const Eigen::Index n = g.k.size();
+  const VecC F = randomMat(4 * n, 1, 3);
+  const VecC Fb = cyl::fluxBar(g, F, 0.7);
+  const double h = 1e-6;
+  for (const Eigen::Index i : {Eigen::Index(1), n + 2, 2 * n + 1, 3 * n + 2, 3 * n + n - 1})
+    for (const cplx dir : {cplx(1, 0), cplx(0, 1)}) {
+      VecC a = F, b = F;
+      a(i) += h * dir;
+      b(i) -= h * dir;
+      const double fd = 0.7 * (cyl::flux(g, a) - cyl::flux(g, b)) / (2 * h);
+      EXPECT_NEAR(fd, std::real(std::conj(Fb(i)) * dir), 1e-8 * (1 + std::abs(fd))) << i;
+    }
+}
+
+TEST(CylAdjoint, PropagationMatrixAndFactorization) {
+  cyl::SpectrumOptions o;
+  o.kmax = 4.0;
+  o.Rs = 2.0;
+  o.branchPoints = {1.0, 1.5};
+  o.deformA = 1.5;
+  o.deformB = 2.4;
+  o.delta = 0.05;
+  const auto g = cyl::spectralGrid(o);
+  const Eigen::Index n = g.k.size();
+  const cyl::Rings rings{{0.7, 1.6}, {cplx(4.0, 0.3), cplx(-6.0, 1.0)}, cplx(2.25, 0.0)};
+  const double h = 1e-6;
+  for (const auto f : {cyl::CylFactorization::Laurent, cyl::CylFactorization::LiR})
+    for (const int m : {0, 1, -2}) {
+      const MatC Mb = randomMat(4 * n, 4 * n, 11 + m);
+      auto L = [&](const cyl::Rings& r) {
+        return reDot(Mb, cyl::propagationMatrix(g.k, cyl::cylQ(g, m, r, f)));
+      };
+      const cyl::CylQ Q = cyl::cylQ(g, m, rings, f);
+      const cyl::CylQ Qb = cyl::propagationMatrixBar(g.k, Q, Mb);
+      const cyl::CylQBar b = cyl::cylQBar(g, m, rings, f, Q, Qb);
+      auto check = [&](const std::function<void(cyl::Rings&, double)>& move, double analytic, const char* what) {
+        cyl::Rings a = rings, c = rings;
+        move(a, h);
+        move(c, -h);
+        const double fd = (L(a) - L(c)) / (2 * h);
+        EXPECT_NEAR(analytic, fd, 1e-6 * (1 + std::abs(fd))) << what << " m = " << m << " f = " << int(f);
+      };
+      for (std::size_t i = 0; i < 2; ++i) {
+        check([i](cyl::Rings& r, double d) { r.eps[i] += d; }, b.eps[i].real(), "Re eps");
+        check([i](cyl::Rings& r, double d) { r.eps[i] += cplx(0, d); }, b.eps[i].imag(), "Im eps");
+        check([i](cyl::Rings& r, double d) { r.radii[i] += d; }, b.radii[i], "radius");
+      }
+      check([](cyl::Rings& r, double d) { r.epsInf += d; }, b.epsInf.real(), "Re eps_inf");
+      check([](cyl::Rings& r, double d) { r.epsInf += cplx(0, d); }, b.epsInf.imag(), "Im eps_inf");
+    }
+}

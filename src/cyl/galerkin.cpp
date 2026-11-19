@@ -169,3 +169,90 @@ CylQ cylQ(const SpectralGrid& grid, int m, const Rings& rings, CylFactorization 
 }
 
 }  // namespace fg::cyl
+
+namespace fg::cyl {
+
+void galerkinBar(const SpectralGrid& grid, int nu, int nup, const RadialSteps& g, const MatC& Gbar,
+                 std::vector<cplx>& valueBar, std::vector<double>& radiiBar) {
+  const std::size_t nr = g.radii.size();
+  FG_REQUIRE(valueBar.size() == nr && radiiBar.size() == nr, "galerkinBar: sizes");
+  const Eigen::Index nk = grid.k.size();
+  RadialSteps unit{g.radii, std::vector<cplx>(nr, 0.0)};
+  for (std::size_t i = 0; i < nr; ++i) {
+    unit.value.assign(nr, 0.0);
+    unit.value[i] = 1.0;
+    valueBar[i] += (Gbar.array() * galerkin(grid, nu, nup, unit).conjugate().array()).sum();
+  }
+  auto J = [](int order, cplx z) {  // J_order(z), any integer order
+    const int a = std::abs(order);
+    return sgnOrder(order) * besselJAll(a, z)[static_cast<std::size_t>(a)];
+  };
+  for (std::size_t i = 0; i < nr; ++i) {
+    const double r = g.radii[i];
+    const cplx jump = g.value[i] - (i + 1 < nr ? g.value[i + 1] : cplx(0.0));
+    VecC u(nk), v(nk);
+    for (Eigen::Index j = 0; j < nk; ++j) {
+      u(j) = J(nu, grid.k(j) * r);
+      v(j) = grid.w(j) * grid.k(j) * J(nup, grid.k(j) * r) * r;
+    }
+    radiiBar[i] += std::real(jump * (u.transpose() * Gbar.conjugate() * v)(0));
+  }
+}
+
+CylQBar cylQBar(const SpectralGrid& grid, int m, const Rings& rings, CylFactorization f, const CylQ& Q,
+                const CylQ& Qbar) {
+  const std::size_t nr = rings.radii.size();
+  const Eigen::Index n = grid.k.size();
+  const int p = m + 1, q = m - 1;
+  const cplx ei = rings.epsInf;
+  CylQBar out;
+  out.eps.assign(nr, 0.0);
+  out.radii.assign(nr, 0.0);
+  // Q_yy = eps_inf 1 + [[d]]_{m<-m}, d = eps - eps_inf (both factorizations)
+  RadialSteps d{rings.radii, {}};
+  for (cplx e : rings.eps) d.value.push_back(e - ei);
+  std::vector<cplx> db(nr, 0.0);
+  out.epsInf += Qbar.Qyy.trace();
+  galerkinBar(grid, m, m, d, Qbar.Qyy, db, out.radii);
+  if (f == CylFactorization::Laurent) {
+    out.epsInf += Qbar.Qpp.trace() + Qbar.Qmm.trace();
+    galerkinBar(grid, p, p, d, Qbar.Qpp, db, out.radii);
+    galerkinBar(grid, q, q, d, Qbar.Qmm, db, out.radii);
+  } else {
+    // Q = B A^{-1}: Bbar = Qbar A^{-H}, Abar = -Q^H Bbar
+    MatC Qf(2 * n, 2 * n), Qfb(2 * n, 2 * n);
+    Qf << Q.Qpp, Q.Qpm, Q.Qmp, Q.Qmm;
+    Qfb << Qbar.Qpp, Qbar.Qpm, Qbar.Qmp, Qbar.Qmm;
+    const MatC Bb = Q.A.partialPivLu().solve(MatC(Qfb.adjoint())).adjoint();
+    const MatC Ab = -(Qf.adjoint() * Bb);
+    RadialSteps a{rings.radii, {}}, b{rings.radii, {}};
+    for (cplx e : rings.eps) {
+      a.value.push_back(0.5 * (ei / e - 1.0));
+      b.value.push_back(0.5 * (e - ei));
+    }
+    std::vector<cplx> ab(nr, 0.0), bb(nr, 0.0);
+    auto blk = [&](const MatC& X, int r, int c) { return MatC(X.block(r * n, c * n, n, n)); };
+    galerkinBar(grid, p, p, a, blk(Ab, 0, 0), ab, out.radii);
+    galerkinBar(grid, p, q, a, blk(Ab, 0, 1), ab, out.radii);
+    galerkinBar(grid, q, p, a, blk(Ab, 1, 0), ab, out.radii);
+    galerkinBar(grid, q, q, a, blk(Ab, 1, 1), ab, out.radii);
+    out.epsInf += blk(Bb, 0, 0).trace() + blk(Bb, 1, 1).trace();
+    galerkinBar(grid, p, p, b, blk(Bb, 0, 0), bb, out.radii);
+    galerkinBar(grid, p, q, b, MatC(-blk(Bb, 0, 1)), bb, out.radii);
+    galerkinBar(grid, q, p, b, MatC(-blk(Bb, 1, 0)), bb, out.radii);
+    galerkinBar(grid, q, q, b, blk(Bb, 1, 1), bb, out.radii);
+    // a_i = (eps_inf / e_i - 1) / 2, b_i = (e_i - eps_inf) / 2 (holomorphic: zbar += conj(dw/dz) wbar)
+    for (std::size_t i = 0; i < nr; ++i) {
+      const cplx e = rings.eps[i];
+      out.eps[i] += std::conj(-0.5 * ei / (e * e)) * ab[i] + 0.5 * bb[i];
+      out.epsInf += std::conj(0.5 / e) * ab[i] - 0.5 * bb[i];
+    }
+  }
+  for (std::size_t i = 0; i < nr; ++i) {
+    out.eps[i] += db[i];
+    out.epsInf -= db[i];
+  }
+  return out;
+}
+
+}  // namespace fg::cyl

@@ -37,6 +37,7 @@ add_library(fg_core
   solvers/rk.cpp
   solvers/simulation.cpp
   solvers/cyl_basis.cpp
+  solvers/cyl_gradient.cpp
   field/nearfield.cpp
   cyl/bessel.cpp
   cyl/spectrum.cpp

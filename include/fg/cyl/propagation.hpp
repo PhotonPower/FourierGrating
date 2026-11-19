@@ -21,4 +21,11 @@ ModeBasis homogeneousModes(cplx eps, const VecC& k, double eta = 1e-10);
 /// axis contribute (deformed nodes carry no flux, Plan sec:cylgrid).
 double flux(const SpectralGrid& grid, const VecC& F);
 
+// ---- reverse-mode rules (gradients V21i; convention of fg::adjoint: Xbar = dL/dRe X + i dL/dIm X)
+
+/// Cotangent of F for L = scale * flux(grid, F).
+VecC fluxBar(const SpectralGrid& grid, const VecC& F, double scale);
+/// Cotangents of Q_pp, Q_pm, Q_mp, Q_mm, Q_yy from that of M = propagationMatrix(k, Q) (k fixed; Qbar.A empty).
+CylQ propagationMatrixBar(const VecC& k, const CylQ& Q, const MatC& Mbar);
+
 }  // namespace fg::cyl

@@ -11,6 +11,9 @@
 #include <fstream>
 #include <functional>
 
+#include <nlohmann/json.hpp>
+
+#include "fg/adjoint/gradient.hpp"
 #include "fg/cyl/galerkin.hpp"
 #include "fg/cyl/propagation.hpp"
 #include "fg/cyl/spectrum.hpp"
@@ -933,3 +936,66 @@ TEST(V21h, LeakyPlasmonBetweenTheBranchPoints) {
   EXPECT_NEAR(h.reflected, f.reflected, 2e-3);
 }
 
+// V21i (Plan "Tests und Abnahme (M20)"): gradients of R and T of a Gaussian beam with respect to ring radii,
+// materials and thicknesses against central difference quotients (the spectral grid stays fixed: the substrate has
+// the highest index, R_s = 2 w0 > the outer radius, the metal sits in a ring, not in the background)
+namespace {
+
+nlohmann::json gradientCase(const std::string& fac, bool metal) {
+  auto j = nlohmann::json::parse(R"({
+    "cylindrical": {"spectrum": {"kappa_max": 2, "dk_factor": 1}, "factorization": "li_r"},
+    "materials": {"air": {"n": 1.0}, "sub": {"n": 2.0}, "core": {"n": [1.7, 0.02]}, "shell": {"eps": 1.96},
+                  "film": {"n": 1.6}},
+    "superstrate": "air", "substrate": "sub",
+    "incidence": {"type": "gaussian_beam", "lambda_um": 0.633, "waist_um": 0.4, "focus_y_um": 0.1,
+                  "polarization": "x"},
+    "layers": [{"type": "homogeneous", "thickness_um": 0.08, "material": "film"},
+               {"type": "rings", "thickness_um": 0.15, "radii_um": [0.18, 0.32], "materials": ["core", "shell", "air"]}]})");
+  j["cylindrical"]["factorization"] = fac;
+  if (metal) {  // lossy silver-like core on the real path (V21f: accurate there)
+    j["materials"]["core"]["n"] = {0.5, 3.0};
+    j["cylindrical"]["spectrum"]["deform"] = false;
+  }
+  return j;
+}
+
+double cylObjective(const fg::CylindricalResult& r) { return r.reflected + 0.5 * r.transmitted + 2 * r.transmittedPerHarmonic[1]; }
+
+/// Adjoint against central differences (step 1e-5 max(0.1, |v|)), criterion of M19: 1e-6 max(1, |fd|).
+void checkCylGradient(const std::string& fac, bool metal, const std::vector<std::string>& params) {
+  fg::Objective obj;
+  obj.cylindrical = {{fg::CylRef{'R', true, 0}, 1.0}, {fg::CylRef{'T', true, 0}, 0.5}, {fg::CylRef{'T', false, 1}, 2.0}};
+  const nlohmann::json j = gradientCase(fac, metal);
+  const fg::GradientResult g = fg::gradient(j.dump(), obj, params);
+  EXPECT_NEAR(g.value, cylObjective(solveConfig(j.dump()).cylindrical), 1e-12) << fac;
+  for (std::size_t q = 0; q < params.size(); ++q) {
+    const nlohmann::json::json_pointer p(params[q]);
+    const double v = j.at(p).get<double>(), h = 1e-5 * std::max(0.1, std::abs(v));
+    nlohmann::json a = j, b = j;
+    a[p] = v + h;
+    b[p] = v - h;
+    const double fd =
+        (cylObjective(solveConfig(a.dump()).cylindrical) - cylObjective(solveConfig(b.dump()).cylindrical)) / (2 * h);
+    std::printf("V21i %s%s %-24s adjoint %+.10e  fd %+.10e  diff %.1e\n", fac.c_str(), metal ? " metal" : "",
+                params[q].c_str(), g.grad[q], fd, std::abs(g.grad[q] - fd));
+    EXPECT_NEAR(g.grad[q], fd, 1e-6 * std::max(1.0, std::abs(fd))) << fac << " " << params[q];
+  }
+}
+
+}  // namespace
+
+// measured (v2.34): |adjoint - fd| <= 2.9e-7 over 24 combinations, relative 1e-9 ... 2e-6
+TEST(V21i, LiRAllParameters) {
+  checkCylGradient("li_r", false,
+                   {"/layers/0/thickness_um", "/layers/1/thickness_um", "/layers/1/radii_um/0", "/layers/1/radii_um/1",
+                    "/materials/core/n/0", "/materials/core/n/1", "/materials/shell/eps", "/materials/film/n"});
+}
+
+TEST(V21i, LaurentRadiiAndMaterials) {
+  checkCylGradient("laurent", false, {"/layers/1/radii_um/0", "/layers/1/radii_um/1", "/materials/shell/eps"});
+}
+
+TEST(V21i, MetalCoreOnTheRealPath) {
+  checkCylGradient("li_r", true,
+                   {"/layers/1/thickness_um", "/layers/1/radii_um/0", "/materials/core/n/0", "/materials/core/n/1"});
+}

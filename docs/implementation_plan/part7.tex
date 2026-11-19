@@ -710,6 +710,32 @@ Formableitungen der Galerkin-Matrizen nach einem Wandradius $r_i$ (Leibniz):
 \end{equation}
 dazu Materialableitungen (linear in $g$) und Ableitungen der Quelle \eqref{eq:cyl_jacobi} nach $k_\parallel$, $\Psi$.
 
+\paragraph{Umsetzung (v2.34): V21i, Stufe 1 (Gauß-Strahl, Totalfeld, RCWA).}
+\verb|src/solvers/cyl_gradient.cpp|; Zielfunktion $L=\sum w\,R$ bzw.\ $w\,T$ gesamt oder je Harmonischer
+(\verb|Objective::cylindrical|, Python \verb|("cylindrical", "R")|, \verb|("cylindrical", "T", m)|).
+\begin{itemize}[nosep]
+  \item Kette je Harmonischer wie im Löser (Substrat $\to$ Referenz, dann die Schichten); rückwärts: Fluss
+        \eqref{eq:cyl_flux} $\to$ Amplituden $\to$ Sternprodukte $\to$ Schicht-S-Matrizen $\to$ Moden (M19-Regeln) $\to$
+        $M$ $\to$ $Q$ (\verb|cyl::propagationMatrixBar|) $\to$ Galerkin-Matrizen (\verb|cyl::cylQBar|, Laurent und Li in
+        $r$, $Q=BA^{-1}$) $\to$ Ringwerte (linear) und Radien \eqref{eq:cyl_shape}. Homogene Schichten: analytische
+        Moden, $\bar\varepsilon=\operatorname{tr}(\bar Q_{++}+\bar Q_{--}+\bar Q_{yy})$.
+  \item Dicken über die Schicht-S-Matrix und die Phase des einfallenden Strahls, der an der Oberkante bezogen ist
+        ($a_j\propto e^{i\beta_j(y_f-y_{\text{top}})}$); $P_{\text{inc}}$ hängt von keinem Parameter ab.
+  \item Parameter: \verb|/layers/k/thickness_um|, \verb|/layers/k/radii_um/i| (\verb|rings|),
+        \verb|/materials/name/n|, \verb|eps| (Real- und Imaginärteil, nicht die Halbräume), auch dispersive Modelle
+        (über M22).
+  \item Fest: das Spektralgitter ($k_{\max}$, Panels, deformierter Weg, gestufte Panels hängen über
+        $\max\operatorname{Re}\sqrt\varepsilon$, $k_b$, $k_p$ und $R_s$ von Materialien und Radien ab; abgeleitet wird
+        die diskrete Abbildung bei festem Gitter).
+  \item Noch nicht: ebene Wellen und Strahlen im Streufeld (Quelle $\sigma=(M-M_{\text{bg}})F_{\text{bg}}$, Ableitung
+        nach $k_\parallel,\Psi$), Halbraummaterialien, \verb|rings_profile|-Parameter, RK.
+  \item Tests: \verb|CylAdjoint.FluxBar|, \verb|CylAdjoint.PropagationMatrixAndFactorization| (Regeln gegen
+        Differenzenquotienten, Laurent und Li, $m=0,1,-2$, komplexe $\varepsilon$ auf dem deformierten Weg);
+        \verb|V21i.*|: zwei Ringe (verlustbehafteter Kern, Schale) über einem Film auf einem Substrat höchsten
+        Index, $R+\tfrac12T+2T_{m=1}$ gegen zentrale Differenzen, Kriterium von M19 $10^{-6}\max(1,|\text{fd}|)$:
+        gemessen $\le2{,}9\cdot10^{-7}$ (relativ $10^{-9}$ bis $2\cdot10^{-6}$), auch Metallkern auf dem reellen Weg.
+\end{itemize}
+
 \subsection{Tests und Abnahme (M20)}
 \begin{itemize}[nosep]
   \item Unit: Prüfpunkt zu \eqref{eq:cyl_M}; \eqref{eq:lommel} gegen Quadratur ($5\cdot10^{-14}$, auch komplex; Auslöschung an der Schwelle $|a-b|\,r=10^{-2}$);

@@ -406,6 +406,20 @@ ist `dk_factor` 1 auf 2e-5 in T konvergiert, bei 224 statt 144 Stützstellen (Te
 beide Plasmonen gebunden und liegen auf dem deformierten Weg: `dk_factor` 3 ist auf 4e-8 konvergiert. In κ_max
 konvergiert auch der symmetrische Fall langsam (R 0,532 / 0,474 / 0,487 bei 1,5 / 2 / 3), wie bei der Goldkugel.
 
+**V21i (Gradienten, Plan v2.34).** Gauß-Strahl (633 nm, w₀ = 0,4 µm) auf zwei Ringe (Kern n = 1,7 + 0,02i,
+r = 0,18 µm; Schale ε = 1,96, r = 0,32 µm; 0,15 µm hoch) über einem Film (n = 1,6, 0,08 µm) auf einem Substrat
+n = 2, κ_max = 2. Zielfunktion R + ½T + 2T(m = 1), Adjungierte gegen zentrale Differenzen (Schritt
+1e-5 · max(0,1, |p|)), Kriterium wie M19 1e-6 · max(1, |fd|):
+
+| Fall | Parameter | max \|adjungiert − fd\| |
+|---|---|---|
+| Li in r | Dicken (Film, Ringe), beide Radien, Kern n (Re, Im), Schale ε, Film n | 2,9e-7 |
+| Laurent | beide Radien, Schale ε | 7,0e-8 |
+| Kern n = 0,5 + 3i, reeller Weg | Ringdicke, innerer Radius, Kern n (Re, Im) | 2,7e-7 |
+
+Die Rückwärtsregeln selbst (`CylAdjoint.*`, Fluss, Propagationsmatrix, Galerkin-Matrizen und Faktorisierung, Laurent
+und Li, m = 0, 1, −2, komplexe ε auf dem deformierten Weg) stimmen auf 1e-6 relativ mit Differenzenquotienten überein.
+
 ## CAD-Import für 1D-Gitter (M23, V24)
 
 `tests/cad/test_cad.cpp` (`CAD_V24`, Label `validation`, nur mit Nurbforge), ohne Nurbforge

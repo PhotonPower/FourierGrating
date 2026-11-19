@@ -29,13 +29,22 @@ struct ModeRef {
   int index = 0;
 };
 
+/// Power of a Gaussian beam through a cylindrical stack (M20, V21i): reflected 'R' or transmitted 'T', relative to
+/// the incident power, all harmonics (total) or harmonic m.
+struct CylRef {
+  char side = 'R';
+  bool total = true;
+  int m = 0;
+};
+
 /// L = sum of weight * efficiency (Plan "Schnittstellen"); as cotangents of the efficiencies the same
 /// object defines a vector-Jacobian product. Aperiodic structures (Plan eq:obj_aperiodic): scattered
-/// powers and guided-mode powers instead of efficiencies.
+/// powers and guided-mode powers instead of efficiencies; cylindrical structures: R and T of the beam.
 struct Objective {
   std::vector<std::pair<OrderRef, double>> weights;
   std::vector<std::pair<ScatterRef, double>> scattering;
   std::vector<std::pair<ModeRef, double>> modes;
+  std::vector<std::pair<CylRef, double>> cylindrical;
 };
 
 struct GradientResult {

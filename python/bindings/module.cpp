@@ -252,7 +252,8 @@ auto timed(F&& f, double& seconds) {
 /// Incidence of a Simulation call: given values in degrees / micrometres, the rest from the
 /// first scan point of the configuration.
 /// Objective / cotangents from (side, n, m, weight) tuples (M19); aperiodic structures (Plan v2.13): side
-/// "S:UP", "S:DOWN", "S:LATERAL", "S:ABSORBED" (scattered powers) and "M:R", "M:T" with n = mode index.
+/// "S:UP", "S:DOWN", "S:LATERAL", "S:ABSORBED" (scattered powers) and "M:R", "M:T" with n = mode index;
+/// cylindrical structures (V21i): "C:R", "C:T" (beam powers) and "C:RM", "C:TM" with n = harmonic m.
 fg::Objective objective(const std::vector<std::tuple<std::string, int, int, double>>& w) {
   fg::Objective o;
   for (const auto& [side, n, m, v] : w) {
@@ -262,6 +263,8 @@ fg::Objective objective(const std::vector<std::tuple<std::string, int, int, doub
       o.scattering.push_back({fg::ScatterRef{k}, v});
     } else if (side == "M:R" || side == "M:T") {
       o.modes.push_back({fg::ModeRef{side[2], n}, v});
+    } else if (side == "C:R" || side == "C:T" || side == "C:RM" || side == "C:TM") {  // cylindrical (V21i)
+      o.cylindrical.push_back({fg::CylRef{side[2], side.size() == 3, n}, v});
     } else if (side == "R" || side == "T" || side == "r" || side == "t") {
       o.weights.push_back({fg::OrderRef{static_cast<char>(std::toupper(side[0])), n, m}, v});
     } else {

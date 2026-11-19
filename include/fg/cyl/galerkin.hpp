@@ -46,4 +46,23 @@ enum class CylFactorization { Laurent, LiR };
 /// Laurent (Plan sec:cylfact) or Li in r with constant eps_inf (Plan eq:cyl_li, LU of frak A).
 CylQ cylQ(const SpectralGrid& grid, int m, const Rings& rings, CylFactorization f);
 
+// ---- reverse-mode rules (gradients V21i; convention of fg::adjoint)
+
+/// Cotangents of the values and radii of g from that of G = galerkin(grid, nu, nup, g): G is linear in the values
+/// (valueBar_i += sum Gbar o conj(G of the indicator of ring i)); Plan eq:cyl_shape for the radii
+/// (radiiBar_i += Re((g_i - g_{i+1}) u^T conj(Gbar) v), u_j = J_nu(k_j r_i), v_l = w_l k_l J_nu'(k_l r_i) r_i, g = 0
+/// outside). Adds to valueBar, radiiBar (sized like g).
+void galerkinBar(const SpectralGrid& grid, int nu, int nup, const RadialSteps& g, const MatC& Gbar,
+                 std::vector<cplx>& valueBar, std::vector<double>& radiiBar);
+
+/// Cotangents of the ring permittivities, eps_inf and the radii from those of Q = cylQ(grid, m, rings, f)
+/// (Qbar.A unused).
+struct CylQBar {
+  std::vector<cplx> eps;
+  cplx epsInf = 0.0;
+  std::vector<double> radii;
+};
+CylQBar cylQBar(const SpectralGrid& grid, int m, const Rings& rings, CylFactorization f, const CylQ& Q,
+                const CylQ& Qbar);
+
 }  // namespace fg::cyl
