@@ -199,9 +199,9 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
     Tb.S22 = aSubBar * aIn.adjoint();
     // the incident beam: a_j ~ exp(i beta_j (y_f - y_top)) (Plan sec:cylexc)
     const VecC aInBar = T.S12.adjoint() * bBar + T.S22.adjoint() * aSubBar;
-    for (Eigen::Index j = 0; j < 2 * n; ++j) {
-      const cplx kj = P.grid.k(j % n), beta = std::sqrt(P.epsSup - kj * kj);
-      yTopBar += std::real(std::conj(aInBar(j)) * (-I * beta * aIn(j)));
+    for (Eigen::Index q = 0; q < 2 * n; ++q) {
+      const cplx kq = P.grid.k(q % n), beta = std::sqrt(P.epsSup - kq * kq);
+      yTopBar += std::real(std::conj(aInBar(q)) * (-I * beta * aIn(q)));
     }
     SMatrix cur = Tb;
     for (std::size_t l = L; l-- > 0;) {

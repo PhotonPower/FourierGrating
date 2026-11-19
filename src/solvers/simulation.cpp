@@ -176,7 +176,8 @@ GradientResult Simulation::valueAndGrad(const Objective& objective, const std::v
 }
 GradientResult Simulation::valueAndGrad(const Wavelength& wl, const Objective& objective,
                                         const std::vector<std::string>& params) {
-  FG_REQUIRE(!impl_->cfg.stack.cylindrical.enabled, "gradients of cylindrical structures follow in M20 (V21i)");
+  if (impl_->cfg.stack.cylindrical.enabled)  // V21i: own forward chain (no layer models)
+    return detail::gradientWithModels(impl_->j.dump(), impl_->cfg, wl, nullptr, objective, params);
   impl_->at(wl.lambda_um);  // M22: models at this wavelength; gradientWithModels resolves the configuration
   return detail::gradientWithModels(impl_->j.dump(), impl_->cfg, wl, &impl_->models, objective, params);
 }

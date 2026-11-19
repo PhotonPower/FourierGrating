@@ -18,6 +18,7 @@
 #include "fg/cyl/propagation.hpp"
 #include "fg/cyl/spectrum.hpp"
 #include "fg/io/config.hpp"
+#include "fg/solvers/simulation.hpp"
 #include "fg/solvers/solver.hpp"
 
 using fg::cplx;
@@ -993,6 +994,12 @@ TEST(V21i, LiRAllParameters) {
 
 TEST(V21i, LaurentRadiiAndMaterials) {
   checkCylGradient("laurent", false, {"/layers/1/radii_um/0", "/layers/1/radii_um/1", "/materials/shell/eps"});
+  // the Simulation path (Python value_and_grad) gives the same
+  fg::Objective obj;
+  obj.cylindrical = {{fg::CylRef{'T', true, 0}, 1.0}};
+  const std::string cfg = gradientCase("laurent", false).dump();
+  const std::vector<std::string> ps = {"/layers/1/radii_um/0"};
+  EXPECT_EQ(fg::Simulation(cfg).valueAndGrad(obj, ps).grad, fg::gradient(cfg, obj, ps).grad);
 }
 
 TEST(V21i, MetalCoreOnTheRealPath) {
