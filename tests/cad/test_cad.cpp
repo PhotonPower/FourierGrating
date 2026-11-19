@@ -1041,3 +1041,97 @@ TEST(CAD, OverlapWithCollinearEdgesIsFound) {
   c["layers"][0]["regions"] = {rect(0.05, 0.15, "pillar"), rect(0.15, 0.25, "lid")};
   EXPECT_NO_THROW((void)solve(c));
 }
+
+// ------------------------------------------------------------------ M20: solids of revolution
+// cad with "axisymmetric": true in a cylindrical stack (Plan "M20: Schichttypen"): cylinder, frustum and
+// spherical cap on one axis -> bands rings / rings_profile; the result equals the hand-written stack with
+// rings and rings_profile (cone, sphere); sections that are no circles about the axis are NOT_AXISYMMETRIC.
+namespace {
+
+json cylBase(const json& layers) {
+  return json{{"cylindrical", {{"spectrum", {{"kappa_max", 2}}}, {"factorization", "li_r"}}},
+              {"materials", {{"air", {{"n", 1.0}}}, {"glass", {{"n", 1.5}}}, {"pillar", {{"n", 1.6}}}, {"lid", {{"n", 1.4}}}}},
+              {"superstrate", "air"},
+              {"substrate", "glass"},
+              {"incidence",
+               {{"type", "gaussian_beam"}, {"lambda_um", 1.0}, {"waist_um", 0.5}, {"focus_y_um", 0.9}, {"polarization", "x"}}},
+              {"layers", layers}};
+}
+
+json axisymLayer(const std::string& stepText, const json& bodies, const json& extra = json::object()) {
+  json l{{"type", "cad"}, {"step", stepText}, {"axisymmetric", true}, {"background", "superstrate"},
+         {"bodies", bodies}, {"slicing", {{"rcwa_slices", 6}}}};
+  for (const auto& [k, v] : extra.items()) l[k] = v;
+  return l;
+}
+
+}  // namespace
+
+TEST(CAD_M20, SolidOfRevolutionEqualsRingsAndRingsProfile) {
+  // axis at CAD (X, Y) = (2, 3): FG axis (x, z) = (2, -3) (FG z = -CAD Y), the default origin
+  const double cx = 2, cy = 3;
+  const std::string s = step({cylinder(cx, cy, 0.4, 0.0, 0.2), frustum(cx, cy, 0.3, 0.15, 0.2, 0.25),
+                              cap(cx, cy, 0.3, 0.2, 0.45)},
+                             {"base", "cone", "dome"});
+  const json bodies = json::array({{{"name", "base"}, {"material", "pillar"}}, {{"name", "cone"}, {"material", "lid"}},
+                                   {{"name", "dome"}, {"material", "pillar"}}});
+  const json cfg = cylBase(json::array({axisymLayer(s, bodies)}));
+  const json rep = report(cfg);
+  EXPECT_TRUE(rep["ok"].get<bool>()) << rep.dump(2);
+  EXPECT_EQ(rep["dimension"], "axisymmetric");
+  EXPECT_NEAR(rep["axis_um"][0].get<double>(), 2.0, 1e-12);
+  EXPECT_NEAR(rep["axis_um"][1].get<double>(), -3.0, 1e-12);
+  ASSERT_EQ(rep["bands"].size(), 3u);
+  EXPECT_EQ(rep["bands"][0]["kind"], "rings");
+  EXPECT_EQ(rep["bands"][1]["kind"], "rings_profile");
+  EXPECT_EQ(rep["bands"][2]["kind"], "rings_profile");
+  const auto c = fg::io::parseConfig(cfg.dump());
+  ASSERT_EQ(c.stack.layers.size(), 3u);
+  const auto* r0 = std::get_if<fg::RingsLayer>(&c.stack.layers[0].spec);
+  ASSERT_NE(r0, nullptr);
+  ASSERT_EQ(r0->radii_um.size(), 1u);
+  EXPECT_NEAR(r0->radii_um[0], 0.4, 1e-12);
+  // the cap's centre lies 0.1 below its band (z0 + hc - rho = 0.35)
+  const json hand = cylBase(json::array(
+      {{{"type", "rings"}, {"thickness_um", 0.2}, {"radii_um", {0.4}}, {"materials", {"pillar", "air"}}},
+       {{"type", "rings_profile"}, {"thickness_um", 0.25}, {"slices", 6}, {"radii", {{{"cone", {0.3, 0.15}}}}},
+        {"materials", {"lid", "air"}}},
+       {{"type", "rings_profile"}, {"thickness_um", 0.2}, {"slices", 6},
+        {"radii", {{{"sphere", {{"center_y_um", -0.1}, {"radius_um", 0.3}}}}}}, {"materials", {"pillar", "air"}}}}));
+  const fg::Result a = solve(cfg), b = solve(hand);
+  std::printf("CAD M20 solid of revolution: R = %.12f (hand %.1e), T = %.12f (hand %.1e)\n", a.cylindrical.reflected,
+              a.cylindrical.reflected - b.cylindrical.reflected, a.cylindrical.transmitted,
+              a.cylindrical.transmitted - b.cylindrical.transmitted);
+  EXPECT_NEAR(a.cylindrical.reflected, b.cylindrical.reflected, 1e-11);
+  EXPECT_NEAR(a.cylindrical.transmitted, b.cylindrical.transmitted, 1e-11);
+}
+
+TEST(CAD_M20, FindingsAndConfiguration) {
+  const std::string off = step({cylinder(2, 3, 0.4, 0.0, 0.2)}, {"base"});
+  const json bodies = json::array({{{"name", "base"}, {"material", "pillar"}}});
+  // the cylinder is not about the given axis
+  json rep = report(cylBase(json::array({axisymLayer(off, bodies, {{"cell_origin_um", {2.1, -3.0}}})})));
+  EXPECT_FALSE(rep["ok"].get<bool>());
+  EXPECT_EQ(codes(rep), std::vector<std::string>{"NOT_AXISYMMETRIC"});
+  EXPECT_NEAR(rep["errors"][0]["where_um"][1].get<double>(), 0.1, 1e-9);  // band mid height
+  // a square prism is no solid of revolution
+  rep = report(cylBase(json::array({axisymLayer(step({prism(kL, 0.0, 0.2)}, {"base"}), bodies)})));
+  EXPECT_EQ(codes(rep), std::vector<std::string>{"NOT_AXISYMMETRIC"});
+  // an annulus (tube) is a ring
+  const json tube = cylBase(json::array({axisymLayer(
+      step({nf::boolean(cylinder(0, 0, 0.4, 0.0, 0.2), cylinder(0, 0, 0.2, -0.1, 0.3), nf::BooleanOp::Difference)},
+           {"base"}),
+      bodies)}));
+  const auto t = fg::io::parseConfig(tube.dump());
+  const auto* tr = std::get_if<fg::RingsLayer>(&t.stack.layers.at(0).spec);
+  ASSERT_NE(tr, nullptr);
+  ASSERT_EQ(tr->radii_um.size(), 2u);
+  EXPECT_NEAR(tr->radii_um[0], 0.2, 1e-12);
+  EXPECT_NEAR(tr->radii_um[1], 0.4, 1e-12);
+  EXPECT_EQ(tr->materials, (std::vector<std::string>{"air", "pillar", "air"}));
+  // axisymmetric only in a cylindrical stack, and there only axisymmetric
+  json noFlag = cylBase(json::array({axisymLayer(off, bodies)}));
+  noFlag["layers"][0].erase("axisymmetric");
+  EXPECT_THROW(fg::io::parseConfig(noFlag.dump()), fg::Error);
+  EXPECT_THROW(fg::io::parseConfig(base(json::array({axisymLayer(off, bodies)})).dump()), fg::Error);
+}

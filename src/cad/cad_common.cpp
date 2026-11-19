@@ -23,7 +23,10 @@ std::string Report::json() const {
   j["ok"] = ok;
   j["errors"] = findings(errors);
   j["warnings"] = findings(warnings);
-  if (oneD) {
+  if (axisymmetric) {
+    j["dimension"] = "axisymmetric";
+    j["axis_um"] = {cellOrigin_um[0], cellOrigin_um[1]};
+  } else if (oneD) {
     j["dimension"] = "1D";
     j["cell_origin_um"] = {cellOrigin_um[0]};
     if (std::isfinite(zCut_um)) j["z_cut_um"] = zCut_um;
@@ -55,11 +58,12 @@ std::string llmToolSpec() {
        "(SHELL_OPEN, "
        "SHELL_ORIENTATION, BODY_OVERLAP, PERIODIC_OVERLAP, OUT_OF_RANGE, UNIT_SUSPECT, "
        "FEATURE_SMALL, "
-       "BODY_UNASSIGNED, STEP_UNSUPPORTED, NOT_Z_INVARIANT), positions in micrometres (FG axes: y = "
+       "BODY_UNASSIGNED, STEP_UNSUPPORTED, NOT_Z_INVARIANT, NOT_AXISYMMETRIC), positions in micrometres (FG axes: y = "
        "stacking direction = CAD "
        "+Z, x = CAD +X, z = -CAD Y by default) and the band decomposition. 1D gratings (\"dimension\": "
        "\"1D\"): every body must be extruded along FG z (a line of a line grating); it is cut once at "
-       "z_cut_um. Fix every error and "
+       "z_cut_um. Solids of revolution (\"cylindrical\" stack, cad \"axisymmetric\": true): every "
+       "section must be circles about the axis (FG y through axis_um). Fix every error and "
        "check again."},
       {"parameters",
        {{"type", "object"},
