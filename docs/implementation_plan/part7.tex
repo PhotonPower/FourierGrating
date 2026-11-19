@@ -656,6 +656,26 @@ Lochblende ($r=0{,}25$\,µm) in einem Metallfilm ($0{,}1$\,µm) auf Glas, Strahl
         vorbei: $T$ springt um $0{,}10$.
 \end{itemize}
 
+\paragraph{Umsetzung (v2.32): V21h, Konvergenzstudie.}
+\verb|scripts/v21h_convergence.py| (Standardbibliothek, ruft \verb|fgsolve|) schreibt
+\verb|docs/validation_data/v21h_convergence.csv|; Tabellen in \verb|docs/validation.md|.
+\begin{itemize}[nosep]
+  \item \textbf{Dielektrische Kugel} ($n=1{,}5$, $k_0a=2$, ebene Welle unter $40^\circ$): $\kappa_{\max}$ bestimmt den
+        Fehler ($-3{,}4\cdot10^{-2}$ bei 2 bis $-4{,}8\cdot10^{-3}$ bei 8), \verb|dk_factor| ist unkritisch (gleich auf
+        $5\cdot10^{-8}$ zwischen $0{,}5$ und 2), die Harmonischen sind ab $m_{\text{cut}}=4$ gesättigt (automatisch 8), die
+        Scheibenzahl verschiebt nur den Anteil des Treppenfehlers.
+  \item \textbf{Befund, Lochblende im Silberfilm mit Luft darüber:} langsame, schwingende Konvergenz in
+        \verb|dk_factor| ($T$: $0{,}416$, $0{,}453$, $0{,}537$, $0{,}504$, $0{,}477$, $0{,}495$ für 1 bis 6). Ursache: das Plasmon
+        der Grenzfläche Silber/Luft ($k\approx1{,}03$) liegt zwischen den Verzweigungspunkten von Luft und Glas, strahlt
+        durch den Film ins Glas ab und erzeugt auf dem reellen Weg eine Resonanz der Breite $\approx5\cdot10^{-3}$, die
+        der deformierte Weg auf $[k_a,k_b]$ nicht erfasst. Gegenprobe mit Glas auf beiden Seiten (beide Plasmonen
+        gebunden, auf dem deformierten Weg): konvergiert auf $4\cdot10^{-8}$ bei \verb|dk_factor| 3.
+  \item \textbf{Offen:} Weg auch zwischen den Verzweigungspunkten deformieren, wenn ein Metall vorkommt (die
+        leckende Mode liegt auf dem unphysikalischen Blatt; der Weg darf von unten an die reelle Achse, ohne den
+        Schnitt zu kreuzen), oder lokale Verfeinerung um die Resonanz. Bis dahin: bei Metallfilmen zwischen
+        verschiedenen Halbräumen die Konvergenz in \verb|dk_factor| prüfen (V21g).
+\end{itemize}
+
 \subsection{Differenzierbarkeit}
 Die Rückwärtsregeln von M19 gelten für $M$, $\mathfrak A^{-1}$, S-Matrizen und Sternprodukte unverändert. Neu sind
 Formableitungen der Galerkin-Matrizen nach einem Wandradius $r_i$ (Leibniz):
