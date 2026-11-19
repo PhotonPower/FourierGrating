@@ -229,7 +229,10 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
   - Erledigt (V21i Stufe 1, Plan v2.34): Gradienten für Gauß-Strahlen (Totalfeld, RCWA) nach Radien, Materialien,
     Dicken – `CylAdjoint.*`, `V21i.*`
   - Erledigt (V21i Stufe 2, Plan v2.35): ebene Welle, Radien, Materialien, Dicken – `V21i.PlaneWave`
-  - Als Nächstes: V21g (Literaturwerte prüfen), V21d (gegen kartesisch, Server); offen bei den Gradienten:
+  - Erledigt (V21g, Plan v2.36): Vergleich mit Popov/Bonod, Abb. 4, 6, 7 – `V21g.*`; Planfehler: Fast-Resonanz des
+    Knotens k ≈ 0 bei ebenen Wellen (RK-Rückfall → dividierte Differenz); Befund: κ_max bei kleinen Löchern in Metall
+    in Einheiten von 1/R
+  - Als Nächstes: V21d (gegen kartesisch, Server); offen bei den Gradienten:
     Halbraummaterialien, Strahl im Streufeld, `rings_profile`-Parameter, RK
 - [ ] **M21** P-zählige Drehsymmetrie: gekoppelte Harmonische m0 + lP, Winkelkoeffizienten aus `polygon2d`/
   `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)

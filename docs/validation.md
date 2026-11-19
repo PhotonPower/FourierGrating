@@ -425,6 +425,22 @@ Differenzen der Einfallsordnung): ≤ 2e-10.
 Die Rückwärtsregeln selbst (`CylAdjoint.*`, Fluss, Propagationsmatrix, Galerkin-Matrizen und Faktorisierung, Laurent
 und Li, m = 0, 1, −2, komplexe ε auf dem deformierten Weg) stimmen auf 1e-6 relativ mit Differenzenquotienten überein.
 
+**V21g (Lochblende im Metallschirm, Plan v2.36).** Qualitativer Vergleich mit Popov/Bonod, phys. stat. sol. (b) 244,
+3463 (2007). Ebene Welle 500 nm, senkrecht, E längs x; Silber/Aluminium nach Rakić (ε_Ag = −7,632 + 0,731i,
+ε_Al = −34,23 + 8,98i; Annahme, die Arbeit nennt keine Werte), Schirm 200 nm (Abb. 4, 6) bzw. 50 nm (Abb. 7, Annahme).
+
+| Abbildung | Aussage der Arbeit | hier (Test) |
+|---|---|---|
+| Abb. 4, R = 125 nm, \|E\|² 15 nm unter dem Schirm | Spitzen am Rand in Polarisationsrichtung, quer rascher Abfall | Spitze 1,89 bei \|x\| = R, Mitte 0,90; bei 250 nm längs x 0,37, längs z 0,014 (`Fig4EdgePeaksAlongThePolarization`, κ_max = 8) |
+| Abb. 6, R = 50 nm, E_y längs x | \|E_y\| ∝ \|H₁(k_p x)\| (zylindrisches Plasmon) | \|E_y\|/\|H₁\| 0,89 … 1,00 über 1–5 µm (fgsolve, dk_factor 100); Test 0,5–1 µm ≤ 1,05 (`Fig6CylindricalPlasmonAlongTheSurface`) |
+| Abb. 7, R = 10 nm, Fernfeld | in der E-Ebene flach bei idealem Leiter, gerichteter mit sinkender Leitfähigkeit; quer (H-Ebene) für alle Metalle gleich | dP/dΩ normiert auf θ = 0, bei 69°: E-Ebene Ag 0,38, Al 0,74; H-Ebene beide 0,13 = cos²θ (auf 4 %); k_max = 80 k₀ wie 160 und 320 k₀ (`Fig7FarFieldOfASmallHole`). 33 ε_Al: flacher als Al (69°: 0,82 … 0,99), aber in k_max nicht konvergiert (P(0) 2,9e-10 / 4,2e-14 / 5,6e-15 bei 80 / 160 / 320 k₀; Signal σ↓ ≈ 2e-14 µm²); 1000 ε_Al flach (0,98 … 1,02 bei 69° für alle k_max), P(0) ebenso nicht konvergiert (3,6e-10 / 2,6e-11 / 1,7e-13); beide daher nicht im Test |
+
+Befund: Die Amplitude der 50-nm-Lochblende konvergiert erst ab κ_max ≈ 24 (σ_sca 0,0051 / 0,0012 / 0,0015 / 0,0021 µm²
+für κ_max 4 / 6 / 8 / 24); die Form des Plasmons ist schon bei κ_max = 4 richtig. κ_max muss bei kleinen Löchern in
+Metall in Einheiten von 1/R gewählt werden (k_max R ≈ 15). Auf feinen Gittern liegt der Knoten k ≈ 0 beim
+Hintergrund-Exponenten (Abstand 2,1e-8 < 1e-8 max|λ|): früher RK-Rückfall (Abb. 6: über 90 min), jetzt die dividierte
+Differenz; gegen ein Gitter ohne Resonanz σ auf 5e-14, Nahfeld auf 7,5e-12 (`V21g.BackgroundExponentNextToTheNodeKZero`).
+
 ## CAD-Import für 1D-Gitter (M23, V24)
 
 `tests/cad/test_cad.cpp` (`CAD_V24`, Label `validation`, nur mit Nurbforge), ohne Nurbforge
