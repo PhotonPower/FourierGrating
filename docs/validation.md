@@ -417,6 +417,11 @@ n = 2, κ_max = 2. Zielfunktion R + ½T + 2T(m = 1), Adjungierte gegen zentrale 
 | Laurent | beide Radien, Schale ε | 7,0e-8 |
 | Kern n = 0,5 + 3i, reeller Weg | Ringdicke, innerer Radius, Kern n (Re, Im) | 2,7e-7 |
 
+Ebene Welle (Stufe 2, Plan v2.35): dieselben Ringe unter φ = 30°, ψ = 20°, Zielfunktion
+σ↑ + ½σ↓ + 2σ↓(m = 0) in µm². Beide Radien, Kern n (Re, Im), Schale ε: max |adjungiert − fd| = 1,2e-7 (Li in r)
+bzw. 6,6e-8 (Laurent). Beide Dicken und Film n, auch als Außenmaterial der Ringe (Hintergrund über zentrale
+Differenzen der Einfallsordnung): ≤ 2e-10.
+
 Die Rückwärtsregeln selbst (`CylAdjoint.*`, Fluss, Propagationsmatrix, Galerkin-Matrizen und Faktorisierung, Laurent
 und Li, m = 0, 1, −2, komplexe ε auf dem deformierten Weg) stimmen auf 1e-6 relativ mit Differenzenquotienten überein.
 

@@ -728,12 +728,41 @@ dazu Materialableitungen (linear in $g$) und Ableitungen der Quelle \eqref{eq:cy
         $\max\operatorname{Re}\sqrt\varepsilon$, $k_b$, $k_p$ und $R_s$ von Materialien und Radien ab; abgeleitet wird
         die diskrete Abbildung bei festem Gitter).
   \item Noch nicht: ebene Wellen und Strahlen im Streufeld (Quelle $\sigma=(M-M_{\text{bg}})F_{\text{bg}}$, Ableitung
-        nach $k_\parallel,\Psi$), Halbraummaterialien, \verb|rings_profile|-Parameter, RK.
+        nach $k_\parallel,\Psi$), Halbraummaterialien, \verb|rings_profile|-Parameter, RK. Ebene Wellen: Stufe 2 (v2.35).
   \item Tests: \verb|CylAdjoint.FluxBar|, \verb|CylAdjoint.PropagationMatrixAndFactorization| (Regeln gegen
         Differenzenquotienten, Laurent und Li, $m=0,1,-2$, komplexe $\varepsilon$ auf dem deformierten Weg);
         \verb|V21i.*|: zwei Ringe (verlustbehafteter Kern, Schale) über einem Film auf einem Substrat höchsten
         Index, $R+\tfrac12T+2T_{m=1}$ gegen zentrale Differenzen, Kriterium von M19 $10^{-6}\max(1,|\text{fd}|)$:
         gemessen $\le2{,}9\cdot10^{-7}$ (relativ $10^{-9}$ bis $2\cdot10^{-6}$), auch Metallkern auf dem reellen Weg.
+\end{itemize}
+
+\paragraph{Umsetzung (v2.35): V21i, Stufe 2 (ebene Welle, Streufeld).}
+Zielfunktion auf den Streuquerschnitten nach oben und unten ($\sigma_\uparrow$, $\sigma_\downarrow$ in \textmu m$^2$, gesamt
+oder je Harmonischer; \verb|("cylindrical", "R")| bzw.\ \verb|"T"| wie beim Strahl).
+\begin{itemize}[nosep]
+  \item Der Hintergrund (Ringe $\to$ Außenmaterial, M18-Lösung der Einfallsordnung) hängt von Radien und inneren
+        Ringmaterialien nicht ab. Die Kette führt daher Quellen (\verb|SourcedSMatrix|, \verb|adjoint::starSources|).
+        Je Ringschicht und Hintergrund-Exponential gilt $p_k=(\kappa_k-M)^{-1}\sigma_ka_k$ mit
+        $\sigma_k=\sigma(c_\pm,e_y)$ aus \eqref{eq:cyl_scat}; die Quellamplituden $u$, $v$ hängen über $F_p(y_0)$,
+        $F_p(y_1)$ und die Schicht-S-Matrix wie in \verb|modalSources| davon ab.
+  \item Rückwärts: $\bar u,\bar v\to\bar S$, $\bar F_p\to\bar p_k\to$ $\bar M\mathrel{+}=\bar b_kp_k^H$ und
+        $\bar\sigma_k$ mit $\bar b_k=(\kappa_k-M)^{-H}\bar p_k$. Danach folgen $\bar\sigma_k\to\bar B_{\pm}$, $\bar B_y$, $\bar Q_{yy}$
+        und \verb|cyl::planeWaveSourceBar|: Projektionen \verb|besselProjectionBar| (Werte linear, Radien über den
+        Sprung $(g_i-g_{i+1})J_\nu(k_jr_i)J_{\nu'}(k_\parallel r_i)r_i$); bei Li in $r$ zusätzlich $\bar Q$ aus
+        $B_{\pm}=\hat b-Q\hat a$.
+  \item Stufe 2a: Radien (\verb|rings|) und Materialien, die nur innen in Ringen vorkommen; der Hintergrund hängt von
+        ihnen nicht ab.
+  \item Stufe 2b: Dicken und Hintergrundmaterialien (homogene Schichten, Außenmaterial der Ringe) ändern zusätzlich die
+        Hintergrundlösung der Einfallsordnung. Wie M19 (Stufe B2) gehen deren Größen je Exponential über zentrale
+        Differenzen ein: $\kappa_k$, die Produkte Amplitude $\times$ $(c_+,c_-,e_y)$ (unabhängig von der Normierung der
+        Hintergrundmoden) und die Endfaktoren $e^{\kappa_k(y_{a,b}-y_r)}$; deren Kotangenten stammen aus der adjungierten
+        Rechnung ($\bar\kappa_k=-p_k^H\bar b_k$, $\bar e=p^H\bar F$, \dots). Alles Übrige bleibt analytisch.
+  \item Abgelehnt: Halbraummaterialien und eine Resonanz eines Exponentials mit einer Scheibenmode (RK-Ausweichweg des
+        Lösers).
+  \item Tests: \verb|CylAdjoint.PlaneWaveSource| (Quelle gegen Differenzenquotienten, Laurent und Li, $m=0,2,-1$);
+        \verb|V21i.PlaneWave|: dieselben Ringe unter $\varphi=30^\circ$, $\psi=20^\circ$,
+        $\sigma_\uparrow+\tfrac12\sigma_\downarrow+2\sigma_{\downarrow,m=0}$; Radien und Ringmaterialien gemessen
+        $\le1{,}2\cdot10^{-7}$, Dicken und Filmmaterial (auch als Außenmaterial der Ringe) $\le2\cdot10^{-10}$.
 \end{itemize}
 
 \subsection{Tests und Abnahme (M20)}

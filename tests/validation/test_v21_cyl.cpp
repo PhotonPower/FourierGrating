@@ -1006,3 +1006,53 @@ TEST(V21i, MetalCoreOnTheRealPath) {
   checkCylGradient("li_r", true,
                    {"/layers/1/thickness_um", "/layers/1/radii_um/0", "/materials/core/n/0", "/materials/core/n/1"});
 }
+
+// V21i Stufe 2 (Plan v2.35): plane wave (scattered field), objective on the scattered cross sections up/down (um^2);
+// radii and inner ring materials analytic (2a), thicknesses and the film material also through the background
+// solution of the incidence order (2b, central differences of that 4 x 4 problem)
+TEST(V21i, PlaneWave) {
+  fg::Objective obj;
+  obj.cylindrical = {{fg::CylRef{'R', true, 0}, 1.0}, {fg::CylRef{'T', true, 0}, 0.5}, {fg::CylRef{'T', false, 0}, 2.0}};
+  auto L = [](const fg::CylindricalResult& r) {
+    double t0 = 0;
+    for (std::size_t i = 0; i < r.harmonics.size(); ++i)
+      if (r.harmonics[i] == 0) t0 = r.transmittedPerHarmonic[i];
+    return r.scatteredUp_um2 + 0.5 * r.scatteredDown_um2 + 2 * t0;
+  };
+  const std::vector<std::string> params = {"/layers/1/radii_um/0",   "/layers/1/radii_um/1",  "/materials/core/n/0",
+                                           "/materials/core/n/1",    "/materials/shell/eps",  "/layers/0/thickness_um",
+                                           "/layers/1/thickness_um", "/materials/film/n"};
+  for (const std::string fac : {"li_r", "laurent"}) {
+    nlohmann::json j = gradientCase(fac, false);
+    j["incidence"] = {{"type", "plane_wave"}, {"lambda_um", 0.633}, {"phi_deg", 30}, {"psi_deg", 20}, {"delta_deg", 0}};
+    const fg::GradientResult g = fg::gradient(j.dump(), obj, params);
+    EXPECT_NEAR(g.value, L(solveConfig(j.dump()).cylindrical), 1e-12) << fac;
+    for (std::size_t q = 0; q < params.size(); ++q) {
+      const nlohmann::json::json_pointer p(params[q]);
+      const double v = j.at(p).get<double>(), h = 1e-5 * std::max(0.1, std::abs(v));
+      nlohmann::json a = j, b = j;
+      a[p] = v + h;
+      b[p] = v - h;
+      const double fd = (L(solveConfig(a.dump()).cylindrical) - L(solveConfig(b.dump()).cylindrical)) / (2 * h);
+      std::printf("V21i plane wave %s %-22s adjoint %+.10e  fd %+.10e  diff %.1e\n", fac.c_str(), params[q].c_str(),
+                  g.grad[q], fd, std::abs(g.grad[q] - fd));
+      EXPECT_NEAR(g.grad[q], fd, 1e-6 * std::max(1.0, std::abs(fd))) << fac << " " << params[q];
+    }
+  }
+  // the half spaces are no parameters yet
+  nlohmann::json j = gradientCase("li_r", false);
+  j["incidence"] = {{"type", "plane_wave"}, {"lambda_um", 0.633}, {"phi_deg", 30}, {"psi_deg", 20}, {"delta_deg", 0}};
+  EXPECT_THROW(fg::gradient(j.dump(), obj, {"/materials/sub/n"}), fg::Error);
+  // outer ring material = film: eps_inf of the rings and the background at once
+  j["layers"][1]["materials"] = {"core", "shell", "film"};
+  const std::string pf = "/materials/film/n";
+  const fg::GradientResult gf = fg::gradient(j.dump(), obj, {pf});
+  const nlohmann::json::json_pointer jp(pf);
+  nlohmann::json a = j, b = j;
+  a[jp] = 1.6 + 1e-5;
+  b[jp] = 1.6 - 1e-5;
+  const double fdf = (L(solveConfig(a.dump()).cylindrical) - L(solveConfig(b.dump()).cylindrical)) / 2e-5;
+  std::printf("V21i plane wave, film as outer ring material: adjoint %+.10e  fd %+.10e  diff %.1e\n", gf.grad[0], fdf,
+              std::abs(gf.grad[0] - fdf));
+  EXPECT_NEAR(gf.grad[0], fdf, 1e-6 * std::max(1.0, std::abs(fdf)));
+}

@@ -111,6 +111,84 @@ VecC scatteredSource(const VecC& k, const Eigen::PartialPivLU<MatC>& Qyy, const 
   return s;
 }
 
+void besselProjectionBar(const SpectralGrid& grid, int nu, int nup, const RadialSteps& g, cplx kp, const VecC& vbar,
+                         std::vector<cplx>& valueBar, std::vector<double>& radiiBar) {
+  const std::size_t nr = g.radii.size();
+  FG_REQUIRE(valueBar.size() == nr && radiiBar.size() == nr, "besselProjectionBar: sizes");
+  RadialSteps unit{g.radii, std::vector<cplx>(nr, 0.0)};
+  for (std::size_t i = 0; i < nr; ++i) {
+    unit.value.assign(nr, 0.0);
+    unit.value[i] = 1.0;
+    valueBar[i] += besselProjection(grid, nu, nup, unit, kp).dot(vbar);  // sum_j vbar_j conj(P_ij)
+  }
+  auto J = [](int order, cplx z) {
+    const int a = std::abs(order);
+    const double sg = (order < 0 && a % 2 == 1) ? -1.0 : 1.0;
+    return sg * besselJAll(a, z)[static_cast<std::size_t>(a)];
+  };
+  for (std::size_t i = 0; i < nr; ++i) {
+    const double r = g.radii[i];
+    const cplx jump = g.value[i] - (i + 1 < nr ? g.value[i + 1] : cplx(0.0));
+    cplx s = 0.0;
+    for (Eigen::Index j = 0; j < grid.k.size(); ++j) s += std::conj(vbar(j)) * J(nu, grid.k(j) * r);
+    radiiBar[i] += std::real(jump * J(nup, kp * r) * r * s);
+  }
+}
+
+void planeWaveSourceBar(const SpectralGrid& grid, int m, const Rings& rings, double kpar, double Psi, CylFactorization f,
+                        const CylQ& Q, const PlaneWaveSource& B, const MatC& Bpmbar, const VecC& Bybar, CylQ& Qbar,
+                        CylQBar& qb) {
+  const std::size_t nr = rings.radii.size();
+  const Eigen::Index n = grid.k.size();
+  const int p = m + 1, q = m - 1;
+  const cplx ei = rings.epsInf;
+  auto phase = [Psi](int nu) { return std::polar(1.0, nu * (0.5 * PI - Psi)); };
+  if (qb.eps.empty()) qb.eps.assign(nr, 0.0);
+  if (qb.radii.empty()) qb.radii.assign(nr, 0.0);
+  RadialSteps d{rings.radii, {}};
+  for (cplx e : rings.eps) d.value.push_back(e - ei);
+  std::vector<cplx> db(nr, 0.0);
+  besselProjectionBar(grid, m, m, d, kpar, VecC(std::conj(phase(m)) * Bybar), db, qb.radii);
+  if (f == CylFactorization::Laurent) {
+    besselProjectionBar(grid, p, p, d, kpar, VecC(std::conj(phase(p)) * Bpmbar.col(0).head(n)), db, qb.radii);
+    besselProjectionBar(grid, q, q, d, kpar, VecC(std::conj(phase(q)) * Bpmbar.col(1).tail(n)), db, qb.radii);
+  } else {
+    // Bpm = bh - Qf ah: bhbar = Bpmbar, Qfbar -= Bpmbar ah^H, ahbar = -Qf^H Bpmbar; ah = ah0 diag(ph)
+    MatC Qf(2 * n, 2 * n);
+    Qf << Q.Qpp, Q.Qpm, Q.Qmp, Q.Qmm;
+    const MatC Qfb = -(Bpmbar * B.Apm.adjoint());
+    Qbar.Qpp += Qfb.topLeftCorner(n, n);
+    Qbar.Qpm += Qfb.topRightCorner(n, n);
+    Qbar.Qmp += Qfb.bottomLeftCorner(n, n);
+    Qbar.Qmm += Qfb.bottomRightCorner(n, n);
+    const Eigen::Vector2cd phc(std::conj(phase(p)), std::conj(phase(q)));
+    const MatC ab = (-(Qf.adjoint() * Bpmbar)) * phc.asDiagonal(), bb = Bpmbar * phc.asDiagonal();
+    RadialSteps ra{rings.radii, {}}, rb{rings.radii, {}};
+    for (cplx e : rings.eps) {
+      ra.value.push_back(0.5 * (ei / e - 1.0));
+      rb.value.push_back(0.5 * (e - ei));
+    }
+    std::vector<cplx> abar(nr, 0.0), bbar(nr, 0.0);
+    besselProjectionBar(grid, p, p, ra, kpar, VecC(ab.col(0).head(n)), abar, qb.radii);
+    besselProjectionBar(grid, p, q, ra, kpar, VecC(ab.col(1).head(n)), abar, qb.radii);
+    besselProjectionBar(grid, q, p, ra, kpar, VecC(ab.col(0).tail(n)), abar, qb.radii);
+    besselProjectionBar(grid, q, q, ra, kpar, VecC(ab.col(1).tail(n)), abar, qb.radii);
+    besselProjectionBar(grid, p, p, rb, kpar, VecC(bb.col(0).head(n)), bbar, qb.radii);
+    besselProjectionBar(grid, p, q, rb, kpar, VecC(-bb.col(1).head(n)), bbar, qb.radii);
+    besselProjectionBar(grid, q, p, rb, kpar, VecC(-bb.col(0).tail(n)), bbar, qb.radii);
+    besselProjectionBar(grid, q, q, rb, kpar, VecC(bb.col(1).tail(n)), bbar, qb.radii);
+    for (std::size_t i = 0; i < nr; ++i) {
+      const cplx e = rings.eps[i];
+      qb.eps[i] += std::conj(-0.5 * ei / (e * e)) * abar[i] + 0.5 * bbar[i];
+      qb.epsInf += std::conj(0.5 / e) * abar[i] - 0.5 * bbar[i];
+    }
+  }
+  for (std::size_t i = 0; i < nr; ++i) {
+    qb.eps[i] += db[i];
+    qb.epsInf -= db[i];
+  }
+}
+
 int harmonicCutoff(double x) {
   return static_cast<int>(std::ceil(x + 4.0 * std::cbrt(x) + 2.0));
 }

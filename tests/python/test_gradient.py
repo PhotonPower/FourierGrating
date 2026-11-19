@@ -132,6 +132,28 @@ def test_cylindrical_beam_objective():
         assert grad[k] == pytest.approx((vals[0] - vals[1]) / 2e-6, rel=1e-5, abs=1e-6)
 
 
+def test_cylindrical_plane_wave_objective():
+    """Plan v2.35, V21i Stufe 2: scattered cross sections of a plane wave."""
+    cfg = copy.deepcopy(CYL_CFG)
+    cfg["incidence"] = {"type": "plane_wave", "lambda_um": 0.633, "phi_deg": 25, "psi_deg": 0, "delta_deg": 0}
+    obj = {("cylindrical", "R"): 1.0, ("cylindrical", "T"): 0.5}
+    params = ["/layers/0/radii_um/0", "/materials/core/n"]
+    sim = fg.Simulation(cfg)
+    value, grad = sim.value_and_grad(obj, params)
+    cy = fg.solve(cfg).cylindrical
+    assert value == pytest.approx(cy["scattered_up_um2"] + 0.5 * cy["scattered_down_um2"], rel=1e-10)
+    for k, (p, v0) in enumerate(zip(params, (0.2, 1.7))):
+        vals = []
+        for sgn in (1, -1):
+            s = fg.Simulation(cfg)
+            s.set_parameter(p, v0 + sgn * 1e-6)
+            c = s.solve().cylindrical
+            vals.append(c["scattered_up_um2"] + 0.5 * c["scattered_down_um2"])
+        assert grad[k] == pytest.approx((vals[0] - vals[1]) / 2e-6, rel=1e-5, abs=1e-6)
+    with pytest.raises(fg.FourierGratingError, match="half spaces"):
+        sim.value_and_grad(obj, ["/materials/sub/n"])
+
+
 def test_unsupported_parameter_raises():
     sim = fg.Simulation(CFG)
     with pytest.raises(Exception):
