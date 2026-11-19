@@ -393,17 +393,17 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
     if (!moveBg[q]) continue;
     const json::json_pointer jp(params[q]);
     const double v = j.at(jp).get<double>(), hstep = 1e-6 * std::max(1.0, std::abs(v));
-    std::vector<CylProblem> Pm;
-    for (const double sgn : {1.0, -1.0}) {
+    auto at = [&](double sgn) {  // two variables, no container (CylProblem is move-only)
       json a = j;
       a[jp] = v + sgn * hstep;
       const io::RunConfig ca = io::parseConfig(a.dump());
-      Pm.push_back(cylProblem(ca.solver, ca.stack, wl));
-    }
+      return cylProblem(ca.solver, ca.stack, wl);
+    };
+    const CylProblem Pplus = at(1.0), Pminus = at(-1.0);
     double dL = 0;
     for (std::size_t l = 0; l < P.layers.size(); ++l) {
       if (bgBar[l].empty()) continue;
-      const auto a = bgValues(Pm[0], l), b = bgValues(Pm[1], l);
+      const auto a = bgValues(Pplus, l), b = bgValues(Pminus, l);
       FG_REQUIRE(a.size() == bgBar[l].size() && b.size() == bgBar[l].size(),
                  "gradient (cylindrical plane wave): the background exponentials change with '" + params[q] + "'");
       for (std::size_t t = 0; t < a.size(); ++t) {
