@@ -223,7 +223,8 @@ angeregt durch einen Strahl auf der Achse oder eine ebene Welle; `period_um`, `t
   "spectrum": {"kappa_max": 6, "dk_factor": 1.0, "nodes_per_panel": 8,
                "deform": "auto"},                          // "auto" | false | {"delta": 0.05} (relativ zu k_b - k_a)
   "factorization": "li_r",                                 // oder "laurent"
-  "optical_theorem": false                                 // ebene Welle: optisches Theorem als Kontrolle (teurer)
+  "optical_theorem": false,                                // ebene Welle: optisches Theorem als Kontrolle (teurer)
+  "far_field": {"n_phi": 72}                               // Fernfeld und Winkelspektrum als CSV (optional)
 },
 "incidence": {"type": "gaussian_beam", "lambda_um": 1.0, "waist_um": 0.5, "focus_y_um": 0.8,
               "polarization": "x"},  // x | z | circular_plus | circular_minus | radial | azimuthal
@@ -269,6 +270,14 @@ Theorem in Volumenform, ½ Im ∫(ε − ε_∞) E·Ē_bg dV). Die Volumenintegr
 sonst, ebenso bei verlustbehaftetem Hintergrund (Python dann `nan`). Python
 `absorption_um2`, `extinction_um2`, `extinction_theorem_um2`. CAD-Rotationskörper: Schicht `cad` mit
 `"axisymmetric": true` ([`cad.md`](cad.md)).
+
+Winkelspektrum und Fernfeld (M20): je Harmonischer und Seite (oben ins Superstrat, unten ins Substrat, falls
+verlustfrei) dP/dθ an den Knoten des Spektrums mit k < n (θ = asin(k/n)), getrennt nach s (TE) und p (TM), dazu das
+Quadraturgewicht in θ (Σ Gewicht·(s + p) = Leistung der Harmonischen). Fernfeld: dP/dΩ auf (θ-Knoten) × `n_phi`
+Azimute φ_k ∈ [0°, 360°), s und p. Strahl: bezogen auf die einfallende Leistung; ebene Welle: µm² je rad bzw. sr
+(differentieller Streuquerschnitt). Mit `"far_field"` schreibt `fgsolve` `angular_spectrum.csv` (`side`, `m`,
+`theta_deg`, `weight`, `dP_s`, `dP_p`) und `far_field.csv` (`side`, `theta_deg`, `phi_k_deg`, `dP_s`, `dP_p`); Python
+`result.cylindrical["angular_spectrum"]` (immer) und `["far_field"]`.
 
 Nahfeld (`"nearfield"`, M20): horizontaler Schnitt bei `horizontal_y_um` als Karte x–z, vertikaler Schnitt x–y in der
 Ebene z = `vertical_z_um` (z = 0: Meridianebene); x und z laufen symmetrisch über [−`extent_um`, `extent_um`] mit

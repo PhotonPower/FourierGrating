@@ -122,6 +122,36 @@ py::dict toDict(const fg::Result& r, double seconds, const std::vector<fg::prof:
     } else {
       cy["absorbed_rings"] = r.cylindrical.absorbedRings;  // volume integral over the rings
     }
+    py::list as;  // angular spectrum per harmonic and side (Plan "M20: Ausgaben")
+    for (const auto& a : r.cylindrical.angularSpectrum) {
+      py::dict ad;
+      ad["m"] = a.m;
+      ad["side"] = a.side > 0 ? "up" : "down";
+      ad["theta_deg"] = a.theta_deg;
+      ad["weight"] = a.weight;
+      ad["s"] = a.s;
+      ad["p"] = a.p;
+      as.append(ad);
+    }
+    cy["angular_spectrum"] = as;
+    py::list ffl;  // far field with cylindrical.far_field: s, p as rows over theta, columns over phi_k
+    for (const auto& f : r.cylindrical.farField) {
+      py::dict fd;
+      fd["side"] = f.side > 0 ? "up" : "down";
+      fd["theta_deg"] = f.theta_deg;
+      fd["phi_deg"] = f.phi_deg;
+      py::list sl, pl;
+      for (std::size_t j = 0; j < f.theta_deg.size(); ++j) {
+        const auto b = f.s.begin() + static_cast<std::ptrdiff_t>(j * f.phi_deg.size());
+        const auto c = f.p.begin() + static_cast<std::ptrdiff_t>(j * f.phi_deg.size());
+        sl.append(std::vector<double>(b, b + static_cast<std::ptrdiff_t>(f.phi_deg.size())));
+        pl.append(std::vector<double>(c, c + static_cast<std::ptrdiff_t>(f.phi_deg.size())));
+      }
+      fd["s"] = sl;
+      fd["p"] = pl;
+      ffl.append(fd);
+    }
+    cy["far_field"] = ffl;
     d["cylindrical"] = cy;
   }
   py::dict diag;

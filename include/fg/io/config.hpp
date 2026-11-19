@@ -40,6 +40,12 @@ void writeEfficiencies(const std::string& file, const std::vector<Wavelength>& s
 void writeEfficiencies(const std::string& file, const std::vector<RunConfig>& runs,
                        const std::vector<std::vector<Result>>& results);
 
+/// Angular spectra and far fields of cylindrical runs (M20, Plan "M20: Ausgaben"; with cylindrical.far_field):
+/// <dir>/angular_spectrum.csv (side, m, theta_deg, weight, dP_s, dP_p per radian) and <dir>/far_field.csv
+/// (side, theta_deg, phi_k_deg, dP_s, dP_p per steradian); side "up" | "down". Returns the files written.
+std::vector<std::string> writeCylindricalSpectra(const std::string& dir, const std::vector<RunConfig>& runs,
+                                                 const std::vector<std::vector<Result>>& results);
+
 /// n and eps of a material at lambda (M22, Plan "Ausgaben"; Python fg.material_eps): one value (component 0)
 /// for isotropic materials, the three principal values (components 1..3) for eps_principal; fixed materials too.
 std::vector<MaterialValue> materialAt(const Stack& stack, const std::string& name, double lambda_um);

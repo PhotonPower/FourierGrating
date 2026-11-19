@@ -1041,6 +1041,83 @@ class StackSolver final : public Solver {
     return {PI * absorbed, PI * ext.imag()};  // 1/2 * 2 pi (phi)
   }
 
+  /// Outgoing field of one harmonic on one side for the angular spectrum and the far field (Plan "M20:
+  /// Ausgaben"): s = (e_+ + e_-)/2 (TE), p = (e_+ - e_-)/2 (TM) at the propagating real nodes of a lossless
+  /// half space; then the closed flux form eq:cyl_flux_closed splits into pi w k (beta |s|^2 + eps |p|^2 / beta).
+  struct CylOutgoing {
+    int m = 0, side = 1;
+    double eps = 1;
+    std::vector<Eigen::Index> nodes;
+    VecC a, b;
+  };
+  static CylOutgoing cylOutgoing(const CylContext& c, int m, int side, const VecC& F, cplx eps) {
+    CylOutgoing o;
+    o.m = m;
+    o.side = side;
+    o.eps = eps.real();
+    const Eigen::Index n = c.grid.k.size();
+    const double nr = std::sqrt(o.eps);
+    for (Eigen::Index j = 0; j < n; ++j)
+      if (c.grid.k(j).imag() == 0.0 && c.grid.k(j).real() > 0 && c.grid.k(j).real() < nr) o.nodes.push_back(j);
+    o.a.resize(static_cast<Eigen::Index>(o.nodes.size()));
+    o.b.resize(o.a.size());
+    for (std::size_t i = 0; i < o.nodes.size(); ++i) {
+      const Eigen::Index j = o.nodes[i];
+      o.a(static_cast<Eigen::Index>(i)) = 0.5 * (F(j) + F(n + j));
+      o.b(static_cast<Eigen::Index>(i)) = 0.5 * (F(j) - F(n + j));
+    }
+    return o;
+  }
+  /// Angular spectra (per harmonic and side) and, with nPhi > 0, the far field per side: E_s = -2 pi sum_m (-i)^m
+  /// s_m e^{i m phi}, E_r = -2 pi i sum_m (-i)^m p_m e^{i m phi} (Plan "M20: Ausgaben", Fourier transform of a
+  /// harmonic), dP/dOmega = eps^{3/2} / (8 pi^2) (cos^2 theta |E_s|^2 + |E_r|^2); norm: 1 / P_inc or um^2.
+  static void cylFarOutputs(const CylContext& c, const std::vector<CylOutgoing>& outs, double norm, int nPhi,
+                            CylindricalResult& cr) {
+    for (const CylOutgoing& o : outs) {
+      CylAngularSpectrum a;
+      a.m = o.m;
+      a.side = o.side;
+      for (std::size_t i = 0; i < o.nodes.size(); ++i) {
+        const double k = c.grid.k(o.nodes[i]).real(), beta = std::sqrt(o.eps - k * k);
+        const auto ii = static_cast<Eigen::Index>(i);
+        a.theta_deg.push_back(std::asin(k / std::sqrt(o.eps)) * 180 / PI);
+        a.weight.push_back(c.grid.w(o.nodes[i]).real() / beta);  // dk = beta dtheta
+        a.s.push_back(norm * PI * k * beta * beta * std::norm(o.a(ii)));
+        a.p.push_back(norm * PI * k * o.eps * std::norm(o.b(ii)));
+      }
+      cr.angularSpectrum.push_back(std::move(a));
+    }
+    if (nPhi <= 0) return;
+    for (const int side : {1, -1}) {
+      std::vector<const CylOutgoing*> os;
+      for (const auto& o : outs)
+        if (o.side == side) os.push_back(&o);
+      if (os.empty()) continue;
+      CylFarField f;
+      f.side = side;
+      const double eps = os.front()->eps, fac = norm * std::pow(eps, 1.5) / (8 * PI * PI);
+      for (int l = 0; l < nPhi; ++l) f.phi_deg.push_back(360.0 * l / nPhi);
+      for (std::size_t i = 0; i < os.front()->nodes.size(); ++i) {
+        const double k = c.grid.k(os.front()->nodes[i]).real(), cos2 = 1 - k * k / eps;
+        f.theta_deg.push_back(std::asin(k / std::sqrt(eps)) * 180 / PI);
+        for (int l = 0; l < nPhi; ++l) {
+          const double phi = 2 * PI * l / nPhi;
+          cplx Es = 0.0, Er = 0.0;
+          for (const CylOutgoing* o : os) {
+            const cplx ph = std::polar(1.0, o->m * (phi - 0.5 * PI));  // (-i)^m e^{i m phi}
+            Es += o->a(static_cast<Eigen::Index>(i)) * ph;
+            Er += o->b(static_cast<Eigen::Index>(i)) * ph;
+          }
+          Es *= -2 * PI;
+          Er *= cplx(0, -2 * PI);
+          f.s.push_back(fac * cos2 * std::norm(Es));
+          f.p.push_back(fac * std::norm(Er));
+        }
+      }
+      cr.farField.push_back(std::move(f));
+    }
+  }
+
   /// Beam on the axis or plane wave through a stack with ring layers (Plan sections "M20: Anregung",
   /// "M20: S-Matrix, Loeser und Nahfeld", "M20: Ausgaben"): one assembly per azimuthal harmonic with the
   /// Hankel basis, powers from Plan eq:cyl_flux, volume integrals over the rings.
@@ -1067,18 +1144,25 @@ class StackSolver final : public Solver {
     cr.planeWave = c.planeWave;
     cr.harmonics = c.ms;
     cr.nodes = static_cast<int>(n);
+    // angular spectrum and far field below the substrate only when it is lossless (real angles)
+    const bool losslessSub = std::abs(c.epsSub.imag()) < 1e-14 && c.epsSub.real() > 0;
     if (c.planeWave) {
       const double toArea = 1.0 / (c.s.incIntensity * c.s.k0 * c.s.k0);  // normalized power -> um^2
       double pAbs = 0, pExt = 0;
+      std::vector<CylOutgoing> outs;
       for (const int m : c.ms) {
         const auto basis = cylBasis(c, m);
         const Assembly as = assemble(c.s, *basis, c.ptrs, volume, ys, res.diag);
         VecC V = VecC::Zero(4 * n);
         V.tail(2 * n) = as.totalSrc.u;  // scattered field, nothing comes in
-        const double up = cyl::flux(c.grid, basis->ref().Psi * V);
+        const VecC Fup = basis->ref().Psi * V;
+        const double up = cyl::flux(c.grid, Fup);
         V.setZero();
         V.head(2 * n) = as.totalSrc.v;
-        const double down = -cyl::flux(c.grid, basis->sub().Psi * V);
+        const VecC Fdown = basis->sub().Psi * V;
+        const double down = -cyl::flux(c.grid, Fdown);
+        outs.push_back(cylOutgoing(c, m, 1, Fup, c.epsSup));
+        if (losslessSub) outs.push_back(cylOutgoing(c, m, -1, Fdown, c.epsSub));
         cr.reflectedPerHarmonic.push_back(up * toArea);
         cr.transmittedPerHarmonic.push_back(down * toArea);
         cr.scatteredUp_um2 += up * toArea;
@@ -1091,6 +1175,7 @@ class StackSolver final : public Solver {
         c.s.cylSource = nullptr;
       }
       cr.scattering_um2 = cr.scatteredUp_um2 + cr.scatteredDown_um2;
+      cylFarOutputs(c, outs, toArea, stack.cylindrical.farFieldPhi, cr);
       cr.absorption_um2 = pAbs * toArea;
       cr.extinction_um2 = cr.scattering_um2 + cr.absorption_um2;
       bool lossless = std::abs(c.epsSub.imag()) < 1e-14;
@@ -1105,6 +1190,7 @@ class StackSolver final : public Solver {
     }
     double pInc = 0, pR = 0, pT = 0, pAbs = 0;
     std::vector<double> rm, tm;
+    std::vector<CylOutgoing> outs;
     for (const int m : c.ms) {
       const VecC aIn = cylIncident(c, m);
       if (aIn.isZero(0.0)) {
@@ -1124,10 +1210,14 @@ class StackSolver final : public Solver {
       pInc -= cyl::flux(c.grid, basis->ref().Psi * V);
       V.setZero();
       V.tail(2 * n) = b;
-      rm.push_back(cyl::flux(c.grid, basis->ref().Psi * V));
+      const VecC Fup = basis->ref().Psi * V;
+      rm.push_back(cyl::flux(c.grid, Fup));
       V.setZero();
       V.head(2 * n) = aSub;
-      tm.push_back(-cyl::flux(c.grid, basis->sub().Psi * V));
+      const VecC Fdown = basis->sub().Psi * V;
+      tm.push_back(-cyl::flux(c.grid, Fdown));
+      outs.push_back(cylOutgoing(c, m, 1, Fup, c.epsSup));
+      if (losslessSub) outs.push_back(cylOutgoing(c, m, -1, Fdown, c.epsSub));
       pR += rm.back();
       pT += tm.back();
       if (volume) pAbs += cylVolume(c, m, cylSpectra(c, *basis, as, aIn, ys, bg ? &*bg : nullptr), yq, rad).first;
@@ -1141,6 +1231,7 @@ class StackSolver final : public Solver {
     cr.transmitted = pT / pInc;
     cr.absorbed = 1.0 - cr.reflected - cr.transmitted;
     cr.absorbedRings = pAbs / pInc;
+    cylFarOutputs(c, outs, 1.0 / pInc, stack.cylindrical.farFieldPhi, cr);
     res.absorption = cr.absorbed;
     res.diag.energyBalance = cr.reflected + cr.transmitted;
     return res;

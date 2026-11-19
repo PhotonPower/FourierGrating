@@ -128,6 +128,23 @@ struct ModalResult {
 /// Rotationally symmetric structures (M20, Plan section "M20: Ausgaben"): powers relative to the incident
 /// beam, from the flux through y = top and y = 0 (Plan eq:cyl_flux); A = 1 - R - T also contains the power
 /// that guided modes carry away laterally.
+/// Angular spectrum of one harmonic on one side (Plan "M20: Ausgaben"): at the propagating nodes of the spectral
+/// grid (theta = asin(k / n)), dP/dtheta per radian split into s (TE, (e_+ + e_-)/2) and p (TM, (e_+ - e_-)/2);
+/// beam: relative to the incident power, plane wave: um^2 per radian. sum weight (s + p) is the power of the
+/// harmonic on that side (C_Rm, C_Tm or C_Supm, C_Sdownm).
+struct CylAngularSpectrum {
+  int m = 0;
+  int side = 1;  ///< +1 up into the superstrate, -1 down into the substrate
+  std::vector<double> theta_deg, weight, s, p;  ///< weight: quadrature weight in theta (rad)
+};
+
+/// Far field of one side: dP/dOmega per steradian at (theta nodes) x (phi_k), s and p, row-major (theta outer);
+/// beam: relative to the incident power, plane wave: differential cross section in um^2 / sr.
+struct CylFarField {
+  int side = 1;
+  std::vector<double> theta_deg, phi_deg, s, p;
+};
+
 struct CylindricalResult {
   bool present = false;
   bool planeWave = false;  ///< plane wave (scattered field): cross sections instead of R, T, A
@@ -149,6 +166,10 @@ struct CylindricalResult {
   /// Beam: power absorbed inside the rings relative to the incident power (A minus absorbedRings is the
   /// lateral outflow plus the absorption outside the rings).
   double absorbedRings = 0;
+  /// Per harmonic and side (up, and down when the substrate is lossless); empty for harmonics without power.
+  std::vector<CylAngularSpectrum> angularSpectrum;
+  /// Up and down (lossless substrate) with cylindrical.far_field; empty otherwise.
+  std::vector<CylFarField> farField;
 };
 
 struct Result {

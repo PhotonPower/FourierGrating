@@ -21,6 +21,9 @@ struct CylindricalSpec {
   /// Plane wave: evaluate the optical theorem as a control of sigma_ext (volume integrals over the rings,
   /// Plan v2.25); with lossy rings they are computed anyway (sigma_abs).
   bool opticalTheorem = false;
+  /// Far field (Plan "M20: Ausgaben"): number of azimuths phi_k in [0, 360) deg; 0: none (the angular spectrum
+  /// per harmonic is always computed).
+  int farFieldPhi = 0;
   /// Plane wave (scattered field, angles of the scan) instead of the beam (Plan sec:cylexc).
   bool planeWave = false;
   // incidence: beam on the axis, waist in the superstrate (Plan sec:cylexc)

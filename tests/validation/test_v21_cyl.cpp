@@ -7,6 +7,8 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 
 #include "fg/cyl/galerkin.hpp"
@@ -711,4 +713,148 @@ TEST(V21RingsProfile, SphereAndCapAndErrors) {
                 .find("n + 1 materials"), std::string::npos);
   EXPECT_NE(err(R"({"type": "rings_profile", "thickness_um": 0.3, "radii": [{"cube": 1}], "materials": ["sph", "air"]})")
                 .find("rings_profile"), std::string::npos);
+}
+
+// Angular spectrum and far field (Plan "M20: Ausgaben"): per harmonic and side dP/dtheta at the propagating
+// nodes, split exactly into s ((e_+ + e_-)/2, TE) and p ((e_+ - e_-)/2, TM); with the quadrature weight in theta
+// the sum is the power of the harmonic. Far field dP/dOmega on (theta nodes) x (phi): its phi average times
+// 2 pi sin(theta) is the sum of the angular spectra; a small sphere gives the Mie differential cross sections.
+namespace {
+
+/// Mie amplitude functions S1, S2 at the scattering angle Theta (Bohren-Huffman BHMIE, real index m).
+std::pair<cplx, cplx> mieS(double x, double m, double Theta) {
+  const int nstop = static_cast<int>(x + 4 * std::cbrt(x) + 2);
+  const int nmx = static_cast<int>(std::max<double>(nstop, m * x)) + 16;
+  std::vector<double> D(static_cast<std::size_t>(nmx) + 1, 0.0);
+  for (int n = nmx; n > 0; --n) D[n - 1] = n / (m * x) - 1 / (D[n] + n / (m * x));
+  double psi0 = std::cos(x), psi1 = std::sin(x), chi0 = -std::sin(x), chi1 = std::cos(x);
+  cplx xi1(psi1, -chi1), S1 = 0.0, S2 = 0.0;
+  const double mu = std::cos(Theta);
+  double pi0 = 0, pi1 = 1;
+  for (int n = 1; n <= nstop; ++n) {
+    const double psi = (2 * n - 1) * psi1 / x - psi0, chi = (2 * n - 1) * chi1 / x - chi0;
+    const cplx xi(psi, -chi);
+    const double da = D[n] / m + n / x, db = m * D[n] + n / x;
+    const cplx an = (da * psi - psi1) / (da * xi - xi1), bn = (db * psi - psi1) / (db * xi - xi1);
+    const double tau = n * mu * pi1 - (n + 1) * pi0, f = (2.0 * n + 1) / (n * (n + 1.0));
+    S1 += f * (an * pi1 + bn * tau);
+    S2 += f * (an * tau + bn * pi1);
+    const double pi2 = ((2 * n + 1) * mu * pi1 - (n + 1) * pi0) / n;
+    pi0 = pi1, pi1 = pi2;
+    psi0 = psi1, psi1 = psi, chi0 = chi1, chi1 = chi, xi1 = xi;
+  }
+  return {S1, S2};
+}
+
+}  // namespace
+
+TEST(V21FarField, AngularSpectrumAndFarFieldOfABeam) {
+  // lossy pillar on glass, x polarization: per harmonic and side sum w (s + p) = C_Rm / C_Tm
+  std::string json = pillarBeam("[1.5, 0.05]", "li_r", 2);
+  json.insert(json.find("\"factorization\""), R"("far_field": {"n_phi": 24}, )");
+  const fg::CylindricalResult c = solveConfig(json).cylindrical;
+  ASSERT_EQ(c.angularSpectrum.size(), 4u);  // m = -1, 1; up, down
+  double worst = 0;
+  for (const auto& a : c.angularSpectrum) {
+    ASSERT_FALSE(a.theta_deg.empty());
+    EXPECT_LT(a.theta_deg.back(), 90.0);
+    double P = 0;
+    for (std::size_t j = 0; j < a.theta_deg.size(); ++j) P += a.weight[j] * (a.s[j] + a.p[j]);
+    const auto i = static_cast<std::size_t>(std::find(c.harmonics.begin(), c.harmonics.end(), a.m) - c.harmonics.begin());
+    const double ref = a.side > 0 ? c.reflectedPerHarmonic.at(i) : c.transmittedPerHarmonic.at(i);
+    worst = std::max(worst, std::abs(P - ref));
+  }
+  std::printf("V21 angular spectrum: max |sum w (s + p) - C_m| = %.1e\n", worst);
+  EXPECT_LT(worst, 1e-12);
+  // far field: up and down; phi average x 2 pi sin(theta) = sum over m of the angular spectra
+  ASSERT_EQ(c.farField.size(), 2u);
+  for (const auto& f : c.farField) {
+    const std::size_t nt = f.theta_deg.size(), np = f.phi_deg.size();
+    ASSERT_EQ(np, 24u);
+    ASSERT_EQ(f.s.size(), nt * np);
+    double err = 0, mx = 0;
+    for (std::size_t j = 0; j < nt; ++j) {
+      double avg = 0, sum = 0;
+      for (std::size_t l = 0; l < np; ++l) avg += (f.s[j * np + l] + f.p[j * np + l]) / np;
+      for (const auto& a : c.angularSpectrum)
+        if (a.side == f.side) sum += a.s[j] + a.p[j];
+      const double th = f.theta_deg[j] * fg::PI / 180;
+      err = std::max(err, std::abs(2 * fg::PI * std::sin(th) * avg - sum));
+      mx = std::max(mx, sum);
+    }
+    EXPECT_LT(err, 1e-12 * std::max(1.0, mx)) << "side " << f.side;
+    // x polarization: mirror symmetric about the x-y plane, dP(phi) = dP(-phi)
+    for (std::size_t j = 0; j < nt; ++j)
+      for (std::size_t l = 1; l < np; ++l)
+        EXPECT_NEAR(f.s[j * np + l], f.s[j * np + (np - l)], 1e-12 * std::max(1.0, mx));
+  }
+}
+
+TEST(V21FarField, SmallSphereGivesMieDifferentialCrossSections) {
+  // dielectric sphere (n = 1.5, k0 a = 1) in air, plane wave along -y with E along z (delta = 0): in the plane
+  // phi = 0 (x-y, perpendicular to E) dsigma/dOmega = |S1|^2 / k^2, in phi = 90 deg (y-z) |S2|^2 / k^2, at the
+  // scattering angle pi - theta above and theta below. The deviation is the truncation in k_max (measured,
+  // relative to the largest value: 2.2e-2 at kappa_max = 4, 4.7e-3 at 8; more slices make no difference)
+  const double a = 1.0 / (2 * fg::PI), k = 2 * fg::PI;
+  auto deviation = [&](double kappa, double& total, double& sigma) {
+    char sph[300];
+    std::snprintf(sph, sizeof sph, R"({"type": "rings_profile", "thickness_um": %.17g, "slices": 16,
+      "radii": [{"sphere": {"center_y_um": %.17g, "radius_um": %.17g}}], "materials": ["sph", "air"]})", 2 * a, a, a);
+    std::string json = planeWaveConfig(sph, 0, 0, 0, "li_r", kappa, "\"auto\"", "air");
+    json.insert(json.find("\"factorization\""), R"("far_field": {"n_phi": 4}, )");
+    const fg::CylindricalResult c = solveConfig(json).cylindrical;
+    EXPECT_EQ(c.farField.size(), 2u);
+    double worst = 0;
+    for (const auto& f : c.farField) {
+      double ref = 0, err = 0;
+      for (std::size_t j = 0; j < f.theta_deg.size(); ++j) {
+        const double th = f.theta_deg[j] * fg::PI / 180, Theta = f.side > 0 ? fg::PI - th : th;
+        const auto [S1, S2] = mieS(k * a, 1.5, Theta);
+        const double r0 = std::norm(S1) / (k * k), r90 = std::norm(S2) / (k * k);
+        ref = std::max({ref, r0, r90});
+        err = std::max({err, std::abs(f.s[j * 4] + f.p[j * 4] - r0), std::abs(f.s[j * 4 + 1] + f.p[j * 4 + 1] - r90)});
+      }
+      worst = std::max(worst, err / ref);
+    }
+    total = 0;
+    for (const auto& s : c.angularSpectrum)
+      for (std::size_t j = 0; j < s.theta_deg.size(); ++j) total += s.weight[j] * (s.s[j] + s.p[j]);
+    sigma = c.scattering_um2;
+    return worst;
+  };
+  double total = 0, sigma = 0;
+  const double d4 = deviation(4, total, sigma), d8 = deviation(8, total, sigma);
+  std::printf("V21 far field of a small sphere: deviation from Mie %.2e (kappa_max 4), %.2e (8); sigma %.6e = C_Ssca %.6e\n",
+              d4, d8, total, sigma);
+  EXPECT_NEAR(total, sigma, 1e-12 * sigma);
+  EXPECT_LT(d8, 0.02);
+  EXPECT_LT(d8, 0.7 * d4);
+}
+
+TEST(V21FarField, CsvFiles) {
+  // fgsolve writes angular_spectrum.csv and far_field.csv with cylindrical.far_field (one row per node and
+  // harmonic / per node and azimuth)
+  std::string json = pillarBeam("1.5", "li_r", 2);
+  json.insert(json.find("\"factorization\""), R"("far_field": {"n_phi": 6}, )");
+  const fg::io::RunConfig cfg = fg::io::parseConfig(json);
+  const std::vector<fg::Result> res = fg::solveScan(cfg.solver, cfg.stack, cfg.scan);
+  const auto dir = std::filesystem::temp_directory_path() / "fg_v21_far_field";
+  const auto files = fg::io::writeCylindricalSpectra(dir.string(), {cfg}, {res});
+  ASSERT_EQ(files.size(), 2u);
+  auto lines = [](const std::string& f) {
+    std::ifstream in(f);
+    std::string l;
+    std::size_t n = 0;
+    while (std::getline(in, l)) ++n;
+    return n;
+  };
+  std::size_t na = 0, nf = 0;
+  for (const auto& a : res[0].cylindrical.angularSpectrum) na += a.theta_deg.size();
+  for (const auto& f : res[0].cylindrical.farField) nf += f.theta_deg.size() * f.phi_deg.size();
+  EXPECT_EQ(lines(files[0]), na + 1);
+  EXPECT_EQ(lines(files[1]), nf + 1);
+  // without far_field nothing is written
+  const fg::io::RunConfig plain = fg::io::parseConfig(pillarBeam("1.5", "li_r", 2));
+  EXPECT_TRUE(fg::io::writeCylindricalSpectra(dir.string(), {plain}, {fg::solveScan(plain.solver, plain.stack, plain.scan)}).empty());
+  std::filesystem::remove_all(dir);
 }

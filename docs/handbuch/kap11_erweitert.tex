@@ -152,8 +152,8 @@ bleibt ein Problem in $(r,y)$. Das ist viel günstiger, als die isolierte Strukt
 \begin{achtung}[Stand]
 Meilenstein M20 ist teilweise umgesetzt: Schichttypen \val{homogeneous}, \val{rings} und \val{rings\_profile},
 isotrope Materialien, Gauß-Strahlen auf der Achse und ebene Wellen (Streufeld), Leistungen, Streu-, Absorptions- und
-Extinktionsquerschnitt, Nahfeld, CAD-Rotationskörper (Abschnitt~\ref{sec:cad-axisym-hb}). Es fehlen noch: Fernfeld
-und Winkelspektrum.
+Extinktionsquerschnitt, Nahfeld, Winkelspektrum und Fernfeld, CAD-Rotationskörper
+(Abschnitt~\ref{sec:cad-axisym-hb}).
 \end{achtung}
 
 \begin{lstlisting}[language=json]
@@ -191,6 +191,8 @@ $|m|\le m_{\text{cut}}$ \\
 \key{factorization} & \val{li\_r} & \val{li\_r} (Li-Regel in $r$) oder \val{laurent} \\
 \key{optical\_theorem} & \val{false} & ebene Welle: optisches Theorem als Kontrolle (\texttt{C\_Sext\_ot}); kostet
 etwa die doppelte Rechenzeit, bei verlustbehafteten Ringen ohnehin berechnet \\
+\key{far\_field.n\_phi} & -- & Fernfeld auf so vielen Azimuten, dazu \texttt{angular\_spectrum.csv} und
+\texttt{far\_field.csv} \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -242,6 +244,18 @@ $k_{\max}=\kappa_{\max}\max\operatorname{Re}n$ richtet sich nach dem größten R
 als Treppe aus Scheiben trifft die Extinktion schnell, die Aufteilung in Streuung und Absorption konvergiert langsam
 (Abschnitt~\ref{sec:zylinder_nf}).
 \end{achtung}
+
+\paragraph{Winkelspektrum und Fernfeld.}
+Jede Rechnung liefert in Python \texttt{res.cylindrical["angular\_spectrum"]}: je Harmonischer $m$ und Seite
+(\val{up} ins Superstrat, \val{down} ins Substrat, wenn es verlustfrei ist) die abgestrahlte Leistung je Winkel
+$dP/d\theta$ an den Stützstellen des Spektrums ($\theta=\arcsin(k/n)$), getrennt nach s (TE) und p (TM), und das
+Quadraturgewicht \texttt{weight}; $\sum\texttt{weight}\cdot(s+p)$ ist die Leistung der Harmonischen
+(\texttt{C\_Rm}, \texttt{C\_Tm} bzw.\ \texttt{C\_Supm}, \texttt{C\_Sdownm}). Mit
+\val{"far\_field": \{"n\_phi": 72\}} im Block \key{cylindrical} kommt das Fernfeld $dP/d\Omega$ auf (Winkel $\theta$)
+$\times$ (72 Azimute) hinzu; \texttt{fgsolve} schreibt dann \texttt{angular\_spectrum.csv} und \texttt{far\_field.csv}.
+Beim Strahl ist alles auf die einfallende Leistung bezogen, bei der ebenen Welle ist es der differentielle
+Streuquerschnitt in \textmu m$^2$ je Steradiant. Eine kleine Kugel trifft die Mie-Lösung auf $0{,}5\,\%$ des
+Maximums ($\kappa_{\max}=8$).
 
 \paragraph{Nahfeld.}\label{sec:zylinder_nf}
 Der Block \key{nearfield} (Abschnitt~\ref{ch:nahfeld}) gilt auch hier. Der horizontale Schnitt ist eine Karte in $x$

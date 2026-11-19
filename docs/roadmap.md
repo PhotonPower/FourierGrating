@@ -218,7 +218,9 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
     integriert dieselbe Treppe (stetiges M(y) offen)
   - Erledigt (CAD-Rotationskörper, Plan v2.29): `cad` mit `"axisymmetric": true`, Ringe aus den Schnitten
     (`NOT_AXISYMMETRIC`), Bänder `rings`/`rings_profile` – `tests/cad/test_cad.cpp` (`CAD_M20.*`)
-  - Als Nächstes: Fernfeld und Winkelspektrum; V21d/f/g/h/i
+  - Erledigt (Winkelspektrum und Fernfeld, Plan v2.30): s/p je Harmonischer, dP/dΩ auf (θ-Knoten) × φ,
+    `angular_spectrum.csv`, `far_field.csv` – `V21FarField.*` (Mie S1/S2 auf 4,7e-3)
+  - Als Nächstes: V21d (gegen kartesisch), V21f (Symmetrie und Weg), V21g, V21h (Konvergenzstudie), V21i (Gradienten)
 - [ ] **M21** P-zählige Drehsymmetrie: gekoppelte Harmonische m0 + lP, Winkelkoeffizienten aus `polygon2d`/
   `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)
   - Abnahme: V22a–g (Plan)
