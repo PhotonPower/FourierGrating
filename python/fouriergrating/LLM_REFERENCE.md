@@ -64,7 +64,7 @@ Top level (`*` = required):
 | `coordinate_transform` | `{"x": {"type": "asr", "eta": 0.8, "breakpoints_um": "auto" or list}, "z": {...}}`: adaptive spatial resolution, for metals and TM polarization |
 | `aperiodic` | `{"pml": {"x": {"width_um": w, "beta": 1.0}, "z": {...}}, "formulation": "auto" or "scattered", "excitation": "plane_wave" or {"mode": j} or {"n_eff": v}}`: an isolated structure in a cell with PML |
 | `superstrate_structure`, `substrate_structure` | y-invariant section (`lamellar1d`, `polygon2d`, `contour2d` without thickness) for structured half spaces (PML) |
-| `cylindrical` | axially symmetric structures about the y axis: `{"symmetry": "axial", "harmonics": "auto" or list, "spectrum": {"kappa_max": 6}, "factorization": "li_r" or "laurent", "optical_theorem": false}`; no `period_um`/`truncation`; layers `homogeneous`, `rings` or `rings_profile`; incidence `{"type": "gaussian_beam", "lambda_um", "waist_um", "focus_y_um", "polarization": "x"}` or `{"type": "plane_wave", ...angles}`. CSV sides: beam `C_R`, `C_T`, `C_A`; plane wave cross sections in µm² `C_Sup`, `C_Sdown`, `C_Ssca`, `C_Sabs`, `C_Sext` and the control `C_Sext_ot` (with `optical_theorem: true` or lossy rings; far from `C_Sext` = not converged) |
+| `cylindrical` | axially symmetric structures about the y axis: `{"symmetry": "axial", "harmonics": "auto" or list, "spectrum": {"kappa_max": 6}, "factorization": "li_r" or "laurent", "optical_theorem": false, "far_field": {"n_phi": 72}}`; no `period_um`/`truncation`; layers `homogeneous`, `rings` or `rings_profile`; incidence `{"type": "gaussian_beam", "lambda_um", "waist_um", "focus_y_um", "polarization": "x"}` or `{"type": "plane_wave", ...angles}`. CSV sides: beam `C_R`, `C_T`, `C_A`; plane wave cross sections in µm² `C_Sup`, `C_Sdown`, `C_Ssca`, `C_Sabs`, `C_Sext` and the control `C_Sext_ot` (with `optical_theorem: true` or lossy rings; far from `C_Sext` = not converged) |
 | `backend` | `"auto"`, `"cpu"` or `"cuda"`; `backend_threshold` (160) |
 | `precision` | `"auto"`, `"fp64"`, `"mixed"` or `"fp32"`; `precision_fallback` |
 | `threads` | `{"scan": "auto", "slices": "auto", "blas": 1}` |
@@ -126,7 +126,10 @@ fg.llm_reference() -> str                              this text
   points), `efficiency(side, n, m=0)`, plus `scattering` (PML: `up`, `down`, `lateral`, `absorbed`; widths in µm,
   in 2D cross sections in µm²), `modal` (mode excitation) and `cylindrical` (axial structures: dict with `reflected`,
   `transmitted`, `absorbed`, `absorbed_rings`, per-harmonic lists; plane wave `scattering_um2`, `absorption_um2`,
-  `extinction_um2`, `extinction_theorem_um2`).
+  `extinction_um2`, `extinction_theorem_um2`; `angular_spectrum`: per harmonic and side `{"m", "side": "up"/"down",
+  "theta_deg", "weight", "s", "p"}` with dP/dθ per rad, Σ weight·(s + p) = power of the harmonic; `far_field` with
+  `"cylindrical": {"far_field": {"n_phi": 72}}`: per side `theta_deg`, `phi_deg`, `s`, `p` (rows θ, columns φ) as dP/dΩ
+  per sr; beam: relative to the incident power, plane wave: µm² per rad / sr).
 - `absorption` = 1 − Σ R − Σ T. `diagnostics`: `energy_balance` (Σ R + Σ T; 1 for lossless stacks, a convergence check), `warnings`, `rk_steps`,
   `max_condition_t11`, `precision`, `materials`, `timings`.
 - `ScanResult`: `points` (list of Result, each with `.incidence`), `sweep_parameter`, `columns` (numpy arrays: `sweep_value`,

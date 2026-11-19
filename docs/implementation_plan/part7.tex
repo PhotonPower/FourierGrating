@@ -615,6 +615,30 @@ eine Funktion. $n$ Radien, $n+1$ Materialien wie \verb|rings|.
         mit drei Materialien; verschobene Achse und quadratisches Prisma $\to$ \verb|NOT_AXISYMMETRIC|.
 \end{itemize}
 
+\paragraph{Umsetzung (v2.30): Winkelspektrum und Fernfeld.}
+Aus den auslaufenden Spektren $e_\pm$ einer Harmonischen (Strahl: reflektiert und transmittiert, ebene Welle:
+Streufeld) an der Ober- bzw.\ Unterkante:
+\begin{itemize}[nosep]
+  \item \textbf{s/p-Zerlegung:} $s=\tfrac12(e_++e_-)$ (TE), $p=\tfrac12(e_+-e_-)$ (TM). Damit zerfällt
+        \eqref{eq:cyl_flux_closed} ohne Mischterm in $\pi w_jk_j\big(\beta|s|^2+\varepsilon|p|^2/\beta\big)$.
+  \item \textbf{Winkelspektrum} an den reellen Knoten $0<k_j<\sqrt\varepsilon$ eines verlustfreien Halbraums,
+        $\theta_j=\arcsin(k_j/\sqrt\varepsilon)$, $dk=\beta\,d\theta$:
+        $dP_s/d\theta=\pi k\beta^2|s|^2$, $dP_p/d\theta=\pi k\varepsilon|p|^2$, Quadraturgewicht $w_j/\beta_j$; die Summe ist
+        die Leistung der Harmonischen (Test auf $10^{-16}$). Unterhalb nur bei verlustfreiem Substrat.
+  \item \textbf{Fernfeld:} mit der Fouriertransformation einer Harmonischen (oben) ist die Komponente quer zur
+        Einfallsebene $E_s=-2\pi\sum_m(-i)^ms_me^{im\varphi_k}$, die radiale $E_r=-2\pi i\sum_m(-i)^mp_me^{im\varphi_k}$ und
+        $dP/d\Omega=\varepsilon^{3/2}(\cos^2\theta|E_s|^2+|E_r|^2)/(8\pi^2)$ (aus $d^2k=\varepsilon\cos\theta\,d\Omega$ und dem
+        Fluss oben). Raster: die Knoten in $\theta$ (keine Interpolation), \verb|far_field.n_phi| Azimute. Das
+        $\varphi$-Mittel mal $2\pi\sin\theta$ ist die Summe der Winkelspektren (exakt für $n_\varphi>2\max|m|$).
+  \item \textbf{Normierung:} Strahl auf $P_{\text{inc}}$, ebene Welle als differentieller Querschnitt in µm$^2$/sr.
+        Ausgaben: Python \verb|angular_spectrum| (immer), \verb|far_field|; \verb|fgsolve| schreibt mit
+        \verb|far_field| \verb|angular_spectrum.csv| und \verb|far_field.csv|.
+  \item \textbf{Befund:} dielektrische Kugel ($n=1{,}5$, $k_0a=1$, 16 Scheiben): $d\sigma/d\Omega$ in den Ebenen
+        $\varphi_k=0$ ($|S_1|^2/k^2$) und $90^\circ$ ($|S_2|^2/k^2$) gegen Mie, Abweichung bezogen auf das Maximum
+        $2{,}2\cdot10^{-2}$ ($\kappa_{\max}=4$) und $4{,}7\cdot10^{-3}$ ($\kappa_{\max}=8$); mehr Scheiben ändern nichts
+        (Abschneidefehler in $k_{\max}$ wie V21c).
+\end{itemize}
+
 \subsection{Differenzierbarkeit}
 Die Rückwärtsregeln von M19 gelten für $M$, $\mathfrak A^{-1}$, S-Matrizen und Sternprodukte unverändert. Neu sind
 Formableitungen der Galerkin-Matrizen nach einem Wandradius $r_i$ (Leibniz):

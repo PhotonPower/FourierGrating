@@ -16,6 +16,12 @@
   Toleranz ≤ 0 oder NaN jetzt mit einer Fehlermeldung ab (Test `Contour.FlattenRejectsANonPositiveTolerance`).
 
 ### Hinzugefügt
+- M20 Winkelspektrum und Fernfeld (Plan v2.30): je Harmonischer und Seite dP/dθ an den Knoten des Spektrums, exakt
+  getrennt nach s = (e₊ + e₋)/2 und p = (e₊ − e₋)/2, mit Quadraturgewicht (Summe = Leistung der Harmonischen);
+  Fernfeld dP/dΩ auf (θ-Knoten) × `cylindrical.far_field.n_phi` Azimute. Strahl bezogen auf P_inc, ebene Welle als
+  differentieller Streuquerschnitt (µm²/sr). Python `cylindrical["angular_spectrum"]`, `["far_field"]`; `fgsolve`
+  schreibt `angular_spectrum.csv` und `far_field.csv`. Tests `V21FarField.*`: Leistung je Harmonischer auf 6e-17,
+  φ-Mittel = Winkelspektren, kleine Kugel gegen Mie (S1, S2) auf 4,7e-3 des Maximums bei κ_max = 8.
 - M20 CAD-Rotationskörper (Plan v2.29): `cad` mit `"axisymmetric": true` im Zylinderstapel (dort Pflicht, sonst
   unzulässig). `cell_origin_um` ist die Achse (Standard: Mitte des Hüllquaders); jeder Schnitt muss aus Kreisen um
   die Achse bestehen (Scheiben oder Ringe), sonst neuer Befund `NOT_AXISYMMETRIC` mit Höhe und Radiusbereich. Bänder

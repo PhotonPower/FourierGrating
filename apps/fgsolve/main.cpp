@@ -105,6 +105,8 @@ int main(int argc, char** argv) {
     const auto file = (std::filesystem::path(cfg.outputDir) / cfg.efficiencyFile).string();
     fg::io::writeEfficiencies(file, runs, all);
     std::cout << "written: " << file << "\n";
+    for (const auto& f : fg::io::writeCylindricalSpectra(cfg.outputDir, runs, all))  // M20: cylindrical.far_field
+      std::cout << "written: " << f << "\n";
     if (!cfg.materialsFile.empty()) {  // M22: n and eps per scan wavelength
       const auto mf = (std::filesystem::path(cfg.outputDir) / cfg.materialsFile).string();
       fg::io::writeMaterials(mf, cfg);

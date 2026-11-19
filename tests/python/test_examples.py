@@ -99,6 +99,22 @@ def test_cylindrical_plane_wave():
     assert abs(cy["extinction_theorem_um2"] / cy["scattering_um2"] - 1) < 0.05
 
 
+def test_cylindrical_far_field():
+    # M20: angular spectrum per harmonic and side (sum weight (s + p) = power of the harmonic) and the far field
+    cfg = fg.load_config(ROOT / "examples" / "cyl_pillar_beam.json")
+    cfg["incidence"]["lambda_um"] = 1.0
+    cfg["cylindrical"]["spectrum"]["kappa_max"] = 2
+    cfg["cylindrical"]["far_field"] = {"n_phi": 8}
+    cy = fg.solve(cfg).cylindrical
+    up = [a for a in cy["angular_spectrum"] if a["side"] == "up"]
+    assert [a["m"] for a in up] == [-1, 1]
+    for a, ref in zip(up, cy["reflected_per_harmonic"]):
+        assert abs(np.dot(a["weight"], np.add(a["s"], a["p"])) - ref) < 1e-12
+    ff = {f["side"]: f for f in cy["far_field"]}
+    assert set(ff) == {"up", "down"} and len(ff["up"]["phi_deg"]) == 8
+    assert np.asarray(ff["up"]["s"]).shape == (len(ff["up"]["theta_deg"]), 8)
+
+
 def test_cylindrical_near_field():
     # M20 (Plan v2.25): cuts x-z and x-y of the beam on the pillar; mirror symmetry of |E|^2 in x and z
     cfg = fg.load_config(ROOT / "examples" / "cyl_pillar_beam.json")

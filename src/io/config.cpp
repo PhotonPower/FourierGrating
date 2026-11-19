@@ -609,6 +609,10 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
     FG_REQUIRE(fac == "li_r" || fac == "laurent", "cylindrical.factorization must be \"li_r\" or \"laurent\"");
     c.liR = fac == "li_r";
     c.opticalTheorem = cj.value("optical_theorem", false);  // Plan v2.25: control of sigma_ext (volume integrals)
+    if (cj.contains("far_field")) {  // Plan "M20: Ausgaben": far field on (theta nodes) x n_phi azimuths
+      c.farFieldPhi = cj["far_field"].value("n_phi", 72);
+      FG_REQUIRE(c.farFieldPhi >= 1, "cylindrical.far_field.n_phi must be >= 1");
+    }
     const std::string type = inc.value("type", std::string());
     FG_REQUIRE(type == "gaussian_beam" || type == "plane_wave",
                "cylindrical: incidence.type must be \"gaussian_beam\" or \"plane_wave\"");
@@ -822,6 +826,41 @@ void writeEfficiencies(const std::string& file, const std::vector<RunConfig>& ru
     if (sweep) pre << runs[r].sweepParameter << ',' << runs[r].sweepValue << ',';
     writeRows(out, pre.str(), runs[r].scan, results[r]);
   }
+}
+
+std::vector<std::string> writeCylindricalSpectra(const std::string& dir, const std::vector<RunConfig>& runs,
+                                                 const std::vector<std::vector<Result>>& results) {
+  FG_REQUIRE(runs.size() == results.size(), "writeCylindricalSpectra: size mismatch");
+  bool any = false;
+  for (const auto& rs : results)
+    for (const auto& r : rs) any = any || !r.cylindrical.farField.empty();
+  if (!any) return {};
+  const bool sweep = !runs.front().sweepParameter.empty();
+  const auto fa = (std::filesystem::path(dir) / "angular_spectrum.csv").string(),
+             ff = (std::filesystem::path(dir) / "far_field.csv").string();
+  std::ofstream oa = openCsv(fa), of = openCsv(ff);
+  const std::string head = std::string(sweep ? "sweep_parameter,sweep_value," : "") + "lambda_um,phi_deg,psi_deg,delta_deg,";
+  oa << head << "side,m,theta_deg,weight,dP_s,dP_p\n" << std::setprecision(12);
+  of << head << "side,theta_deg,phi_k_deg,dP_s,dP_p\n" << std::setprecision(12);
+  for (std::size_t r = 0; r < runs.size(); ++r)
+    for (std::size_t k = 0; k < results[r].size(); ++k) {
+      std::ostringstream pre;
+      pre << std::setprecision(12);
+      if (sweep) pre << runs[r].sweepParameter << ',' << runs[r].sweepValue << ',';
+      const Wavelength& w = runs[r].scan[k];
+      pre << w.lambda_um << ',' << w.phi / DEG << ',' << w.psi / DEG << ',' << w.delta / DEG << ',';
+      const CylindricalResult& c = results[r][k].cylindrical;
+      for (const auto& a : c.angularSpectrum)
+        for (std::size_t j = 0; j < a.theta_deg.size(); ++j)
+          oa << pre.str() << (a.side > 0 ? "up" : "down") << ',' << a.m << ',' << a.theta_deg[j] << ',' << a.weight[j]
+             << ',' << a.s[j] << ',' << a.p[j] << '\n';
+      for (const auto& f : c.farField)
+        for (std::size_t j = 0; j < f.theta_deg.size(); ++j)
+          for (std::size_t l = 0; l < f.phi_deg.size(); ++l)
+            of << pre.str() << (f.side > 0 ? "up" : "down") << ',' << f.theta_deg[j] << ',' << f.phi_deg[l] << ','
+               << f.s[j * f.phi_deg.size() + l] << ',' << f.p[j * f.phi_deg.size() + l] << '\n';
+    }
+  return {fa, ff};
 }
 
 std::vector<MaterialValue> materialAt(const Stack& stack, const std::string& name, double lambda_um) {
