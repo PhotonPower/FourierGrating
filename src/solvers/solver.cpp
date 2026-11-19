@@ -1636,30 +1636,23 @@ class StackSolver final : public Solver {
     c.push_back(yb);
     return c;
   }
-  /// Particular solution at both ends of a modal slice with the background on the grid (cylindrical beam,
-  /// V21e): all exponentials at once with (kappa - M)^-1 = W (kappa - Lambda)^-1 W^-1, W = (W_u, W_d) the
-  /// slice modes; sigma = (M - M_bg) F_bg. No RK fallback: exponents next to a mode use the divided difference.
-  static void gridParticular(const MatC& M, const LayerModes& modes, double y0, double y1, const Setup::BgLayer& L,
-                             double lmax, VecC& F0, VecC& F1, Element* rec) {
-    const Eigen::Index N = M.rows();
+  /// Particular solution at both ends of a modal slice for exponentials kap_i (reference heights yr_i) with
+  /// sources Sig.col(i): all at once with (kappa - M)^-1 = W (kappa - Lambda)^-1 W^-1, W = (W_u, W_d) the slice
+  /// modes. No RK fallback: exponents next to a mode use the divided difference.
+  static void modalParticular(const LayerModes& modes, const MatC& Sig, const std::vector<cplx>& kaps,
+                              const std::vector<double>& refs, double y0, double y1, double lmax, VecC& F0, VecC& F1,
+                              Element* rec) {
+    const Eigen::Index N = Sig.rows(), K = Sig.cols();
     VecC lam(N);
     lam << modes.lu, modes.ld;
-    std::vector<Eigen::Index> ks;  // background exponentials with nonzero amplitude
-    for (Eigen::Index k = 0; k < L.count(); ++k)
-      if (L.amp(k) != 0.0) ks.push_back(k);
-    if (ks.empty()) return;
-    const auto K = static_cast<Eigen::Index>(ks.size());
-    MatC Fb(N, K);
-    for (Eigen::Index i = 0; i < K; ++i) Fb.col(i) = L.Psi.col(ks[static_cast<std::size_t>(i)]) * L.amp(ks[static_cast<std::size_t>(i)]);
     MatC W(N, N);
     W << modes.Wu, modes.Wd;
-    MatC C = W.partialPivLu().solve(MatC(M * Fb - L.M * Fb));  // sigma in the slice modes
+    MatC C = W.partialPivLu().solve(Sig);  // sigma in the slice modes
     // an exponent next to a slice mode (e.g. the node k ~ 0, which the rings hardly perturb: |kappa - lambda|
     // ~ 1e-14) takes the divided-difference form, exact and bounded at kappa = lambda
     for (Eigen::Index i = 0; i < K; ++i) {
-      const Eigen::Index k = ks[static_cast<std::size_t>(i)];
-      const cplx kap = L.lambda(k);
-      const double yr = L.ref(k);
+      const cplx kap = kaps[static_cast<std::size_t>(i)];
+      const double yr = refs[static_cast<std::size_t>(i)];
       for (Eigen::Index j = 0; j < N; ++j) {
         const cplx d = kap - lam(j);
         if (std::abs(d) >= 1e-4 * lmax) {
@@ -1680,9 +1673,8 @@ class StackSolver final : public Solver {
     }
     const MatC P = W * C;
     for (Eigen::Index i = 0; i < K; ++i) {
-      const Eigen::Index k = ks[static_cast<std::size_t>(i)];
-      const cplx kap = L.lambda(k);
-      const double yr = L.ref(k);
+      const cplx kap = kaps[static_cast<std::size_t>(i)];
+      const double yr = refs[static_cast<std::size_t>(i)];
       F0 += P.col(i) * std::exp(kap * (y0 - yr));
       F1 += P.col(i) * std::exp(kap * (y1 - yr));
       if (rec) {
@@ -1692,10 +1684,29 @@ class StackSolver final : public Solver {
       }
     }
   }
+  /// Particular solution with the background on the grid (cylindrical beam, V21e): sigma = (M - M_bg) F_bg.
+  static void gridParticular(const MatC& M, const LayerModes& modes, double y0, double y1, const Setup::BgLayer& L,
+                             double lmax, VecC& F0, VecC& F1, Element* rec) {
+    std::vector<Eigen::Index> ks;  // background exponentials with nonzero amplitude
+    for (Eigen::Index k = 0; k < L.count(); ++k)
+      if (L.amp(k) != 0.0) ks.push_back(k);
+    if (ks.empty()) return;
+    const auto K = static_cast<Eigen::Index>(ks.size());
+    MatC Fb(M.rows(), K);
+    std::vector<cplx> kaps;
+    std::vector<double> refs;
+    for (Eigen::Index i = 0; i < K; ++i) {
+      const Eigen::Index k = ks[static_cast<std::size_t>(i)];
+      Fb.col(i) = L.Psi.col(k) * L.amp(k);
+      kaps.push_back(L.lambda(k));
+      refs.push_back(L.ref(k));
+    }
+    modalParticular(modes, MatC(M * Fb - L.M * Fb), kaps, refs, y0, y1, lmax, F0, F1, rec);
+  }
   /// Source amplitudes of a modal slice [y0, y1] (Plan "RCWA: partikulaere Loesung je Exponentialterm"):
   /// F_p = sum (kappa - M)^-1 sigma_kappa e^{kappa y}; with g = Psi_ref^-1 F_p at both ends,
   /// u = g1_b - S11 g0_b - S12 g1_a, v = g0_a - S21 g0_b - S22 g1_a. False if kappa is within 1e-8 max|lambda|
-  /// of an eigenvalue of M (then the slice is integrated with RK).
+  /// of an eigenvalue of M (Cartesian: then the slice is integrated with RK; cylindrical: divided difference).
   static bool modalSources(const Setup& s, const detail::StackLayer& layer, const MatC& M, const MatC* MB, const LayerModes& modes, const SMatrix& S,
                            double y0, double y1, const ModeBasis& ref, VecC& u, VecC& v, Element* rec = nullptr) {
     const Setup::BgLayer& L = bgLayer(s, 0.5 * (y0 + y1));
@@ -1711,7 +1722,14 @@ class StackSolver final : public Solver {
         double dist = 1e300;
         for (Eigen::Index j = 0; j < modes.lu.size(); ++j)
           dist = std::min({dist, std::abs(kap - modes.lu(j)), std::abs(kap - modes.ld(j))});
-        if (dist < 1e-8 * lmax) return false;
+        if (dist < 1e-8 * lmax) {
+          // cylindrical plane wave: the node k ~ 0 next to the exponent of the background (fine grids, V21g);
+          // the divided difference as on the grid. Cartesian (M18): RK fallback.
+          if (!s.cylSource) return false;
+          const VecC sig = sourceOf(s, layer, M, MB, L, L.Psi.col(k)) * L.amp(k);
+          modalParticular(modes, sig, {kap}, {k < 2 ? L.y1 : L.y0}, y0, y1, lmax, F0, F1, rec);
+          continue;
+        }
         const VecC p = (kap * MatC::Identity(N, N) - M).partialPivLu().solve(sourceOf(s, layer, M, MB, L, L.Psi.col(k))) * L.amp(k);
         const double yr = k < 2 ? L.y1 : L.y0;
         F0 += p * std::exp(kap * (y0 - yr));

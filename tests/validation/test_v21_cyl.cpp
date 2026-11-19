@@ -1056,3 +1056,152 @@ TEST(V21i, PlaneWave) {
               std::abs(gf.grad[0] - fdf));
   EXPECT_NEAR(gf.grad[0], fdf, 1e-6 * std::max(1.0, std::abs(fdf)));
 }
+
+// V21g (Plan "Tests und Abnahme (M20)"): aperture in a metal screen, qualitative comparison with Popov/Bonod [22]
+namespace {
+
+/// Hole of radius R in a screen of thickness h (permittivity eps) in air, plane wave at normal incidence with E
+/// along x (psi = 90); kappa_max, dk_factor and the nodes per panel of the spectrum.
+std::string screenHole(double R, double h, cplx eps, double kappa, double dk, int nodes = 8, int nPhi = 0) {
+  char buf[900];
+  std::snprintf(buf, sizeof buf, R"({"cylindrical": {"spectrum": {"kappa_max": %.17g, "dk_factor": %.17g, "nodes_per_panel": %d},
+      %s"factorization": "li_r"},
+    "materials": {"air": {"n": 1.0}, "m": {"eps": [%.17g, %.17g]}}, "superstrate": "air", "substrate": "air",
+    "incidence": {"type": "plane_wave", "lambda_um": 0.5, "phi_deg": 0, "psi_deg": 90, "delta_deg": 0},
+    "layers": [{"type": "rings", "thickness_um": %.17g, "radii_um": [%.17g], "materials": ["air", "m"]}]})",
+                kappa, dk, nodes, nPhi > 0 ? (R"("far_field": {"n_phi": )" + std::to_string(nPhi) + "}, ").c_str() : "",
+                eps.real(), eps.imag(), h, R);
+  return buf;
+}
+
+/// |H_1^(1)(z)| from the asymptotic expansion (Hankel, NIST DLMF 10.17.5; |z| >= 6: relative error < 1e-5).
+double absHankel1(cplx z) {
+  const cplx I(0, 1);
+  cplx sum = 1.0, term = 1.0;
+  for (int k = 1; k <= 6; ++k) {
+    term *= I * (4.0 - (2 * k - 1) * (2 * k - 1)) / (8.0 * k * z);
+    sum += term;
+  }
+  return std::abs(std::sqrt(2.0 / (fg::PI * z)) * std::exp(I * (z - 0.75 * fg::PI)) * sum);
+}
+
+const cplx kSilver500(-7.632397907698391, 0.7306033631814225);  // Rakic (Drude-Lorentz) at 500 nm
+
+}  // namespace
+
+TEST(V21g, BackgroundExponentNextToTheNodeKZero) {
+  // fine grids put the node k ~ 0 next to the exponent of the planar background (here the silver of the screen,
+  // kappa = sqrt(-eps)): with 32 nodes per panel and dk_factor 8 the slice mode lies 2.1e-8 from it, below
+  // 1e-8 max|lambda| = 3.9e-8 (dk_factor 4: 8.4e-8). Before, the slice was integrated with RK (minutes, refused
+  // in the near field); now the divided difference of the beam (Plan "Fast-Resonanz") takes it. R and T are
+  // converged in dk_factor here, so both grids give the same cross sections.
+  const std::string fine = screenHole(0.05, 0.2, kSilver500, 2, 8, 32), coarse = screenHole(0.05, 0.2, kSilver500, 2, 4, 32);
+  const fg::Result a = solveConfig(fine), b = solveConfig(coarse);
+  EXPECT_TRUE(a.diag.warnings.empty());
+  const auto& ca = a.cylindrical;
+  const auto& cb = b.cylindrical;
+  std::printf("V21g node k ~ 0: sigma_up %.15f / %.15f, sigma_down %.15f / %.15f um^2\n", ca.scatteredUp_um2,
+              cb.scatteredUp_um2, ca.scatteredDown_um2, cb.scatteredDown_um2);
+  EXPECT_NEAR(ca.scatteredUp_um2, cb.scatteredUp_um2, 1e-12);
+  EXPECT_NEAR(ca.scatteredDown_um2, cb.scatteredDown_um2, 1e-12);
+  // the near field below the screen
+  const std::string cut = R"("horizontal_y_um": -0.01, "nx": 5, "nz": 3, "ny": 2, "y_range_um": [-0.02, 0.0], "extent_um": 0.15)";
+  const fg::NearFieldResult na = nearFieldOf(withNearField(fine, cut)), nb = nearFieldOf(withNearField(coarse, cut));
+  double err = 0, mx = 0;
+  for (int c = 0; c < 3; ++c)
+    for (std::size_t i = 0; i < na.horizontal.E[c].size(); ++i) {
+      err = std::max(err, std::abs(na.horizontal.E[c][i] - nb.horizontal.E[c][i]));
+      mx = std::max(mx, std::abs(nb.horizontal.E[c][i]));
+    }
+  std::printf("V21g node k ~ 0: near field max |E_fine - E_coarse| = %.1e (max |E| = %.2f)\n", err, mx);
+  EXPECT_LT(err, 1e-8 * mx);
+}
+
+TEST(V21g, Fig4EdgePeaksAlongThePolarization) {
+  // Popov/Bonod Fig. 4: hole R = 125 nm in 200 nm silver, 500 nm, E along x, |E|^2 15 nm below the screen: two
+  // sharp peaks at the edge in the direction of the polarization; perpendicular to it (z) the field decays much
+  // faster (the plasmon goes along x, Fig. 5). kappa_max 8 (12 gives the same map to a few percent), dk_factor 1.
+  const double R = 0.125;
+  const fg::NearFieldResult nf = nearFieldOf(withNearField(
+      screenHole(R, 0.2, kSilver500, 8, 1),
+      R"("horizontal_y_um": -0.015, "nx": 21, "nz": 21, "ny": 2, "y_range_um": [-0.03, 0.0], "extent_um": 0.25)"));
+  const fg::FieldCut& c = nf.horizontal;
+  ASSERT_EQ(c.E[0].size(), 21u * 21u);
+  auto e2 = [&](std::size_t ix, std::size_t iz) {
+    const std::size_t i = iz * 21 + ix;
+    return std::norm(c.E[0][i]) + std::norm(c.E[1][i]) + std::norm(c.E[2][i]);
+  };
+  // along x (z = 0): maximum at the edge |x| = R (grid step 25 nm)
+  std::size_t imax = 0;
+  for (std::size_t ix = 0; ix < 21; ++ix)
+    if (e2(ix, 10) > e2(imax, 10)) imax = ix;
+  const double xPeak = std::abs(c.axis1_um[imax]), centre = e2(10, 10);
+  std::printf("V21g Fig. 4: |E|^2 peak %.3f at |x| = %.3f um, centre %.3f; at r = 0.25 um: x %.3f, z %.4f\n",
+              e2(imax, 10), xPeak, centre, e2(20, 10), e2(10, 20));
+  EXPECT_NEAR(xPeak, R, 0.026);
+  EXPECT_GT(e2(imax, 10), 1.5 * centre);                  // measured 1.886 / 0.897
+  EXPECT_NEAR(e2(imax, 10), e2(20 - imax, 10), 1e-10);   // mirror symmetry x -> -x
+  // along z (x = 0): no peak beyond the centre region, monotonic decay from the edge on, 26x weaker at 0.25 um
+  for (std::size_t iz = 15; iz < 20; ++iz) EXPECT_GT(e2(10, iz), e2(10, iz + 1));
+  EXPECT_LT(e2(10, 15), 0.5 * e2(imax, 10));
+  EXPECT_GT(e2(20, 10), 10 * e2(10, 20));
+}
+
+TEST(V21g, Fig6CylindricalPlasmonAlongTheSurface) {
+  // Popov/Bonod Fig. 6 and their Eq. (65): along the surface in the direction of the polarization the normal
+  // component follows the cylindrical plasmon, |E_y(x)| ~ |H_1^(1)(k_p x)| with k_p = k0 sqrt(eps / (eps + 1))
+  // (R = 50 nm, 200 nm silver, 10 nm below the screen). Measured (fgsolve, kappa_max 4, dk_factor 100, 1..5 um):
+  // |E_y| / |H_1| within 0.89 ... 1.00 while |E_y| falls by 3; the shape is the same for kappa_max 4, 8, 24 (+-5 %
+  // from 0.4 um on), the amplitude converges only from kappa_max ~ 24 (sigma_sca 0.0051, 0.0012, 0.0015, 0.0021 um^2
+  // for kappa_max 4, 6, 8, 24): here the shape, kappa_max 4, dk_factor 20 (reaches 2 R_s dk_factor = 2 um).
+  const fg::NearFieldResult nf = nearFieldOf(withNearField(
+      screenHole(0.05, 0.2, kSilver500, 4, 20),
+      R"("horizontal_y_um": -0.01, "nx": 21, "nz": 3, "ny": 2, "y_range_um": [-0.02, 0.0], "extent_um": 1.0)"));
+  const fg::FieldCut& c = nf.horizontal;
+  ASSERT_EQ(c.E[1].size(), 21u * 3u);
+  const cplx kp = 2 * fg::PI / 0.5 * std::sqrt(kSilver500 / (kSilver500 + 1.0));
+  double lo = 1e300, hi = 0;
+  for (std::size_t ix = 15; ix < 21; ++ix) {  // x = 0.5 ... 1.0 um
+    const double x = c.axis1_um[ix], r = std::abs(c.E[1][21 + ix]) / absHankel1(kp * x);
+    std::printf("V21g Fig. 6: x = %.1f um  |E_y| = %.4e  |E_y| / |H_1(k_p x)| = %.4e\n", x, std::abs(c.E[1][21 + ix]), r);
+    lo = std::min(lo, r);
+    hi = std::max(hi, r);
+  }
+  EXPECT_LT(hi / lo, 1.1);  // measured 1.05
+  // the plasmon term vanishes along z (cos theta): E_y = 0 on the z axis by symmetry
+  EXPECT_LT(std::abs(c.E[1][2 * 21 + 10]), 1e-10 * std::abs(c.E[1][21 + 20]));
+}
+
+TEST(V21g, Fig7FarFieldOfASmallHole) {
+  // Popov/Bonod Fig. 7: hole R = 10 nm, far field below the screen (here 50 nm). In the plane of E (x-y, phi = 0)
+  // the pattern of a perfect conductor is flat and becomes more directive with decreasing conductivity; in the
+  // perpendicular plane (y-z, phi = 90) it falls off like cos^2 theta (magnetic dipole) for every metal.
+  // k_max = 80 k0 (kappa_max 80, Re n < 1): the same patterns as 160 and 320 k0 to 1e-3.
+  auto pattern = [](cplx eps) {
+    const fg::CylindricalResult c = solveConfig(screenHole(0.01, 0.05, eps, 80, 2, 8, 8)).cylindrical;
+    for (const auto& f : c.farField)
+      if (f.side < 0) return f;
+    ADD_FAILURE() << "no far field below";
+    return fg::CylFarField{};
+  };
+  const fg::CylFarField ag = pattern(kSilver500), al = pattern(cplx(-34.23, 8.98));
+  ASSERT_EQ(ag.phi_deg.size(), 8u);
+  ASSERT_EQ(ag.theta_deg, al.theta_deg);
+  const std::size_t np = 8, nt = ag.theta_deg.size();
+  auto dP = [&](const fg::CylFarField& f, std::size_t j, std::size_t l) { return f.s[j * np + l] + f.p[j * np + l]; };
+  int checked = 0;
+  for (std::size_t j = 0; j < nt; ++j) {
+    const double th = ag.theta_deg[j], c2 = std::pow(std::cos(th * fg::PI / 180), 2);
+    const double eAg = dP(ag, j, 0) / dP(ag, 0, 0), eAl = dP(al, j, 0) / dP(al, 0, 0);
+    const double hAg = dP(ag, j, 2) / dP(ag, 0, 2), hAl = dP(al, j, 2) / dP(al, 0, 2);
+    if (th < 15 || th > 85) continue;
+    ++checked;
+    std::printf("V21g Fig. 7: theta %4.1f  E-plane Ag %.3f Al %.3f  H-plane Ag %.3f Al %.3f  cos^2 %.3f\n", th, eAg, eAl,
+                hAg, hAl, c2);
+    EXPECT_LT(eAg, eAl) << th;          // silver is more directive (69 deg: 0.38 / 0.74)
+    EXPECT_GT(eAl, hAl) << th;          // E-plane broader than H-plane
+    EXPECT_NEAR(hAg, hAl, 0.02) << th;  // H-plane the same for both metals
+    EXPECT_NEAR(hAg / c2, 1.0, 0.1) << th;
+  }
+  EXPECT_EQ(checked, 5);  // nodes at 21, 37, 53, 69, 81 deg
+}

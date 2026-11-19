@@ -22,6 +22,17 @@
   als reeller Weg gerechnet; in der C++-Schnittstelle bedeutet δ < 0 jetzt die falsche Seite, für V21f).
 
 ### Hinzugefügt
+- M20 V21g (Plan v2.36): qualitativer Vergleich mit Popov/Bonod (phys. stat. sol. (b) 244, 3463, 2007; Quelle
+  geprüft): Randspitzen in Polarisationsrichtung (Abb. 4), zylindrisches Plasmon |E_y| ∝ |H₁(k_p x)| längs der
+  Oberfläche (Abb. 6), Fernfeld eines 10-nm-Lochs (Abb. 7: Silber gerichteter als Aluminium in der E-Ebene, H-Ebene cos²θ) (Tests `V21g.*`). Befund: Bei kleinen Löchern in Metall konvergiert die
+  Amplitude erst bei k_max R ≈ 15 (50 nm: κ_max ≈ 24).
+
+### Behoben
+- M20 (Plan v2.36, Planfehler): Ebene Welle auf feinen Gittern: Lag der Knoten k ≈ 0 einer Ringschicht näher als
+  1e-8 max|λ| am Exponenten des planaren Hintergrunds, integrierte der Löser die Scheibe mit RK (Minuten bis Stunden,
+  im Nahfeld abgelehnt). Jetzt nimmt die dividierte Differenz des Strahls diese Terme; kartesisch bleibt der
+  RK-Rückfall (Test `V21g.BackgroundExponentNextToTheNodeKZero`: gegen ein Gitter ohne Resonanz σ auf 5e-14).
+
 - M20 V21i, Stufe 2 (Plan v2.35): Gradienten für ebene Wellen (Streufeld). Zielfunktion auf den Streuquerschnitten
   nach oben/unten (`("cylindrical", "R")`/`"T"`, je Harmonischer mit m); Parameter Ringradien, Ring- und
   Schichtmaterialien, Dicken (nicht die Halbräume). Die Hintergrundlösung der Einfallsordnung geht wie in M19 (B2)

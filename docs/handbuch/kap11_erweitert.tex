@@ -242,7 +242,10 @@ $k_{\max}=\kappa_{\max}\max\operatorname{Re}n$ richtet sich nach dem größten R
 ($\operatorname{Re}n<1$) und Teilchen, die klein gegen die Wellenlänge sind, braucht es deshalb ein großes
 \key{kappa\_max}: $k_{\max}R$ sollte mindestens 15 sein ($R$: Teilchenradius in Einheiten von $1/k_0$). Eine Goldkugel
 als Treppe aus Scheiben trifft die Extinktion schnell, die Aufteilung in Streuung und Absorption konvergiert langsam
-(Abschnitt~\ref{sec:zylinder_nf}).
+(Abschnitt~\ref{sec:zylinder_nf}). Dasselbe gilt für kleine Löcher in Metallschirmen: Bei einem Loch von
+50\,nm in Silber (500\,nm) stimmt die Form des Feldes schon bei \key{kappa\_max} 4, die Amplitude erst ab etwa 24
+(V21g). Umgekehrt hat ein sehr gut leitendes Metall ($|\varepsilon|$ groß) $\operatorname{Re}n>1$; dann wächst
+$k_{\max}$ mit $\operatorname{Re}n$, und ein kleineres \key{kappa\_max} genügt für dasselbe $k_{\max}R$.
 \end{achtung}
 
 \paragraph{Winkelspektrum und Fernfeld.}

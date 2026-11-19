@@ -573,7 +573,9 @@ Festlegungen:
         nimmt jeder Term mit $|\kappa-\lambda_j|<10^{-4}\max|\lambda|$ die Form der dividierten Differenz
         $q\,(e^{\kappa t}-e^{\lambda_jt})/(\kappa-\lambda_j)=q\,t\,e^{\lambda_jt}\varphi_1((\kappa-\lambda_j)t)$ an,
         $\varphi_1(z)=(e^z-1)/z$ (Reihe für $|z|<10^{-2}$). Sie ist ebenfalls eine partikuläre Lösung und für
-        $\kappa=\lambda_j$ beschränkt.
+        $\kappa=\lambda_j$ beschränkt. Ebene Wellen (vier Exponentiale je Schicht, v2.36): Liegt ein Exponential
+        näher als $10^{-8}\max|\lambda|$ an einer Mode, gilt dasselbe für dieses Exponential (sonst wie in M18
+        $(\kappa-M)^{-1}\sigma$ direkt).
   \item \textbf{Ausgaben:} Amplituden oben und im Substrat $=$ Quellenamplituden des Streufeldes $+$ Hintergrund; $R$,
         $T$, $A$, $A_{\text{Ringe}}$ und das Nahfeld (Totalfeld $=$ Streufeld $+$ Hintergrund, beide auf dem Gitter) wie
         beim Totalfeld. Der Nutzen ist der Test der Quellen (V21e); \verb|"field": "scattered"| bleibt bei Strahlen
@@ -765,6 +767,53 @@ oder je Harmonischer; \verb|("cylindrical", "R")| bzw.\ \verb|"T"| wie beim Stra
         $\le1{,}2\cdot10^{-7}$, Dicken und Filmmaterial (auch als Außenmaterial der Ringe) $\le2\cdot10^{-10}$.
 \end{itemize}
 
+\paragraph{Umsetzung (v2.36): V21g, Lochblende im Metallschirm (Popov/Bonod [22]).}
+Die Quelle ist geprüft (phys.\ stat.\ sol.\ (b) 244, Nr.~10, 3463--3478, 2007). Ihre Abbildungen nennen nur
+Metall, Radius, Wellenlänge und für Abb.~4 die Dicke; die Permittivitäten und die übrigen Dicken sind Annahmen dieser
+Prüfung: Silber und Aluminium nach Rakić (Drude--Lorentz, Teil~8) bei 500\,nm, $\varepsilon_{\text{Ag}}=-7{,}632+0{,}731i$,
+$\varepsilon_{\text{Al}}=-34{,}23+8{,}98i$; Schirm 200\,nm (Abb.~4, 6), 50\,nm (Abb.~7). Senkrechter Einfall, $\mathbf E$
+längs $x$ ($\psi=90^\circ$); die Normale des Schirms ist bei uns $y$ (dort $z$). Verglichen wird qualitativ, wie im
+Plan vorgesehen:
+\begin{itemize}[nosep]
+  \item \textbf{Abb.~4} ($R=125$\,nm, $|E|^2$ 15\,nm unter dem Schirm): zwei scharfe Spitzen am Rand in
+        Polarisationsrichtung, quer dazu rascher Abfall. Gemessen ($\kappa_{\max}=8$, $\kappa_{\max}=12$ gleich bis
+        auf wenige Prozent): Spitze $1{,}89$ genau bei $|x|=R$, Mitte $0{,}90$; bei $r=250$\,nm längs $x$
+        $0{,}37$, längs $z$ $0{,}014$.
+  \item \textbf{Abb.~6} ($R=50$\,nm, Gl.~(65) dort): längs $x$ folgt $E_y$ dem zylindrischen Plasmon,
+        $|E_y(x)|\propto|H^{(1)}_1(k_px)|$, $k_p=k_0\sqrt{\varepsilon/(\varepsilon+1)}$. Gemessen
+        ($\kappa_{\max}=4$, \verb|dk_factor| 100, 58\,min): $|E_y|/|H_1|$ zwischen $0{,}89$ und $1{,}00$ für
+        $x=1$--$5$\,µm, während $|E_y|$ auf ein Drittel fällt. Die Form ist für $\kappa_{\max}=4$, 8, 24 dieselbe
+        ($\pm5\,\%$ ab $0{,}4$\,µm). \textbf{Befund:} Die Amplitude konvergiert erst ab $\kappa_{\max}\approx24$
+        ($\sigma_{\text{sca}}=0{,}0051$, $0{,}0012$, $0{,}0015$, $0{,}0021$\,µm$^2$ für $\kappa_{\max}=4$, 6, 8, 24;
+        $k_{\max}R\approx15$). Für die Lochblende in Metall braucht $\kappa_{\max}$ also eine Größe in Einheiten
+        von $1/R$, nicht von $k_0$. Die Reichweite des Gitters ist $2R_s\,$\verb|dk_factor|; \verb|dk_factor| 40 und 100
+        stimmen bis 2\,µm auf 4--5 Stellen überein.
+  \item \textbf{Abb.~7} ($R=10$\,nm, Fernfeld unter dem Schirm, $dP/d\Omega$ auf $\theta=0$ normiert): In der Ebene
+        von $\mathbf E$ ($x$--$y$) ist das Muster beim idealen Leiter flach und wird mit sinkender Leitfähigkeit
+        gerichteter; quer dazu ($y$--$z$) fällt es für alle Metalle gleich ab. Gemessen ($k_{\max}=80k_0$, gleich wie
+        160 und $320k_0$ auf $10^{-3}$): bei $69^\circ$ $E$-Ebene Ag $0{,}38$, Al $0{,}74$; $H$-Ebene beide $0{,}13
+        =\cos^2\theta$ (magnetischer Dipol, auf 4\,\%). $33\varepsilon_{\text{Al}}$ ist flacher als Al
+        ($0{,}82$--$0{,}99$ bei $69^\circ$), aber nicht konvergiert: $P(0)=2{,}9\cdot10^{-10}$, $4{,}2\cdot10^{-14}$,
+        $5{,}6\cdot10^{-15}$ bei $k_{\max}=80$, 160, $320k_0$ (das Signal $\sigma_\downarrow\approx2\cdot10^{-14}$\,µm$^2$
+        liegt weit unter dem Fehler der abgeschnittenen Basis, die ein fast ideales Metall zu durchlässig darstellt).
+        $1000\varepsilon_{\text{Al}}$ ist bei allen $k_{\max}$ flach ($0{,}98$--$1{,}02$), $P(0)$ ebenso nicht
+        konvergiert ($3{,}6\cdot10^{-10}$, $2{,}6\cdot10^{-11}$, $1{,}7\cdot10^{-13}$). Hoch leitende Schirme bleiben
+        daher aus dem Test; $\kappa_{\max}$ bezieht sich auf $\max\operatorname{Re}n$
+        und ist für sie entsprechend klein zu wählen ($k_{\max}=\kappa_{\max}\operatorname{Re}n$).
+  \item \textbf{Planfehler (Fast-Resonanz bei ebenen Wellen):} Auf feinen Gittern liegt der Knoten $k\approx0$ einer
+        Ringschicht beim Exponenten $\sqrt{-\varepsilon}$ des planaren Hintergrundes (Abstand $\approx k_1^2/(2\kappa)$,
+        $k_1$ der kleinste Knoten). Unterschreitet er $10^{-8}\max|\lambda|$, integrierte der Löser die Scheibe mit RK
+        (M18-Rückfall): für Abb.~6 über 90\,min, im Nahfeld abgelehnt. Wie beim Strahl (\enquote{Fast-Resonanz} oben)
+        nimmt jetzt die dividierte Differenz diese Terme (\verb|modalParticular|, gemeinsam mit dem Strahl); kartesisch
+        (M18) bleibt der RK-Rückfall. Der Gradient (v2.35) lehnt eine solche Resonanz weiterhin ab.
+  \item Tests: \verb|V21g.BackgroundExponentNextToTheNodeKZero| (32 Knoten je Panel; \verb|dk_factor| 8 resonant,
+        Abstand $2{,}1\cdot10^{-8}<3{,}9\cdot10^{-8}$, gegen \verb|dk_factor| 4 ohne Resonanz: $\sigma$ auf $5\cdot10^{-14}$,
+        Nahfeld auf $7{,}5\cdot10^{-12}$), \verb|V21g.Fig4EdgePeaksAlongThePolarization|,
+        \verb|V21g.Fig6CylindricalPlasmonAlongTheSurface| (Form über $0{,}5$--$1$\,µm, $\kappa_{\max}=4$, \verb|dk_factor| 20:
+        Verhältnis $\le1{,}05$; Hankel-Funktion asymptotisch, DLMF 10.17.5), \verb|V21g.Fig7FarFieldOfASmallHole|
+        (Ag, Al; Knoten bei 21--$81^\circ$).
+\end{itemize}
+
 \subsection{Tests und Abnahme (M20)}
 \begin{itemize}[nosep]
   \item Unit: Prüfpunkt zu \eqref{eq:cyl_M}; \eqref{eq:lommel} gegen Quadratur ($5\cdot10^{-14}$, auch komplex; Auslöschung an der Schwelle $|a-b|\,r=10^{-2}$);
@@ -789,8 +838,8 @@ oder je Harmonischer; \verb|("cylindrical", "R")| bzw.\ \verb|"T"| wie beim Stra
         Befund); bei stark verlustbehaftetem Metall gleich dem reellen Weg ($10^{-7}$), mit kleiner werdendem
         $\operatorname{Im}\varepsilon$ entfernt sich der reelle Weg vom deformierten; falsche Ausweichrichtung
         $\Rightarrow$ Sprung.
-  \item \textbf{V21g} (Lochblende im Metallschirm): qualitativer Vergleich mit Popov/Bonod [22] (Werte vor
-        Verwendung bibliographisch prüfen).
+  \item \textbf{V21g} (Lochblende im Metallschirm): qualitativer Vergleich mit Popov/Bonod [22], Abb.~4, 6 und 7
+        (Quelle geprüft, Umsetzung v2.36).
   \item \textbf{V21h} (Konvergenzstudie): $N_k$-Dichte, $k_{\max}$, $m_{\text{cut}}$ und Scheibenzahl als CSV, Tabelle in
         \verb|docs/validation.md|.
   \item \textbf{V21i} (Gradienten): Radius, Material, Dicke gegen Differenzenquotienten ($10^{-6}$).
@@ -913,7 +962,7 @@ gefundene Symmetrieordnung (größtes $P$ mit erfüllter Drehsymmetrie), damit d
   \item E.~Popov, M.~Nevière, N.~Bonod, \enquote{Factorization of products of discontinuous functions
         applied to Fourier--Bessel basis}, JOSA A 21, 46--51 (2004).
   \item E.~Popov, N.~Bonod, \enquote{Differential theory of diffraction in cylindrical coordinates},
-        phys.\ stat.\ sol.\ (b) (2007), doi:10.1002/pssb.200743151.
+        phys.\ stat.\ sol.\ (b) 244, Nr.~10, 3463--3478 (2007), doi:10.1002/pssb.200743151 (geprüft, v2.36).
   \item P.~Boyer, E.~Popov, M.~Nevière, G.~Renversez, \enquote{Diffraction theory: application of the fast Fourier
         factorization to cylindrical devices with arbitrary cross section lighted in conical mounting}, JOSA A 23, 1146 (2006).
   \item A.~W.~Snyder, J.~D.~Love, \emph{Optical Waveguide Theory}, Chapman \& Hall 1983 (Eigenwertgleichung der Stufenindexfaser, V21b).
