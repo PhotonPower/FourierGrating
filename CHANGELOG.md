@@ -21,6 +21,14 @@
   entsprechend angepasst. `cylindrical.spectrum.deform.delta` muss > 0 sein (ein negativer Wert wurde stillschweigend
   als reeller Weg gerechnet; in der C++-Schnittstelle bedeutet δ < 0 jetzt die falsche Seite, für V21f).
 
+### Behoben
+- M20 (Plan v2.33): Ein Plasmon des planaren Hintergrunds zwischen den Verzweigungspunkten (z. B. Silber/Luft bei
+  einem Silberfilm auf Glas) ist eine schmale leckende Resonanz auf dem reellen Weg. Mit gleichmäßigen Panels
+  konvergierten R und T in `dk_factor` nicht (T zwischen 0,42 und 0,54 bis `dk_factor` 6). Jetzt setzt das Gitter
+  gestufte Panels um Re k_p (`SpectrumOptions::resonances`), und `dk_factor` 1 ist auf 2e-5 konvergiert (Tests
+  `CylSpectrum.GradedPanelsAroundAResonance`, `V21h.LeakyPlasmonBetweenTheBranchPoints`). Auch der reelle Weg
+  (`deform: false`) wird genauer (V21f). Fälle ohne solches Plasmon sind bitgleich.
+
 ### Hinzugefügt
 - M20 V21h Konvergenzstudie (Plan v2.32): `scripts/v21h_convergence.py` schreibt
   `docs/validation_data/v21h_convergence.csv`, Tabellen in `docs/validation.md`. Dielektrische Kugel: κ_max bestimmt

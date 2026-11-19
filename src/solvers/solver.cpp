@@ -698,7 +698,7 @@ class StackSolver final : public Solver {
     c.polarization = cs.polarization;
     c.layers = detail::buildCylLayers(stack, s.k0);
     double Rs_um = 2.0 * cs.waist_um, nLayers = 0, RingsUm = 0;
-    std::vector<cplx> metals, dielectrics{sup.eps, sub.eps};
+    std::vector<cplx> metals, dielectrics{sup.eps, sub.eps}, bgMetals, bgDielectrics{sup.eps, sub.eps};
     for (std::size_t k = 0; k < c.layers.size(); ++k) {
       c.ptrs.push_back(c.layers[k].get());
       c.yTop += c.layers[k]->thickness_um() * s.k0;
@@ -710,6 +710,8 @@ class StackSolver final : public Solver {
         nLayers = std::max(nLayers, std::sqrt(e).real());
         (e.real() < 0 ? metals : dielectrics).push_back(e);
       }
+      const cplx eb = c.layers[k]->epsList.back();  // background stack: rings -> outer material
+      (eb.real() < 0 ? bgMetals : bgDielectrics).push_back(eb);
     }
     c.RsUm = Rs_um;
     // spectrum (Plan sec:cylgrid): branch points of the half spaces, complex path over [k_a, k_b] when
@@ -725,6 +727,10 @@ class StackSolver final : public Solver {
     double kb = 1.2 * nMax;
     for (const cplx em : metals)
       for (const cplx ed : dielectrics) kb = std::max(kb, 1.2 * std::sqrt(em * ed / (em + ed)).real());
+    // plasmons of the planar background below k_a (between the branch points) leak into the denser half space
+    // and stay narrow resonances on the real path: graded panels (V21h, Plan v2.33)
+    for (const cplx em : bgMetals)
+      for (const cplx ed : bgDielectrics) o.resonances.push_back(std::sqrt(em * ed / (em + ed)));
     const bool guided = nLayers > ka || !metals.empty();
     if (cs.deform == CylindricalSpec::Deform::On || (cs.deform == CylindricalSpec::Deform::Auto && guided)) {
       FG_REQUIRE(kb < o.kmax, "cylindrical: k_b of the deformed path must be below k_max (raise kappa_max)");
