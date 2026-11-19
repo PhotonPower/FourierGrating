@@ -96,7 +96,8 @@ dürfen sich nicht überlappen); Einschlüsse dürfen sich nicht überlappen. Be
 `period_um.z > 0` Pflicht; `lamellar1d`- und isotrope `profile1d`-Schichten sind in 2D-Stapeln erlaubt (z-invariant).
 `cad` (M14, Build mit `FG_ENABLE_NURBFORGE`): STEP-Körper, beim Laden in Bänder expandiert (homogen,
 `contour2d`, y-variabel); in 1D-Stapeln (M23) z-invariante Körper, ein Schnitt bei `z_cut_um`, Bänder homogen,
-`lamellar1d` oder y-variabel. Schlüssel und Prüfcodes in [`cad.md`](cad.md).
+`lamellar1d` oder y-variabel; in Zylinderstapeln (M20) Rotationskörper mit `"axisymmetric": true`, Bänder
+homogen, `rings` oder `rings_profile`. Schlüssel und Prüfcodes in [`cad.md`](cad.md).
 
 `contour2d` (M13): Regionen mit äußerer Kontur und Löchern, paarweise disjunkt (auch mit den periodischen
 Bildern; geprüft, sonst Fehler). Formen: `circle`, `ellipse` (exakt als rationale Quadratiken), `polygon_um`,
@@ -266,7 +267,8 @@ bezogen auf die einfallende Intensität), `C_Sext` = `C_Ssca` + `C_Sabs` und als
 Theorem in Volumenform, ½ Im ∫(ε − ε_∞) E·Ē_bg dV). Die Volumenintegrale laufen nur bei verlustbehafteten Ringen
 (sonst σ_abs = 0, σ_ext = σ_sca) oder mit `"optical_theorem": true` (etwa doppelte Rechenzeit); `C_Sext_ot` fehlt
 sonst, ebenso bei verlustbehaftetem Hintergrund (Python dann `nan`). Python
-`absorption_um2`, `extinction_um2`, `extinction_theorem_um2`. CAD-Rotationskörper folgen.
+`absorption_um2`, `extinction_um2`, `extinction_theorem_um2`. CAD-Rotationskörper: Schicht `cad` mit
+`"axisymmetric": true` ([`cad.md`](cad.md)).
 
 Nahfeld (`"nearfield"`, M20): horizontaler Schnitt bei `horizontal_y_um` als Karte x–z, vertikaler Schnitt x–y in der
 Ebene z = `vertical_z_um` (z = 0: Meridianebene); x und z laufen symmetrisch über [−`extent_um`, `extent_um`] mit

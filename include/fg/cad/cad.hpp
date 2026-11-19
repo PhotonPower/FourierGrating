@@ -51,6 +51,10 @@ struct CadOptions {
   Factorization factorization = Factorization::Auto;
   NormalFieldOptions normalField;
   double lambda_um = 0;  ///< smallest wavelength of the run (UNIT_SUSPECT check; 0: unknown)
+  /// Solid of revolution about FG y in a "cylindrical" stack (Plan "M20: Schichttypen"): every section is a
+  /// set of circles about the axis (NOT_AXISYMMETRIC otherwise); cellOrigin_um is the axis (x0, z0), default
+  /// the centre of the bounding box. Bands become rings / rings_profile layers.
+  bool axisymmetric = false;
 };
 
 /// One finding of the geometry check (Plan section "Geometriepruefung fuer das Sprachmodell"):
@@ -66,7 +70,7 @@ struct Finding {
 struct Band {
   double y0_um = 0, y1_um = 0;
   /// "homogeneous" | "extrusion" (Contour2D) | "sectioned" (SectionedLayer); 1D: "homogeneous" |
-  /// "lamellar1d" | "sectioned1d" (Sectioned1DLayer)
+  /// "lamellar1d" | "sectioned1d" (Sectioned1DLayer); axisymmetric: "homogeneous" | "rings" | "rings_profile"
   std::string kind;
   std::string material;  ///< homogeneous bands
   std::vector<std::pair<std::string, double>>
@@ -80,6 +84,7 @@ struct Report {
   std::array<double, 2> cellOrigin_um{0, 0};
   bool oneD = false;  ///< 1D grating (Plan section "M23"): z_cut_um, cell origin x0 only, length fractions
   double zCut_um = std::numeric_limits<double>::quiet_NaN();
+  bool axisymmetric = false;  ///< solid of revolution (M20): cellOrigin_um is the axis
   /// JSON (fgsolve --cad-report, Python fg.cad.check).
   std::string json() const;
 };

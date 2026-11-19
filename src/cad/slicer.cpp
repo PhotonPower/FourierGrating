@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <nurbforge/analysis/shell_section.hpp>
 #include <nurbforge/core/error.hpp>
 #include <nurbforge/geometry/transform.hpp>
@@ -98,13 +99,17 @@ struct Model {
   // 1D gratings (Plan section "M23"): the cutting plane and the profiles of the bodies in (x, y)
   bool oneD = false;
   double zCut = kNaN;
+  // solids of revolution (Plan "M20: Schichttypen"): axis at x = z = 0 after the shift, largest radius
+  bool axisym = false;
+  double Rs = 0;
   std::shared_ptr<const std::vector<geometry::ProfileBody>> profiles;
 };
 
 bool loadModel(const CadOptions& o, const Stack& st, Model& m, Report& r) {
   // 2D: sections in the (x, z) cell; 1D (dz = 0): z-invariant bodies cut once at z_cut (Plan "M23")
-  FG_REQUIRE(st.dx_um > 0, "cad: period_um.x must be positive");
-  m.oneD = st.dz_um <= 0;
+  m.axisym = o.axisymmetric;
+  FG_REQUIRE(m.axisym || st.dx_um > 0, "cad: period_um.x must be positive");
+  m.oneD = !m.axisym && st.dz_um <= 0;
   auto error = [&](const std::string& code, const std::string& msg,
                    std::array<double, 3> w = {kNaN, kNaN, kNaN}) {
     r.errors.push_back({code, msg, w});
@@ -190,12 +195,16 @@ bool loadModel(const CadOptions& o, const Stack& st, Model& m, Report& r) {
                                    "') matches no body of the STEP file");
   if (m.bodies.empty()) return false;
   // ---- cell origin, y range, translation into the cell
-  m.origin = o.cellOrigin_um ? *o.cellOrigin_um : std::array<double, 2>{all[0], all[2]};
+  // axisymmetric: the origin is the axis (default: centre of the bounding box)
+  m.origin = o.cellOrigin_um ? *o.cellOrigin_um
+             : m.axisym    ? std::array<double, 2>{0.5 * (all[0] + all[3]), 0.5 * (all[2] + all[5])}
+                           : std::array<double, 2>{all[0], all[2]};
   if (m.oneD) m.origin[1] = 0;  // z stays FG z (z_cut_um)
   const nf::Transform shift = nf::Transform::translation({-m.origin[0], 0, -m.origin[1]});
   for (auto& b : m.bodies) {
     b.shell = transformed(b.shell, shift);
     b.box = bounds(b.shell);
+    for (int i : {0, 2, 3, 5}) m.Rs = std::max(m.Rs, std::abs(b.box[static_cast<std::size_t>(i)]));
   }
   m.yRange = o.yRange_um ? *o.yRange_um : std::array<double, 2>{all[1], all[4]};
   FG_REQUIRE(m.yRange[1] > m.yRange[0], "cad.y_range_um: empty range");
@@ -204,9 +213,9 @@ bool loadModel(const CadOptions& o, const Stack& st, Model& m, Report& r) {
              "cad.background: unknown material '" + m.background + "'");
   // ---- units: dimensions far away from the period / wavelength (factor 1e3)
   // 1D: the extrusion length in z is arbitrary and not checked
-  const double period = std::max(st.dx_um, st.dz_um),
-               extent = m.oneD ? std::max(all[3] - all[0], all[4] - all[1])
-                               : std::max({all[3] - all[0], all[4] - all[1], all[5] - all[2]});
+  const double extent = m.oneD ? std::max(all[3] - all[0], all[4] - all[1])
+                               : std::max({all[3] - all[0], all[4] - all[1], all[5] - all[2]}),
+               period = m.axisym ? (o.lambda_um > 0 ? o.lambda_um : extent) : std::max(st.dx_um, st.dz_um);
   const double ref = o.lambda_um > 0 ? std::max(period, o.lambda_um) : period;
   if (extent > 100 * ref || extent < 1e-3 * std::min(period, ref))
     error("UNIT_SUSPECT", fmt("bodies are %.6g um large for a period of %.6g um (factor 1000 off? "
@@ -694,8 +703,182 @@ std::vector<LayerEntry> layersOf1D(const Model& m, const CadOptions& o, const St
 }
 
 /// Bands -> layers (and the report entries).
+// ------------------------------------------------------------------ solids of revolution (M20)
+
+/// Rings of a section of a solid of revolution (Plan "M20: Schichttypen", cad): every loop must be a circle
+/// about the axis (x = z = 0) within 1e-9 R_s, every region a disc or an annulus; radii and materials from the
+/// axis outwards, the background outside. False with a NOT_AXISYMMETRIC finding otherwise.
+bool ringsOfSection(const CrossSection& cs, double Rs, std::array<double, 2> origin, const std::string& background,
+                    double y, RingsLayer& out, Report& r) {
+  const double tol = 1e-9 * Rs;
+  auto fail = [&](const std::string& msg, std::array<double, 2> p) {
+    r.errors.push_back({"NOT_AXISYMMETRIC", msg, {p[0] + origin[0], y, p[1] + origin[1]}});
+    r.ok = false;
+    return false;
+  };
+  auto circle = [&](const geometry::Contour2D& c, double& radius) {
+    const auto pts = c.flatten(1e-3 * Rs);
+    double lo = 1e300, hi = 0;
+    for (const auto& p : pts) {
+      lo = std::min(lo, std::hypot(p[0], p[1]));
+      hi = std::max(hi, std::hypot(p[0], p[1]));
+    }
+    radius = 0.5 * (lo + hi);
+    if (hi - lo <= 2 * tol) return true;
+    geometry::Point2 worst = pts.front();
+    for (const auto& p : pts)
+      if (std::abs(std::hypot(p[0], p[1]) - radius) > std::abs(std::hypot(worst[0], worst[1]) - radius)) worst = p;
+    return fail(fmt("section at y = %.9g um is not a circle about the axis: the radius varies over %.6g ... %.6g um "
+                    "(tolerance 1e-9 R_s; the axis is cad.cell_origin_um, default the centre of the bounding box)",
+                    y, lo, hi),
+                worst);
+  };
+  struct Interval {
+    double a, b;
+    std::string material;
+  };
+  std::vector<Interval> iv;
+  for (const auto& reg : cs.regions) {
+    double ro = 0, ri = 0;
+    if (!circle(reg.outer, ro)) return false;
+    if (reg.holes.size() > 1)
+      return fail(fmt("section at y = %.9g um: a region with %.0f holes cannot be rings about the axis", y,
+                      static_cast<double>(reg.holes.size())),
+                  reg.outer.flatten(1e-3 * Rs).front());
+    if (reg.holes.size() == 1 && !circle(reg.holes.front(), ri)) return false;
+    iv.push_back({ri, ro, reg.material});
+  }
+  std::sort(iv.begin(), iv.end(), [](const Interval& p, const Interval& q) { return p.a < q.a; });
+  out.radii_um.clear();
+  out.materials.clear();
+  auto push = [&](double rEnd, const std::string& mat) {  // material mat out to rEnd
+    if (!out.materials.empty() && out.materials.back() == mat) {
+      out.radii_um.back() = rEnd;
+    } else {
+      out.radii_um.push_back(rEnd);
+      out.materials.push_back(mat);
+    }
+  };
+  double cur = 0;
+  for (const auto& v : iv) {
+    if (v.a < cur - tol) return fail(fmt("section at y = %.9g um: rings overlap at r = %.9g um", y, v.a), {v.a, 0});
+    if (v.a > cur + tol) push(v.a, background);
+    push(v.b, v.material);
+    cur = v.b;
+  }
+  if (!out.materials.empty() && out.materials.back() == background) {
+    out.radii_um.pop_back();
+    out.materials.pop_back();
+  }
+  out.materials.push_back(background);
+  return true;
+}
+
+/// Rings of the bodies of one band at any height (y relative to the band bottom, cached per height): the
+/// radius functions of a rings_profile band. The rings may not change their materials inside a band.
+class AxisymSections {
+ public:
+  AxisymSections(std::shared_ptr<const std::vector<Body>> b, const Model& m, double y0, double y1, double tol,
+                 std::vector<std::string> materials)
+      : bodies_(std::move(b)),
+        Rs_(m.Rs),
+        origin_(m.origin),
+        background_(m.background),
+        y0_(y0),
+        h_(y1 - y0),
+        tol_(tol),
+        margin_(1e-8 * std::max(m.Rs, y1 - y0)),
+        materials_(std::move(materials)) {}
+  double radius(double y, std::size_t i) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (y != lastY_) {
+      const double yy = y0_ + std::clamp(y, margin_, h_ - margin_);
+      Report r;
+      RingsLayer rl;
+      if (!ringsOfSection(sectionAt(*bodies_, yy, tol_), Rs_, origin_, background_, yy, rl, r))
+        throw Error("cad: " + r.errors.front().message);
+      FG_REQUIRE(rl.materials == materials_, fmt("cad (axisymmetric): the rings change inside the band at y = %.9g um", yy));
+      last_ = std::move(rl.radii_um);
+      lastY_ = y;
+    }
+    return last_.at(i);
+  }
+
+ private:
+  std::shared_ptr<const std::vector<Body>> bodies_;
+  double Rs_;
+  std::array<double, 2> origin_;
+  std::string background_;
+  double y0_, h_, tol_, margin_;
+  std::vector<std::string> materials_;
+  mutable std::mutex mutex_;
+  mutable double lastY_ = kNaN;
+  mutable std::vector<double> last_;
+};
+
+/// Bands of a solid of revolution: homogeneous, rings (extrusion bands) or rings_profile (radii from the
+/// sections at the slice centres, slicing.rcwa_slices slices).
+std::vector<LayerEntry> layersOfAxisym(const Model& m, const CadOptions& o, Report& r) {
+  const double sampleTol = 1e-6 * m.Rs;
+  const auto shared = std::make_shared<const std::vector<Body>>(m.bodies);
+  std::vector<LayerEntry> out;
+  for (const auto& band : bands(m, o, r)) {
+    const double y0 = band[0], y1 = band[1], ym = 0.5 * (y0 + y1);
+    const CrossSection mid = sectionAt(m.bodies, ym, sampleTol);
+    Band rb{y0, y1, "", "", {}};
+    LayerEntry le;
+    le.factorization = o.factorization;
+    bool any = false, extrusion = true;
+    for (const auto& b : m.bodies) {
+      if (y1 <= b.box[1] || y0 >= b.box[4]) continue;
+      any = true;
+      extrusion = extrusion && nf::is_extrusion_band(b.shell, {0, 1, 0}, y0, y1);
+    }
+    RingsLayer mr;
+    if (mid.regions.empty()) {
+      std::string mat = m.background;  // no boundary in the band: the material on the axis
+      for (const auto& b : m.bodies)
+        if (nf::point_in_shell(b.shell, {0, ym, 0})) mat = b.material;
+      rb.kind = "homogeneous";
+      rb.material = mat;
+      le.spec = HomogeneousLayer{y1 - y0, mat};
+    } else if (!ringsOfSection(mid, m.Rs, m.origin, m.background, ym, mr, r)) {
+      continue;
+    } else if (!any || extrusion) {
+      rb.kind = "rings";
+      mr.thickness_um = y1 - y0;
+      le.spec = mr;
+    } else {
+      bool ok = true;  // the check covers the band (topology is constant between critical heights)
+      for (const double f : {0.2, 0.8}) {
+        const double yy = y0 + f * (y1 - y0);
+        RingsLayer t;
+        ok = ok && ringsOfSection(sectionAt(m.bodies, yy, sampleTol), m.Rs, m.origin, m.background, yy, t, r);
+      }
+      if (!ok) continue;
+      rb.kind = "rings_profile";
+      RingsProfileLayer rp;
+      rp.thickness_um = y1 - y0;
+      rp.materials = mr.materials;
+      rp.slices = o.rcwaSlices;
+      const auto src = std::make_shared<AxisymSections>(shared, m, y0, y1, sampleTol, mr.materials);
+      for (std::size_t i = 0; i < mr.radii_um.size(); ++i) {
+        RingsProfileLayer::Radius R;
+        R.shape = RingsProfileLayer::Radius::Shape::Function;
+        R.f = [src, i](double y) { return src->radius(y, i); };
+        rp.radii.push_back(std::move(R));
+      }
+      le.spec = std::move(rp);
+    }
+    r.bands.push_back(rb);
+    out.push_back(std::move(le));
+  }
+  return out;
+}
+
 std::vector<LayerEntry> layersOf(const Model& m, const CadOptions& o, const Stack& st, Report& r) {
   if (m.oneD) return layersOf1D(m, o, st, r);
+  if (m.axisym) return layersOfAxisym(m, o, r);
   const int G = std::max(o.normalField.grid, 64);
   const double h = std::min(st.dx_um, st.dz_um) / G, sampleTol = 1e-3 * h;
   const auto shared = std::make_shared<const std::vector<Body>>(m.bodies);
@@ -760,7 +943,9 @@ void checkOverlaps(const CadOptions& o, const Stack& st, Model& m, Report& r) {
     checkOverlaps1D(o, st, m, r);
     return;
   }
-  const double tol = 1e-4 * std::min(st.dx_um, st.dz_um);
+  // axisymmetric: no periodic images
+  const double tol = 1e-4 * (m.axisym ? m.Rs : std::min(st.dx_um, st.dz_um));
+  const int span = m.axisym ? 0 : 1;
   std::vector<std::array<int, 3>> reported;  // (i, j, periodic)
   // priority changes one pair per round, then everything is checked again; one round more than pairs
   // verifies the last change (v2.24; v2.21 stopped after four rounds without a final check)
@@ -776,8 +961,8 @@ void checkOverlaps(const CadOptions& o, const Stack& st, Model& m, Report& r) {
         for (const auto& b : m.bodies) fl.push_back(flatSection(b, y, tol));
         for (std::size_t i = 0; i < m.bodies.size(); ++i)
           for (std::size_t j = 0; j <= i; ++j)
-            for (int di = -1; di <= 1; ++di)
-              for (int dk = -1; dk <= 1; ++dk) {
+            for (int di = -span; di <= span; ++di)
+              for (int dk = -span; dk <= span; ++dk) {
                 const bool periodic = di != 0 || dk != 0;
                 if (i == j && !periodic) continue;
                 const std::array<int, 3> key{static_cast<int>(i), static_cast<int>(j),
@@ -859,7 +1044,8 @@ bool available() {
 Report check(const CadOptions& o, const Stack& st) {
   Report r;
   Model m;
-  r.oneD = st.dz_um <= 0;
+  r.axisymmetric = o.axisymmetric;
+  r.oneD = !o.axisymmetric && st.dz_um <= 0;
   if (!loadModel(o, st, m, r)) return r;
   r.cellOrigin_um = m.origin;
   checkModel(o, m, r);
@@ -879,7 +1065,8 @@ std::vector<LayerEntry> slice(const CadOptions& o, const Stack& st, Report* repo
   Report r;
   Model m;
   std::vector<LayerEntry> layers;
-  r.oneD = st.dz_um <= 0;
+  r.axisymmetric = o.axisymmetric;
+  r.oneD = !o.axisymmetric && st.dz_um <= 0;
   if (loadModel(o, st, m, r)) {
     r.cellOrigin_um = m.origin;
     checkModel(o, m, r);
@@ -941,6 +1128,7 @@ std::string previewSvg(const CadOptions& o, const Stack& st, double y) {
   if (!loadModel(o, st, m, r))
     throw Error("cad preview: " + (r.errors.empty() ? std::string() : r.errors.front().message));
   if (m.oneD) return previewSvg1D(o, st, m, r);
+  FG_REQUIRE(!m.axisym, "cad preview: not available for solids of revolution (M20); see the report bands");
   FG_REQUIRE(std::isfinite(y), "cad preview: y_um is required for 2D gratings");
   const double h = std::min(st.dx_um, st.dz_um) / 512;
   const CrossSection cs = sectionAt(m.bodies, y, 1e-3 * h);

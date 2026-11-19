@@ -216,7 +216,9 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
   - Erledigt (`rings_profile`, Plan v2.28): Radien als Funktionen der Höhe (konstant, Kegel, Kugel, Tabelle), Treppe
     aus `rings`-Schichten (`src/geometry/rings.cpp`, `detail::expandRingsProfiles`) – `V21RingsProfile.*`; RK
     integriert dieselbe Treppe (stetiges M(y) offen)
-  - Als Nächstes: CAD-Rotationskörper; Fernfeld und Winkelspektrum; V21d/f/g/h/i
+  - Erledigt (CAD-Rotationskörper, Plan v2.29): `cad` mit `"axisymmetric": true`, Ringe aus den Schnitten
+    (`NOT_AXISYMMETRIC`), Bänder `rings`/`rings_profile` – `tests/cad/test_cad.cpp` (`CAD_M20.*`)
+  - Als Nächstes: Fernfeld und Winkelspektrum; V21d/f/g/h/i
 - [ ] **M21** P-zählige Drehsymmetrie: gekoppelte Harmonische m0 + lP, Winkelkoeffizienten aus `polygon2d`/
   `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)
   - Abnahme: V22a–g (Plan)

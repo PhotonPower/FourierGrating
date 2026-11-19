@@ -19,6 +19,11 @@ dokumentierten Korrekturen.
 | **Nahfeld** (horizontaler + vertikaler Schnitt) | M6 (1D), M9 (2D) | M6, M9 |
 | **CUDA** (RTX 6000 Ada, sm_89) | M10 | M10 |
 
+> **Für Sprachmodell-Agenten:** Das Python-Wheel enthält eine kompakte Befehlsreferenz (englisch, etwa
+> 4500 Tokens): Konventionen, alle JSON-Schlüssel und Schichttypen, Python-API, Ausgaben, CAD-Prüfcodes, getestete
+> Beispiele. Abruf ohne Repository: `python -m fouriergrating` oder `fouriergrating.llm_reference()`; im Repository:
+> [`python/fouriergrating/LLM_REFERENCE.md`](python/fouriergrating/LLM_REFERENCE.md).
+
 > **Status (v0.20):** M0–M19, M22 und M23 umgesetzt, M20 teilweise: 1D und 2D, isotrop und anisotrop, RK und RCWA, Nahfeld, CUDA-Backend,
 > Scans/Sweeps, Anwenderhandbuch (`docs/user_guide.md`), Python-Paket `fouriergrating` (`docs/python.md`), gekrümmte Querschnitte (`contour2d`), CAD-Slicer für STEP-Dateien in 1D und 2D (`docs/cad.md`), Parallelisierung einzelner Rechnungen und GPU-residente Ketten (`docs/benchmarks.md`), wählbare Genauigkeit fp64/mixed/fp32, Koordinatentransformation/ASR für Metalle und isolierte Strukturen mit PML, Streufeldformulierung und Modenanregung (`docs/config_format.md`), Gradienten über die diskrete Adjungierte mit PyTorch-/JAX-Adaptern (`docs/python.md`), dispersive Materialien (Sellmeier, Cauchy, Drude–Lorentz, Tabellen; `docs/config_format.md`), kompakte Referenz für Sprachmodell-Agenten im Wheel (`fg.llm_reference()`). Wheels, sdist und das Handbuch als PDF stehen an den [GitHub-Releases](https://github.com/PhotonPower/FourierGrating/releases). Offen auf dem Zielsystem: GPU-Abnahme (M10) und die
 > quantitative V10-Konvergenzstudie (siehe `docs/roadmap.md`).

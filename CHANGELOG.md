@@ -16,6 +16,12 @@
   Toleranz ≤ 0 oder NaN jetzt mit einer Fehlermeldung ab (Test `Contour.FlattenRejectsANonPositiveTolerance`).
 
 ### Hinzugefügt
+- M20 CAD-Rotationskörper (Plan v2.29): `cad` mit `"axisymmetric": true` im Zylinderstapel (dort Pflicht, sonst
+  unzulässig). `cell_origin_um` ist die Achse (Standard: Mitte des Hüllquaders); jeder Schnitt muss aus Kreisen um
+  die Achse bestehen (Scheiben oder Ringe), sonst neuer Befund `NOT_AXISYMMETRIC` mit Höhe und Radiusbereich. Bänder
+  `homogeneous`, `rings` (Extrusion) oder `rings_profile` (Radien aus den Schnitten in den Scheibenmitten). Bericht mit
+  `"dimension": "axisymmetric"` und `axis_um`. Tests `CAD_M20.*`: Zylinder + Kegelstumpf + Kugelkappe = Stapel aus
+  `rings`/`rings_profile` auf 2e-13, Rohr, Befunde, Konfigurationsfehler.
 - M20 Schichttyp `rings_profile` (Plan v2.28): Radien als Funktionen der Höhe (Zahl, `cone`, `sphere`, `table`;
   C++ auch Funktion), gerechnet als Treppe aus `slices` `rings`-Schichten mit den Radien in der Scheibenmitte (Ringe
   ohne Breite entfallen, kreuzende Radien sind ein Fehler). Tests `V21RingsProfile.*`: Treppe = explizite

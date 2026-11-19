@@ -405,7 +405,7 @@ $\varphi_0=0$); Ausgabeformat wie M9.
   \item \verb|rings_profile|: Radien als Funktionen $r_i(y)$ (Kegelstumpf, Kugelkappe, benutzerdefiniert); RCWA-Treppe
         mit dem Scheibenkriterium \eqref{eq:slicecrit} oder RK.
   \item \verb|cad| mit \verb|"axisymmetric": true|: horizontale Schnitte wie M14; jede Schnittregion muss aus Kreisen um
-        die Achse bestehen (Toleranz $10^{-9}R_s$), sonst Fehlercode \verb|E_NOT_AXISYMMETRIC| mit Höhe und Abweichung
+        die Achse bestehen (Toleranz $10^{-9}R_s$), sonst Befund \verb|NOT_AXISYMMETRIC| (v2.29, wie \verb|NOT_Z_INVARIANT| ohne Präfix) mit Höhe und Abweichung
         (für die Prüfschleife des Sprachmodells, Abschnitt~\ref{sec:cadcheck}). Bandzerlegung und
         Tschebyschow-Interpolation wie M14, interpoliert werden die Radien.
   \item Gemischte Stapel: homogene Schichten wie bisher; kartesische Schichttypen sind im Zylinderpfad unzulässig
@@ -592,6 +592,27 @@ eine Funktion. $n$ Radien, $n+1$ Materialien wie \verb|rings|.
   \item \textbf{Befunde:} Treppe $=$ explizite Folge von \verb|rings|-Schichten bitgleich (Kegel mit innerem Tabellenradius,
         Kugel von V21c); konstante Radien $=$ \verb|rings| (eine Scheibe bitgleich, drei auf $10^{-12}$); Treppenfehler
         eines Kegels zweiter Ordnung in $1/K$ (Verhältnis $3{,}6$ bei $K=3,6,12$, Mittelpunktsradien).
+\end{itemize}
+
+\paragraph{Umsetzung (v2.29): CAD-Rotationskörper.}
+\verb|cad| mit \verb|"axisymmetric": true| ist im Zylinderstapel Pflicht und sonst unzulässig. Festlegungen:
+\begin{itemize}[nosep]
+  \item \textbf{Achse:} \verb|cell_origin_um| $=(x_0,z_0)$ der Achse in FG-Koordinaten, Standard die Mitte des
+        Hüllquaders aller Körper; keine periodischen Bilder (Überlappungsprüfung nur zwischen den Körpern).
+        \verb|UNIT_SUSPECT| vergleicht mit der Wellenlänge.
+  \item \textbf{Ringe eines Schnitts:} jede Schleife ein Kreis um die Achse (Spannweite der Radien der abgeflachten
+        Schleife $\le2\cdot10^{-9}R_s$, $R_s$ der größte Abstand der Hüllquader von der Achse), jeder Bereich eine
+        Scheibe oder ein Kreisring (ein Loch); daraus Radien und Materialien von innen nach außen, Lücken und Außen
+        $=$ Hintergrund, gleiche Nachbarn verschmolzen. Sonst \verb|NOT_AXISYMMETRIC| mit Höhe, Radiusbereich und dem
+        am stärksten abweichenden Punkt.
+  \item \textbf{Bänder:} \verb|homogeneous| (Material auf der Achse), \verb|rings| (Extrusionsband, Mittelschnitt),
+        sonst \verb|rings_profile| mit \verb|slicing.rcwa_slices| Scheiben, die Radien aus dem Schnitt in der
+        Scheibenmitte (je Höhe einmal berechnet); die Prüfung schneidet zusätzlich bei $0{,}2$ und $0{,}8$ der Bandhöhe.
+        Statt der Tschebyschow-Interpolation der Radien wird je Scheibe geschnitten (ein Schnitt kostet wenig gegen die
+        Lösung); die Interpolation bleibt eine Option.
+  \item \textbf{Befunde:} Zylinder, Kegelstumpf und Kugelkappe auf einer Achse (außerhalb des Ursprungs) $=$ der
+        handgeschriebene Stapel aus \verb|rings| und \verb|rings_profile| (Kegel, Kugel) auf $2\cdot10^{-13}$; Rohr $=$ Ring
+        mit drei Materialien; verschobene Achse und quadratisches Prisma $\to$ \verb|NOT_AXISYMMETRIC|.
 \end{itemize}
 
 \subsection{Differenzierbarkeit}

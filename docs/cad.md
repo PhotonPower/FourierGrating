@@ -121,6 +121,14 @@ erhält Intervalle mit Materialien und die Normalen an den Grenzen.
 
 `fgsolve --cad-report config.json` gibt Zerlegung und Befunde als JSON aus (Exit-Code 0 bei `ok`, sonst 4).
 
+## Rotationskörper (M20)
+
+In einem Stapel mit `"cylindrical"` liest der Slicer Rotationskörper um FG y: `"axisymmetric": true` (Pflicht im
+Zylinderstapel, sonst unzulässig). `cell_origin_um` ist die Achse (x0, z0), Standard die Mitte des Hüllquaders. Jeder
+Schnitt muss aus Kreisen um die Achse bestehen; ein Bereich ist eine Scheibe oder ein Ring (Rohr). Bänder:
+`homogeneous`, `rings` (Extrusionsbänder, Radien aus dem Mittelschnitt) oder `rings_profile` (Radien aus den
+Schnitten in den Scheibenmitten, `slicing.rcwa_slices` Scheiben). Keine periodischen Bilder, keine Vorschau.
+
 ## Geometrieprüfung (für die Prüfschleife eines Sprachmodells)
 
 | Code | Prüfung |
@@ -135,6 +143,7 @@ erhält Intervalle mit Materialien und die Normalen an den Grenzen.
 | `BODY_UNASSIGNED` | Körper ohne Material bzw. Zuordnung ohne Körper |
 | `STEP_UNSUPPORTED` | nicht lesbare Datei oder nicht unterstützte Entität (Name und Instanz) |
 | `NOT_Z_INVARIANT` | 1D-Gitter: Körper ist nicht entlang z extrudiert |
+| `NOT_AXISYMMETRIC` | Rotationskörper (`"axisymmetric": true`): ein Schnitt besteht nicht aus Kreisen um die Achse (Toleranz 1e-9 R_s), mit Höhe und Radiusbereich |
 
 Positionen in µm, FG-Koordinaten. Python:
 

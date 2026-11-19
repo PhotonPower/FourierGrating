@@ -329,7 +329,12 @@ cad::CadOptions parseCadOptions(const json& j, const std::string& baseDir, const
     o.axisZ = j["axes"].value("z", o.axisZ);
   }
   if (j.contains("y_range_um")) o.yRange_um = std::array<double, 2>{j["y_range_um"][0].get<double>(), j["y_range_um"][1].get<double>()};
-  const bool oneD = cfg.stack.dz_um <= 0;  // Plan section "M23: Konfiguration"
+  // solids of revolution (M20): only in a cylindrical stack, and there only these
+  o.axisymmetric = j.value("axisymmetric", false);
+  FG_REQUIRE(o.axisymmetric == cfg.stack.cylindrical.enabled,
+             o.axisymmetric ? "cad.axisymmetric needs a \"cylindrical\" stack (M20)"
+                            : "cad in a \"cylindrical\" stack needs \"axisymmetric\": true (a solid of revolution)");
+  const bool oneD = !o.axisymmetric && cfg.stack.dz_um <= 0;  // Plan section "M23: Konfiguration"
   if (j.contains("cell_origin_um")) {
     const json& c = j["cell_origin_um"];
     if (oneD) {

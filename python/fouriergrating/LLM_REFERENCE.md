@@ -183,13 +183,15 @@ print(L, g, sim.solve(lambda_um=0.6, delta_deg=90).efficiency("R", -1))
 - Layer: `{"type": "cad", "file": "x.step" or "step": text, "unit": "auto", "mm" or "um", "axes": {"y": "+Z", "x": "+X"},
   "bodies": [{"name": "Line", "material": "si"}, {"index": 1, "material": ...}], "background": "superstrate",
   "cell_origin_um": [x0, z0] (1D: x0), "y_range_um": [y0, y1], "overlap": "error" or "priority",
-  "periodic_union": false (1D only), "z_cut_um": z (1D), "slicing": {"rcwa_slices": 40,
+  "periodic_union": false (1D only), "z_cut_um": z (1D), "axisymmetric": true (required in a `cylindrical` stack:
+  solid of revolution about FG y, `cell_origin_um` = axis), "slicing": {"rcwa_slices": 40,
   "y_interpolation": "none" or "chebyshev"}, "factorization": "auto", "normal_field": {"grid": 512}}`.
 - 2D gratings: the bodies are cut in the (x, z) cell. 1D gratings (`"dimension": "1D"`): every body must be extruded along FG z
   (a line of a line grating); it is cut once at `z_cut_um`, and arcs stay exact.
 - Always run `r = fg.cad.check(step_text, cfg)` first. Fix `r["errors"]` and look at `r["warnings"]` and `r["bands"]`.
   Codes: `SHELL_OPEN`, `SHELL_ORIENTATION`, `BODY_OVERLAP`, `PERIODIC_OVERLAP`, `OUT_OF_RANGE`, `UNIT_SUSPECT`,
-  `FEATURE_SMALL`, `BODY_UNASSIGNED`, `STEP_UNSUPPORTED`, `NOT_Z_INVARIANT`.
+  `FEATURE_SMALL`, `BODY_UNASSIGNED`, `STEP_UNSUPPORTED`, `NOT_Z_INVARIANT`, `NOT_AXISYMMETRIC` (a section is not
+  circles about the axis).
 - A body that overlaps its own periodic image is `PERIODIC_OVERLAP` in 2D, even with `periodic_union`; import line
   gratings as 1D. `priority` uses Booleans in 2D; if one fails (open result shell), the check reports
   `BODY_OVERLAP`. Then separate the bodies in CAD.

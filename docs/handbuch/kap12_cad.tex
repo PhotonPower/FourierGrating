@@ -121,6 +121,25 @@ bleiben exakt.
   \item \texttt{fg.cad.preview(step, cfg)} zeigt in 1D das Profil mit den Bandgrenzen; \key{y\_um} entfällt.
 \end{itemize}
 
+\section{Rotationskörper (Zylinderkoordinaten)}\label{sec:cad-axisym-hb}
+\index{CAD!Rotationskörper}%
+In einem Stapel mit \key{cylindrical} (Abschnitt~\ref{sec:zylinder}) liest der Slicer Rotationskörper um FG-$y$ mit
+\val{"axisymmetric": true}. \key{cell\_origin\_um} ist dann die Achse $(x_0,z_0)$, Standard ist die Mitte des
+Hüllquaders. Jeder Schnitt muss aus Kreisen um die Achse bestehen (Toleranz $10^{-9}R_s$), sonst meldet die Prüfung
+\texttt{NOT\_AXISYMMETRIC} mit Höhe und Radiusbereich.
+\begin{lstlisting}[language=json]
+{"cylindrical": {"spectrum": {"kappa_max": 4}},
+ "layers": [{"type": "cad", "file": "cad/dome.step", "axisymmetric": true,
+             "background": "superstrate", "bodies": [{"name": "Dome", "material": "sin"}],
+             "slicing": {"rcwa_slices": 20}}]}
+\end{lstlisting}
+\begin{itemize}
+  \item Bänder: \val{homogeneous}, \val{rings} (senkrechte Wände, z.\,B.\ Zylinder und Rohre) oder \val{rings\_profile}
+        (Kegel, Kugelkappen; Radien aus den Schnitten in den Scheibenmitten, \key{slicing.rcwa\_slices} Scheiben).
+  \item Ohne \val{"axisymmetric": true} ist eine \val{cad}-Schicht im Zylinderstapel ein Fehler, ebenso
+        \val{"axisymmetric": true} in einem periodischen Stapel. Die Vorschau (\texttt{fg.cad.preview}) gibt es hier nicht.
+\end{itemize}
+
 \section{Geometrieprüfung}
 \index{CAD!Geometrieprüfung}%
 \begin{lstlisting}[style=shell]
@@ -143,6 +162,7 @@ eigenes entlang eines Randstücks (umspannt die Periode) \\
 \texttt{BODY\_UNASSIGNED} & Körper ohne Material oder Zuordnung ohne Körper \\
 \texttt{STEP\_UNSUPPORTED} & Datei nicht lesbar oder Entität nicht unterstützt \\
 \texttt{NOT\_Z\_INVARIANT} & 1D-Gitter: Körper ist nicht entlang $z$ extrudiert \\
+\texttt{NOT\_AXISYMMETRIC} & Rotationskörper: ein Schnitt besteht nicht aus Kreisen um die Achse \\
 \bottomrule
 \end{tabularx}
 \end{center}
