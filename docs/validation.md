@@ -369,6 +369,36 @@ Fernfeldes = Summe der Winkelspektren auf Rundung. Kleine Kugel (n = 1,5, k₀a 
 | Silber, δ = −0,05 (falsche Seite) | ΔT | 0,10 |
 | n = 0,5 + 3i / 0,3 + 3,5i / 0,15 + 3,9i | \|ΔR\| + \|ΔT\| reell gegen deformiert | 6,5e-8 / 2,3e-4 / 4,6e-3 |
 
+**V21h (Konvergenzstudie, Plan v2.32).** `scripts/v21h_convergence.py` (nur Standardbibliothek, ruft `fgsolve`,
+etwa 20 min auf einem Kern) schreibt `docs/validation_data/v21h_convergence.csv`. Dielektrische Kugel (n = 1,5,
+k₀a = 2) in Luft, ebene Welle unter 40° (Harmonische automatisch bis m_cut = 8), `rings_profile`, σ_sca gegen Mie
+(0,572454 µm²); Standard κ_max = 4, `dk_factor` 1, 32 Scheiben:
+
+| Parameter | Werte | σ_sca/σ_Mie − 1 |
+|---|---|---|
+| κ_max | 2 / 3 / 4 / 6 / 8 | −3,4e-2 / −1,5e-2 / −1,2e-2 / −7,1e-3 / −4,8e-3 |
+| `dk_factor` | 0,5 / 1 / 2 | −1,21e-2 (gleich auf 5e-8) |
+| Scheiben | 8 / 16 / 32 / 64 | −5,1e-3 / −1,0e-2 / −1,2e-2 / −1,3e-2 |
+| m_cut | 1 / 2 / 3 / ≥ 4 | −5,7e-2 / −1,2e-2 / −1,2e-2 / −1,21e-2 (ab 4 gleich auf 1e-9) |
+
+κ_max bestimmt den Fehler; die Stützstellendichte ist bei dielektrischen Körpern unkritisch, die Harmonischen sind
+weit unter dem automatischen m_cut gesättigt. Der Treppenfehler hebt bei κ_max = 4 einen Teil des Abschneidefehlers
+auf (daher wächst die Abweichung mit der Scheibenzahl auf den Grenzwert dieses κ_max zu).
+
+Lochblende r = 0,25 µm in 0,1 µm Silber (n = 0,135 + 3,99i) auf Glas, Strahl 633 nm, κ_max = 2 (Referenz jeweils der
+feinste Lauf):
+
+| Fall | `dk_factor` | R | T |
+|---|---|---|---|
+| Luft darüber | 1 / 2 / 3 / 4 / 5 / 6 | 0,330 / 0,328 / 0,349 / 0,361 / 0,352 / 0,350 | 0,416 / 0,453 / 0,537 / 0,504 / 0,477 / 0,495 |
+| Glas darüber | 1 / 2 / 3 / 4 | 0,474004 / 0,473997 / 0,4740000 / 0,4740000 | 0,418350 / 0,418152 / 0,4181481 / 0,4181480 |
+
+Mit Luft darüber liegt das Plasmon der Grenzfläche Silber/Luft (k ≈ 1,03) zwischen den Verzweigungspunkten 1 und
+1,5; es strahlt durch den Film ins Glas ab (leckende Mode) und erzeugt auf dem reellen Weg eine Resonanz der Breite
+≈ 5e-3, die erst sehr dichte Stützstellen auflösen (`dk_factor` 6: T noch ±0,02). Mit Glas auf beiden Seiten sind
+beide Plasmonen gebunden und liegen auf dem deformierten Weg: `dk_factor` 3 ist auf 4e-8 konvergiert. In κ_max
+konvergiert auch der symmetrische Fall langsam (R 0,532 / 0,474 / 0,487 bei 1,5 / 2 / 3), wie bei der Goldkugel.
+
 ## CAD-Import für 1D-Gitter (M23, V24)
 
 `tests/cad/test_cad.cpp` (`CAD_V24`, Label `validation`, nur mit Nurbforge), ohne Nurbforge

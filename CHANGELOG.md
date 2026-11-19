@@ -22,6 +22,11 @@
   als reeller Weg gerechnet; in der C++-Schnittstelle bedeutet δ < 0 jetzt die falsche Seite, für V21f).
 
 ### Hinzugefügt
+- M20 V21h Konvergenzstudie (Plan v2.32): `scripts/v21h_convergence.py` schreibt
+  `docs/validation_data/v21h_convergence.csv`, Tabellen in `docs/validation.md`. Dielektrische Kugel: κ_max bestimmt
+  den Fehler, `dk_factor` unkritisch, Harmonische ab m_cut = 4 gesättigt. Befund: eine Lochblende im Silberfilm mit
+  Luft darüber konvergiert in `dk_factor` nur langsam (leckendes Plasmon Silber/Luft zwischen den
+  Verzweigungspunkten, auf dem reellen Weg); mit Glas auf beiden Seiten auf 4e-8. Abhilfe offen (Plan v2.32).
 - M20 V21f (Plan v2.31): m ↔ −m 1e-12, Lochblende im Silberfilm unabhängig von δ innerhalb des
   Diskretisierungsfehlers, reeller = deformierter Weg bei stark verlustbehaftetem Metall (6,5e-8), falsche
   Ausweichrichtung springt (`V21f.SymmetryAndIntegrationPath`).
