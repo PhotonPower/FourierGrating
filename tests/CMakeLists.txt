@@ -28,6 +28,7 @@ set(FG_UNIT_TESTS
   test_cyl
   test_line_section
   test_sectioned1d
+  test_nurbs_profile
 )
 foreach(t ${FG_UNIT_TESTS})
   add_executable(${t} unit/${t}.cpp)

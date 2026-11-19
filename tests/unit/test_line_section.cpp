@@ -197,3 +197,23 @@ TEST(LineSection, ProviderStaysOffTheBandEnds) {
   EXPECT_DOUBLE_EQ(pr.thickness_um(), 0.2);
   for (double y : {0.0, 0.1, 0.2}) EXPECT_EQ(pr.section(y).materials, (std::vector<std::string>{"air", "si", "air"}));
 }
+
+TEST(LineSection, RootAtTheEndKeepsTheInteriorRoot) {
+  // cubic from y = 0.225 down below 0.05 and back up to exactly 0.05 at t = 1: the line y = 0.05 crosses inside
+  // (going down) and touches the end (which belongs to the next segment). Before v2.37 the end coefficient 0 made
+  // refine return t = 1 and the interior crossing was lost (found with the NURBS profile, Plan section "M24").
+  const geometry::BezierSegment s{{{0.25, 0.225}, {0.325, 0.15}, {0.4, -0.05}, {0.5, 0.05}}, {}};
+  std::vector<geometry::Crossing> cr;
+  geometry::lineCrossings(s, 0.05, cr);
+  ASSERT_EQ(cr.size(), 1u);
+  EXPECT_LT(cr[0].x, 0.45);
+  EXPECT_LT(cr[0].n(0), 0);  // going down: dy/dt < 0
+  // the same at the start: a root at t = 0 (kept) and an interior one
+  const geometry::BezierSegment r{{{0.0, 0.05}, {0.1, -0.05}, {0.175, 0.15}, {0.25, 0.225}}, {}};
+  cr.clear();
+  geometry::lineCrossings(r, 0.05, cr);
+  ASSERT_EQ(cr.size(), 2u);
+  EXPECT_DOUBLE_EQ(cr[0].x, 0.0);
+  EXPECT_GT(cr[1].x, 0.0);
+  EXPECT_LT(cr[1].x, 0.25);
+}
