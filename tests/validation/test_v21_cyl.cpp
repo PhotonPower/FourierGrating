@@ -858,3 +858,60 @@ TEST(V21FarField, CsvFiles) {
   EXPECT_TRUE(fg::io::writeCylindricalSpectra(dir.string(), {plain}, {fg::solveScan(plain.solver, plain.stack, plain.scan)}).empty());
   std::filesystem::remove_all(dir);
 }
+
+// V21f (Plan "Tests und Abnahme (M20)"): symmetry and integration path, aperture (r = 0.25 um) in a metal film
+// (0.1 um) on glass, beam at 633 nm. The deformed path only moves the nodes, so the results depend on its depth
+// within the discretization error of the grid (Befund v2.31); the wrong side (delta < 0, past the plasmon pole)
+// jumps.
+namespace {
+
+std::string aperture(const std::string& n, const std::string& deform, double dk = 1) {
+  char head[200];
+  std::snprintf(head, sizeof head, R"({"cylindrical": {"spectrum": {"kappa_max": 2, "dk_factor": %.17g, "deform": %s},)",
+                dk, deform.c_str());
+  return std::string(head) + R"( "factorization": "li_r"},
+    "materials": {"air": {"n": 1.0}, "glass": {"n": 1.5}, "metal": {"n": )" + n + R"(}},
+    "superstrate": "air", "substrate": "glass",
+    "incidence": {"type": "gaussian_beam", "lambda_um": 0.633, "waist_um": 0.4, "focus_y_um": 0.1, "polarization": "x"},
+    "layers": [{"type": "rings", "thickness_um": 0.1, "radii_um": [0.25], "materials": ["air", "metal"]}]})";
+}
+
+}  // namespace
+
+TEST(V21f, SymmetryAndIntegrationPath) {
+  const std::string ag = "[0.135, 3.99]";  // silver: eps = -15.9 + 1.08 i, plasmon pole close to the real axis
+  const fg::CylindricalResult a = solveConfig(aperture(ag, R"({"delta": 0.05})")).cylindrical,
+                              b = solveConfig(aperture(ag, R"({"delta": 0.1})")).cylindrical;
+  // m <-> -m (x polarization: m = -1 and m = +1 carry the same power)
+  EXPECT_NEAR(a.reflectedPerHarmonic[0], a.reflectedPerHarmonic[1], 1e-12);
+  EXPECT_NEAR(a.transmittedPerHarmonic[0], a.transmittedPerHarmonic[1], 1e-12);
+  // depth of the path: within the discretization error (dk_factor 1: 1.6e-5 / 1.4e-4; dk_factor 2: 5e-7 / 1e-6,
+  // while T itself still changes by 9 % from dk_factor 1 to 2)
+  std::printf("V21f silver: R = %.10f, T = %.10f; delta 0.05 -> 0.1: %.1e, %.1e\n", a.reflected, a.transmitted,
+              b.reflected - a.reflected, b.transmitted - a.transmitted);
+  EXPECT_LT(std::abs(b.reflected - a.reflected), 1e-4);
+  EXPECT_LT(std::abs(b.transmitted - a.transmitted), 1e-3);
+  // the wrong side (delta < 0, only through the C++ API) passes the plasmon pole: a jump far beyond that
+  fg::io::RunConfig cfg = fg::io::parseConfig(aperture(ag, R"({"delta": 0.05})"));
+  cfg.stack.cylindrical.deltaRel = -0.05;
+  const fg::CylindricalResult w = fg::makeSolver(cfg.solver)->solve(cfg.stack, cfg.scan.front()).cylindrical;
+  std::printf("V21f silver, wrong side: R = %.10f, T = %.10f\n", w.reflected, w.transmitted);
+  EXPECT_GT(std::abs(w.transmitted - a.transmitted) + std::abs(w.reflected - a.reflected), 1e-2);
+  // lossy metal (eps = -8.75 + 3 i, pole far from the axis): the real path is accurate and equals the deformed
+  // one to quadrature accuracy (measured 6.5e-8 for |dR| + |dT|; 1e-12 with dk_factor 2); with decreasing loss
+  // the pole approaches the axis and the real path departs from the deformed one (2.3e-4, 4.6e-3)
+  double d[3];
+  int i = 0;
+  for (const std::string n : {"[0.5, 3.0]", "[0.3, 3.5]", "[0.15, 3.9]"}) {
+    const fg::CylindricalResult r = solveConfig(aperture(n, "false")).cylindrical,
+                                p = solveConfig(aperture(n, R"({"delta": 0.05})")).cylindrical;
+    d[i] = std::abs(r.reflected - p.reflected) + std::abs(r.transmitted - p.transmitted);
+    std::printf("V21f metal n = %s: |real - deformed| = %.1e\n", n.c_str(), d[i]);
+    ++i;
+  }
+  EXPECT_LT(d[0], 1e-7);
+  EXPECT_LT(d[0], d[1]);
+  EXPECT_LT(d[1], d[2]);
+  // the configuration accepts only delta > 0
+  EXPECT_THROW(fg::io::parseConfig(aperture(ag, R"({"delta": -0.05})")), fg::Error);
+}
