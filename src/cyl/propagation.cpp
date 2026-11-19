@@ -69,4 +69,38 @@ double flux(const SpectralGrid& grid, const VecC& F) {
   return 0.5 * PI * s.imag();  // Plan eq:cyl_flux (one harmonic)
 }
 
+VecC fluxBar(const SpectralGrid& grid, const VecC& F, double scale) {
+  const Eigen::Index n = grid.k.size();
+  FG_REQUIRE(F.size() == 4 * n, "cyl::fluxBar: F has 4 N_k entries");
+  // L = s Im(x conj(y)) per term: xbar = i s y, ybar = -i s x
+  VecC Fb = VecC::Zero(4 * n);
+  for (Eigen::Index j = 0; j < n; ++j) {
+    if (grid.k(j).imag() != 0.0) continue;
+    const double s = 0.5 * PI * scale * (grid.w(j) * grid.k(j)).real();
+    Fb(j) += I * s * F(2 * n + j);
+    Fb(2 * n + j) += -I * s * F(j);
+    Fb(n + j) += -I * s * F(3 * n + j);
+    Fb(3 * n + j) += I * s * F(n + j);
+  }
+  return Fb;
+}
+
+CylQ propagationMatrixBar(const VecC& k, const CylQ& Q, const MatC& Mbar) {
+  const Eigen::Index n = k.size();
+  FG_REQUIRE(Mbar.rows() == 4 * n && Mbar.cols() == 4 * n, "cyl::propagationMatrixBar: sizes");
+  auto B = [&](int r, int c) { return Mbar.block(r * n, c * n, n, n); };
+  CylQ Qb;
+  Qb.Qpp = B(2, 0);
+  Qb.Qpm = B(2, 1);
+  Qb.Qmp = -B(3, 0);
+  Qb.Qmm = -B(3, 1);
+  // KEK = (1/2) K X K, X = Q_yy^{-1}: Xbar = (1/2) K^H KEKbar K^H, Q_yybar = -X^H Xbar X^H
+  const MatC KEKb = B(0, 2) + B(0, 3) - B(1, 2) - B(1, 3);
+  const VecC kc = k.conjugate();
+  const MatC Xb = 0.5 * (kc.asDiagonal() * KEKb * kc.asDiagonal());
+  const MatC X = Q.Qyy.partialPivLu().solve(MatC::Identity(n, n));
+  Qb.Qyy = -(X.adjoint() * Xb * X.adjoint());
+  return Qb;
+}
+
 }  // namespace fg::cyl

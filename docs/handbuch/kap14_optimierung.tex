@@ -15,7 +15,8 @@ In Python als Abbildung \texttt{\{(Seite, n, m): Gewicht\}} oder Liste von \text
 objective = {("R", -1, 0): 1.0, ("T", 0, 0): -0.5}    # maximiere R(-1), bestrafe T(0)
 \end{lstlisting}
 Bei isolierten Strukturen sind die Streuflüsse Ziele: \texttt{\{("scattering", "up"): 1.0\}}; bei Modenanregung
-die Modenleistungen: \texttt{\{("mode", "T", 0): 1.0\}}.
+die Modenleistungen: \texttt{\{("mode", "T", 0): 1.0\}}; bei Zylinderkoordinaten (Gauß-Strahl) $R$ und $T$:
+\texttt{\{("cylindrical", "R"): 1.0\}}, je Harmonischer \texttt{("cylindrical", "T", m)}.
 
 \section{Gradient berechnen}
 \begin{lstlisting}[style=py]
@@ -38,6 +39,7 @@ Art & Beispiele \\
 \midrule
 Schichtdicken & \val{/layers/k/thickness\_um} \\
 Lamellenkanten & \val{/layers/k/breakpoints\_um/j} \\
+Ringradien (Zylinderkoordinaten) & \val{/layers/k/radii\_um/i} \\
 Sinusprofil & \val{/layers/k/depth\_um}, \val{/layers/k/x0\_um} \\
 2D-Querschnitte & alle Zahlen einer \val{polygon2d}- oder \val{contour2d}-Geometrie: Ecken, Kreisradien und -mittelpunkte,
 NURBS-Kontrollpunkte und -Gewichte \\
@@ -53,7 +55,8 @@ Einfall & \val{/incidence/lambda\_um}, \val{phi\_deg}, \val{psi\_deg}, \val{delt
 \end{center}
 Unterstützt sind RCWA und RK, periodische Gitter, auch mit ASR (Geometrieparameter dann nur mit expliziten
 \key{breakpoints\_um}). Bei isolierten Strukturen: Streuflüsse oben/unten (alle Parameterarten), Modenleistungen;
-noch nicht: Profilschichten mit PML, seitlicher Fluss und Absorption.
+noch nicht: Profilschichten mit PML, seitlicher Fluss und Absorption. Zylinderkoordinaten: Gauß-Strahl im Totalfeld
+mit RCWA, Parameter Ringradien, Dicken und Materialien außer denen der Halbräume; das Spektralgitter gilt als fest.
 
 Bei dispersiven Materialien enthält die Ableitung nach \val{/incidence/lambda\_um} die Kettenregel über
 $d\varepsilon/d\lambda$. Bei einer linearen Tabelle ist sie an einer Stützstelle einseitig (rechte Ableitung); das

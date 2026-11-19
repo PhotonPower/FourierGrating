@@ -409,6 +409,25 @@ class StackSolver final : public Solver {
     return solveModels(stack, s, buildModels(stack, s));
   }
 
+  /// The cylindrical forward problem (detail::cylProblem, gradients V21i).
+  detail::CylProblem cylProblem(const Stack& stackIn, const Wavelength& wl) const {
+    detail::CylProblem p;
+    p.stack = detail::expandRingsProfiles(stackIn, opt_.rcwaSlices);
+    CylContext c = cylContext(p.stack, wl);
+    for (const int m : c.ms) p.aIn.push_back(c.planeWave ? VecC() : cylIncident(c, m));
+    p.grid = std::move(c.grid);
+    p.layers = std::move(c.layers);
+    p.fac = c.fac;
+    p.epsSup = c.epsSup;
+    p.epsSub = c.epsSub;
+    p.k0 = c.s.k0;
+    p.yTop = c.yTop;
+    p.ms = c.ms;
+    p.planeWave = c.planeWave;
+    p.beamScattered = c.beamScattered;
+    return p;
+  }
+
   // ------------------------------------------------------------------ S-matrix in the s/p basis
   OrderSMatrix orderSMatrix(const Stack& stack, const Wavelength& wl) override {
     if (stack.dispersive()) return orderSMatrix(detail::resolveStack(stack, wl.lambda_um), wl);  // M22
@@ -2785,6 +2804,10 @@ class StackSolver final : public Solver {
 std::unique_ptr<Solver> makeSolver(const SolverOptions& opt) { return std::make_unique<StackSolver>(opt); }
 
 namespace detail {
+
+CylProblem cylProblem(const SolverOptions& opt, const Stack& stack, const Wavelength& wl) {
+  return StackSolver(opt).cylProblem(stack, wl);
+}
 
 Stack resolveStack(const Stack& stack, double lambda_um, Diagnostics* diag) {
   Stack s = stack.at(lambda_um);

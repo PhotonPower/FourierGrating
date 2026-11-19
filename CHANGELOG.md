@@ -21,6 +21,13 @@
   entsprechend angepasst. `cylindrical.spectrum.deform.delta` muss > 0 sein (ein negativer Wert wurde stillschweigend
   als reeller Weg gerechnet; in der C++-Schnittstelle bedeutet δ < 0 jetzt die falsche Seite, für V21f).
 
+### Hinzugefügt
+- M20 V21i, Stufe 1 (Plan v2.34): Gradienten zylindrischer Strukturen (Gauß-Strahl, Totalfeld, RCWA) durch den
+  diskreten Adjungierten. Zielfunktion R und T gesamt oder je Harmonischer (`("cylindrical", "R")`,
+  `("cylindrical", "T", m)`); Parameter Ringradien `/layers/k/radii_um/i`, Dicken, Materialien (nicht die
+  Halbräume). Neue Rückwärtsregeln für Fluss, Propagationsmatrix, Galerkin-Matrizen und die Faktorisierungen.
+  Gegen Differenzenquotienten auf ≤ 2,9e-7 (Tests `CylAdjoint.*`, `V21i.*`).
+
 ### Behoben
 - M20 (Plan v2.33): Ein Plasmon des planaren Hintergrunds zwischen den Verzweigungspunkten (z. B. Silber/Luft bei
   einem Silberfilm auf Glas) ist eine schmale leckende Resonanz auf dem reellen Weg. Mit gleichmäßigen Panels

@@ -9,6 +9,7 @@
 #include "fg/cyl/galerkin.hpp"
 #include "fg/cyl/spectrum.hpp"
 #include "fg/geometry/stack.hpp"
+#include "fg/solvers/solver.hpp"
 #include "modal_basis.hpp"
 
 namespace fg::detail {
@@ -76,5 +77,21 @@ class CylBasis final : public ModalBasis {
   std::vector<cyl::PlaneWaveSource> src_;
   mutable std::vector<std::unique_ptr<Eigen::PartialPivLU<MatC>>> Alu_;  ///< LU of frak A, on demand
 };
+
+/// The cylindrical forward problem as the solver sets it up (gradients, V21i): the stack with rings_profile
+/// expanded, the layers, the spectral grid, the harmonics and the incident beam amplitudes per harmonic (empty
+/// for plane waves). Normalized lengths (times k0).
+struct CylProblem {
+  Stack stack;
+  cyl::SpectralGrid grid;
+  std::vector<std::unique_ptr<CylLayer>> layers;
+  cyl::CylFactorization fac = cyl::CylFactorization::LiR;
+  cplx epsSup = 1.0, epsSub = 1.0;
+  double k0 = 0, yTop = 0;
+  std::vector<int> ms;
+  std::vector<VecC> aIn;
+  bool planeWave = false, beamScattered = false;
+};
+CylProblem cylProblem(const SolverOptions& opt, const Stack& stack, const Wavelength& wl);
 
 }  // namespace fg::detail

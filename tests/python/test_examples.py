@@ -137,5 +137,8 @@ def test_cylindrical_simulation_and_gradient_guard():
     sim = fg.Simulation(cfg)
     assert sim.model_builds == 0
     assert sim.solve().cylindrical["reflected"] == fg.solve(cfg).cylindrical["reflected"]
-    with pytest.raises(fg.FourierGratingError, match="V21i"):
+    # V21i: diffraction orders are no objective of a cylindrical structure, the beam powers are
+    with pytest.raises(fg.FourierGratingError, match="cylindrical"):
         sim.value_and_grad({("R", 0, 0): 1.0}, ["/layers/0/thickness_um"])
+    value, grad = sim.value_and_grad({("cylindrical", "R"): 1.0}, ["/layers/0/thickness_um"])
+    assert value == pytest.approx(sim.last_result.cylindrical["reflected"], rel=1e-12) and np.isfinite(grad[0])

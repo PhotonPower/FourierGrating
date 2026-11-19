@@ -249,6 +249,9 @@ def _weights(objective: "Objective") -> list:
             out.append(("S:" + str(key[1]).upper(), 0, 0, float(w)))
         elif str(key[0]).lower() == "mode":
             out.append(("M:" + str(key[1]).upper(), int(key[2]), 0, float(w)))
+        elif str(key[0]).lower() == "cylindrical":  # ("cylindrical", "R") or ("cylindrical", "R", m)
+            side = str(key[1]).upper()
+            out.append(("C:" + side, 0, 0, float(w)) if len(key) == 2 else ("C:" + side + "M", int(key[2]), 0, float(w)))
         else:
             s, n, m = key
             out.append((str(s).upper(), int(n), int(m), float(w)))
@@ -323,7 +326,8 @@ class Simulation:
         """L = sum of weight * efficiency and its gradient with respect to numbers of the configuration
         (JSON pointers as in ``set_parameter``) by the discrete adjoint (M19). ``objective``: a mapping
         ``{("R", -1, 0): 1.0, ...}`` or a sequence of ``(side, n, m, weight)``; aperiodic structures:
-        ``{("scattering", "up"): 1.0, ("scattering", "down"): 0.5}``. Cost: about 1.3 to 2.5 forward solves,
+        ``{("scattering", "up"): 1.0, ("scattering", "down"): 0.5}``; cylindrical structures (Gaussian beam):
+        ``{("cylindrical", "R"): 1.0}``, per harmonic ``("cylindrical", "T", m)``. Cost: about 1.3 to 2.5 forward solves,
         independent of the number of parameters."""
         d = self._sim.value_and_grad(_weights(objective), list(params), lambda_um, phi_deg, psi_deg, delta_deg)
         self.last_result = _result(d["result"])

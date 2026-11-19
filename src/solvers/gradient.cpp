@@ -32,6 +32,7 @@
 #include "fg/solvers/rcwa.hpp"
 #include "fg/solvers/rk.hpp"
 
+#include "cyl_gradient.hpp"
 #include "layer_model.hpp"
 
 namespace fg {
@@ -427,6 +428,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
 
 GradientResult gradient(const SolverOptions& opt, const Stack& stack0, const Wavelength& wl, const Objective& objective,
                         const std::vector<StackParameter>& params0) {
+  FG_REQUIRE(!stack0.cylindrical.enabled, "gradient: cylindrical structures take JSON pointers (V21i)");
   // M22: geometric parameters at fixed material values of this wavelength
   const Stack stack = stack0.at(wl.lambda_um);
   std::vector<StackParameter> params = params0;
@@ -564,8 +566,9 @@ GradientResult dispersiveGradient(const std::string& configJson, const io::RunCo
 GradientResult gradientWithModels(const std::string& configJson, const io::RunConfig& cfg, const Wavelength& wl,
                                   const LayerModels* prebuilt, const Objective& objective,
                                   const std::vector<std::string>& params) {
-  FG_REQUIRE(!cfg.stack.cylindrical.enabled, "gradients of cylindrical structures follow in M20 (V21i)");
   if (cfg.stack.dispersive()) return dispersiveGradient(configJson, cfg, wl, prebuilt, objective, params);
+  if (cfg.stack.cylindrical.enabled) return cylindricalGradient(configJson, cfg, wl, objective, params);
+  FG_REQUIRE(objective.cylindrical.empty(), "gradient: the objective \"C:R\"/\"C:T\" needs a cylindrical structure");
   const json j = json::parse(configJson);
   std::vector<Param> ps;
   const IndexMap map(cfg.solver.Nx, cfg.stack.is2D() ? cfg.solver.Nz : 0);

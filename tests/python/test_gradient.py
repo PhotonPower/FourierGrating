@@ -104,6 +104,34 @@ def test_aperiodic_mode_objective():
     assert grad[0] == pytest.approx((vals[0] - vals[1]) / 2e-6, rel=1e-6)
 
 
+CYL_CFG = {
+    "cylindrical": {"spectrum": {"kappa_max": 1.5, "dk_factor": 1}},
+    "materials": {"air": {"n": 1.0}, "sub": {"n": 2.0}, "core": {"n": 1.7}},
+    "superstrate": "air", "substrate": "sub",
+    "incidence": {"type": "gaussian_beam", "lambda_um": 0.633, "waist_um": 0.3, "focus_y_um": 0.0,
+                  "polarization": "x"},
+    "layers": [{"type": "rings", "thickness_um": 0.12, "radii_um": [0.2], "materials": ["core", "air"]}],
+}
+
+
+def test_cylindrical_beam_objective():
+    """Plan v2.34, V21i: R and T of a Gaussian beam on a pillar (cylindrical coordinates)."""
+    obj = {("cylindrical", "R"): 1.0, ("cylindrical", "T", 1): 0.5}
+    params = ["/layers/0/radii_um/0", "/materials/core/n"]
+    sim = fg.Simulation(CYL_CFG)
+    value, grad = sim.value_and_grad(obj, params)
+    cy = sim.last_result.cylindrical
+    assert value == pytest.approx(cy["reflected"] + 0.5 * cy["transmitted_per_harmonic"][1], rel=1e-10)
+    for k, (p, v0) in enumerate(zip(params, (0.2, 1.7))):
+        vals = []
+        for sgn in (1, -1):
+            s = fg.Simulation(CYL_CFG)
+            s.set_parameter(p, v0 + sgn * 1e-6)
+            c = s.solve().cylindrical
+            vals.append(c["reflected"] + 0.5 * c["transmitted_per_harmonic"][1])
+        assert grad[k] == pytest.approx((vals[0] - vals[1]) / 2e-6, rel=1e-5, abs=1e-6)
+
+
 def test_unsupported_parameter_raises():
     sim = fg.Simulation(CFG)
     with pytest.raises(Exception):
