@@ -229,8 +229,21 @@ angeregt durch einen Strahl auf der Achse oder eine ebene Welle; `period_um`, `t
 "layers": [{"type": "rings", "thickness_um": 0.3, "radii_um": [0.4], "materials": ["sin", "air"]}]
 ```
 
-`rings`: n Radien und n + 1 Materialien von innen nach außen (das letzte gilt außerhalb). Erlaubt sind `homogeneous`
-und `rings`, isotrope Materialien, homogene Halbräume. Ausgabe in `efficiencies.csv`: Seiten `C_R`, `C_T`, `C_A`
+`rings`: n Radien und n + 1 Materialien von innen nach außen (das letzte gilt außerhalb). Erlaubt sind `homogeneous`,
+`rings` und `rings_profile`, isotrope Materialien, homogene Halbräume.
+
+`rings_profile`: Radien als Funktionen der Höhe y über der Schichtunterkante, gerechnet als Treppe aus `slices`
+Scheiben (Standard `rcwa.slices`) mit den Radien in der Scheibenmitte; ein Ring ohne Breite entfällt, sich kreuzende
+Radien sind ein Fehler. RK rechnet dieselbe Treppe.
+
+```jsonc
+{"type": "rings_profile", "thickness_um": 0.6, "slices": 20,
+ "radii": [0.1,                                                // konstant
+           {"cone": [0.4, 0.2]},                               // linear von unten nach oben
+           {"sphere": {"center_y_um": 0.3, "radius_um": 0.3}}, // Kugel(kappe), außerhalb 0
+           {"table": {"y_um": [0, 0.3, 0.6], "r_um": [0.5, 0.45, 0.3]}}],  // stückweise linear
+ "materials": ["a", "b", "c", "d", "air"]}
+``` Ausgabe in `efficiencies.csv`: Seiten `C_R`, `C_T`, `C_A`
 (Leistungen bezogen auf den einfallenden Strahl; `C_A` = 1 − R − T enthält auch den seitlichen Abfluss geführter
 Moden) und je Harmonischer `C_Rm`, `C_Tm` (n = m). Sind Ringmaterialien verlustbehaftet, steht in Python
 `result.cylindrical["absorbed_rings"]` die in den Ringen absorbierte Leistung (Volumenintegral); `C_A` minus
@@ -253,7 +266,7 @@ bezogen auf die einfallende Intensität), `C_Sext` = `C_Ssca` + `C_Sabs` und als
 Theorem in Volumenform, ½ Im ∫(ε − ε_∞) E·Ē_bg dV). Die Volumenintegrale laufen nur bei verlustbehafteten Ringen
 (sonst σ_abs = 0, σ_ext = σ_sca) oder mit `"optical_theorem": true` (etwa doppelte Rechenzeit); `C_Sext_ot` fehlt
 sonst, ebenso bei verlustbehaftetem Hintergrund (Python dann `nan`). Python
-`absorption_um2`, `extinction_um2`, `extinction_theorem_um2`. `rings_profile` und CAD folgen.
+`absorption_um2`, `extinction_um2`, `extinction_theorem_um2`. CAD-Rotationskörper folgen.
 
 Nahfeld (`"nearfield"`, M20): horizontaler Schnitt bei `horizontal_y_um` als Karte x–z, vertikaler Schnitt x–y in der
 Ebene z = `vertical_z_um` (z = 0: Meridianebene); x und z laufen symmetrisch über [−`extent_um`, `extent_um`] mit

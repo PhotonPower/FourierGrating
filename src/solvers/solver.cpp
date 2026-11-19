@@ -1044,8 +1044,9 @@ class StackSolver final : public Solver {
   /// Beam on the axis or plane wave through a stack with ring layers (Plan sections "M20: Anregung",
   /// "M20: S-Matrix, Loeser und Nahfeld", "M20: Ausgaben"): one assembly per azimuthal harmonic with the
   /// Hankel basis, powers from Plan eq:cyl_flux, volume integrals over the rings.
-  Result cylindricalSolve(const Stack& stack, const Wavelength& wl) {
+  Result cylindricalSolve(const Stack& stackIn, const Wavelength& wl) {
     FG_PROF_SCOPE("solve.cylindrical");
+    const Stack stack = detail::expandRingsProfiles(stackIn, opt_.rcwaSlices);  // rings_profile -> staircase
     CylContext c = cylContext(stack, wl);
     Result res;
     res.diag.precision = linalg::precisionName(linalg::precision());
@@ -1149,8 +1150,9 @@ class StackSolver final : public Solver {
   /// harmonic at the heights of the cuts, synthesis E_pm(r) = sum_j w_j k_j e_pm,j J_{m+-1}(k_j r), sum over
   /// m with e^{i m phi}, Cartesian components by Plan eq:cyl_pm. Li in r (FFF reconstruction): G_pm
   /// synthesized and E_pm from Plan eq:cyl_G at the point; plane waves add the background in real space.
-  NearFieldResult cylNearField(const Stack& stack, const Wavelength& wl, const NearFieldRequest& req) {
+  NearFieldResult cylNearField(const Stack& stackIn, const Wavelength& wl, const NearFieldRequest& req) {
     FG_PROF_SCOPE("nearfield.cylindrical");
+    const Stack stack = detail::expandRingsProfiles(stackIn, opt_.rcwaSlices);
     CylContext c = cylContext(stack, wl);
     const double k0 = c.s.k0;
     const Eigen::Index n = c.grid.k.size();

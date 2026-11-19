@@ -1748,7 +1748,8 @@ std::unique_ptr<LayerModel> buildLayerModel(const Stack& stack, std::size_t k, c
         le.factorization, map, "contour2d", tr);
   if (const auto* ql = std::get_if<Profile2DLayer>(&le.spec))
     return std::make_unique<Profile2DModel>(stack, *ql, le.factorization, map, defaultSlices, tr);
-  if (std::holds_alternative<RingsLayer>(le.spec)) throw Error("layer type rings needs \"cylindrical\" (M20)");
+  if (std::holds_alternative<RingsLayer>(le.spec) || std::holds_alternative<RingsProfileLayer>(le.spec))
+    throw Error("layer types rings and rings_profile need \"cylindrical\" (M20)");
   throw NotImplemented("layer type");
 }
 

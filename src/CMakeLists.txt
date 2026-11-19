@@ -20,6 +20,7 @@ add_library(fg_core
   geometry/line_section.cpp
   geometry/normal_field.cpp
   geometry/profile.cpp
+  geometry/rings.cpp
   physics/propagation_matrix.cpp
   physics/modes.cpp
   physics/incidence.cpp

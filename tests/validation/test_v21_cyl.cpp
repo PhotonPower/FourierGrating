@@ -623,3 +623,92 @@ TEST(V21e, BeamScatteredFieldEqualsTotalField) {
   EXPECT_NEAR(q.transmitted, p.transmitted, 1e-8);
   EXPECT_NEAR(q.absorbedRings, p.absorbedRings, 1e-8);
 }
+
+// rings_profile (Plan "M20: Schichttypen"): radii as functions of y, solved as an RCWA staircase with the radii
+// at the slice centres. The staircase equals the explicit stack of rings layers bit for bit; a constant profile
+// is the rings layer; the staircase error of a cone falls like 1/K^2 (midpoint radii).
+namespace {
+
+std::string coneBeam(const std::string& layers) {
+  return R"({"cylindrical": {"spectrum": {"kappa_max": 2}, "factorization": "li_r"},
+    "materials": {"air": {"n": 1.0}, "glass": {"n": 1.5}, "p": {"n": 1.6}, "q": {"n": 1.3}},
+    "superstrate": "air", "substrate": "glass",
+    "incidence": {"type": "gaussian_beam", "lambda_um": 1.0, "waist_um": 0.5, "focus_y_um": 0.9, "polarization": "x"},
+    "layers": [)" + layers + "]}";
+}
+
+std::string coneProfile(int K) {
+  return R"({"type": "rings_profile", "thickness_um": 0.4, "slices": )" + std::to_string(K) +
+         R"(, "radii": [{"table": {"y_um": [0, 0.4], "r_um": [0.1, 0.25]}}, {"cone": [0.45, 0.25]}],
+            "materials": ["q", "p", "air"]})";
+}
+
+}  // namespace
+
+TEST(V21RingsProfile, StaircaseOfRingsLayers) {
+  // explicit staircase: radii at the slice centres (the inner ring, a table, meets the cone only at the top)
+  const int K = 6;
+  std::string layers;
+  for (int k = 0; k < K; ++k) {
+    const double y = (k + 0.5) * (0.4 / K), r1 = 0.1 + (0.25 - 0.1) * y / 0.4, r2 = 0.45 + (0.25 - 0.45) * y / 0.4;
+    char buf[200];
+    std::snprintf(buf, sizeof buf, R"(%s{"type": "rings", "thickness_um": %.17g, "radii_um": [%.17g, %.17g], "materials": ["q", "p", "air"]})",
+                  k ? ", " : "", 0.4 / K, r1, r2);
+    layers += buf;
+  }
+  const fg::CylindricalResult a = solveConfig(coneBeam(layers)).cylindrical, b = solveConfig(coneBeam(coneProfile(K))).cylindrical;
+  EXPECT_EQ(a.reflected, b.reflected);
+  EXPECT_EQ(a.transmitted, b.transmitted);
+  // constant radii = rings layer (one slice: the same layer; three: three equal layers)
+  const std::string rings = R"({"type": "rings", "thickness_um": 0.3, "radii_um": [0.2, 0.4], "materials": ["q", "p", "air"]})";
+  const fg::CylindricalResult r = solveConfig(coneBeam(rings)).cylindrical;
+  for (const int k : {1, 3}) {
+    const fg::CylindricalResult c = solveConfig(coneBeam(
+        R"({"type": "rings_profile", "thickness_um": 0.3, "slices": )" + std::to_string(k) +
+        R"(, "radii": [0.2, 0.4], "materials": ["q", "p", "air"]})")).cylindrical;
+    EXPECT_NEAR(c.reflected, r.reflected, k == 1 ? 0.0 : 1e-12);
+    EXPECT_NEAR(c.transmitted, r.transmitted, k == 1 ? 0.0 : 1e-12);
+  }
+  // staircase error of the cone: second order in 1/K
+  double R[3];
+  for (int i = 0; i < 3; ++i) R[i] = solveConfig(coneBeam(coneProfile(3 << i))).cylindrical.reflected;
+  std::printf("V21 rings_profile cone: R(3, 6, 12) = %.10f %.10f %.10f, ratio %.2f\n", R[0], R[1], R[2],
+              (R[0] - R[1]) / (R[1] - R[2]));
+  EXPECT_GT(std::abs(R[0] - R[1]), 1e-6);
+  EXPECT_NEAR((R[0] - R[1]) / (R[1] - R[2]), 4.0, 1.0);
+}
+
+TEST(V21RingsProfile, SphereAndCapAndErrors) {
+  // a sphere (centre y = a, radius a, thickness 2a) as rings_profile = the explicit staircase of V21c
+  const double a = 3.0 / (2 * fg::PI);
+  char sph[300];
+  std::snprintf(sph, sizeof sph, R"({"type": "rings_profile", "thickness_um": %.17g, "slices": 10,
+    "radii": [{"sphere": {"center_y_um": %.17g, "radius_um": %.17g}}], "materials": ["sph", "air"]})", 2 * a, a, a);
+  const fg::Result p = solveConfig(planeWaveConfig(sph, 0, 0, 0, "li_r", 2, "\"auto\"", "air"));
+  EXPECT_EQ(p.cylindrical.scattering_um2, sphereSigma(10, 2));
+  // a cap: the upper slices have no ring left and become homogeneous layers of the outer material
+  const std::string cap = R"({"type": "rings_profile", "thickness_um": 0.5, "slices": 10,
+    "radii": [{"sphere": {"center_y_um": 0.0, "radius_um": 0.3}}], "materials": ["sph", "air"]})";
+  const std::string capLow = R"({"type": "rings_profile", "thickness_um": 0.3, "slices": 6,
+    "radii": [{"sphere": {"center_y_um": 0.0, "radius_um": 0.3}}], "materials": ["sph", "air"]},
+    {"type": "homogeneous", "thickness_um": 0.2, "material": "air"})";
+  const fg::Result c1 = solveConfig(planeWaveConfig(cap, 0, 0, 0, "li_r", 2)),
+                   c2 = solveConfig(planeWaveConfig(capLow, 0, 0, 0, "li_r", 2));
+  EXPECT_GT(c1.cylindrical.scattering_um2, 1e-3);
+  EXPECT_NEAR(c1.cylindrical.scattering_um2, c2.cylindrical.scattering_um2, 1e-12);
+  // crossing radii and wrong material counts are errors
+  auto err = [](const std::string& layer) {
+    try {
+      solveConfig(planeWaveConfig(layer, 0, 0, 0));
+    } catch (const fg::Error& e) {
+      return std::string(e.what());
+    }
+    return std::string();
+  };
+  EXPECT_NE(err(R"({"type": "rings_profile", "thickness_um": 0.3, "radii": [{"cone": [0.1, 0.4]}, 0.3],
+                    "materials": ["sph", "film", "air"]})").find("must not cross"), std::string::npos);
+  EXPECT_NE(err(R"({"type": "rings_profile", "thickness_um": 0.3, "radii": [0.3], "materials": ["sph"]})")
+                .find("n + 1 materials"), std::string::npos);
+  EXPECT_NE(err(R"({"type": "rings_profile", "thickness_um": 0.3, "radii": [{"cube": 1}], "materials": ["sph", "air"]})")
+                .find("rings_profile"), std::string::npos);
+}

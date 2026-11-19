@@ -21,7 +21,9 @@ std::optional<std::vector<std::string>> materialsOf(const LayerSpec& spec) {
       [](const auto& l) -> std::optional<std::vector<std::string>> {
         using T = std::decay_t<decltype(l)>;
         if constexpr (std::is_same_v<T, HomogeneousLayer>) return std::vector<std::string>{l.material};
-        else if constexpr (std::is_same_v<T, Lamellar1DLayer> || std::is_same_v<T, RingsLayer>) return l.materials;
+        else if constexpr (std::is_same_v<T, Lamellar1DLayer> || std::is_same_v<T, RingsLayer> ||
+                           std::is_same_v<T, RingsProfileLayer>)
+          return l.materials;
         else if constexpr (std::is_same_v<T, Profile1DLayer> || std::is_same_v<T, Profile2DLayer>)
           return std::vector<std::string>{l.below, l.above};
         else if constexpr (std::is_same_v<T, Polygon2DLayer>) {
