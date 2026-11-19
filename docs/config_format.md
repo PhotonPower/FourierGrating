@@ -32,7 +32,7 @@ Eine Einführung mit Beispielen steht im Anwenderhandbuch `docs/user_guide.md`.
   "superstrate": "air",
   "substrate": "al",
   "layers": [                            // von unten (Substrat) nach oben
-    { "type": "profile1d", "shape": "sinus",            // sinus | triangle | points
+    { "type": "profile1d", "shape": "sinus",            // sinus | triangle | points | nurbs (1D, M24)
       "depth_um": 0.2, "below": "al", "above": "air",
       "slices": 0, "factorization": "auto" },     // isotrop: auto | laurent | li_lamellar | FFF_iso | FFF_sym | FFF_rig
                                                   // anisotrop: auto (= FFF_A) | FFF_A | FFF_B | laurent
@@ -88,6 +88,35 @@ Eine Einführung mit Beispielen steht im Anwenderhandbuch `docs/user_guide.md`.
 Formen für `profile1d.shape`: `sinus` (g = a/2 (1 + cos K(x − x0)), optional `x0_um`), `triangle` (Parameter
 `apex_x_um`: Flanke von (0, 0) zur Spitze (`apex_x_um`, a) und zurück nach (d, 0)), `points` (Stützstellen `x_um`,
 `y_um`, x aufsteigend in [0, d), periodisches Polygon, stückweise linear).
+`nurbs` (M24, nur 1D-Stapel): eine offene, periodische NURBS-Linie mit Überhängen (keine Funktion y = g(x)); unter
+ihr liegt `below`, über ihr `above`. Plan Abschnitt „Erweiterung ab Version 2.37: NURBS-Profil in 1D-Gittern (M24)“.
+
+```jsonc
+{ "type": "profile1d", "shape": "nurbs", "below": "si", "above": "air",
+  "nurbs": { "degree": 2, "knots": [0, 0, 0, 1, 1, 2, 2, 2],          // geklemmt
+             "points_um": [[0.0, 0.0], [0.1, 0.0], [0.15, 0.1], [0.2, 0.0], [0.3, 0.0]],
+             "weights": [1, 1, 1, 1, 1] },                           // optional, > 0
+  "depth_um": 0.12,                                                  // optional, Standard max y der Kurve
+  "slices": 0, "chebyshev_nodes": 0, "factorization": "auto" }
+```
+
+| Schlüssel | Bedeutung |
+|---|---|
+| `nurbs.degree` | Grad 1 … 9 |
+| `nurbs.knots` | Knotenvektor, nicht fallend, erster und letzter Knoten (Grad + 1)-fach; Länge = Punkte + Grad + 1 |
+| `nurbs.points_um` | Kontrollpunkte [x, y] in µm, y über der Unterkante der Schicht; Ende = Anfang + (d, 0) |
+| `nurbs.weights` | Gewichte > 0 (Standard 1; Kreisbögen als rationale Quadriken) |
+| `depth_um` | Dicke der Schicht; die Kurve muss in 0 ≤ y ≤ `depth_um` liegen (Standard: ihr Maximum) |
+| `slices`, `chebyshev_nodes` | RCWA-Treppe (0: `rcwa.slices`), Tschebyschow-Interpolation in y je Band (0: aus) |
+| `factorization` | `auto` (= `FFF_sym`, anisotrop `FFF_B`), `laurent`, `FFF_iso`; anisotrop `laurent`, `FFF_B` |
+
+Die Kurve läuft netto in +x, darf links von 0 oder rechts von d verlaufen und darf sich nicht schneiden (auch nicht
+mit ihren periodischen Bildern). Sie bleibt **eine** Schicht: Die Höhen, an denen Schnittpunkte entstehen oder
+verschwinden (y-Extrema, Knoten), sind interne Bandgrenzen für RK und Tschebyschow; JSON-Pointer späterer Schichten
+verschieben sich nicht. Fehler nennen den Pointer der Schicht und eine Kennung: `NURBS_INPUT`, `NURBS_NOT_PERIODIC`
+(y am Ende ≠ y am Anfang), `NURBS_PERIOD` (Versatz ≠ +d), `NURBS_RANGE`, `NURBS_SELF_INTERSECTION`, `NURBS_STACK`
+(2D, zylindrisch, PML). Kein Gradient nach `depth_um` oder den Kontrollpunkten; Sweeps über `set_parameter` bauen
+die Schicht neu auf. Beispiel: `examples/profile1d_nurbs.json`.
 `lamellar1d`: `breakpoints_um` beginnt bei 0 und endet bei der Periode d; das wird derzeit **nicht geprüft** (eine
 falsche letzte Stelle, z. B. nach einer Änderung von `period_um.x`, liefert ohne Meldung ein falsches Ergebnis).
 Formen für `profile2d.shape`: `egg_crate` (g = a/4 (1 + cos Kx(x−x0)) (1 + cos Kz(z−z0))), `sinus_x`

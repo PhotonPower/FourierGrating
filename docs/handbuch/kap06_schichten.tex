@@ -113,7 +113,7 @@ Schlüssel & Pflicht & Standard & Bedeutung \\
 \midrule
 \key{depth\_um} & ja & & Profilhöhe $a$ \\
 \key{below}, \key{above} & ja & & Material unter bzw.\ über der Grenzfläche \\
-\key{shape} & nein & \val{sinus} & \val{sinus}, \val{triangle}, \val{points} \\
+\key{shape} & nein & \val{sinus} & \val{sinus}, \val{triangle}, \val{points}, \val{nurbs} (Abschnitt~\ref{sec:profile1d_nurbs}) \\
 \key{x0\_um} & nein & 0 & \val{sinus}: Lage des Maximums \\
 \key{apex\_x\_um} & bei \val{triangle} & & $x$-Lage der Spitze \\
 \key{x\_um}, \key{y\_um} & bei \val{points} & & Stützstellen, $x$ aufsteigend in $[0,d_x)$ \\
@@ -139,6 +139,70 @@ Schlüssel & Pflicht & Standard & Bedeutung \\
 Der RK-Löser integriert Profile exakt (ohne Treppe); das ist der Hauptgrund, ihn zu verwenden. Mit RCWA wird das
 Profil in \key{slices} Treppenstufen zerlegt; der Fehler fällt etwa mit $1/\text{slices}$. In 2D-Stapeln sind
 isotrope \val{profile1d}-Schichten erlaubt und in $z$ invariant.
+\end{hinweis}
+
+\subsection{\texttt{"shape": "nurbs"} -- Freiform-Linie mit Überhang}\label{sec:profile1d_nurbs}
+\index{Schichttyp!profile1d@\texttt{profile1d}!nurbs@\texttt{nurbs}}\index{NURBS}\index{Überhang}%
+Mit \val{nurbs} beschreibt \emph{eine} durchgehende NURBS-Linie in der $(x,y)$-Ebene die Grenzfläche. Anders als bei
+den übrigen Formen muss sie keine Funktion $y=g(x)$ sein: Überhänge und Hinterschnitte sind erlaubt, nur schneiden
+darf sie sich nicht (auch nicht mit ihren periodischen Bildern). Unter der Linie liegt \key{below}, über ihr
+\key{above}. Nur in 1D-Stapeln (M24).
+\begin{center}
+\begin{tikzpicture}[scale=3.0]
+  \fill[gray!40] (0,0) -- (0,0.06) -- (0.39,0.06) .. controls (0.44,0.2) and (0.36,0.24) .. (0.2,0.3)
+     .. controls (0.32,0.5) and (0.68,0.5) .. (0.8,0.3) .. controls (0.64,0.24) and (0.56,0.2) .. (0.61,0.06)
+     -- (1,0.06) -- (1,0) -- cycle;
+  \draw (0,0) rectangle (1,0.48);
+  \draw[thick] (0,0.06) -- (0.39,0.06) .. controls (0.44,0.2) and (0.36,0.24) .. (0.2,0.3)
+     .. controls (0.32,0.5) and (0.68,0.5) .. (0.8,0.3) .. controls (0.64,0.24) and (0.56,0.2) .. (0.61,0.06)
+     -- (1,0.06);
+  \fill (0,0.06) circle (0.6pt) node[left] {\tiny Anfang};
+  \fill (1,0.06) circle (0.6pt) node[right] {\tiny Ende $=$ Anfang $+(d_x,0)$};
+  \foreach \y in {0.06,0.3,0.425} \draw[densely dotted] (-0.05,\y) -- (1.05,\y);
+  \node[right] at (1.05,0.3) {\tiny Bandgrenzen};
+  \node at (0.5,0.12) {\small \key{below}};
+  \node at (0.12,0.4) {\small \key{above}};
+\end{tikzpicture}
+\end{center}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lllY}
+\toprule
+Schlüssel & Pflicht & Standard & Bedeutung \\
+\midrule
+\key{nurbs.degree} & ja & & Grad $p$, 1 bis 9 \\
+\key{nurbs.knots} & ja & & Knotenvektor, nicht fallend, erster und letzter Knoten $(p+1)$-fach (geklemmt); Länge
+                             $=$ Punkte $+p+1$ \\
+\key{nurbs.points\_um} & ja & & Kontrollpunkte $[x,y]$ in \textmu m, $y$ über der Unterkante der Schicht \\
+\key{nurbs.weights} & nein & 1 & Gewichte $>0$ (Kreisbögen als rationale Quadriken) \\
+\key{depth\_um} & nein & $\max y$ & Dicke der Schicht; die Kurve muss in $0\le y\le$ \key{depth\_um} liegen \\
+\key{below}, \key{above} & ja & & Material unter bzw.\ über der Linie \\
+\key{slices}, \key{chebyshev\_nodes} & nein & 0 & RCWA-Scheiben; Tschebyschow-Interpolation in $y$ je Band \\
+\key{factorization} & nein & \val{auto} & \val{auto} (\val{FFF\_sym}, anisotrop \val{FFF\_B}), \val{laurent},
+                                         \val{FFF\_iso}; \val{FFF\_rig} geht nicht \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Die Linie ist offen und läuft über genau eine Periode: Der letzte Kontrollpunkt ist der erste, um $(d_x,0)$
+verschoben. Sie läuft insgesamt in $+x$, darf aber zwischendurch links von $0$ oder rechts von $d_x$ liegen; der
+Anfang darf bei beliebigem $x$ liegen. An der Naht darf sie einen Knick haben. Ein Höhenunterschied zwischen Anfang
+und Ende wird nicht durch eine Wand geschlossen, sondern ist ein Fehler.
+\begin{lstlisting}[language=json]
+{ "type": "profile1d", "shape": "nurbs", "below": "resist", "above": "air",
+  "nurbs": { "degree": 2, "knots": [0, 0, 0, 1, 1, 2, 2, 2],
+             "points_um": [[0.0, 0.0], [0.1, 0.0], [0.15, 0.1], [0.2, 0.0], [0.3, 0.0]] } }
+\end{lstlisting}
+Das vollständige Beispiel \texttt{examples/profile1d\_nurbs.json} beschreibt die gerundete Linie aus Kapitel~\ref{ch:cad}
+(Trapez mit $15^\circ$-Wänden und exakten Kreisbögen von 10\,nm) ohne STEP-Datei.
+
+\begin{hinweis}[Eine Schicht, interne Bänder]
+Die Höhen, an denen Schnittpunkte der Linie mit einer Waagerechten entstehen oder verschwinden ($y$-Extrema, Knoten,
+Knicke), sind interne Bandgrenzen. RK setzt dort Schrittgrenzen und Tschebyschow je Band einen Interpolanten; das
+Profil selbst bleibt exakt (keine Treppe, außer mit RCWA). Nach außen ist es \emph{eine} Schicht: JSON-Pointer
+späterer Schichten verschieben sich nicht (anders als bei \val{cad}). Gradienten nach \key{depth\_um} oder den
+Kontrollpunkten gibt es nicht; ein Sweep über einen Kontrollpunkt (\texttt{set\_parameter}) baut die Schicht neu auf.
+Fehler nennen den Pointer der Schicht und eine Kennung (\texttt{NURBS\_INPUT}, \texttt{NURBS\_NOT\_PERIODIC},
+\texttt{NURBS\_PERIOD}, \texttt{NURBS\_RANGE}, \texttt{NURBS\_SELF\_INTERSECTION}, \texttt{NURBS\_STACK}).
 \end{hinweis}
 
 %-------------------------------------------------------------------------------------------

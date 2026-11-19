@@ -87,7 +87,7 @@ Layers (`type`, plus `factorization` where applicable):
 |---|---|---|
 | `homogeneous` | `thickness_um`, `material` | 1D, 2D |
 | `lamellar1d` | `thickness_um`, `breakpoints_um` (must start at 0 and end at dx; this is not checked), `materials` (one per interval) | 1D, 2D (z-invariant) |
-| `profile1d` | `depth_um`, `below`, `above`, `shape`: `sinus` (`x0_um`), `triangle` (`apex_x_um`) or `points` (`x_um`, `y_um`, periodic polygon); `slices` | 1D, 2D |
+| `profile1d` | `depth_um`, `below`, `above`, `shape`: `sinus` (`x0_um`), `triangle` (`apex_x_um`) or `points` (`x_um`, `y_um`, periodic polygon); `slices`. `shape` `nurbs` (1D only): `"nurbs": {"degree", "knots" (clamped), "points_um": [[x, y], ...], "weights"}`, one open line over one period (end = start + (dx, 0), y from the layer bottom), `below` under it; overhangs allowed, no self-intersection; `depth_um` optional (= max y); `chebyshev_nodes`; errors `/layers/k: [NURBS_INPUT\|NOT_PERIODIC\|PERIOD\|RANGE\|SELF_INTERSECTION\|STACK]` | 1D, 2D |
 | `polygon2d` | `thickness_um`, `background`, `inclusions`: `[{"material", "vertices_um": [[x, z], ...]}` or `{"material", "rectangle_um": {"center": [x, z], "size": [wx, wz]}}]`, `normal_field` | 2D |
 | `contour2d` | `thickness_um`, `background`, `regions`: `[{"material", "circle": {"center_um", "radius_um"}}`, `{"ellipse": {"center_um", "radii_um", "angle_deg"}}`, `{"polygon_um": [[x, z], ...]}` or `{"nurbs": {"degree", "knots", "points_um", "weights"}}`, with optional `"holes": [...]`]; regions must not overlap (images included) | 2D |
 | `profile2d` | `depth_um`, `below`, `above`, `shape`: `egg_crate` or `sinus_x`, `x0_um`, `z0_um`, `slices`, `z_samples` | 2D |

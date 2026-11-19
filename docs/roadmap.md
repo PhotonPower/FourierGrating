@@ -285,8 +285,13 @@ Setzt M14, M17 und M19 voraus. Spezifikation: Plan Abschnitt „Erweiterung ab V
 Setzt M23 voraus (ohne Nurbforge). Spezifikation: Plan Abschnitt „Erweiterung ab Version 2.37: NURBS-Profil in
 1D-Gittern (M24)“. Anlass: Wunsch aus der Anwendung (Issue #30).
 
-- [ ] **M24** `profile1d` mit `"shape": "nurbs"`: eine offene periodische NURBS-Linie (Überhänge erlaubt), Material
+- [x] **M24** `profile1d` mit `"shape": "nurbs"`: eine offene periodische NURBS-Linie (Überhänge erlaubt), Material
   aus der Laufrichtung (Plan eq:nurbs1d_rule), kritische Höhen aus den Extrema der rationalen Bézierstücke (Plan
   eq:nurbs1d_crit) als interne Bruchstellen einer einzigen Schicht (`Sectioned1DLayer::yBreaks_um`), Prüfungen mit
   Kennungen `NURBS_*`
   - Abnahme: V25a–h (Plan)
+  - Erledigt (Plan v2.37): `src/geometry/nurbs_profile.cpp` (`NurbsProfile`, `NurbsProfileLineProvider`),
+    Bandgrenzen in RK (Löser und Gradient, einseitige Auswertung) und Tschebyschow je Band, Konfiguration mit
+    Prüfungen; Tests `NurbsProfile.*`, `V25b`–`V25g`, `CAD_V25`, Python `test_profile1d_nurbs.py`; Beispiel
+    `examples/profile1d_nurbs.json` mit Golden File; behoben: `lineCrossings` an Nullstellen am Stückende (M23)
+  - Nicht enthalten: Formgradienten (`depth_um`, Kontrollpunkte), GUI-Formular, 2D-Stapel

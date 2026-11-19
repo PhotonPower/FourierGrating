@@ -461,3 +461,29 @@ Differenz; gegen ein Gitter ohne Resonanz σ auf 5e-14, Nahfeld auf 7,5e-12 (`V2
 | V24g Befunde | `NOT_Z_INVARIANT`, `OUT_OF_RANGE`, `BODY_OVERLAP`, `priority` = `lamellar1d` | genau / 1e-12 |
 | V24h Gradienten (Oberbreite über `StackParameter`, n) | zentrale Differenzen, RCWA und RK | ≤ 1,7e-8 / ≤ 2,1e-9 relativ |
 | V24i Python, Beispiel `cad_line_grating_1d` | Golden File (neu) | bitgleich |
+
+## NURBS-Profil in 1D-Gittern (M24, V25)
+
+`profile1d` mit `"shape": "nurbs"` (Plan v2.37). `tests/unit/test_nurbs_profile.cpp` (V25a),
+`tests/validation/test_v25_nurbs.cpp` (V25b–g, Label `validation`), `CAD_V25` im CI-Job `cad`, Python
+`tests/python/test_profile1d_nurbs.py`. Periode 0,3 µm, 633 nm konisch (φ = 20°, ψ = 30°, δ = 35°) wie V24.
+
+| Fall | Referenz | Abweichung |
+|---|---|---|
+| V25a Bézierstücke (A5.6) | NURBS nach de Boor | < 1e-14 |
+| V25a y-Extrema kubisch / Kreisbögen (rational) | geschlossene Form | 1e-14 |
+| V25a Linienschnitt (Höcker, Pilz mit Überhang) | `lineSection` des geschlossenen Körpers | Bruchstellen und Normalen < 1e-13 |
+| V25b Grad 1 = Trapez (`points`), isotrop / anisotrop, Laurent | `profile1d` `points` | RCWA 1,4e-15 / 5,6e-16, RK 7,9e-14 / 3,1e-13 |
+| V25b Grad 1 = Dreieck | `profile1d` `triangle` | RCWA 1,1e-15, RK 5,8e-14 |
+| V25c gerundetes Trapez (exakte Bögen), Bandgrenzen an den Bogenenden | `profile1d` `Function` (RK, Laurent) | 2,1e-13 |
+| V25c dieselbe Linie | `cad_line_grating_1d` (STEP, RK) | CI-Job `cad` |
+| V25d Pilz (glatte Quadriken, Überhang) | R + T = 1 | RK 1,7e-14, RCWA ≤ 8e-15 |
+| V25d RCWA → RK | 20 / 80 / 320 Scheiben | 2,5e-3 / 1,4e-5 / 2,3e-6 |
+| V25d Kurvenanfang verschoben | Ausgangsfall | RCWA 4,4e-16, RK 1,1e-15 |
+| V25d Reziprozität (δ = 90°) | N = 8 → 24 | 1,9e-6 → 2,0e-7 |
+| V25d Abbruch, R₀ gegen FFF_sym N = 56 | FFF_sym N = 8; Laurent N = 8 / 24 | 2,0e-5; 6,4e-4 / 2,3e-4 |
+| V25e Naht glatt / Knick, Anfang verschoben | Ausgangsfall | ≤ 1,3e-14 |
+| V25f Tschebyschow (16 Knoten je Band) | exakte Schnitte | 4,8e-15 |
+| V25f ASR (η = 0,5), N = 16 | ohne ASR; Energie | 1,6e-6; 2,0e-7 (~N⁻⁴, wie M17) |
+| V25g Fehler mit Pointer und Kennung, Gradient nach `depth_um`/Punkt abgelehnt, Sweep über einen Punkt | Neuberechnung | < 1e-14 |
+| V25h Beispiel `profile1d_nurbs` | Golden File (neu) | bitgleich |

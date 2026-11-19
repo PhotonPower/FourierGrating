@@ -159,6 +159,33 @@ $1{,}2\cdot10^{-4}$ -- bei verlustfreien Materialien ein Maß für die Genauigke
 erhöhen, wenn mehr nötig ist.
 
 %-------------------------------------------------------------------------------------------
+\section{Freiform-Profil mit Hinterschnitt als NURBS}
+\index{NURBS}\index{Überhang}\index{Schichttyp!profile1d@\texttt{profile1d}!nurbs@\texttt{nurbs}}%
+\textbf{Aufgabe:} Eine Lackline mit überhängendem Kopf („Pilz“, Periode 0,3\um) auf Silizium, TM, 633\,nm unter
+$10^\circ$. Wie viel wird reflektiert? Als Funktion $y=g(x)$ geht das nicht, eine STEP-Datei ist nicht nötig.
+\begin{lstlisting}[language=json]
+{ "dimension": "1D", "solver": "rk", "truncation": { "Nx": 15 }, "period_um": { "x": 0.3 },
+  "incidence": { "lambda_um": 0.633, "phi_deg": 10, "psi_deg": 0, "delta_deg": 90 },
+  "materials": { "air": {"n": 1.0}, "resist": {"n": 1.6}, "si": {"n": [3.88, 0.02]} },
+  "superstrate": "air", "substrate": "si", "rk": { "tol": 1e-8 },
+  "layers": [ { "type": "profile1d", "shape": "nurbs", "below": "resist", "above": "air",
+    "nurbs": { "degree": 2, "knots": [0,0,0, 1,1, 2,2, 3,3, 4,4, 5,5, 6,6, 7,7,7],
+      "points_um": [[0.0, 0.02], [0.065, 0.02], [0.13, 0.02], [0.14, 0.06], [0.12, 0.09],
+                    [0.05, 0.10], [0.08, 0.13], [0.15, 0.19], [0.22, 0.13], [0.25, 0.10],
+                    [0.18, 0.09], [0.16, 0.06], [0.17, 0.02], [0.235, 0.02], [0.3, 0.02]] } } ] }
+\end{lstlisting}
+Die Kurve besteht aus sieben quadratischen Bézierstücken (innere Knoten doppelt): Restschicht, Stiel links, Kopf
+links (nach außen, der Überhang), Kopf oben, Kopf rechts, Stiel rechts, Restschicht. Sie beginnt bei $(0;\,0{,}02)$
+und endet eine Periode weiter auf derselben Höhe.
+
+\textbf{Ergebnis:} $R_0=0{,}25484$ (RK, 23\,s); RCWA mit 80 Scheiben liefert dasselbe auf $3\cdot10^{-6}$ in 3\,s.
+
+\textbf{Worauf achten:} Die Linie läuft insgesamt von links nach rechts, \key{below} liegt darunter. Die Höhe der
+Schicht ist ohne \key{depth\_um} die Oberkante der Kurve (hier 0,16\um). Ein Fehler wie
+\texttt{/layers/0: [NURBS\_PERIOD]} heißt: der letzte Punkt liegt nicht genau eine Periode rechts vom ersten.
+Selbstschnitte (auch mit dem Nachbarn der nächsten Periode) meldet \texttt{NURBS\_SELF\_INTERSECTION}.
+
+%-------------------------------------------------------------------------------------------
 \section{Littrow-Gitter optimieren}
 \index{Littrow}%
 \textbf{Aufgabe:} Ein Aluminium-Lamellengitter (Periode 0,5\um, TM) so auslegen, dass möglichst viel Licht in die

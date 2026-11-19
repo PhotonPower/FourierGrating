@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Hinzugefügt
+- M24 (Plan v2.37, Issue #30): `profile1d` mit `"shape": "nurbs"`: eine offene, periodische NURBS-Linie in 1D-Gittern
+  (Überhänge erlaubt, kein Selbstschnitt), unter ihr `below`. Bleibt eine Schicht: Die kritischen Höhen (y-Extrema
+  der rationalen Bézierstücke, Knoten) sind interne Bandgrenzen für RK und Tschebyschow (`StackLayer::yBreaks_um`,
+  `Sectioned1DLayer::yBreaks_um`); JSON-Pointer späterer Schichten bleiben. `depth_um` optional. Fehler mit Pointer
+  und Kennung `NURBS_INPUT`, `NURBS_NOT_PERIODIC`, `NURBS_PERIOD`, `NURBS_RANGE`, `NURBS_SELF_INTERSECTION`,
+  `NURBS_STACK`. Tests `NurbsProfile.*` (V25a), `V25b`–`V25g`, `CAD_V25`, Python `test_profile1d_nurbs.py`; Beispiel
+  `examples/profile1d_nurbs.json` mit neuem Golden File (alle anderen bitgleich).
+
+### Behoben
+- M23: `geometry::lineCrossings` verlor eine innere Nullstelle, wenn die Kurve die Gerade genau am Ende eines
+  Bézierstücks erreichte (`refine` gab das Ende zurück); gefunden mit M24 (Schnitt genau auf der Höhe der Naht).
+  Test `LineSection.RootAtTheEndKeepsTheInteriorRoot`; Golden Files unverändert.
+
 ### Geändert
 - Nurbforge-Pin `FG_NURBFORGE_TAG` v0.6.0 → v0.12.1 (Plan v2.26): exakte Randkurven (Kreise statt kubischer
   Interpolanten), Boolesche Differenzen mit koplanaren Flächen (`overlap: "priority"` bei Körpern gleicher Höhe, Test

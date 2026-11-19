@@ -1135,3 +1135,21 @@ TEST(CAD_M20, FindingsAndConfiguration) {
   EXPECT_THROW(fg::io::parseConfig(noFlag.dump()), fg::Error);
   EXPECT_THROW(fg::io::parseConfig(base(json::array({axisymLayer(off, bodies)})).dump()), fg::Error);
 }
+
+// V25c (Plan section "M24: Tests und Abnahme"): the rounded line of the example as profile1d "nurbs" (exact
+// rational arcs, one layer with band boundaries) equals the CAD line (STEP, three band layers); RK for both (the
+// RCWA staircases differ: 30 slices per band against 30 over the layer)
+TEST(CAD_V25, NurbsProfileEqualsTheCadLine) {
+  const std::string ex = std::string(FG_SOURCE_DIR) + "/examples/";
+  fg::io::RunConfig cad = fg::io::loadConfig(ex + "cad_line_grating_1d.json"),
+                    nrb = fg::io::loadConfig(ex + "profile1d_nurbs.json");
+  for (auto* c : {&cad, &nrb}) {
+    c->solver.kind = fg::SolverKind::RK;
+    c->solver.rkTol = 1e-10;
+  }
+  ASSERT_EQ(nrb.stack.layers.size(), 1u);
+  const auto a = fg::makeSolver(cad.solver)->solve(cad.stack, cad.scan.front());
+  const auto b = fg::makeSolver(nrb.solver)->solve(nrb.stack, nrb.scan.front());
+  std::printf("V25c: |profile1d nurbs - cad| = %.3e (RK)\n", maxDiff(a, b));
+  EXPECT_LT(maxDiff(a, b), 1e-10);
+}

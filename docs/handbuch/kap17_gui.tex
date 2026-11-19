@@ -64,7 +64,8 @@ Die Konfiguration wird in Reitern bearbeitet:
   \item[Schichten] von unten nach oben; mit \gui{$\uparrow$} \gui{$\downarrow$} \gui{$\times$} ordnen bzw.\ löschen. Formulare gibt es für
         \val{homogeneous}, \val{lamellar1d} (Tabelle der Lamellen von/bis/Material), \val{profile1d}, \val{polygon2d},
         \val{contour2d} (Tabelle der Formen: Material, Form, Mitte, Größe, Winkel, Eckpunkte) und \val{profile2d}.
-        Andere Typen (CAD, NURBS-Regionen) bearbeiten Sie als JSON der Schicht.
+        Andere Typen (CAD, NURBS-Regionen, \val{profile1d} mit \val{nurbs}) bearbeiten Sie als JSON der Schicht; die
+        Oberfläche hat für NURBS-Linien noch kein Formular.
   \item[Löser] RK- und RCWA-Optionen, Rechenkern (Backend), Genauigkeit, Threads.
   \item[JSON] die ganze Konfiguration. \gui{Übernehmen} ersetzt die Formularwerte; \gui{Herunterladen} speichert die
         Datei.

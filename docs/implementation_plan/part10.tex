@@ -20,8 +20,8 @@ Anwendung (Issue \#30).
         nicht. Eine Expansion in mehrere Schichten wie bei \verb|cad| entfällt.
   \item Die Bänder zwischen den Bruchstellen sind Integrationsintervalle, keine Treppe: RK wertet $Q(y)$ an jedem
         Stufenknoten aus dem exakten Linienschnitt aus. Eine Treppe entsteht nur mit RCWA (\verb|slices|).
-  \item Faktorisierung wie \verb|Sectioned1DLayer| (globaler Schlüssel \verb|factorization|; ein Schlüssel je Schicht
-        existiert für keinen Schichttyp): isotrop \verb|laurent|, \verb|FFF_iso|, \verb|FFF_sym| (Standard),
+  \item Faktorisierung wie \verb|Sectioned1DLayer| (Schlüssel \verb|factorization| der Schicht wie bei allen
+        Schichttypen): isotrop \verb|laurent|, \verb|FFF_iso|, \verb|FFF_sym| (Standard),
         anisotrop \verb|laurent|, \verb|FFF_B| (Standard). \verb|FFF_rig| und \verb|FFF_A| verlangen ein
         vorzeichenbehaftetes Normalenfeld und werden abgelehnt, auch wenn die Kurve ein Graph ist (für Graphen
         bleibt \verb|profile1d| \verb|points|/\verb|Function|).
@@ -77,7 +77,12 @@ kritischen Höhe):
         rechts aufeinanderfolgender Schnittpunkte müssen sich abwechseln (zyklisch, also gerade Anzahl). Sonst ist die
         Kurve selbstschneidend (auch mit ihrem periodischen Bild) $\to$ Fehler \verb|NURBS_SELF_INTERSECTION|
         mit der Höhe in \textmu m.
-  \item Ohne Schnittpunkt liegt $c$ unter oder über der ganzen Kurve: \verb|below| für $c<\min y$, sonst \verb|above|.
+  \item Schnittpunkte näher als $10^{-10}d_x$ (nach der Rückfaltung): gleiche Richtung ist derselbe Schnittpunkt
+        zweimal gefunden (Naht: $t=0$ des ersten und $t\to1$ des letzten Stücks), entgegengesetzte Richtung begrenzt
+        einen Splitter schmaler als die Toleranz neben einem Extremum (z.\,B.\ ein Tal auf der Unterkante, $10^{-14}$
+        darüber abgetastet); er entfällt.
+  \item Ohne Schnittpunkt liegt $c$ unter oder über der ganzen Kurve: \verb|below| für $c<\min y$, sonst \verb|above|
+        (nach dem Wegfall eines Splitters: \verb|below| in der unteren Hälfte von $[\min y,\max y]$).
   \item Ergebnis wie \verb|lineSection| (Abschnitt~\ref{sec:cad1d_line}): Bruchstellen $0=\xi_0<\dots<\xi_K=d_x$, ein
         Material je Intervall, Normalen an den Materialgrenzen. Eine Grenze bei $0\equiv d_x$ bleibt als
         $\xi_0$ mit ihrer Normalen stehen; gleiche Nachbarn verschmelzen (nur über die Naht möglich).
@@ -107,8 +112,15 @@ Ergebnis: $0<\eta_1<\dots<\eta_B<\verb|depth_um|$, die internen Bruchstellen der
   \item \verb|Sectioned1DLayer| erhält \verb|yBreaks_um| (leer für M23). \verb|StackLayer::yBreaks_um()| (virtuell,
         Standard leer) gibt sie an den Löser.
   \item RK (Löser und Gradient, Plan eq:slicecrit unverändert): die Stabilitätsscheiben werden zusätzlich an den
-        Bruchstellen geteilt, wie an den Grenzen der Hintergrundschichten (\verb|bgCuts|). Ohne Bruchstellen ändert
+        Bruchstellen geteilt, wie an den Grenzen der Hintergrundschichten (\verb|bgCuts|). RK wertet $Q$ auch an den
+        Enden eines Schrittes aus; an einer Bruchstelle kann $Q$ springen (waagrechtes Stück) oder der Schnitt
+        tangential sein. Daher wird $Q$ in jeder geschnittenen Scheibe $[y_a,y_b]$ bei
+        $\operatorname{clamp}(y,\,y_a+\delta,\,y_b-\delta)$, $\delta=10^{-9}(y_b-y_a)$, ausgewertet: der einseitige
+        Grenzwert; bei stetigem $Q$ heben sich die Fehler der beiden Nachbarschritte in erster Ordnung auf. Der
+        Gradient verwendet dieselbe Klemmung an allen Stufenknoten (vorwärts und rückwärts). Ohne Bruchstellen ändert
         sich nichts (bitgleich).
+  \item Ein Schnitt genau auf einer Bruchstelle (RCWA-Scheibenmitte, Nahfeldhöhe) wird $10^{-9}\,\verb|depth_um|$
+        darüber genommen.
   \item Tschebyschow: ein Interpolant je Band (Knoten und Fehlerkontrolle je Band wie M14), nie über eine Bruchstelle.
   \item RCWA: die Treppe bleibt gleichmäßig über die ganze Schicht (Mittelpunktsregel; die Bruchstellen ändern ihre
         Konvergenz nicht).
@@ -170,6 +182,27 @@ Die Faktorisierung prüft das Modell (Meldung von \verb|Sectioned1DLayer|). Grad
         abgelehnt; Sweep über einen Kontrollpunkt gleich der Neuberechnung.
   \item \textbf{V25h} Beispiel \verb|examples/profile1d_nurbs.json| mit eigenem Golden File; Python-Test (JSON läuft
         durch, Ergebnis gleich \verb|fgsolve|).
+\end{itemize}
+
+\subsection{Umsetzung (v2.37)}
+\begin{itemize}[nosep]
+  \item \verb|src/geometry/nurbs_profile.cpp|: \verb|NurbsProfile| (Zerlegung über \verb|Contour2D::nurbs|, Prüfungen,
+        Extrema nach \eqref{eq:nurbs1d_crit} mit eigener Bernstein-Nullstellensuche, da $2p-1$ den Grad 9 von
+        \verb|BezierSegment| übersteigen kann), \verb|NurbsProfileLineProvider|. Konfiguration in
+        \verb|parseNurbsProfile| (die Schicht braucht $d_x$ und die Stapelart, daher im Schichtlauf wie \verb|cad|).
+  \item \textbf{Befund M23:} \verb|lineCrossings| verlor eine innere Nullstelle, wenn die Kurve die Gerade genau am
+        Ende eines Stücks erreicht: Der Endkoeffizient 0 wurde durch den Nachbarn ersetzt, \verb|refine| sah am Ende
+        aber $y=c$ und gab das Ende zurück. Jetzt erhält \verb|refine| die Vorzeichen der ersetzten Enden. In M23
+        trat der Fall nicht auf (Schnitte nie genau auf Stückgrenzen), in M24 beim Schnitt genau durch die Naht.
+  \item Ergebnisse (\verb|docs/validation.md|): V25b Grad 1 gegen \verb|points|/\verb|triangle| RCWA $\le1{,}4\cdot10^{-15}$,
+        RK $\le3{,}1\cdot10^{-13}$; V25c gerundete Linie gegen \verb|Function| $2{,}1\cdot10^{-13}$ (wie V24c mit
+        STEP); V25d Pilz $R+T=1$ auf $10^{-14}$, RCWA $\to$ RK $2{,}5\cdot10^{-3}$, $1{,}4\cdot10^{-5}$,
+        $2{,}3\cdot10^{-6}$ bei 20, 80, 320 Scheiben, Anfang verschoben $10^{-15}$; V25e Naht $\le1{,}3\cdot10^{-14}$;
+        V25f Tschebyschow $4{,}8\cdot10^{-15}$.
+  \item Abnahme angepasst: Mit ASR ist $R+T=1$ nur bis auf die Umrechnung der Ordnungen erfüllt ($\sim N^{-4}$, wie
+        M17; $2\cdot10^{-7}$ bei $N=16$). Die Konvergenz in $N_x$ ist mit \verb|FFF_sym| nicht monoton (schon bei
+        $N=8$ auf $2\cdot10^{-5}$ am Wert für $N=56$); geprüft wird daher, dass \verb|FFF_sym| bei $N=8$ zehnmal näher
+        liegt als Laurent und Laurent monoton folgt ($6{,}4\cdot10^{-4}$, $2{,}3\cdot10^{-4}$ bei $N=8$, 24).
 \end{itemize}
 
 \subsection{Reihenfolge der Umsetzung}
