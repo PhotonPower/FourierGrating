@@ -12,7 +12,9 @@ SpectralGrid spectralGrid(const SpectrumOptions& opt) {
   FG_REQUIRE(opt.kmax > 0 && opt.Rs > 0 && opt.dkFactor > 0,
              "spectralGrid: k_max, R_s, dk_factor > 0");
   FG_REQUIRE(opt.nodesPerPanel >= 2, "spectralGrid: at least 2 nodes per panel");
-  const bool deform = opt.delta > 0;
+  // delta < 0 deforms into Im k > 0, past the poles of the guided modes: the wrong side (V21f shows the jump;
+  // the configuration only accepts delta > 0)
+  const bool deform = opt.delta != 0;
   if (deform)
     FG_REQUIRE(0 <= opt.deformA && opt.deformA < opt.deformB && opt.deformB <= opt.kmax,
                "spectralGrid: 0 <= k_a < k_b <= k_max");

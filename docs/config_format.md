@@ -221,7 +221,7 @@ angeregt durch einen Strahl auf der Achse oder eine ebene Welle; `period_um`, `t
   "symmetry": "axial",
   "harmonics": "auto",                                    // oder Liste, z. B. [-1, 1]
   "spectrum": {"kappa_max": 6, "dk_factor": 1.0, "nodes_per_panel": 8,
-               "deform": "auto"},                          // "auto" | false | {"delta": 0.05} (relativ zu k_b - k_a)
+               "deform": "auto"},                          // "auto" | false | {"delta": 0.05} (> 0, relativ zu k_b - k_a)
   "factorization": "li_r",                                 // oder "laurent"
   "optical_theorem": false,                                // ebene Welle: optisches Theorem als Kontrolle (teurer)
   "far_field": {"n_phi": 72}                               // Fernfeld und Winkelspektrum als CSV (optional)

@@ -604,6 +604,7 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
                         "cylindrical.spectrum.deform must be \"auto\", false or {\"delta\": ...}");
       }
       FG_REQUIRE(c.kappaMax > 0 && c.dkFactor > 0 && c.nodesPerPanel >= 2, "cylindrical.spectrum: invalid values");
+      FG_REQUIRE(c.deltaRel > 0, "cylindrical.spectrum.deform.delta must be > 0 (the path dips into Im k < 0)");
     }
     const std::string fac = cj.value("factorization", std::string("li_r"));
     FG_REQUIRE(fac == "li_r" || fac == "laurent", "cylindrical.factorization must be \"li_r\" or \"laurent\"");

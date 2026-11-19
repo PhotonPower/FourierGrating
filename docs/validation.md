@@ -345,6 +345,30 @@ Goldkugel (a = 50 nm, λ = 550 nm, n = 0,43 + 2,45i), Li in r, σ in 1e-3 µm² 
 Die Extinktion trifft Mie auf wenige Prozent, die Aufteilung konvergiert langsam (Treppenecken der Metallkugel);
 der Plan verlangt hier nur einen qualitativen Vergleich.
 
+**Strahl als Streufeld (V21e, Plan v2.27).** Zwei Ringschichten zwischen Filmen, κ_max = 2: R, T, A_Ringe je
+Harmonischer gleich dem Totalfeld auf 1e-13 (Laurent und Li in r, x und radial), Nahfeld 1e-12, RK gegen RCWA 5e-9.
+
+**`rings_profile` und CAD-Rotationskörper (Plan v2.28, v2.29).** Treppe = explizite `rings`-Folge bitgleich (Kegel,
+Kugel); Treppenfehler eines Kegels zweiter Ordnung (Verhältnis 3,6 bei K = 3, 6, 12). Zylinder + Kegelstumpf +
+Kugelkappe aus STEP = Stapel aus `rings`/`rings_profile` auf 2e-13.
+
+**Winkelspektrum und Fernfeld (Plan v2.30).** Σ Gewicht·(s + p) = Leistung je Harmonischer auf 6e-17; φ-Mittel des
+Fernfeldes = Summe der Winkelspektren auf Rundung. Kleine Kugel (n = 1,5, k₀a = 1, 16 Scheiben) gegen Mie
+(|S1|², |S2|² in den Ebenen φ_k = 0 und 90°), Abweichung bezogen auf das Maximum:
+
+| κ_max | 4 | 8 |
+|---|---|---|
+| max \|dσ/dΩ − Mie\| / max Mie | 2,2e-2 | 4,7e-3 |
+
+**V21f (Symmetrie und Weg, Plan v2.31).** Lochblende r = 0,25 µm in 0,1 µm Metall auf Glas, Strahl 633 nm, κ_max = 2:
+
+| Fall | Größe | Wert |
+|---|---|---|
+| Silber, m = −1 / +1 | Leistung | gleich auf 1e-12 |
+| Silber, δ = 0,05 → 0,1, dk_factor 1 / 2 | ΔR, ΔT | 1,6e-5, 1,4e-4 / 5e-7, 1e-6 |
+| Silber, δ = −0,05 (falsche Seite) | ΔT | 0,10 |
+| n = 0,5 + 3i / 0,3 + 3,5i / 0,15 + 3,9i | \|ΔR\| + \|ΔT\| reell gegen deformiert | 6,5e-8 / 2,3e-4 / 4,6e-3 |
+
 ## CAD-Import für 1D-Gitter (M23, V24)
 
 `tests/cad/test_cad.cpp` (`CAD_V24`, Label `validation`, nur mit Nurbforge), ohne Nurbforge

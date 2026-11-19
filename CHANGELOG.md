@@ -15,7 +15,16 @@
   (`CAD.TwoMaterialsAndCavity` hing). Behoben in Nurbforge 0.12.1 (Issue #83, PR #84). `Contour2D::flatten` lehnt eine
   Toleranz ≤ 0 oder NaN jetzt mit einer Fehlermeldung ab (Test `Contour.FlattenRejectsANonPositiveTolerance`).
 
+### Geändert
+- Plan v2.31 (Planfehler V21f): Die Ergebnisse hängen von der Tiefe δ des deformierten Weges innerhalb des
+  Diskretisierungsfehlers ab (die Knoten sind die Galerkin-Diskretisierung), nicht auf 1e-8; das Kriterium ist
+  entsprechend angepasst. `cylindrical.spectrum.deform.delta` muss > 0 sein (ein negativer Wert wurde stillschweigend
+  als reeller Weg gerechnet; in der C++-Schnittstelle bedeutet δ < 0 jetzt die falsche Seite, für V21f).
+
 ### Hinzugefügt
+- M20 V21f (Plan v2.31): m ↔ −m 1e-12, Lochblende im Silberfilm unabhängig von δ innerhalb des
+  Diskretisierungsfehlers, reeller = deformierter Weg bei stark verlustbehaftetem Metall (6,5e-8), falsche
+  Ausweichrichtung springt (`V21f.SymmetryAndIntegrationPath`).
 - M20 Winkelspektrum und Fernfeld (Plan v2.30): je Harmonischer und Seite dP/dθ an den Knoten des Spektrums, exakt
   getrennt nach s = (e₊ + e₋)/2 und p = (e₊ − e₋)/2, mit Quadraturgewicht (Summe = Leistung der Harmonischen);
   Fernfeld dP/dΩ auf (θ-Knoten) × `cylindrical.far_field.n_phi` Azimute. Strahl bezogen auf P_inc, ebene Welle als

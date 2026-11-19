@@ -639,6 +639,23 @@ Streufeld) an der Ober- bzw.\ Unterkante:
         (Abschneidefehler in $k_{\max}$ wie V21c).
 \end{itemize}
 
+\paragraph{Umsetzung (v2.31): V21f, Symmetrie und Integrationsweg.}
+Lochblende ($r=0{,}25$\,µm) in einem Metallfilm ($0{,}1$\,µm) auf Glas, Strahl bei $633$\,nm, $\kappa_{\max}=2$.
+\begin{itemize}[nosep]
+  \item \textbf{Befund (Planfehler):} Die Knoten des Weges sind die Galerkin-Diskretisierung selbst; ein anderes
+        $\delta$ verschiebt die Knoten und ändert das Ergebnis um den Diskretisierungsfehler, nicht nur um den
+        Quadraturfehler. Silber ($\varepsilon=-15{,}9+1{,}08i$): $\delta=0{,}05\to0{,}1$ ändert $R$, $T$ um
+        $1{,}6\cdot10^{-5}$, $1{,}4\cdot10^{-4}$ bei \verb|dk_factor| 1 und um $5\cdot10^{-7}$, $10^{-6}$ bei 2, während $T$
+        selbst von 1 auf 2 noch um $9\,\%$ wandert (das Plasmon braucht ein dichteres Gitter). $10^{-8}$ ist daher kein
+        sinnvolles Kriterium; geprüft wird die Unabhängigkeit innerhalb des Diskretisierungsfehlers.
+  \item \textbf{Weg und Verlust:} stark verlustbehaftetes Metall ($n=0{,}5+3i$, Pol weit von der Achse): reeller und
+        deformierter Weg gleich auf $6{,}5\cdot10^{-8}$ ($10^{-12}$ bei \verb|dk_factor| 2). Mit $n=0{,}3+3{,}5i$ und
+        $0{,}15+3{,}9i$ rückt der Pol an die Achse, der reelle Weg weicht um $2{,}3\cdot10^{-4}$ und $4{,}6\cdot10^{-3}$ ab.
+  \item \textbf{Falsche Seite:} $\delta<0$ (nur über die C++-Schnittstelle; die Konfiguration verlangt $\delta>0$, ein
+        negatives $\delta$ wurde vorher stillschweigend als reeller Weg gerechnet) führt an der Plasmonenpolstelle
+        vorbei: $T$ springt um $0{,}10$.
+\end{itemize}
+
 \subsection{Differenzierbarkeit}
 Die Rückwärtsregeln von M19 gelten für $M$, $\mathfrak A^{-1}$, S-Matrizen und Sternprodukte unverändert. Neu sind
 Formableitungen der Galerkin-Matrizen nach einem Wandradius $r_i$ (Leibniz):
@@ -667,9 +684,11 @@ dazu Materialableitungen (linear in $g$) und Ableitungen der Quelle \eqref{eq:cy
         Transmissionsleistung $=$ M18-Ergebnis innerhalb dessen Konvergenz ($10^{-3}$).
   \item \textbf{V21e} (Streufeld $=$ Totalfeld): Gauß-Strahl, Streufeld $+$ Hintergrund $=$ Totalfeld (RCWA $10^{-10}$,
         RK auf RK-Toleranz), Laurent und Li in $r$.
-  \item \textbf{V21f} (Symmetrie und Weg): $m\leftrightarrow-m$ $10^{-12}$; Ergebnisse unabhängig von $\delta$ ($10^{-8}$) für
-        eine Lochblende im Silberfilm; mit verlustbehaftetem Metall und $\operatorname{Im}\varepsilon\to$ klein konvergiert
-        der reelle Weg gegen den deformierten (falsche Ausweichrichtung $\Rightarrow$ Sprung, Test schlägt fehl).
+  \item \textbf{V21f} (Symmetrie und Weg): $m\leftrightarrow-m$ $10^{-12}$; Ergebnisse unabhängig von $\delta$ für
+        eine Lochblende im Silberfilm bis auf den Diskretisierungsfehler des Gitters (v2.31; vorher $10^{-8}$, s.\
+        Befund); bei stark verlustbehaftetem Metall gleich dem reellen Weg ($10^{-7}$), mit kleiner werdendem
+        $\operatorname{Im}\varepsilon$ entfernt sich der reelle Weg vom deformierten; falsche Ausweichrichtung
+        $\Rightarrow$ Sprung.
   \item \textbf{V21g} (Lochblende im Metallschirm): qualitativer Vergleich mit Popov/Bonod [22] (Werte vor
         Verwendung bibliographisch prüfen).
   \item \textbf{V21h} (Konvergenzstudie): $N_k$-Dichte, $k_{\max}$, $m_{\text{cut}}$ und Scheibenzahl als CSV, Tabelle in
