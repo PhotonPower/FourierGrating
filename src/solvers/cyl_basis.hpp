@@ -28,6 +28,10 @@ class CylLayer final : public StackLayer {
 /// Layers of a cylindrical stack (bottom to top); rings radii times k0.
 std::vector<std::unique_ptr<CylLayer>> buildCylLayers(const Stack& stack, double k0);
 
+/// The stack with every rings_profile layer replaced by its staircase of rings layers (ringsStaircase; the
+/// factorization entry is kept).
+Stack expandRingsProfiles(const Stack& stack, int defaultSlices);
+
 /// Hankel basis of one harmonic: analytic bases of superstrate and substrate (Plan eq:cyl_Psi), M
 /// of the ring layers from Plan eq:cyl_M with Laurent or Li in r (precomputed, the layers are
 /// y-invariant).

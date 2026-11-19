@@ -64,7 +64,7 @@ Top level (`*` = required):
 | `coordinate_transform` | `{"x": {"type": "asr", "eta": 0.8, "breakpoints_um": "auto" or list}, "z": {...}}`: adaptive spatial resolution, for metals and TM polarization |
 | `aperiodic` | `{"pml": {"x": {"width_um": w, "beta": 1.0}, "z": {...}}, "formulation": "auto" or "scattered", "excitation": "plane_wave" or {"mode": j} or {"n_eff": v}}`: an isolated structure in a cell with PML |
 | `superstrate_structure`, `substrate_structure` | y-invariant section (`lamellar1d`, `polygon2d`, `contour2d` without thickness) for structured half spaces (PML) |
-| `cylindrical` | axially symmetric structures about the y axis: `{"symmetry": "axial", "harmonics": "auto" or list, "spectrum": {"kappa_max": 6}, "factorization": "li_r" or "laurent", "optical_theorem": false}`; no `period_um`/`truncation`; layers `homogeneous` or `rings`; incidence `{"type": "gaussian_beam", "lambda_um", "waist_um", "focus_y_um", "polarization": "x"}` or `{"type": "plane_wave", ...angles}`. CSV sides: beam `C_R`, `C_T`, `C_A`; plane wave cross sections in µm² `C_Sup`, `C_Sdown`, `C_Ssca`, `C_Sabs`, `C_Sext` and the control `C_Sext_ot` (with `optical_theorem: true` or lossy rings; far from `C_Sext` = not converged) |
+| `cylindrical` | axially symmetric structures about the y axis: `{"symmetry": "axial", "harmonics": "auto" or list, "spectrum": {"kappa_max": 6}, "factorization": "li_r" or "laurent", "optical_theorem": false}`; no `period_um`/`truncation`; layers `homogeneous`, `rings` or `rings_profile`; incidence `{"type": "gaussian_beam", "lambda_um", "waist_um", "focus_y_um", "polarization": "x"}` or `{"type": "plane_wave", ...angles}`. CSV sides: beam `C_R`, `C_T`, `C_A`; plane wave cross sections in µm² `C_Sup`, `C_Sdown`, `C_Ssca`, `C_Sabs`, `C_Sext` and the control `C_Sext_ot` (with `optical_theorem: true` or lossy rings; far from `C_Sext` = not converged) |
 | `backend` | `"auto"`, `"cpu"` or `"cuda"`; `backend_threshold` (160) |
 | `precision` | `"auto"`, `"fp64"`, `"mixed"` or `"fp32"`; `precision_fallback` |
 | `threads` | `{"scan": "auto", "slices": "auto", "blas": 1}` |
@@ -93,6 +93,7 @@ Layers (`type`, plus `factorization` where applicable):
 | `profile2d` | `depth_um`, `below`, `above`, `shape`: `egg_crate` or `sinus_x`, `x0_um`, `z0_um`, `slices`, `z_samples` | 2D |
 | `cad` | STEP bodies, expanded into bands of the types above (needs `fg.cad.available()`); see "CAD" | 1D, 2D |
 | `rings` | `thickness_um`, `radii_um`, `materials` (one more than radii; the last one is outside); with `cylindrical` | axial |
+| `rings_profile` | `thickness_um`, `radii`: each a number, `{"cone": [r_bottom, r_top]}`, `{"sphere": {"center_y_um", "radius_um"}}` (y from the layer bottom) or `{"table": {"y_um": [...], "r_um": [...]}}`; `materials` as `rings`; `slices` (staircase, default `rcwa.slices`); radii must not cross | axial |
 
 Factorizations: `auto` (recommended), `laurent`, `li_lamellar`, `FFF_iso`, `FFF_sym`, `FFF_rig` (profiles), `FFF_A`
 and `FFF_B` (anisotropic). The default `auto` picks the right one per layer type: Li rule for lamellae,

@@ -49,6 +49,23 @@ std::vector<std::unique_ptr<CylLayer>> buildCylLayers(const Stack& stack, double
   return out;
 }
 
+Stack expandRingsProfiles(const Stack& stack, int defaultSlices) {
+  Stack out = stack;
+  out.layers.clear();
+  for (const LayerEntry& le : stack.layers) {
+    const auto* rp = std::get_if<RingsProfileLayer>(&le.spec);
+    if (!rp) {
+      out.layers.push_back(le);
+      continue;
+    }
+    for (LayerEntry& e : ringsStaircase(*rp, defaultSlices)) {
+      e.factorization = le.factorization;
+      out.layers.push_back(std::move(e));
+    }
+  }
+  return out;
+}
+
 CylBasis::CylBasis(const cyl::SpectralGrid& grid, int m, cplx epsSup, cplx epsSub,
                    const std::vector<std::unique_ptr<CylLayer>>& layers, cyl::CylFactorization f)
     : grid_(grid),

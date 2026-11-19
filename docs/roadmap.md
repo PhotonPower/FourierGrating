@@ -213,7 +213,10 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
   - Erledigt (Strahl als Streufeld, Plan v2.27): `"scattered_field": true` für Strahlen, Hintergrund auf dem Gitter,
     Quelle σ = (M − M_bg) F_bg, dividierte Differenz bei Fast-Resonanz; V21e (Streufeld + Hintergrund = Totalfeld,
     RCWA 1e-13, Nahfeld 1e-12, RK 5e-9) – `tests/validation/test_v21_cyl.cpp`
-  - Als Nächstes: `rings_profile`, CAD; Fernfeld und Winkelspektrum; V21d/f/g/h/i
+  - Erledigt (`rings_profile`, Plan v2.28): Radien als Funktionen der Höhe (konstant, Kegel, Kugel, Tabelle), Treppe
+    aus `rings`-Schichten (`src/geometry/rings.cpp`, `detail::expandRingsProfiles`) – `V21RingsProfile.*`; RK
+    integriert dieselbe Treppe (stetiges M(y) offen)
+  - Als Nächstes: CAD-Rotationskörper; Fernfeld und Winkelspektrum; V21d/f/g/h/i
 - [ ] **M21** P-zählige Drehsymmetrie: gekoppelte Harmonische m0 + lP, Winkelkoeffizienten aus `polygon2d`/
   `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)
   - Abnahme: V22a–g (Plan)

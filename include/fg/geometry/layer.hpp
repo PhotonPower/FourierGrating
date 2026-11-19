@@ -129,12 +129,39 @@ struct RingsLayer {
   std::vector<std::string> materials;
 };
 
+/// Rings whose radii change with y (Plan section "M20: Schichttypen", rings_profile): one function r_i(y) per
+/// radius (y from the layer bottom, micrometres), n radii and n + 1 materials as in RingsLayer. Solved as a
+/// staircase of `slices` RingsLayers with the radii at the slice centres; a ring of zero width is left out,
+/// crossing radii are an error.
+struct RingsProfileLayer {
+  struct Radius {
+    enum class Shape { Constant, Cone, Sphere, Table, Function };
+    Shape shape = Shape::Constant;
+    double r0_um = 0, r1_um = 0;             ///< Constant: r0; Cone: r0 at the bottom, r1 at the top
+    double centerY_um = 0, sphereR_um = 0;   ///< Sphere: r = sqrt(R^2 - (y - c)^2), 0 where |y - c| >= R
+    std::vector<double> ys_um, rs_um;        ///< Table: piecewise linear, constant beyond the ends
+    std::function<double(double)> f;         ///< Function (C++ API)
+    /// r(y) >= 0 for y in [0, thickness].
+    double at(double y_um, double thickness_um) const;
+  };
+  double thickness_um = 0;
+  std::vector<Radius> radii;
+  std::vector<std::string> materials;
+  int slices = 0;  ///< RCWA staircase slices (0 = solver default)
+};
+
 using LayerSpec = std::variant<HomogeneousLayer, Lamellar1DLayer, Profile1DLayer, Polygon2DLayer,
-                               Profile2DLayer, Contour2DLayer, SectionedLayer, RingsLayer, Sectioned1DLayer>;
+                               Profile2DLayer, Contour2DLayer, SectionedLayer, RingsLayer, Sectioned1DLayer,
+                               RingsProfileLayer>;
 
 struct LayerEntry {
   LayerSpec spec;
   Factorization factorization = Factorization::Auto;
 };
+
+/// Staircase of a rings_profile layer: `slices` (or defaultSlices) layers of equal thickness, each a
+/// RingsLayer with the radii at its centre (empty rings left out) or, if no ring is left, a HomogeneousLayer
+/// of the outer material.
+std::vector<LayerEntry> ringsStaircase(const RingsProfileLayer& layer, int defaultSlices);
 
 }  // namespace fg

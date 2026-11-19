@@ -463,6 +463,36 @@ LayerEntry parseLayer(const json& j) {
   } else if (type == "rings") {  // M20 (Plan section "M20: Schichttypen")
     le.spec = RingsLayer{j.at("thickness_um").get<double>(), j.at("radii_um").get<std::vector<double>>(),
                          j.at("materials").get<std::vector<std::string>>()};
+  } else if (type == "rings_profile") {  // M20: radii as functions of y
+    RingsProfileLayer rp;
+    rp.thickness_um = j.at("thickness_um").get<double>();
+    rp.materials = j.at("materials").get<std::vector<std::string>>();
+    rp.slices = j.value("slices", 0);
+    using Shape = RingsProfileLayer::Radius::Shape;
+    for (const json& r : j.at("radii")) {
+      RingsProfileLayer::Radius R;
+      if (r.is_number()) {
+        R.r0_um = r.get<double>();
+      } else if (r.contains("cone")) {
+        const auto c = r["cone"].get<std::vector<double>>();
+        FG_REQUIRE(c.size() == 2, "rings_profile: cone [r_bottom_um, r_top_um]");
+        R.shape = Shape::Cone;
+        R.r0_um = c[0];
+        R.r1_um = c[1];
+      } else if (r.contains("sphere")) {
+        R.shape = Shape::Sphere;
+        R.centerY_um = r["sphere"].at("center_y_um").get<double>();
+        R.sphereR_um = r["sphere"].at("radius_um").get<double>();
+      } else if (r.contains("table")) {
+        R.shape = Shape::Table;
+        R.ys_um = r["table"].at("y_um").get<std::vector<double>>();
+        R.rs_um = r["table"].at("r_um").get<std::vector<double>>();
+      } else {
+        throw Error("rings_profile: a radius is a number, {\"cone\": [r0, r1]}, {\"sphere\": {...}} or {\"table\": {...}}");
+      }
+      rp.radii.push_back(std::move(R));
+    }
+    le.spec = std::move(rp);
   } else {
     throw Error("unknown layer type '" + type + "'");
   }

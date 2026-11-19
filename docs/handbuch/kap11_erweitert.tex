@@ -150,10 +150,9 @@ senkrecht zum Stapel. In Zylinderkoordinaten entkoppeln die azimutalen Harmonisc
 bleibt ein Problem in $(r,y)$. Das ist viel günstiger, als die isolierte Struktur kartesisch mit PML zu rechnen.
 
 \begin{achtung}[Stand]
-Meilenstein M20 ist teilweise umgesetzt: Schichttypen \val{homogeneous} und \val{rings}, isotrope Materialien,
-Gauß-Strahlen auf der Achse und ebene Wellen (Streufeld), Leistungen, Streu-, Absorptions- und
-Extinktionsquerschnitt, Nahfeld. Es fehlen noch: Ringe mit $y$-abhängigem Radius (\val{rings\_profile}),
-CAD-Rotationskörper.
+Meilenstein M20 ist teilweise umgesetzt: Schichttypen \val{homogeneous}, \val{rings} und \val{rings\_profile},
+isotrope Materialien, Gauß-Strahlen auf der Achse und ebene Wellen (Streufeld), Leistungen, Streu-, Absorptions- und
+Extinktionsquerschnitt, Nahfeld. Es fehlen noch: CAD-Rotationskörper, Fernfeld und Winkelspektrum.
 \end{achtung}
 
 \begin{lstlisting}[language=json]
@@ -194,6 +193,16 @@ etwa die doppelte Rechenzeit, bei verlustbehafteten Ringen ohnehin berechnet \\
 \bottomrule
 \end{tabularx}
 \end{center}
+\paragraph{Schichten mit veränderlichem Radius.} \val{rings\_profile} beschreibt Kegelstümpfe, Kugeln, Kugelkappen
+und beliebige Rotationsprofile: Jeder Radius ist eine Zahl, \val{\{"cone": [r0, r1]\}} (unten, oben),
+\val{\{"sphere": \{"center\_y\_um": c, "radius\_um": R\}\}} ($y$ ab der Schichtunterkante) oder eine Tabelle
+\val{\{"table": \{"y\_um": [...], "r\_um": [...]\}\}}. Gerechnet wird eine Treppe aus \key{slices} Scheiben mit den
+Radien in der Scheibenmitte; der Treppenfehler fällt etwa mit $1/K^2$, prüfen Sie die Konvergenz in \key{slices}.
+\begin{lstlisting}[language=json]
+{ "type": "rings_profile", "thickness_um": 0.6, "slices": 20,
+  "radii": [ { "sphere": { "center_y_um": 0.3, "radius_um": 0.3 } } ],
+  "materials": ["sin", "air"] }
+\end{lstlisting}
 \paragraph{Einfall.}
 \begin{itemize}
   \item \val{gaussian\_beam}: \key{lambda\_um}, \key{waist\_um} (Strahltaille), \key{focus\_y\_um} (Lage des Fokus),

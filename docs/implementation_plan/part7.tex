@@ -575,6 +575,25 @@ Festlegungen:
         ($\kappa_{\max}=1$, reeller Weg).
 \end{itemize}
 
+\paragraph{Umsetzung (v2.28): \texttt{rings\_profile}.}
+Radien als Funktionen $r_i(y)$ der Höhe über der Schichtunterkante: Zahl (konstant), \verb|{"cone": [r0, r1]}|
+(linear von unten nach oben), \verb|{"sphere": {"center_y_um", "radius_um"}}| ($r=\sqrt{R^2-(y-c)^2}$, außerhalb $0$;
+Kugel und Kugelkappe) und \verb|{"table": {"y_um", "r_um"}}| (stückweise linear, jenseits der Enden konstant); C++ auch
+eine Funktion. $n$ Radien, $n+1$ Materialien wie \verb|rings|.
+\begin{itemize}[nosep]
+  \item \textbf{Treppe:} \verb|slices| Scheiben gleicher Dicke (Standard \verb|rcwa.slices|), je Scheibe eine
+        \verb|rings|-Schicht mit den Radien in der Scheibenmitte. Ein Ring ohne Breite ($r_i\le r_{i-1}$ auf $10^{-12}$)
+        entfällt in dieser Scheibe, bleibt keiner, wird die Scheibe homogen (äußeres Material); sich kreuzende Radien
+        sind ein Fehler mit Höhe und Radien. Die Treppe entsteht vor dem Aufbau der Schichten; Nahfeld,
+        Volumenintegrale, ebene Wellen und Streufeld gelten daher unverändert.
+  \item \textbf{RK} integriert in dieser Stufe dieselbe Treppe (gleiches Ergebnis wie RCWA). Ein stetiges $M(y)$
+        (Galerkin-Matrizen hängen stetig von den Radien ab, also ohne Treppenfehler) braucht $y$-abhängige
+        Quellen, $\mathfrak A$ und Radialregeln und ist offen.
+  \item \textbf{Befunde:} Treppe $=$ explizite Folge von \verb|rings|-Schichten bitgleich (Kegel mit innerem Tabellenradius,
+        Kugel von V21c); konstante Radien $=$ \verb|rings| (eine Scheibe bitgleich, drei auf $10^{-12}$); Treppenfehler
+        eines Kegels zweiter Ordnung in $1/K$ (Verhältnis $3{,}6$ bei $K=3,6,12$, Mittelpunktsradien).
+\end{itemize}
+
 \subsection{Differenzierbarkeit}
 Die Rückwärtsregeln von M19 gelten für $M$, $\mathfrak A^{-1}$, S-Matrizen und Sternprodukte unverändert. Neu sind
 Formableitungen der Galerkin-Matrizen nach einem Wandradius $r_i$ (Leibniz):

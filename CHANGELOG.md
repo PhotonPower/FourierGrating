@@ -16,6 +16,10 @@
   Toleranz ≤ 0 oder NaN jetzt mit einer Fehlermeldung ab (Test `Contour.FlattenRejectsANonPositiveTolerance`).
 
 ### Hinzugefügt
+- M20 Schichttyp `rings_profile` (Plan v2.28): Radien als Funktionen der Höhe (Zahl, `cone`, `sphere`, `table`;
+  C++ auch Funktion), gerechnet als Treppe aus `slices` `rings`-Schichten mit den Radien in der Scheibenmitte (Ringe
+  ohne Breite entfallen, kreuzende Radien sind ein Fehler). Tests `V21RingsProfile.*`: Treppe = explizite
+  `rings`-Folge bitgleich (Kegel, Kugel von V21c), Kugelkappe, Treppenfehler zweiter Ordnung.
 - M20 Strahl als Streufeld (Plan v2.27, V21e): `"scattered_field": true` gilt jetzt auch für Zylinderstapel mit
   Gauß-Strahl. Hintergrund = Stapel mit dem äußeren Material jeder Ringschicht, auf dem Hankel-Gitter gelöst und je
   Schicht als 4 N_k Exponentiallösungen dargestellt; Quelle σ = (M − M_bg) F_bg, partikuläre Lösungen über die Moden
