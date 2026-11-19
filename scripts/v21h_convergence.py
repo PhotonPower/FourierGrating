@@ -6,9 +6,10 @@ Runs fgsolve on generated configurations and writes docs/validation_data/v21h_co
 * sphere: dielectric sphere (n = 1.5, k0 a = 2) in air, plane wave at phi = 40 deg (many harmonics), staircase of a
   rings_profile; sigma_sca against Mie (BHMIE below) while one of kappa_max, dk_factor, slices, m_cut changes;
 * aperture: hole (r = 0.25 um) in a 0.1 um silver film on glass, Gaussian beam at 633 nm, R and T against the
-  finest run: in air (aperture_air, dk_factor 1 ... 6) the plasmon of the silver/air interface leaks into the glass
-  and lies between the branch points (real path), so the convergence in dk_factor is slow; with glass on both
-  sides (aperture_sym) both plasmons are bound and on the deformed path, and dk_factor 2 is converged.
+  finest run: in air (aperture_air) the plasmon of the silver/air interface leaks into the glass and lies between
+  the branch points (real path); graded panels around it (Plan v2.33) make dk_factor 1 converged to 2e-5 (before:
+  T oscillated by 0.1 up to dk_factor 6); with glass on both sides (aperture_sym) both plasmons are bound and on
+  the deformed path.
 
 Usage: python3 scripts/v21h_convergence.py [path/to/fgsolve]   (default build/cpu-release/apps/fgsolve)
 Only the standard library; the runs take about 20 minutes (one core, 8 GB suffice).
@@ -110,7 +111,7 @@ def main() -> None:
                 s = run(make(v), work, f"sphere_{param}_{v}")["C_Ssca"]
                 rows.append(["sphere", param, v, "sigma_sca_um2", s, sigma_mie, s / sigma_mie - 1])
                 print(f"sphere {param} = {v}: sigma = {s:.8f} um^2, {s / sigma_mie - 1:+.2e} vs Mie", flush=True)
-        aperture_studies = [("aperture_air", "dk_factor", [1, 2, 3, 4, 5, 6], lambda v: aperture(dk=v)),
+        aperture_studies = [("aperture_air", "dk_factor", [0.5, 1, 2, 3], lambda v: aperture(dk=v)),
                             ("aperture_sym", "dk_factor", [1, 2, 3, 4], lambda v: aperture(dk=v, sup="glass")),
                             ("aperture_sym", "kappa_max", [1.5, 2, 3], lambda v: aperture(kappa=v, dk=2, sup="glass"))]
         for case, param, values, make in aperture_studies:

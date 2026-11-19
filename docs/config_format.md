@@ -231,6 +231,10 @@ angeregt durch einen Strahl auf der Achse oder eine ebene Welle; `period_um`, `t
 "layers": [{"type": "rings", "thickness_um": 0.3, "radii_um": [0.4], "materials": ["sin", "air"]}]
 ```
 
+`dk_factor` setzt die Dichte der Stützstellen. Um Plasmonen des planaren Hintergrunds, die zwischen den Brechzahlen der
+Halbräume liegen, verfeinert das Gitter automatisch (Plan v2.33). Ein Beispiel ist Silber/Luft bei einem Silberfilm auf
+Glas.
+
 `rings`: n Radien und n + 1 Materialien von innen nach außen (das letzte gilt außerhalb). Erlaubt sind `homogeneous`,
 `rings` und `rings_profile`, isotrope Materialien, homogene Halbräume.
 

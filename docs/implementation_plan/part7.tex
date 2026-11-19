@@ -176,6 +176,15 @@ Konvergenzstudie V21h bestätigen):
         Deformation ist nur nötig, wenn der Hintergrund gebundene Moden trägt (Prüfung: Eigenwerte der Hintergrund-S-Matrix
         im Intervall; sonst Weg reell). Gebundene Moden verlassen die Struktur seitlich; ihr Fluss erscheint nicht in
         oben/unten (Ausgaben).
+  \item \textbf{Resonanzen auf dem reellen Abschnitt (v2.33):} Ein Plasmon $k_p=\sqrt{\varepsilon_m\varepsilon_d/
+        (\varepsilon_m+\varepsilon_d)}$ des \emph{planaren Hintergrunds} (Schicht- bzw.\ Außenmaterial der Ringe und
+        Halbräume) mit $\operatorname{Re}k_p<k_a$ liegt zwischen den Verzweigungspunkten, strahlt in den dichteren
+        Halbraum ab (leckende Mode) und bleibt eine schmale Resonanz auf dem reellen Weg. Da $R$, $T$ und das
+        Winkelspektrum dort an reellen Knoten ausgewertet werden (die Abstrahlung ist physikalisch scharf), wird der
+        Weg nicht deformiert, sondern gestuft verfeinert: zusätzliche Panelgrenzen
+        $\operatorname{Re}k_p\pm w\,2^j$, $w=\max(\operatorname{Im}k_p,10^{-3}h_{\max})$ mit der Panelbreite $h_{\max}=\pi/(2R_s\,\mathtt{dk\_factor})$, solange $w\,2^j<h_{\max}$ und
+        innerhalb der benachbarten festen Grenzen. Resonanzen im deformierten Abschnitt bleiben dem komplexen Weg
+        überlassen.
 \end{itemize}
 
 \subsection{Galerkin-Matrizen}\label{sec:cylgal}
@@ -670,10 +679,26 @@ Lochblende ($r=0{,}25$\,µm) in einem Metallfilm ($0{,}1$\,µm) auf Glas, Strahl
         durch den Film ins Glas ab und erzeugt auf dem reellen Weg eine Resonanz der Breite $\approx5\cdot10^{-3}$, die
         der deformierte Weg auf $[k_a,k_b]$ nicht erfasst. Gegenprobe mit Glas auf beiden Seiten (beide Plasmonen
         gebunden, auf dem deformierten Weg): konvergiert auf $4\cdot10^{-8}$ bei \verb|dk_factor| 3.
-  \item \textbf{Offen:} Weg auch zwischen den Verzweigungspunkten deformieren, wenn ein Metall vorkommt (die
-        leckende Mode liegt auf dem unphysikalischen Blatt; der Weg darf von unten an die reelle Achse, ohne den
-        Schnitt zu kreuzen), oder lokale Verfeinerung um die Resonanz. Bis dahin: bei Metallfilmen zwischen
-        verschiedenen Halbräumen die Konvergenz in \verb|dk_factor| prüfen (V21g).
+  \item \textbf{Offen (v2.32), behoben in v2.33:} Weg auch zwischen den Verzweigungspunkten deformieren oder lokal um
+        die Resonanz verfeinern.
+\end{itemize}
+
+\paragraph{Umsetzung (v2.33): Resonanzen zwischen den Verzweigungspunkten.}
+Gestufte Panels um die Plasmonen des planaren Hintergrunds (Abschnitt~\ref{sec:cylgrid}); die Deformation zwischen den
+Verzweigungspunkten wurde verworfen, weil $R$, $T$ und das Winkelspektrum reelle Knoten brauchen und die
+Abstrahlung des leckenden Plasmons selbst eine scharfe Spitze im Winkelspektrum ist.
+\begin{itemize}[nosep]
+  \item Unit-Test \verb|CylSpectrum.GradedPanelsAroundAResonance|: $\int_0^{k_{\max}}dk/(k-p)$ mit
+        $p=1{,}2+2\cdot10^{-3}i$ zwischen den Verzweigungspunkten 1 und 1{,}5: gleichmäßige Panels $>10^{-3}$ daneben,
+        gestufte $<10^{-10}$; Verzweigungspunkte bleiben Panelgrenzen; Resonanzen im deformierten Abschnitt ändern das
+        Gitter nicht.
+  \item \verb|V21h.LeakyPlasmonBetweenTheBranchPoints|: Lochblende im Silberfilm, Luft darüber
+        ($k_p=1{,}033+0{,}0023i$): $T=0{,}49409$ / $0{,}494072$ / $0{,}494071$ bei \verb|dk_factor| 1 / 2 / 3 (vorher
+        $0{,}416$ bis $0{,}537$ bis \verb|dk_factor| 6), $N_k$ 144 $\to$ 224. Der symmetrische Fall (Glas auf beiden
+        Seiten) ist unverändert (Plasmonen auf dem deformierten Weg, kein zusätzlicher Knoten).
+  \item V21f: Der reelle Weg (\verb|deform: false|) profitiert ebenfalls; die Abweichung reell gegen deformiert sinkt
+        für $n=0{,}3+3{,}5i$ / $0{,}15+3{,}9i$ von $2{,}3\cdot10^{-4}$ / $4{,}6\cdot10^{-3}$ auf $2{,}7\cdot10^{-6}$ /
+        $1{,}2\cdot10^{-4}$.
 \end{itemize}
 
 \subsection{Differenzierbarkeit}

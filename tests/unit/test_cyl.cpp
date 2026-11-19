@@ -138,6 +138,48 @@ TEST(CylSpectrum, BranchPointSubstitutionAndPath) {
   EXPECT_LT(d.k.imag().minCoeff(), -0.04);  // the path dips into the lower half plane
 }
 
+TEST(CylSpectrum, GradedPanelsAroundAResonance) {
+  // a pole p just above the real section of the path (leaky plasmon between the branch points, V21h):
+  // int_0^kmax dk / (k - p) = Log(kmax - p) - Log(-p); uniform panels of width pi / (2 R_s) miss the
+  // Lorentzian of width Im p, graded panels Re p +- Im p 2^j resolve it
+  const cplx p(1.2, 2e-3);
+  const double kmax = 6.0;
+  const cplx exact = std::log(kmax - p) - std::log(-p);
+  auto integral = [&](const cyl::SpectralGrid& g) {
+    cplx s = 0.0;
+    for (Eigen::Index j = 0; j < g.k.size(); ++j) s += g.w(j) / (g.k(j) - p);
+    return s;
+  };
+  cyl::SpectrumOptions o;
+  o.nodesPerPanel = 16;
+  o.kmax = kmax;
+  o.Rs = 2.0;
+  o.branchPoints = {1.0, 1.5};
+  const auto plain = cyl::spectralGrid(o);
+  o.resonances = {p};
+  const auto graded = cyl::spectralGrid(o);
+  EXPECT_GT(std::abs(integral(plain) - exact), 1e-3);
+  EXPECT_LT(std::abs(integral(graded) - exact), 1e-10);
+  // the grading stays between the branch points (edges kept) and adds few panels
+  for (double b : {0.0, 1.0, 1.5, kmax})
+    EXPECT_NE(std::find(graded.edges.begin(), graded.edges.end(), b), graded.edges.end());
+  EXPECT_TRUE(std::is_sorted(graded.edges.begin(), graded.edges.end()));
+  EXPECT_LT(graded.k.size(), plain.k.size() + 16 * 20);
+  const auto inner = std::count_if(graded.edges.begin(), graded.edges.end(),
+                                   [](double e) { return e > 1.0 && e < 1.5; });
+  EXPECT_GE(inner, 8);
+  // a resonance on the deformed section is left to the complex path; one with Im p = 0 gets a floor width
+  o.deformA = 1.5;
+  o.deformB = 2.4;
+  o.delta = 0.05;
+  o.resonances = {cplx(2.0, 1e-3)};
+  auto d = o;
+  d.resonances.clear();
+  EXPECT_EQ(cyl::spectralGrid(o).edges, cyl::spectralGrid(d).edges);
+  o.resonances = {cplx(1.2, 0.0)};
+  EXPECT_LT(cyl::spectralGrid(o).k.size(), plain.k.size() + 16 * 40);
+}
+
 TEST(CylGalerkin, HankelPairGaussian) {
   // f = r^nu exp(-r^2) <-> f^(k) = k^nu / 2^(nu+1) exp(-k^2/4) (Plan eq:hankel); discrete inverse
   // 1e-12
@@ -437,3 +479,4 @@ TEST(CylField, FieldsFromGInvertTheAuxiliaryFields) {
   EXPECT_LT(std::abs(ep - (Er + fg::I * Ephi)), 1e-15);
   EXPECT_LT(std::abs(em - (Er - fg::I * Ephi)), 1e-15);
 }
+

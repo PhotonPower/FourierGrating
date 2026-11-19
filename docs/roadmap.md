@@ -223,9 +223,10 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
   - Erledigt (V21f, Plan v2.31): Symmetrie und Integrationsweg; Planfehler: δ-Unabhängigkeit nur innerhalb des
     Diskretisierungsfehlers – `V21f.SymmetryAndIntegrationPath`
   - Erledigt (V21h, Plan v2.32): Konvergenzstudie `scripts/v21h_convergence.py` → `docs/validation_data/`; Befund:
-    leckendes Plasmon zwischen den Verzweigungspunkten konvergiert langsam in `dk_factor` (Abhilfe offen)
-  - Als Nächstes: Weg zwischen den Verzweigungspunkten (V21h-Befund), V21d (gegen kartesisch, Server), V21g, V21i
-    (Gradienten)
+    leckendes Plasmon zwischen den Verzweigungspunkten konvergiert langsam in `dk_factor`
+  - Erledigt (Plan v2.33): gestufte Panels um Plasmonen des Hintergrunds zwischen den Verzweigungspunkten –
+    `CylSpectrum.GradedPanelsAroundAResonance`, `V21h.LeakyPlasmonBetweenTheBranchPoints`
+  - Als Nächstes: V21g, V21i (Gradienten), V21d (gegen kartesisch, Server)
 - [ ] **M21** P-zählige Drehsymmetrie: gekoppelte Harmonische m0 + lP, Winkelkoeffizienten aus `polygon2d`/
   `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)
   - Abnahme: V22a–g (Plan)

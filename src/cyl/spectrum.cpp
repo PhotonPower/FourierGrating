@@ -32,12 +32,26 @@ SpectralGrid spectralGrid(const SpectrumOptions& opt) {
     edges.push_back(opt.deformA);
     edges.push_back(opt.deformB);
   }
+  const double hmax = PI / (2 * opt.Rs * opt.dkFactor);
+  // graded panels around resonances on the real section, between the neighbouring fixed edges
+  {
+    std::vector<double> fixed = edges;
+    std::sort(fixed.begin(), fixed.end());
+    for (const cplx p : opt.resonances) {
+      const double c = p.real();
+      if (c <= tol || c >= opt.kmax - tol || (deform && c > opt.deformA - tol && c < opt.deformB + tol)) continue;
+      const auto hiIt = std::upper_bound(fixed.begin(), fixed.end(), c);
+      const double lo = *(hiIt - 1), hi = *hiIt, w0 = std::max(std::abs(p.imag()), 1e-3 * hmax);
+      for (double w = w0; w < hmax; w *= 2)
+        for (const double e : {c - w, c + w})
+          if (e > lo + 0.5 * w0 && e < hi - 0.5 * w0) edges.push_back(e);
+    }
+  }
   std::sort(edges.begin(), edges.end());
   edges.erase(
       std::unique(edges.begin(), edges.end(), [&](double a, double b) { return b - a <= tol; }),
       edges.end());
 
-  const double hmax = PI / (2 * opt.Rs * opt.dkFactor);
   const auto& gl = quadrature::gaussLegendre(opt.nodesPerPanel);
   std::vector<cplx> ks, ws;
   for (std::size_t e = 0; e + 1 < edges.size(); ++e) {

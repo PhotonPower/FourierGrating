@@ -16,6 +16,9 @@ struct SpectrumOptions {
   std::vector<double> branchPoints;     ///< Re sqrt(eps_h) of the half spaces (beta_h = 0)
   double deformA = 0.0, deformB = 0.0;  ///< deformed section [k_a, k_b] (empty: real path)
   double delta = 0.0;                   ///< depth of the deformation (0: real path)
+  /// poles p (Im p >= 0) close to the real section of the path, e.g. plasmons that leak between the branch
+  /// points (V21h): graded panels with edges Re p +- w 2^j, w = max(Im p, 1e-3 h_max), up to the panel width
+  std::vector<cplx> resonances;
 };
 
 /// Nodes k_j (complex on the deformed section) and weights w_j including dk/dt, so that
@@ -27,7 +30,8 @@ struct SpectralGrid {
 };
 
 /// Composite Gauss-Legendre grid on [0, k_max] with square-root substitutions at the branch points
-/// and the path k(u) = u - i delta sin(pi (u - k_a)/(k_b - k_a)) on [k_a, k_b] (Plan sec:cylgrid).
+/// and the path k(u) = u - i delta sin(pi (u - k_a)/(k_b - k_a)) on [k_a, k_b]; graded panels around the
+/// resonances on the real section (Plan sec:cylgrid).
 SpectralGrid spectralGrid(const SpectrumOptions& opt);
 
 }  // namespace fg::cyl

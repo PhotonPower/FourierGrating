@@ -885,8 +885,8 @@ TEST(V21f, SymmetryAndIntegrationPath) {
   // m <-> -m (x polarization: m = -1 and m = +1 carry the same power)
   EXPECT_NEAR(a.reflectedPerHarmonic[0], a.reflectedPerHarmonic[1], 1e-12);
   EXPECT_NEAR(a.transmittedPerHarmonic[0], a.transmittedPerHarmonic[1], 1e-12);
-  // depth of the path: within the discretization error (dk_factor 1: 1.6e-5 / 1.4e-4; dk_factor 2: 5e-7 / 1e-6,
-  // while T itself still changes by 9 % from dk_factor 1 to 2)
+  // depth of the path: within the discretization error (dk_factor 1: 9.4e-5 / 4.6e-5, while R and T change by
+  // 1e-4 / 2e-5 from dk_factor 1 to 2; V21h)
   std::printf("V21f silver: R = %.10f, T = %.10f; delta 0.05 -> 0.1: %.1e, %.1e\n", a.reflected, a.transmitted,
               b.reflected - a.reflected, b.transmitted - a.transmitted);
   EXPECT_LT(std::abs(b.reflected - a.reflected), 1e-4);
@@ -898,8 +898,9 @@ TEST(V21f, SymmetryAndIntegrationPath) {
   std::printf("V21f silver, wrong side: R = %.10f, T = %.10f\n", w.reflected, w.transmitted);
   EXPECT_GT(std::abs(w.transmitted - a.transmitted) + std::abs(w.reflected - a.reflected), 1e-2);
   // lossy metal (eps = -8.75 + 3 i, pole far from the axis): the real path is accurate and equals the deformed
-  // one to quadrature accuracy (measured 6.5e-8 for |dR| + |dT|; 1e-12 with dk_factor 2); with decreasing loss
-  // the pole approaches the axis and the real path departs from the deformed one (2.3e-4, 4.6e-3)
+  // one to quadrature accuracy (measured 2.3e-8 for |dR| + |dT|); with decreasing loss the pole approaches the
+  // axis and the real path departs from the deformed one (2.7e-6, 1.2e-4; before the graded panels of v2.33
+  // around the plasmon 2.3e-4, 4.6e-3)
   double d[3];
   int i = 0;
   for (const std::string n : {"[0.5, 3.0]", "[0.3, 3.5]", "[0.15, 3.9]"}) {
@@ -915,3 +916,20 @@ TEST(V21f, SymmetryAndIntegrationPath) {
   // the configuration accepts only delta > 0
   EXPECT_THROW(fg::io::parseConfig(aperture(ag, R"({"delta": -0.05})")), fg::Error);
 }
+
+TEST(V21h, LeakyPlasmonBetweenTheBranchPoints) {
+  // silver film between air and glass: the plasmon of the silver/air interface (k = 1.033 + 0.0023 i) lies
+  // between the branch points 1 and 1.5 and leaks into the glass. Before v2.33, T oscillated in dk_factor
+  // (0.416, 0.453, 0.537, 0.504, 0.477, 0.495 for 1 ... 6); graded panels around Re k_p (Plan sec:cylgrid)
+  // make it converge: fgsolve gives T = 0.4940938 (dk_factor 1), 0.4940715 (2), 0.4940711 (3)
+  const std::string ag = "[0.135, 3.99]";
+  const fg::CylindricalResult h = solveConfig(aperture(ag, "\"auto\"", 0.5)).cylindrical,
+                              f = solveConfig(aperture(ag, "\"auto\"", 1.0)).cylindrical;
+  std::printf("V21h silver/air: dk 0.5: R = %.10f, T = %.10f; dk 1: R = %.10f, T = %.10f\n", h.reflected,
+              h.transmitted, f.reflected, f.transmitted);
+  EXPECT_NEAR(f.transmitted, 0.4940711, 1e-4);
+  EXPECT_NEAR(f.reflected, 0.3504524, 2e-4);
+  EXPECT_NEAR(h.transmitted, f.transmitted, 1e-3);
+  EXPECT_NEAR(h.reflected, f.reflected, 2e-3);
+}
+
