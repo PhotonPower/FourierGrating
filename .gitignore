@@ -17,6 +17,8 @@ docs/implementation_plan/*.aux
 docs/implementation_plan/*.log
 docs/implementation_plan/*.out
 docs/implementation_plan/*.toc
+docs/implementation_plan/*.fls
+docs/implementation_plan/*.fdb_latexmk
 docs/implementation_plan/build.log
 # results
 *.npy
