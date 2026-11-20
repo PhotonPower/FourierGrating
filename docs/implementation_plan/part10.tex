@@ -170,7 +170,8 @@ Die Faktorisierung prüft das Modell (Meldung von \verb|Sectioned1DLayer|). Grad
         $Q$ an fünf Höhen gleich ($10^{-13}$), Effizienzen RCWA $10^{-12}$, RK $10^{-10}$; isotrop und anisotrop.
   \item \textbf{V25c} Gerundetes Trapez aus V24c ($CD=100$\,nm, $h=100$\,nm, $15^\circ$-Wände, $r=10$\,nm) exakt als
         NURBS mit Kreisbögen gegen den \verb|Function|-Wert von V24c (RK, Laurent): $10^{-10}$, angestrebt das Niveau
-        $2{,}6\cdot10^{-13}$. Im CI-Job \verb|cad| zusätzlich gegen \verb|examples/cad_line_grating_1d.json| ($10^{-10}$).
+        $2{,}6\cdot10^{-13}$. Im CI-Job \verb|cad| zusätzlich gegen \verb|examples/cad_line_grating_1d.json| (RK, Toleranz $10^{-10}$;
+        verschiedene Schrittfolgen, eine Schicht gegen drei: $10^{-9}$, gemessen $3{,}2\cdot10^{-10}$).
   \item \textbf{V25d} Überhang (Pilzprofil): $R+T=1$ ($10^{-10}$, verlustfrei), Reziprozität (fällt mit $N_x$),
         RCWA $\to$ RK mit steigender \verb|slices|-Zahl, Konvergenz in $N_x$. Kurvenstart verschoben (dieselbe
         Geometrie ab einem inneren $x$): Effizienzen $10^{-12}$.

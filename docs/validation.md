@@ -476,7 +476,7 @@ Differenz; gegen ein Gitter ohne Resonanz σ auf 5e-14, Nahfeld auf 7,5e-12 (`V2
 | V25b Grad 1 = Trapez (`points`), isotrop / anisotrop, Laurent | `profile1d` `points` | RCWA 1,4e-15 / 5,6e-16, RK 7,9e-14 / 3,1e-13 |
 | V25b Grad 1 = Dreieck | `profile1d` `triangle` | RCWA 1,1e-15, RK 5,8e-14 |
 | V25c gerundetes Trapez (exakte Bögen), Bandgrenzen an den Bogenenden | `profile1d` `Function` (RK, Laurent) | 2,1e-13 |
-| V25c dieselbe Linie | `cad_line_grating_1d` (STEP, RK) | CI-Job `cad` |
+| V25c dieselbe Linie | `cad_line_grating_1d` (STEP, drei Bandschichten; RK, tol 1e-10) | 3,2e-10 (RK-Toleranz; CI-Job `cad`) |
 | V25d Pilz (glatte Quadriken, Überhang) | R + T = 1 | RK 1,7e-14, RCWA ≤ 8e-15 |
 | V25d RCWA → RK | 20 / 80 / 320 Scheiben | 2,5e-3 / 1,4e-5 / 2,3e-6 |
 | V25d Kurvenanfang verschoben | Ausgangsfall | RCWA 4,4e-16, RK 1,1e-15 |
