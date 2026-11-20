@@ -28,12 +28,16 @@ void evalXY(const BezierSegment& s, double t, double& x, double& y, double& dx, 
 }
 
 /// Root of y(t) - c in [a, b] with a sign change: safeguarded Newton (bisection fallback).
-double refine(const BezierSegment& s, double c, double a, double b) {
+/// Root of y(t) - c in (a, b) with a sign change; signA / signB (nonzero) replace the sign at an end where y = c
+/// exactly (a root at that end that belongs elsewhere, Plan section "M24: Linienschnitt").
+double refine(const BezierSegment& s, double c, double a, double b, int signA = 0, int signB = 0) {
   double x, ya, yb, dx, dy;
   evalXY(s, a, x, ya, dx, dy);
   evalXY(s, b, x, yb, dx, dy);
   ya -= c;
   yb -= c;
+  if (ya == 0 && signA != 0) ya = signA;
+  if (yb == 0 && signB != 0) yb = signB;
   if (ya == 0) return a;
   if (yb == 0) return b;
   double lo = a, hi = b;  // g(lo) has the sign of ya
@@ -61,17 +65,23 @@ int sgn(double v) { return v > 0 ? 1 : (v < 0 ? -1 : 0); }
 void isolate(const BezierSegment& s, double level, std::vector<double> c, double t0, double t1, int depth,
              std::vector<double>& roots) {
   const std::size_t n = c.size() - 1;
+  // a root exactly at an end: the coefficient is replaced by its nearest nonzero neighbour, whose sign the
+  // polynomial has just inside the interval; refine then brackets with that sign instead of the zero (M24:
+  // before, it returned the end and lost an interior root)
+  int signA = 0, signB = 0;
   if (c.front() == 0) {  // a root at the start belongs to this interval (t = 1 to the next segment)
     if (t0 < 1) roots.push_back(t0);
     std::size_t k = 1;
     while (k <= n && c[k] == 0) ++k;
     if (k > n) return;  // identically zero: the segment lies on the line (critical height)
     c.front() = c[k];
+    signA = sgn(c[k]);
   }
   if (c.back() == 0) {
     std::size_t k = n;
     while (k > 0 && c[k - 1] == 0) --k;
     c.back() = c[k - 1];
+    signB = sgn(c[k - 1]);
   }
   int changes = 0, last = 0;
   for (double v : c) {
@@ -82,7 +92,7 @@ void isolate(const BezierSegment& s, double level, std::vector<double> c, double
   }
   if (changes == 0) return;
   if (changes == 1) {  // exactly one root (Descartes' rule in Bernstein form), ends of opposite sign
-    roots.push_back(refine(s, level, t0, t1));
+    roots.push_back(refine(s, level, t0, t1, signA, signB));
     return;
   }
   if (depth > 60 || t1 - t0 < 1e-15) {

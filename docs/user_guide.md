@@ -59,7 +59,7 @@ isotropen Medien zusätzlich ausgegeben.
 |---|---|---|---|
 | `homogeneous` | homogene Schicht | ✓ | ✓ |
 | `lamellar1d` | Lamellen (Breakpoints in x, Material je Intervall), z-invariant | ✓ | ✓ |
-| `profile1d` | Oberfläche y = g(x): `sinus`, `triangle` (Echelette), `points` (periodisches Polygon) | ✓ | ✓ (z-invariant) |
+| `profile1d` | Oberfläche y = g(x): `sinus`, `triangle` (Echelette), `points` (periodisches Polygon); `nurbs`: periodische NURBS-Linie mit Überhängen (nur 1D, M24) | ✓ | ✓ (z-invariant; `nurbs` nicht) |
 | `polygon2d` | y-invarianter Querschnitt: Hintergrund + Polygone/Rechtecke | – | ✓ |
 | `profile2d` | Oberfläche y = g(x, z): `egg_crate`, `sinus_x` | – | ✓ |
 

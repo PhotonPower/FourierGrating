@@ -28,6 +28,7 @@ set(FG_UNIT_TESTS
   test_cyl
   test_line_section
   test_sectioned1d
+  test_nurbs_profile
 )
 foreach(t ${FG_UNIT_TESTS})
   add_executable(${t} unit/${t}.cpp)
@@ -134,6 +135,9 @@ add_executable(test_validation_v23 validation/test_v23_dispersion.cpp)
 target_link_libraries(test_validation_v23 PRIVATE fg_core GTest::gtest_main nlohmann_json::nlohmann_json)
 target_compile_definitions(test_validation_v23 PRIVATE FG_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 gtest_discover_tests(test_validation_v23 PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)
+add_executable(test_validation_v25 validation/test_v25_nurbs.cpp)
+target_link_libraries(test_validation_v25 PRIVATE fg_core GTest::gtest_main nlohmann_json::nlohmann_json)
+gtest_discover_tests(test_validation_v25 PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)
 add_executable(test_validation_v21 validation/test_v21_cyl.cpp)
 target_link_libraries(test_validation_v21 PRIVATE fg_core GTest::gtest_main nlohmann_json::nlohmann_json)
 gtest_discover_tests(test_validation_v21 PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)

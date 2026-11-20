@@ -12,6 +12,7 @@
 #include "fg/cad/cad.hpp"
 #include "fg/core/error.hpp"
 #include "fg/geometry/dispersion.hpp"
+#include "fg/geometry/nurbs_profile.hpp"
 #include "fg/linalg/backend.hpp"
 #include "fg/physics/anisotropic.hpp"
 
@@ -378,6 +379,72 @@ cad::CadOptions parseCadOptions(const json& j, const std::string& baseDir, const
   return o;
 }
 
+/// profile1d with "shape": "nurbs" (Plan section "Erweiterung ab Version 2.37: NURBS-Profil in 1D-Gittern (M24)"):
+/// one layer, a Sectioned1DLayer with the NURBS line provider and its band boundaries. Errors carry the pointer
+/// of the layer and a code [NURBS_*].
+LayerEntry parseNurbsProfile(const json& j, const std::string& ptr, double dx_um, bool is1D, bool cylindrical,
+                             bool aperiodic) {
+  auto fail = [&](const std::string& code, const std::string& msg) {
+    throw Error(ptr + ": [" + code + "] profile1d nurbs: " + msg);
+  };
+  if (cylindrical) fail("NURBS_STACK", "not in a cylindrical stack");
+  if (!is1D) fail("NURBS_STACK", "needs a 1D grating (\"dimension\": \"1D\")");
+  if (aperiodic) fail("NURBS_STACK", "not with a PML (aperiodic)");
+  if (!j.contains("nurbs") || !j["nurbs"].is_object()) fail("NURBS_INPUT", "needs a \"nurbs\" object");
+  const json& nj = j["nurbs"];
+  geometry::NurbsCurve c;
+  try {
+    c.degree = nj.at("degree").get<int>();
+    c.knots = nj.at("knots").get<std::vector<double>>();
+    for (const auto& pj : nj.at("points_um")) {
+      if (!pj.is_array() || pj.size() != 2) fail("NURBS_INPUT", "points_um entries are [x, y]");
+      c.points.push_back({pj[0].get<double>(), pj[1].get<double>()});
+    }
+    if (nj.contains("weights")) c.weights = nj["weights"].get<std::vector<double>>();
+  } catch (const json::exception& e) {
+    fail("NURBS_INPUT", std::string("nurbs.degree, knots, points_um (and weights): ") + e.what());
+  }
+  const std::string below = j.at("below").get<std::string>(), above = j.at("above").get<std::string>();
+  std::shared_ptr<const geometry::NurbsProfile> prof;
+  try {
+    prof = std::make_shared<const geometry::NurbsProfile>(c, dx_um, below, above);
+  } catch (const Error& e) {
+    throw Error(ptr + ": " + e.what());
+  }
+  // thickness: depth_um, or the top of the curve; the curve must lie in [0, depth] (Plan "M24: Konfiguration")
+  const double depth = j.contains("depth_um") ? j["depth_um"].get<double>() : prof->yMax();
+  std::ostringstream range;
+  range << "the curve spans y = " << prof->yMin() << " ... " << prof->yMax() << " um";
+  if (!(depth > 0)) fail("NURBS_RANGE", "depth_um must be positive (" + range.str() + ")");
+  const double tol = 1e-12 * std::max(depth, dx_um);
+  if (prof->yMin() < -tol || prof->yMax() > depth + tol)
+    fail("NURBS_RANGE", range.str() + ", outside the layer [0, depth_um = " + std::to_string(depth) + "]");
+  auto provider = std::make_shared<const NurbsProfileLineProvider>(prof, depth);
+  Sectioned1DLayer l;
+  l.yBreaks_um = provider->bandBreaks();
+  // materials alternate in every band (self-intersection that the flattened check could miss)
+  std::vector<double> edges{0.0};
+  edges.insert(edges.end(), l.yBreaks_um.begin(), l.yBreaks_um.end());
+  edges.push_back(depth);
+  for (std::size_t b = 0; b + 1 < edges.size(); ++b) {
+    try {
+      (void)provider->section(0.5 * (edges[b] + edges[b + 1]));
+    } catch (const Error& e) {
+      throw Error(ptr + ": " + e.what());
+    }
+  }
+  l.provider = provider;
+  l.background = above;
+  l.materials = below == above ? std::vector<std::string>{below} : std::vector<std::string>{below, above};
+  l.slices = j.value("slices", 0);
+  l.chebyshevNodes = j.value("chebyshev_nodes", 0);
+  if (l.slices < 0 || l.chebyshevNodes < 0) fail("NURBS_INPUT", "slices and chebyshev_nodes must be >= 0");
+  LayerEntry le;
+  le.factorization = parseFactorization(j);
+  le.spec = l;
+  return le;
+}
+
 LayerEntry parseLayer(const json& j) {
   const std::string type = j.at("type").get<std::string>();
   LayerEntry le;
@@ -409,7 +476,7 @@ LayerEntry parseLayer(const json& j) {
         FG_REQUIRE(p.xs_um.size() == p.ys_um.size() && p.xs_um.size() >= 2, "profile points: x_um/y_um");
       }
     } else {
-      throw Error("unknown profile shape '" + shape + "'");
+      throw Error("unknown profile shape '" + shape + "' (sinus | triangle | points | nurbs)");
     }
     le.spec = p;
   } else if (type == "polygon2d") {
@@ -640,10 +707,17 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
   checkDispersion(cfg);  // M22: before anything is built or computed
 
   // layers; a cad block expands into its bands (M14), relative STEP paths against baseDir
+  std::size_t layerIndex = 0;
   for (const auto& lj : j.value("layers", json::array())) {
+    const std::string ptr = "/layers/" + std::to_string(layerIndex++);
     if (lj.value("type", std::string()) == "cad") {
       const cad::CadOptions o = parseCadOptions(lj, baseDir, cfg);
       for (auto& le : cad::slice(o, cfg.stack)) cfg.stack.layers.push_back(std::move(le));
+      continue;
+    }
+    if (lj.value("type", std::string()) == "profile1d" && lj.value("shape", std::string()) == "nurbs") {  // M24
+      cfg.stack.layers.push_back(
+          parseNurbsProfile(lj, ptr, cfg.stack.dx_um, dim == "1D", cylindrical, j.contains("aperiodic")));
       continue;
     }
     cfg.stack.layers.push_back(parseLayer(lj));

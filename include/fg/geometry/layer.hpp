@@ -118,6 +118,9 @@ struct Sectioned1DLayer {
   std::vector<std::string> materials;
   int slices = 0;          ///< RCWA staircase slices (0 = solver default)
   int chebyshevNodes = 0;  ///< as SectionedLayer
+  /// Interior band boundaries 0 < y < thickness (micrometres, ascending; Plan section "M24: Kritische Höhen und
+  /// Bänder"): RK steps and Chebyshev interpolants do not cross them. Empty: one band (M23).
+  std::vector<double> yBreaks_um;
 };
 
 /// Concentric rings around the cylinder axis (Plan section "M20: Schichttypen"): materials[i] on

@@ -18,6 +18,7 @@ add_library(fg_core
   geometry/coordinate_transform.cpp
   geometry/contour.cpp
   geometry/line_section.cpp
+  geometry/nurbs_profile.cpp
   geometry/normal_field.cpp
   geometry/profile.cpp
   geometry/rings.cpp

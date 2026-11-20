@@ -1627,6 +1627,19 @@ class StackSolver final : public Solver {
         sig += w(k) * (s.blochSource ? VecC(MB->col(k * nf + c) - L.MB.col(k * nf + c)) : VecC(M.col(k * nf + c) - L.M.col(k * nf + c)));
     return s.blochSource ? componentwise(s.Tsrc, sig) : sig;
   }
+  /// The cuts c (normalized, ascending) with the band boundaries of a layer (micrometres above its bottom y0)
+  /// strictly inside added (Plan section "M24: Kritische Höhen und Bänder").
+  static std::vector<double> withBreaks(std::vector<double> c, const std::vector<double>& breaks_um, double y0,
+                                        double k0) {
+    const double ya = c.front(), yb = c.back(), tol = 1e-12 * std::max(1.0, std::abs(yb));
+    for (double b : breaks_um) {
+      const double y = y0 + b * k0;
+      if (y > ya + tol && y < yb - tol) c.push_back(y);
+    }
+    std::sort(c.begin(), c.end());
+    c.erase(std::unique(c.begin(), c.end(), [&](double a, double b) { return b - a <= tol; }), c.end());
+    return c;
+  }
   /// Background layers boundaries strictly inside (ya, yb) (normalized): elements must not cross them.
   static std::vector<double> bgCuts(const Setup& s, double ya, double yb) {
     std::vector<double> c{ya};
@@ -2013,14 +2026,23 @@ class StackSolver final : public Solver {
     }
     const int K = std::max(1, static_cast<int>(std::ceil(rho * H / std::log(growthLimit()))));
     const auto tab = std::make_shared<const ButcherTableau>(ButcherTableau::byName(opt_.rkTableau));
+    const std::vector<double> breaks = m.yBreaks_um();  // M24: band boundaries inside the layer
     for (int k = 0; k < K; ++k) {
       // scattered-field formulation: also cut at the background layer boundaries (profile heights)
-      const std::vector<double> cut = bgCuts(s, y0 + H * k / K, y0 + H * (k + 1) / K);
+      std::vector<double> cut = bgCuts(s, y0 + H * k / K, y0 + H * (k + 1) / K);
+      if (!breaks.empty()) cut = withBreaks(cut, breaks, y0, s.k0);
       for (std::size_t c = 0; c + 1 < cut.size(); ++c) {
         const double ya = cut[c] - y0, yb = cut[c + 1] - y0;
-        tasks.push_back([this, &s, &sys, &m, &sampleY, Mfun, tab, y0, ya, yb, rho, record](std::vector<Element>& out,
-                                                                                         Diagnostics& diag) {
-          rkSlice(s, sys, m, Mfun, m.yInvariant(), y0, ya, yb, rho, *tab, record, sampleY, out, diag, 0);
+        // band boundaries (M24): Q at heights clamped 1e-9 of the slice inside it, the one-sided limits at a
+        // boundary (Q jumps at a horizontal piece of the profile; the critical height itself is never cut)
+        std::function<MatC(double)> Mf = Mfun;
+        if (!breaks.empty()) {
+          const double d = 1e-9 * (yb - ya), lo = ya + d, hi = yb - d;
+          Mf = [Mfun, lo, hi](double y) { return Mfun(std::clamp(y, lo, hi)); };
+        }
+        tasks.push_back([this, &s, &sys, &m, &sampleY, Mf, tab, y0, ya, yb, rho, record](std::vector<Element>& out,
+                                                                                       Diagnostics& diag) {
+          rkSlice(s, sys, m, Mf, m.yInvariant(), y0, ya, yb, rho, *tab, record, sampleY, out, diag, 0);
         });
       }
     }

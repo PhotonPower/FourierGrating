@@ -1,0 +1,218 @@
+%=====================================================================
+\clearpage
+\section{Erweiterung ab Version 2.37: NURBS-Profil in 1D-Gittern (M24)}\label{sec:nurbs1d}
+%=====================================================================
+Ein Liniengitter mit Überhang oder Hinterschnitt lässt sich heute nur über eine STEP-Datei beschreiben
+(\verb|cad|-Schicht, M23); \verb|profile1d| kennt nur einwertige Profile $y=g(x)$. M24 ergänzt \verb|profile1d| um
+\verb|"shape": "nurbs"|: \emph{eine} durchgehende, periodische NURBS-Linie in der $(x,y)$-Ebene trennt das Material
+\verb|below| (unterhalb) vom Material \verb|above|. Die Linie darf Überhänge haben, sich aber nicht selbst schneiden.
+Alles Weitere sind Bausteine von M23 ohne Nurbforge: Zerlegung in rationale Bézierstücke (Piegl--Tiller A5.6,
+\verb|Contour2D::nurbs|), Linienschnitt (\verb|lineCrossings|), Normalenfeld \eqref{eq:cad1d_N} und
+\verb|Sectioned1DLayer| (RK, RCWA-Treppe, Tschebyschow, ASR, Nahfeld, Gradienten). Anlass: Wunsch aus der
+Anwendung (Issue \#30).
+
+\subsection{Annahmen und Festlegungen}
+\begin{enumerate}[nosep]
+  \item Neuer Wert \verb|"shape": "nurbs"| des bestehenden Typs \verb|profile1d|; die übrigen Formen bleiben unverändert
+        und bitgleich. Nur in 1D-Stapeln.
+  \item \textbf{Eine Schicht.} Die Schicht bleibt nach außen \emph{eine} Schicht mit internen Bruchstellen in $y$
+        (Abschnitt~\ref{sec:nurbs1d_bands}); JSON-Pointer späterer Schichten, Sweeps und Berichte verschieben sich
+        nicht. Eine Expansion in mehrere Schichten wie bei \verb|cad| entfällt.
+  \item Die Bänder zwischen den Bruchstellen sind Integrationsintervalle, keine Treppe: RK wertet $Q(y)$ an jedem
+        Stufenknoten aus dem exakten Linienschnitt aus. Eine Treppe entsteht nur mit RCWA (\verb|slices|).
+  \item Faktorisierung wie \verb|Sectioned1DLayer| (Schlüssel \verb|factorization| der Schicht wie bei allen
+        Schichttypen): isotrop \verb|laurent|, \verb|FFF_iso|, \verb|FFF_sym| (Standard),
+        anisotrop \verb|laurent|, \verb|FFF_B| (Standard). \verb|FFF_rig| und \verb|FFF_A| verlangen ein
+        vorzeichenbehaftetes Normalenfeld und werden abgelehnt, auch wenn die Kurve ein Graph ist (für Graphen
+        bleibt \verb|profile1d| \verb|points|/\verb|Function|).
+  \item Keine Formgradienten (nach \verb|depth_um| oder Kontrollpunkten) und keine Funktionen auf Vorrat. Sweeps
+        über \verb|Simulation::setParameter| bauen die Schicht aus dem geänderten JSON neu und sind daher korrekt.
+\end{enumerate}
+
+\subsection{Konfiguration}
+{\footnotesize\begin{verbatim}
+{"type": "profile1d", "shape": "nurbs", "depth_um": 0.25, "below": "si", "above": "air",
+ "nurbs": {"degree": 3, "knots": [0, 0, 0, 0, 0.3, 0.6, 1, 1, 1, 1],
+           "points_um": [[0.0, 0.05], [0.1, 0.25], [0.2, 0.2], [0.3, 0.0], [0.4, 0.1], [0.5, 0.05]],
+           "weights": [1, 1, 0.8, 1, 1, 1]},
+ "slices": 0, "chebyshev_nodes": 0}
+\end{verbatim}}
+\begin{itemize}[nosep]
+  \item \verb|points_um|: Kontrollpunkte $(x,y)$ in \textmu m, $y$ relativ zur Unterkante der Schicht. Knotenvektor
+        geklemmt (erster und letzter Knoten mit Vielfachheit $p+1$), nicht fallend, Länge $n+p+2$ bei $n+1$ Punkten.
+        \verb|weights| optional ($>0$, Standard 1). Grad $1\le p\le9$ (Grenze von \verb|BezierSegment|).
+  \item \textbf{Periodizität:} Die Kurve ist offen und läuft über genau eine Periode. Wegen des geklemmten
+        Knotenvektors sind ihre Enden der erste und der letzte Kontrollpunkt; verlangt ist
+        $\mathbf P_{\text{Ende}}=\mathbf P_{\text{Anfang}}+(d_x,0)$ mit der Toleranz von \verb|Contour2D::validate|
+        ($10^{-12}$ der Ausdehnung). Ein Höhenunterschied ist ein Fehler (es wird keine Wand eingefügt), ebenso ein
+        Versatz $\ne d_x$ in $x$ (auch $-d_x$: die Kurve muss netto in $+x$ laufen). Der Anfang darf bei beliebigem
+        $x$ liegen; zwischendurch darf die Kurve links von $0$ oder rechts von $d_x$ verlaufen.
+  \item \textbf{Naht:} Die Tangenten an Anfang und Ende müssen nicht übereinstimmen; ein Knick an der Naht ist eine
+        Ecke wie ein C$^0$-Knoten im Inneren (kritische Höhe).
+  \item \verb|depth_um| (Dicke der Schicht) ist optional. Ohne Angabe gilt $\verb|depth_um|=\max_t y(t)$ (exakt
+        aus den kritischen Höhen, nicht aus den Kontrollpunkten), wie bei den übrigen \verb|profile1d|-Formen, deren
+        Profil die Schicht genau ausfüllt. Mit Angabe darf über der Linie eine Schicht aus \verb|above| bleiben.
+        In beiden Fällen muss $0\le y(t)\le\verb|depth_um|$ für alle $t$ gelten (exakt über die $y$-Extrema geprüft);
+        ein Bereich $0\le y<\min y$ ist zulässig und besteht aus \verb|below|.
+  \item \verb|slices| (RCWA-Treppe, 0: Löserstandard) und \verb|chebyshev_nodes| (Tschebyschow-Interpolation in $y$ je
+        Band, 0: aus) wie bei \verb|Sectioned1DLayer|.
+\end{itemize}
+
+\subsection{Linienschnitt einer offenen periodischen Kurve}\label{sec:nurbs1d_line}
+Die Kurve wird nach A5.6 in rationale Bézierstücke $\mathbf C_s(t)$, $t\in[0,1]$, $s=1,\dots,S$ zerlegt. Der neue
+Provider \verb|NurbsProfileLineProvider| (\verb|LineSectionProvider|) schneidet bei der Höhe $y=c$ (nie auf einer
+kritischen Höhe):
+\begin{enumerate}[nosep]
+  \item Schnittpunkte je Stück mit \verb|lineCrossings| auf $t\in[0,1)$. Das Ende des letzten Stücks ist der um $d_x$
+        verschobene Anfang des ersten; ein Schnittpunkt genau an der Naht zählt daher genau einmal.
+  \item Normale \eqref{eq:cad1d_n} mit Vorzeichen, $\mathbf n=(\dot y,-\dot x)/|\dot{\mathbf C}|$. Die Kurve läuft
+        netto in $+x$; \verb|below| liegt rechts von der Laufrichtung (im Uhrzeigersinn), denn sie begrenzt das
+        Gebiet unter sich. An einem Schnittpunkt zeigt die rechte Seite in Richtung $\mathbf n$, also ist das Material
+        unmittelbar \emph{rechts} des Schnittpunkts $x_k$
+        \begin{equation}
+          \text{mat}(x_k^+)=\begin{cases}\verb|below|, & \dot y(t_k)>0\ (n_x>0),\\ \verb|above|, & \dot y(t_k)<0\ (n_x<0).\end{cases}
+          \label{eq:nurbs1d_rule}
+        \end{equation}
+  \item Rückfaltung $x\mapsto x-d_x\lfloor x/d_x\rfloor$ in $[0,d_x)$, sortieren. \textbf{Konsistenz:} Die Materialien
+        rechts aufeinanderfolgender Schnittpunkte müssen sich abwechseln (zyklisch, also gerade Anzahl). Sonst ist die
+        Kurve selbstschneidend (auch mit ihrem periodischen Bild) $\to$ Fehler \verb|NURBS_SELF_INTERSECTION|
+        mit der Höhe in \textmu m.
+  \item Schnittpunkte näher als $10^{-10}d_x$ (nach der Rückfaltung): gleiche Richtung ist derselbe Schnittpunkt
+        zweimal gefunden (Naht: $t=0$ des ersten und $t\to1$ des letzten Stücks), entgegengesetzte Richtung begrenzt
+        einen Splitter schmaler als die Toleranz neben einem Extremum (z.\,B.\ ein Tal auf der Unterkante, $10^{-14}$
+        darüber abgetastet); er entfällt.
+  \item Ohne Schnittpunkt liegt $c$ unter oder über der ganzen Kurve: \verb|below| für $c<\min y$, sonst \verb|above|
+        (nach dem Wegfall eines Splitters: \verb|below| in der unteren Hälfte von $[\min y,\max y]$).
+  \item Ergebnis wie \verb|lineSection| (Abschnitt~\ref{sec:cad1d_line}): Bruchstellen $0=\xi_0<\dots<\xi_K=d_x$, ein
+        Material je Intervall, Normalen an den Materialgrenzen. Eine Grenze bei $0\equiv d_x$ bleibt als
+        $\xi_0$ mit ihrer Normalen stehen; gleiche Nachbarn verschmelzen (nur über die Naht möglich).
+\end{enumerate}
+Ein geschlossener \verb|ProfileBody| (Kurve plus senkrechte Kanten bei $x=0$, $x=d_x$ und Boden) wäre nur ohne Überhang
+über die Zellnaht korrekt; der eigene Provider braucht diese Einschränkung nicht. Der Vergleich mit einem solchen
+Körper dient als Test (V25a).
+
+\subsection{Kritische Höhen und Bänder}\label{sec:nurbs1d_bands}
+$Q(y)$ ist nicht glatt, wo Schnittpunkte entstehen oder verschwinden (wurzelförmig) oder die Normale springt. Kritische
+Höhen sind daher
+\begin{enumerate}[nosep]
+  \item die $y$-Extrema im Inneren jedes Stücks: Mit $y_s(t)=N(t)/D(t)$, $N=\sum_jw_jy_jB^p_j$, $D=\sum_jw_jB^p_j$, ist
+        \begin{equation}
+          \dot y_s=\frac{N'D-ND'}{D^2},\qquad N'D-ND'=\sum_{k=0}^{2p-1}c_kB^{2p-1}_k,\quad
+          c_k=\sum_{i+j=k}\frac{\binom{p-1}{i}\binom{p}{j}}{\binom{2p-1}{k}}\,p\bigl(\Delta N_iD_j-\Delta D_iN_j\bigr)
+          \label{eq:nurbs1d_crit}
+        \end{equation}
+        mit $N_j=w_jy_j$, $D_j=w_j$, $\Delta N_i=N_{i+1}-N_i$ (Produkt zweier Bernstein-Polynome). Nullstellen in
+        $(0,1)$ über Bernstein-Unterteilung und abgesicherten Newton wie \verb|lineCrossings|; Rückgabe $y_s(t)$.
+  \item die Höhen aller Stückgrenzen (Knoten im Inneren, auch C$^1$/C$^2$-Knoten, und die Naht). Das schließt Knicke
+        (C$^0$-Knoten), Extrema an Knoten und waagrechte Stücke ein; überzählige Grenzen kosten nur einen RK-Schritt.
+\end{enumerate}
+Werte innerhalb $10^{-12}\,\verb|depth_um|$ werden zusammengelegt; Werte $\le0$ und $\ge\verb|depth_um|$ entfallen.
+Ergebnis: $0<\eta_1<\dots<\eta_B<\verb|depth_um|$, die internen Bruchstellen der Schicht.
+\begin{itemize}[nosep]
+  \item \verb|Sectioned1DLayer| erhält \verb|yBreaks_um| (leer für M23). \verb|StackLayer::yBreaks_um()| (virtuell,
+        Standard leer) gibt sie an den Löser.
+  \item RK (Löser und Gradient, Plan eq:slicecrit unverändert): die Stabilitätsscheiben werden zusätzlich an den
+        Bruchstellen geteilt, wie an den Grenzen der Hintergrundschichten (\verb|bgCuts|). RK wertet $Q$ auch an den
+        Enden eines Schrittes aus; an einer Bruchstelle kann $Q$ springen (waagrechtes Stück) oder der Schnitt
+        tangential sein. Daher wird $Q$ in jeder geschnittenen Scheibe $[y_a,y_b]$ bei
+        $\operatorname{clamp}(y,\,y_a+\delta,\,y_b-\delta)$, $\delta=10^{-9}(y_b-y_a)$, ausgewertet: der einseitige
+        Grenzwert; bei stetigem $Q$ heben sich die Fehler der beiden Nachbarschritte in erster Ordnung auf. Der
+        Gradient verwendet dieselbe Klemmung an allen Stufenknoten (vorwärts und rückwärts). Ohne Bruchstellen ändert
+        sich nichts (bitgleich).
+  \item Ein Schnitt genau auf einer Bruchstelle (RCWA-Scheibenmitte, Nahfeldhöhe) wird $10^{-9}\,\verb|depth_um|$
+        darüber genommen.
+  \item Tschebyschow: ein Interpolant je Band (Knoten und Fehlerkontrolle je Band wie M14), nie über eine Bruchstelle.
+  \item RCWA: die Treppe bleibt gleichmäßig über die ganze Schicht (Mittelpunktsregel; die Bruchstellen ändern ihre
+        Konvergenz nicht).
+  \item Eine Mindestdicke der Bänder (\verb|min_band_um|, \verb|FEATURE_SMALL|) wie im Slicer entfällt: Ein dünnes
+        Band ist ein kurzer RK-Schritt, keine eigene Schicht. Bänder unter $\min y$ und über $\max y$ sind homogen;
+        sie werden nicht als eigene Schichtart erkannt, der Schnitt liefert dort ein Material.
+\end{itemize}
+
+\subsection{Normalen und Faktorisierung}
+Die Normalen an den Schnittpunkten sind exakt \eqref{eq:cad1d_n} (Newton auf Maschinengenauigkeit in
+\verb|lineCrossings|), dazwischen gilt das Feld \eqref{eq:cad1d_N} mit den Koeffizienten in geschlossener Form
+(\verb|normalField|). Mit ASR in $x$ (M17) werden die Bruchstellen wie in M23 über \verb|mapIntervals| abgebildet und
+die Normale an der physikalischen Stelle ausgewertet; der Weg ist derselbe wie bei \verb|cad| in 1D.
+
+\subsection{Prüfungen}
+Alle beim Laden, mit JSON-Pointer der Schicht und, wo sinnvoll, Ort in \textmu m; Kennungen in eckigen Klammern am
+Anfang der Meldung:
+\begin{center}
+\small
+\begin{tabular}{p{4.6cm}p{9.8cm}}
+\toprule
+Kennung & Fall \\
+\midrule
+\verb|NURBS_INPUT| & Grad außerhalb 1..9, zu wenige Punkte, Knotenzahl $\ne$ Punkte $+$ Grad $+1$, Knoten fallend oder
+                     nicht geklemmt, Gewicht $\le0$, Punkt nicht $[x,y]$ \\
+\verb|NURBS_NOT_PERIODIC| & $y$ an Anfang und Ende verschieden \\
+\verb|NURBS_PERIOD| & Versatz in $x$ nicht $+d_x$ (auch $-d_x$: falsche Orientierung) \\
+\verb|NURBS_RANGE| & $\min y<0$ oder $\max y>\verb|depth_um|$, \verb|depth_um| $\le0$ \\
+\verb|NURBS_SELF_INTERSECTION| & echter Schnitt der abgeflachten Kurve mit sich oder ihren Bildern bei $\pm d_x$
+                     (\verb|properCrossing|, Toleranz $10^{-9}d_x$), oder Materialien wechseln nicht ab (in jeder
+                     Bandmitte geprüft) \\
+\verb|NURBS_STACK| & 2D-Stapel, Zylinderstapel, PML (\verb|aperiodic|) \\
+\bottomrule
+\end{tabular}
+\end{center}
+Die Faktorisierung prüft das Modell (Meldung von \verb|Sectioned1DLayer|). Gradienten nach \verb|depth_um| oder
+\verb|nurbs/...| lehnt \verb|gradient| mit den bestehenden Meldungen ab.
+
+\subsection{Tests und Abnahme (M24)}
+\begin{itemize}[nosep]
+  \item \textbf{V25a} Unit (\verb|tests/unit/test_nurbs_profile.cpp|): Die Bézierstücke reproduzieren die NURBS-Kurve
+        (de Boor) auf $10^{-14}$. Kritische Höhen \eqref{eq:nurbs1d_crit} für eine kubische Polynomkurve und einen
+        Kreisbogen (rationale Quadrik) gegen die geschlossene Form ($10^{-12}$). Provider gegen \verb|lineSection| eines
+        gleichwertigen geschlossenen \verb|ProfileBody| an vielen Höhen (Bruchstellen und Normalen $10^{-13}$,
+        Materialien gleich), auch mit Überhang und mit Kurvenstart bei beliebigem $x$. Alle Fehlerfälle der Tabelle.
+  \item \textbf{V25b} Grad 1 durch die Punkte eines \verb|profile1d| \verb|points| bzw.\ \verb|triangle|: mit Laurent
+        $Q$ an fünf Höhen gleich ($10^{-13}$), Effizienzen RCWA $10^{-12}$, RK $10^{-10}$; isotrop und anisotrop.
+  \item \textbf{V25c} Gerundetes Trapez aus V24c ($CD=100$\,nm, $h=100$\,nm, $15^\circ$-Wände, $r=10$\,nm) exakt als
+        NURBS mit Kreisbögen gegen den \verb|Function|-Wert von V24c (RK, Laurent): $10^{-10}$, angestrebt das Niveau
+        $2{,}6\cdot10^{-13}$. Im CI-Job \verb|cad| zusätzlich gegen \verb|examples/cad_line_grating_1d.json| (RK, Toleranz $10^{-10}$;
+        verschiedene Schrittfolgen, eine Schicht gegen drei: $10^{-9}$, gemessen $3{,}2\cdot10^{-10}$).
+  \item \textbf{V25d} Überhang (Pilzprofil): $R+T=1$ ($10^{-10}$, verlustfrei), Reziprozität (fällt mit $N_x$),
+        RCWA $\to$ RK mit steigender \verb|slices|-Zahl, Konvergenz in $N_x$. Kurvenstart verschoben (dieselbe
+        Geometrie ab einem inneren $x$): Effizienzen $10^{-12}$.
+  \item \textbf{V25e} Naht: glatte Kurve und Kurve mit Knick an der Naht, je ab $x=0$ und ab innerem $x$ beschrieben:
+        $10^{-12}$. Ein Schnitt genau bei $y_0$ liefert die Grenze bei $0\equiv d_x$ genau einmal.
+  \item \textbf{V25f} Tschebyschow an/aus ($10^{-8}$), ASR in $x$ (gegen ohne, Konvergenz), Nahfeld läuft; ohne
+        Bruchstellen ändert sich nichts (alle Golden Files bitgleich).
+  \item \textbf{V25g} Fehler: Kennungen der Tabelle mit Pointer; Gradient nach \verb|depth_um| und Kontrollpunkt
+        abgelehnt; Sweep über einen Kontrollpunkt gleich der Neuberechnung.
+  \item \textbf{V25h} Beispiel \verb|examples/profile1d_nurbs.json| mit eigenem Golden File; Python-Test (JSON läuft
+        durch, Ergebnis gleich \verb|fgsolve|).
+\end{itemize}
+
+\subsection{Umsetzung (v2.37)}
+\begin{itemize}[nosep]
+  \item \verb|src/geometry/nurbs_profile.cpp|: \verb|NurbsProfile| (Zerlegung über \verb|Contour2D::nurbs|, Prüfungen,
+        Extrema nach \eqref{eq:nurbs1d_crit} mit eigener Bernstein-Nullstellensuche, da $2p-1$ den Grad 9 von
+        \verb|BezierSegment| übersteigen kann), \verb|NurbsProfileLineProvider|. Konfiguration in
+        \verb|parseNurbsProfile| (die Schicht braucht $d_x$ und die Stapelart, daher im Schichtlauf wie \verb|cad|).
+  \item \textbf{Befund M23:} \verb|lineCrossings| verlor eine innere Nullstelle, wenn die Kurve die Gerade genau am
+        Ende eines Stücks erreicht: Der Endkoeffizient 0 wurde durch den Nachbarn ersetzt, \verb|refine| sah am Ende
+        aber $y=c$ und gab das Ende zurück. Jetzt erhält \verb|refine| die Vorzeichen der ersetzten Enden. In M23
+        trat der Fall nicht auf (Schnitte nie genau auf Stückgrenzen), in M24 beim Schnitt genau durch die Naht.
+  \item Ergebnisse (\verb|docs/validation.md|): V25b Grad 1 gegen \verb|points|/\verb|triangle| RCWA $\le1{,}4\cdot10^{-15}$,
+        RK $\le3{,}1\cdot10^{-13}$; V25c gerundete Linie gegen \verb|Function| $2{,}1\cdot10^{-13}$ (wie V24c mit
+        STEP); V25d Pilz $R+T=1$ auf $10^{-14}$, RCWA $\to$ RK $2{,}5\cdot10^{-3}$, $1{,}4\cdot10^{-5}$,
+        $2{,}3\cdot10^{-6}$ bei 20, 80, 320 Scheiben, Anfang verschoben $10^{-15}$; V25e Naht $\le1{,}3\cdot10^{-14}$;
+        V25f Tschebyschow $4{,}8\cdot10^{-15}$.
+  \item Abnahme angepasst: Mit ASR ist $R+T=1$ nur bis auf die Umrechnung der Ordnungen erfüllt ($\sim N^{-4}$, wie
+        M17; $2\cdot10^{-7}$ bei $N=16$). Die Konvergenz in $N_x$ ist mit \verb|FFF_sym| nicht monoton (schon bei
+        $N=8$ auf $2\cdot10^{-5}$ am Wert für $N=56$); geprüft wird daher, dass \verb|FFF_sym| bei $N=8$ zehnmal näher
+        liegt als Laurent und Laurent monoton folgt ($6{,}4\cdot10^{-4}$, $2{,}3\cdot10^{-4}$ bei $N=8$, 24).
+\end{itemize}
+
+\subsection{Reihenfolge der Umsetzung}
+\begin{enumerate}[nosep]
+  \item Plan, dann Tests V25a (Unit).
+  \item \verb|src/geometry/nurbs_profile.cpp|: Zerlegung, kritische Höhen \eqref{eq:nurbs1d_crit}, Prüfungen,
+        \verb|NurbsProfileLineProvider| mit Regel \eqref{eq:nurbs1d_rule}.
+  \item \verb|Sectioned1DLayer::yBreaks_um|, \verb|StackLayer::yBreaks_um()|, Schnitte in RK (Löser und Gradient),
+        Tschebyschow je Band (Golden Files bitgleich).
+  \item Konfiguration (\verb|profile1d| \verb|nurbs| $\to$ \verb|Sectioned1DLayer|), Prüfungen mit Pointer; V25b--h.
+  \item Python (\verb|LLM_REFERENCE.md|), Beispiel, Handbuch, Dokumentation.
+\end{enumerate}

@@ -14,3 +14,4 @@ v15_circular_pillars
 cad_pillar_array
 dispersive_metal_grating
 cad_line_grating_1d
+profile1d_nurbs

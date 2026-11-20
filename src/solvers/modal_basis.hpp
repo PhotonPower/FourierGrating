@@ -5,6 +5,7 @@
 #pragma once
 
 #include <optional>
+#include <vector>
 
 #include "fg/core/types.hpp"
 #include "fg/physics/modes.hpp"
@@ -21,6 +22,9 @@ class StackLayer {
   virtual bool yInvariant() const { return true; }
   /// Number of RCWA staircase slices (y-invariant layers: 1).
   int rcwaSlices = 1;
+  /// Interior heights 0 < y < thickness (micrometres, ascending) where Q(y) is not smooth: RK steps and
+  /// Chebyshev interpolants end there (Plan section "M24: Kritische Höhen und Bänder"). Empty for most layers.
+  virtual std::vector<double> yBreaks_um() const { return {}; }
 };
 
 /// Field representation of the assembly: F = Psi V in the reference medium (superstrate) and the

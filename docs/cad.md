@@ -78,6 +78,9 @@ Schichtgrenzen. Es wird nie auf einer kritischen Höhe geschnitten.
 
 ## 1D-Gitter (M23)
 
+Eine einzelne Profillinie (auch mit Überhang) braucht keine STEP-Datei: `profile1d` mit `"shape": "nurbs"` (M24,
+`docs/config_format.md`) nimmt die NURBS-Kurve direkt aus dem JSON, als eine Schicht.
+
 Mit `"dimension": "1D"` liest der Slicer z-invariante Körper, also Linien eines Liniengitters, die entlang FG z
 (standardmäßig −CAD Y) extrudiert sind. Die Extrusionslänge ist beliebig. Jeder Körper wird **einmal** in der Ebene
 `z = z_cut_um` geschnitten; das liefert sein Profil in der (x, y)-Ebene. Ab da rechnet FourierGrating ohne Nurbforge:

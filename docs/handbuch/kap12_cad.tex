@@ -120,6 +120,11 @@ bleiben exakt.
         100\,nm Höhe, $15^\circ$-Wänden und Ecken mit 10\,nm Radius (Kopf konvex, Fuß konkav).
   \item \texttt{fg.cad.preview(step, cfg)} zeigt in 1D das Profil mit den Bandgrenzen; \key{y\_um} entfällt.
 \end{itemize}
+\begin{hinweis}[Eine Profillinie ohne STEP]
+Besteht das Gitter aus einer einzigen Grenzfläche (auch mit Überhang), braucht es keine STEP-Datei:
+\val{profile1d} mit \val{"shape": "nurbs"} nimmt die NURBS-Kurve direkt aus dem JSON und bleibt eine Schicht
+(Abschnitt~\ref{sec:profile1d_nurbs}; dieselbe gerundete Linie: \texttt{examples/profile1d\_nurbs.json}).
+\end{hinweis}
 
 \section{Rotationskörper (Zylinderkoordinaten)}\label{sec:cad-axisym-hb}
 \index{CAD!Rotationskörper}%

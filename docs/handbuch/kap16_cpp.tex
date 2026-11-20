@@ -73,6 +73,21 @@ p.dg = [](double x) { return -0.1 * 2 * M_PI / 0.5 * std::sin(2 * M_PI * x / 0.5
 p.below = "al"; p.above = "air";
 \end{lstlisting}
 
+Eine offene periodische NURBS-Linie (M24) prüft \texttt{geometry::NurbsProfile}; der Linienschnitt kommt vom
+\texttt{NurbsProfileLineProvider}, die Schicht ist ein \texttt{Sectioned1DLayer} mit den Bandgrenzen:
+\begin{lstlisting}[style=cpp]
+fg::geometry::NurbsCurve c{2, {0, 0, 0, 1, 1, 2, 2, 2},
+                           {{0.0, 0.0}, {0.1, 0.0}, {0.15, 0.1}, {0.2, 0.0}, {0.3, 0.0}}, {}};
+auto prof = std::make_shared<const fg::geometry::NurbsProfile>(c, 0.3, "resist", "air");
+auto prov = std::make_shared<const fg::NurbsProfileLineProvider>(prof, prof->yMax());
+fg::Sectioned1DLayer l;
+l.provider = prov;
+l.background = "air";
+l.materials = {"resist", "air"};
+l.yBreaks_um = prov->bandBreaks();   // RK steps and Chebyshev bands end there
+stack.layers.push_back({l, fg::Factorization::Auto});
+\end{lstlisting}
+
 \section{Einbinden}
 \begin{lstlisting}[style=shell]
 # im eigenen CMake-Projekt

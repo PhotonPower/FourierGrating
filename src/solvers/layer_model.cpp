@@ -1355,14 +1355,28 @@ class Sectioned1DModel final : public LayerModel {
     }
     aniso_ = aniso;
     fac_ = sectioned1DFactorization(fac, aniso);
+    // bands between the interior boundaries (M24; M23: one band): one Chebyshev interpolant each
+    bandY0_.push_back(0.0);
+    for (double b : l.yBreaks_um) {
+      FG_REQUIRE(b > bandY0_.back() && b < h_, "sectioned1d layer: band boundaries must ascend inside (0, thickness)");
+      bandY0_.push_back(b);
+    }
     if (l.chebyshevNodes > 0)
-      cheb_ = std::make_unique<ChebyshevQ>(h_, l.chebyshevNodes, [this](double y) { return get(y)->Q(0.0); },
-                                           "sectioned1d layer");
+      for (std::size_t b = 0; b < bandY0_.size(); ++b) {
+        const double y0 = bandY0_[b], y1 = b + 1 < bandY0_.size() ? bandY0_[b + 1] : h_;
+        cheb_.push_back(std::make_unique<ChebyshevQ>(y1 - y0, l.chebyshevNodes,
+                                                     [this, y0](double y) { return get(y0 + y)->Q(0.0); },
+                                                     "sectioned1d layer"));
+      }
   }
   double thickness_um() const override { return h_; }
   bool yInvariant() const override { return false; }
+  std::vector<double> yBreaks_um() const override { return l_.yBreaks_um; }
   QBlocks Q(double y) const override {
-    if (cheb_ && cheb_->ready(warnings)) return (*cheb_)(y);
+    if (!cheb_.empty()) {
+      const std::size_t b = band(y);
+      if (cheb_[b]->ready(warnings)) return (*cheb_[b])(y - bandY0_[b]);
+    }
     return get(y)->Q(0.0);
   }
   Mat3C epsAt(double x, double y, double z) const override { return get(y)->epsAt(x, 0.0, z); }
@@ -1379,8 +1393,16 @@ class Sectioned1DModel final : public LayerModel {
   LineSection lineSectionAt(double y) const { return get(y)->section(); }
 
  private:
+  /// Band containing y (a boundary belongs to the band above it).
+  std::size_t band(double y) const {
+    const auto i = std::upper_bound(bandY0_.begin() + 1, bandY0_.end(), y) - bandY0_.begin();
+    return static_cast<std::size_t>(i) - 1;
+  }
   std::shared_ptr<const LineSliceModel> get(double y) const {
-    const double yc = std::clamp(y, 1e-14 * h_, h_ * (1 - 1e-14));
+    double yc = std::clamp(y, 1e-14 * h_, h_ * (1 - 1e-14));
+    // never a section on a band boundary (a critical height, M24): 1e-9 of the thickness above it
+    for (std::size_t b = 1; b < bandY0_.size(); ++b)
+      if (std::abs(yc - bandY0_[b]) < 1e-9 * h_) yc = bandY0_[b] + 1e-9 * h_;
     {
       const std::lock_guard<std::mutex> lock(mu_);
       const auto it = cache_.find(yc);
@@ -1403,7 +1425,8 @@ class Sectioned1DModel final : public LayerModel {
   double h_ = 0;
   mutable std::mutex mu_;
   mutable std::map<double, std::shared_ptr<const LineSliceModel>> cache_;
-  std::unique_ptr<ChebyshevQ> cheb_;
+  std::vector<double> bandY0_;                     ///< lower ends of the bands (0 and the boundaries)
+  std::vector<std::unique_ptr<ChebyshevQ>> cheb_;  ///< one interpolant per band, empty without chebyshev_nodes
 };
 
 // ------------------------------------------------------------------ profile y = g(x, z) (2D)
