@@ -19,6 +19,9 @@ struct SpectrumOptions {
   /// poles p (Im p >= 0) close to the real section of the path, e.g. plasmons that leak between the branch
   /// points (V21h): graded panels with edges Re p +- w 2^j, w = max(Im p, 1e-3 h_max), up to the panel width
   std::vector<cplx> resonances;
+  /// real poles of the guided modes of a lossless planar background on the deformed section (V21d, Plan
+  /// v2.38): graded panels with edges p +- w 2^j, w = max(distance of p to the path, 1e-3 h_max)
+  std::vector<double> boundModes;
 };
 
 /// Nodes k_j (complex on the deformed section) and weights w_j including dk/dt, so that
@@ -33,5 +36,11 @@ struct SpectralGrid {
 /// and the path k(u) = u - i delta sin(pi (u - k_a)/(k_b - k_a)) on [k_a, k_b]; graded panels around the
 /// resonances on the real section (Plan sec:cylgrid).
 SpectralGrid spectralGrid(const SpectrumOptions& opt);
+
+/// Guided modes (TE and TM) of a lossless planar stack (layers bottom to top, normalized thicknesses k0 h)
+/// between the half spaces: the real zeros k in (k_a, k_b) of the characteristic function of the layer
+/// matrices (Plan sec:cylgrid, v2.38), sorted; empty if a material is lossy.
+std::vector<double> planarBoundModes(cplx epsSub, cplx epsSup, const std::vector<cplx>& epsLayers,
+                                     const std::vector<double>& thickness, double ka, double kb);
 
 }  // namespace fg::cyl

@@ -232,8 +232,13 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
   - Erledigt (V21g, Plan v2.36): Vergleich mit Popov/Bonod, Abb. 4, 6, 7 – `V21g.*`; Planfehler: Fast-Resonanz des
     Knotens k ≈ 0 bei ebenen Wellen (RK-Rückfall → dividierte Differenz); Befund: κ_max bei kleinen Löchern in Metall
     in Einheiten von 1/R
-  - Als Nächstes: V21d (gegen kartesisch, Server); offen bei den Gradienten:
-    Halbraummaterialien, Strahl im Streufeld, `rings_profile`-Parameter, RK
+  - Erledigt (V21d, Plan v2.38): Säule gegen M18 mit PML 6,2e-4 (`V21d.PillarAgainstCartesianPml`); Planfehler: Moden
+    eines verlustfreien Hintergrundfilms nahe der Abschneidung liegen dicht am deformierten Weg (Kontaktloch wanderte
+    mit `dk_factor` um 10 %) → gestufte Panels um die Moden (`cyl::planarBoundModes`), jetzt dk-unabhängig auf 1e-7
+    (`V21d.ContactHoleSpectrumIndependentOfDensity`); `S_lat` in `efficiencies.csv`
+  - **Offen für die Abnahme:** `V21d.ContactHoleAgainstCartesianPml` auf dem Zielsystem (`FG_SERVER_TESTS=1`,
+    kartesisch N = 14/18/22 und Zelle 2,4 µm mit N = 26; lokal N = 12: 0,5640 gegen M20 0,5544, fallend)
+  - Offen bei den Gradienten: Halbraummaterialien, Strahl im Streufeld, `rings_profile`-Parameter, RK
 - [ ] **M21** P-zählige Drehsymmetrie: gekoppelte Harmonische m0 + lP, Winkelkoeffizienten aus `polygon2d`/
   `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)
   - Abnahme: V22a–g (Plan)

@@ -7,6 +7,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -1204,4 +1205,98 @@ TEST(V21g, Fig7FarFieldOfASmallHole) {
     EXPECT_NEAR(hAg / c2, 1.0, 0.1) << th;
   }
   EXPECT_EQ(checked, 5);  // nodes at 21, 37, 53, 69, 81 deg
+}
+
+// V21d (Plan "Tests und Abnahme (M20)", v2.38): round pillar and round contact hole at normal incidence
+// against the Cartesian path with PML (M18): the scattering cross section of the cylindrical scattered field
+// equals up + down + lateral of the Cartesian box within the convergence of M18 (1e-3 um^2). Pillar n = 1.45,
+// r = 0.4 um, 0.3 um on glass at 1 um; contact hole as V20g (r = 0.25 um in a film n = 2.1, 0.3 um, on glass,
+// 633 nm). The film guides TE0, TM0 and TE1 (n_eff = 1.5666, close to cut-off): their power leaves the hole
+// laterally, so the cylindrical side is the extinction from the optical theorem (lossless), not up + down.
+namespace {
+
+std::string v21dCylindrical(bool hole, double kappa, double dk) {
+  char buf[900];
+  std::snprintf(buf, sizeof buf, R"({"cylindrical": {"spectrum": {"kappa_max": %.17g, "dk_factor": %.17g},
+      "factorization": "li_r", "optical_theorem": true},
+    "materials": {"air": {"n": 1.0}, "glass": {"n": 1.5}, "film": {"n": 2.1}, "p": {"n": 1.45}},
+    "superstrate": "air", "substrate": "glass",
+    "incidence": {"type": "plane_wave", "lambda_um": %s, "phi_deg": 0, "psi_deg": 0, "delta_deg": 0},
+    "layers": [{"type": "rings", "thickness_um": 0.3, "radii_um": [%s], "materials": %s}]})",
+                kappa, dk, hole ? "0.6328" : "1.0", hole ? "0.25" : "0.4", hole ? R"(["air", "film"])" : R"(["p", "air"])");
+  return buf;
+}
+
+/// Cartesian cell L x L with PML (width 0.3 um) in x and z, truncation N, the same structure in the centre.
+fg::ScatteringResult v21dCartesian(bool hole, double L, int N) {
+  char buf[1200];
+  std::snprintf(buf, sizeof buf, R"({"dimension": "2D", "solver": "rcwa", "truncation": {"Nx": %d, "Nz": %d},
+    "period_um": {"x": %.17g, "z": %.17g},
+    "incidence": {"lambda_um": %s, "phi_deg": 0, "psi_deg": 0, "delta_deg": 0},
+    "materials": {"air": {"n": 1.0}, "glass": {"n": 1.5}, "film": {"n": 2.1}, "p": {"n": 1.45}},
+    "superstrate": "air", "substrate": "glass",
+    "aperiodic": {"pml": {"x": {"width_um": 0.3, "beta": 1.0}, "z": {"width_um": 0.3, "beta": 1.0}}},
+    "layers": [{"type": "contour2d", "thickness_um": 0.3, "background": "%s",
+                "regions": [{"material": "%s", "circle": {"center_um": [%.17g, %.17g], "radius_um": %s}}]}]})",
+                N, N, L, L, hole ? "0.6328" : "1.0", hole ? "film" : "air", hole ? "air" : "p", 0.5 * L, 0.5 * L,
+                hole ? "0.25" : "0.4");
+  const fg::Result r = solveConfig(buf);
+  EXPECT_TRUE(r.scattering.present);
+  return r.scattering;
+}
+
+bool serverTests() {
+  const char* v = std::getenv("FG_SERVER_TESTS");
+  return v && std::string(v) == "1";
+}
+
+}  // namespace
+
+// Pillar (no guided modes in the background, real path): M20 converges fast in kappa_max (kappa 8 -> 16:
+// 7e-5); M18 at cell 2 um, N = 8 (measured 0.38903; N = 4/6/8: 0.38458/0.38723/0.38903; cell 2.4 um, N = 10:
+// 0.39006) against M20 0.38965: 6.2e-4.
+TEST(V21d, PillarAgainstCartesianPml) {
+  const auto c = solveConfig(v21dCylindrical(false, 8, 1)).cylindrical;
+  ASSERT_TRUE(c.present && c.planeWave);
+  EXPECT_NEAR(c.extinctionTheorem_um2, c.scattering_um2, 2e-5);  // lossless: optical theorem = up + down
+  const auto s = v21dCartesian(false, 2.0, 8);
+  std::printf("V21d pillar: M20 sigma = %.6f (up %.6f) | M18 up + down + lateral = %.6f (up %.6f, lateral %.6f, "
+              "absorbed %.1e)\n",
+              c.scattering_um2, c.scatteredUp_um2, s.total(), s.up, s.lateral, s.absorbed);
+  EXPECT_NEAR(s.total(), c.scattering_um2, 1e-3);
+  EXPECT_LT(std::abs(s.absorbed), 1e-3);
+}
+
+// Contact hole, cylindrical side: with the graded panels around the bound modes of the film (Plan v2.38) the
+// result no longer depends on the grid density (before: extinction 0.6146 / 0.5485 / 0.5170 at dk_factor
+// 0.5 / 1 / 2, TE1 only 0.01 below the sine path with node spacing 0.08), and equals a deep path with twice the
+// nodes (delta = 0.3 (k_b - k_a), dk_factor 4: 0.554877).
+TEST(V21d, ContactHoleSpectrumIndependentOfDensity) {
+  const auto a = solveConfig(v21dCylindrical(true, 4, 0.5)).cylindrical,
+             b = solveConfig(v21dCylindrical(true, 4, 1.0)).cylindrical;
+  std::printf("V21d hole, kappa 4: extinction %.8f / %.8f (dk 0.5 / 1), up + down %.8f, %d / %d nodes\n",
+              a.extinctionTheorem_um2, b.extinctionTheorem_um2, b.scattering_um2, a.nodes, b.nodes);
+  EXPECT_NEAR(a.extinctionTheorem_um2, b.extinctionTheorem_um2, 1e-5);
+  EXPECT_NEAR(a.scattering_um2, b.scattering_um2, 1e-5);
+  EXPECT_NEAR(b.extinctionTheorem_um2, 0.554877, 1e-4);
+  EXPECT_GT(b.extinctionTheorem_um2 - b.scattering_um2, 0.1);  // the guided modes carry ~20 %
+}
+
+// Contact hole against M18: the Cartesian side needs N >= 14 (n = 2.1 at 633 nm; N = 8/10/12 at cell 2 um:
+// 0.5700/0.5686/0.5640, |absorbed| up to 6e-3) and belongs on the target system: FG_SERVER_TESTS=1.
+TEST(V21d, ContactHoleAgainstCartesianPml) {
+  if (!serverTests()) GTEST_SKIP() << "target system only (FG_SERVER_TESTS=1): Cartesian N up to 22";
+  const auto c = solveConfig(v21dCylindrical(true, 8, 1.0)).cylindrical;
+  std::printf("V21d hole: M20 extinction %.6f, up %.6f, down %.6f\n", c.extinctionTheorem_um2, c.scatteredUp_um2,
+              c.scatteredDown_um2);
+  fg::ScatteringResult last;
+  for (const int N : {14, 18, 22}) {
+    last = v21dCartesian(true, 2.0, N);
+    std::printf("V21d hole: M18 cell 2 um, N = %d: total %.6f (up %.6f, down %.6f, lateral %.6f, absorbed %.1e)\n", N,
+                last.total(), last.up, last.down, last.lateral, last.absorbed);
+  }
+  EXPECT_NEAR(last.total(), c.extinctionTheorem_um2, 1e-3);
+  const auto wide = v21dCartesian(true, 2.4, 26);  // the window does not matter (same resolution)
+  std::printf("V21d hole: M18 cell 2.4 um, N = 26: total %.6f\n", wide.total());
+  EXPECT_NEAR(wide.total(), c.extinctionTheorem_um2, 1e-3);
 }

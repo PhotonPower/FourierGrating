@@ -5,6 +5,7 @@
 #include "../support/std_bessel.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <functional>
 #include <cmath>
@@ -180,6 +181,78 @@ TEST(CylSpectrum, GradedPanelsAroundAResonance) {
   EXPECT_EQ(cyl::spectralGrid(o).edges, cyl::spectralGrid(d).edges);
   o.resonances = {cplx(1.2, 0.0)};
   EXPECT_LT(cyl::spectralGrid(o).k.size(), plain.k.size() + 16 * 40);
+}
+
+TEST(CylSpectrum, PlanarBoundModesOfAFilm) {
+  // film n = 2.1, 0.3 um on glass under air at 633 nm (the V21d contact hole background): TE0, TM0, TE1 from
+  // the dispersion relation k_f h = atan(p_c / k_f) + atan(p_s / k_f) + m pi (p = gamma, TM: gamma eps_f / eps)
+  const double k0 = 2 * fg::PI / 0.6328, h = 0.3 * k0, ef = 4.41, es = 2.25, ec = 1.0;
+  auto dispersion = [&](double b, bool tm, int m) {
+    const double kf = std::sqrt(ef - b * b), gs = std::sqrt(b * b - es), gc = std::sqrt(b * b - ec);
+    const double ps = tm ? gs * ef / es : gs, pc = tm ? gc * ef / ec : gc;
+    return kf * h - std::atan(pc / kf) - std::atan(ps / kf) - m * fg::PI;
+  };
+  auto root = [&](bool tm, int m) {
+    double a = 1.5 + 1e-12, b = 2.1 - 1e-12;
+    for (int it = 0; it < 200; ++it) {
+      const double c = 0.5 * (a + b);
+      (dispersion(a, tm, m) * dispersion(c, tm, m) <= 0 ? b : a) = c;
+    }
+    return 0.5 * (a + b);
+  };
+  const double kb = 1.2 * 2.1;
+  const auto modes = cyl::planarBoundModes(es, ec, {ef}, {h}, 1.5, kb);
+  ASSERT_EQ(modes.size(), 3u);
+  EXPECT_NEAR(modes[0], root(false, 1), 1e-12);  // TE1 near cut-off
+  EXPECT_NEAR(modes[1], root(true, 0), 1e-12);
+  EXPECT_NEAR(modes[2], root(false, 0), 1e-12);
+  EXPECT_NEAR(modes[0], 1.5666, 1e-4);
+  // the same film split into two layers; superstrate and substrate exchanged (same modes)
+  EXPECT_EQ(cyl::planarBoundModes(es, ec, {ef, ef}, {0.4 * h, 0.6 * h}, 1.5, kb).size(), 3u);
+  const auto flipped = cyl::planarBoundModes(ec, es, {ef}, {h}, 1.5, kb);
+  ASSERT_EQ(flipped.size(), 3u);
+  for (std::size_t i = 0; i < 3; ++i) EXPECT_NEAR(flipped[i], modes[i], 1e-12);
+  // no guiding layer, a lossy layer: none
+  EXPECT_TRUE(cyl::planarBoundModes(es, ec, {1.45 * 1.45}, {h}, 1.5, kb).empty());
+  EXPECT_TRUE(cyl::planarBoundModes(es, ec, {cplx(ef, 1e-3)}, {h}, 1.5, kb).empty());
+}
+
+TEST(CylSpectrum, GradedPanelsAroundBoundModes) {
+  // a real pole p on the deformed section, close to k_a (guided mode near cut-off): the path passes below,
+  // int_path dk / (k - p) = ln((k_max - p) / p) + i pi. The sine path is only delta sin(pi (p - k_a) / L)
+  // away from p; graded panels with that width resolve it (V21d, Plan v2.38)
+  const double p = 1.5666, kmax = 8.4;
+  const cplx exact = std::log((kmax - p) / p) + cplx(0, fg::PI);
+  auto integral = [&](const cyl::SpectralGrid& g) {
+    cplx s = 0.0;
+    for (Eigen::Index j = 0; j < g.k.size(); ++j) s += g.w(j) / (g.k(j) - p);
+    return s;
+  };
+  cyl::SpectrumOptions o;
+  o.kmax = kmax;
+  o.Rs = 2.48;  // r = 0.25 um at 633 nm
+  o.branchPoints = {1.5, 1.0};
+  o.deformA = 1.5;
+  o.deformB = 2.52;
+  o.delta = 0.05 * (o.deformB - o.deformA);
+  const auto plain = cyl::spectralGrid(o);
+  o.boundModes = {p, 1.9026, 1.9655};
+  const auto graded = cyl::spectralGrid(o);
+  std::printf("pole near k_a: plain %.1e (%ld nodes), graded %.1e (%ld nodes)\n", std::abs(integral(plain) - exact),
+              static_cast<long>(plain.k.size()), std::abs(integral(graded) - exact), static_cast<long>(graded.k.size()));
+  EXPECT_GT(std::abs(integral(plain) - exact), 1.0);  // measured 1.8
+  EXPECT_LT(std::abs(integral(graded) - exact), 1e-6);  // measured 2.4e-7 (8 nodes per panel)
+  EXPECT_TRUE(std::is_sorted(graded.edges.begin(), graded.edges.end()));
+  for (double b : {0.0, 1.0, 1.5, 2.52, kmax})
+    EXPECT_NE(std::find(graded.edges.begin(), graded.edges.end(), b), graded.edges.end());
+  // bound modes are ignored on the real path and outside the deformed section
+  auto r = o;
+  r.delta = 0;
+  auto r0 = r;
+  r0.boundModes.clear();
+  EXPECT_EQ(cyl::spectralGrid(r).edges, cyl::spectralGrid(r0).edges);
+  o.boundModes = {1.2, 3.0};
+  EXPECT_EQ(cyl::spectralGrid(o).edges, plain.edges);
 }
 
 TEST(CylGalerkin, HankelPairGaussian) {

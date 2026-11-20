@@ -441,6 +441,22 @@ Metall in Einheiten von 1/R gewählt werden (k_max R ≈ 15). Auf feinen Gittern
 Hintergrund-Exponenten (Abstand 2,1e-8 < 1e-8 max|λ|): früher RK-Rückfall (Abb. 6: über 90 min), jetzt die dividierte
 Differenz; gegen ein Gitter ohne Resonanz σ auf 5e-14, Nahfeld auf 7,5e-12 (`V21g.BackgroundExponentNextToTheNodeKZero`).
 
+**V21d (gegen kartesisch mit PML, Plan v2.38).** Normaleinfall, Li in r; kartesisch `contour2d` mit PML 0,3 µm in x und
+z. Verglichen wird der gesamte Streuquerschnitt: M18 oben + unten + seitlich (nur die Summe ist vom Fenster
+unabhängig), M20 σ_sca bzw. beim Film die Extinktion aus dem optischen Theorem (die geführten Moden fließen seitlich ab
+und fehlen in oben/unten).
+
+| Fall | M20 | M18 | Abweichung |
+|---|---|---|---|
+| Säule n = 1,45, r = 0,4 µm, 0,3 µm auf Glas, λ = 1 µm | 0,38965 µm² (κ_max = 8; 16: 0,38972) | Zelle 2 µm, N = 4/6/8: 0,38458 / 0,38723 / 0,38903; Zelle 2,4 µm, N = 10: 0,39006 | 6,2e-4 (N = 8) |
+| Kontaktloch wie V20g (r = 0,25 µm, Film n = 2,1, 0,3 µm, 633 nm) | Extinktion 0,554838 (κ_max = 4), 0,554369 (κ_max = 8); oben + unten 0,4339 | Zelle 2 µm, N = 8/10/12: 0,5700 / 0,5686 / 0,5640 (Absorption bis 6e-3) | Zielsystem (`FG_SERVER_TESTS=1`, N = 14/18/22) |
+
+Befund (Planfehler): Der Film führt TE₀, TM₀ und TE₁ (n_eff 1,9655 / 1,9026 / 1,5666). Mit dem Standardweg
+(δ = 0,05 (k_b − k_a)) liegt TE₁ nur 0,010 unter dem Sinusweg, die Knoten haben bei R_s = 0,25 µm den Abstand ≈ 0,08:
+Extinktion 0,6146 / 0,5485 / 0,5170 bei dk_factor 0,5 / 1 / 2. Seit v2.38 bestimmt der Löser die Moden des
+verlustfreien planaren Hintergrunds und legt gestufte Panels um sie: 0,554838 für dk_factor 0,5, 1 und 2 gleich, wie ein
+tiefer Weg mit doppelter Knotenzahl (δ = 0,3: 0,554877). N_k steigt dabei von 128 auf 312.
+
 ## CAD-Import für 1D-Gitter (M23, V24)
 
 `tests/cad/test_cad.cpp` (`CAD_V24`, Label `validation`, nur mit Nurbforge), ohne Nurbforge
