@@ -233,7 +233,7 @@ Physikalischer Bereich: [w, d − w] (bzw. das Rechteck in 2D); Strukturen dürf
 (geprüft, auch für CAD-Schnitte; Filme dürfen durchlaufen). Normaleinfall: Totalfeld minus Hintergrundstapel (jede
 strukturierte Schicht durch ihr Material am Zellrand ersetzt). Schräger Einfall: automatisch Streufeldformulierung
 (Quelle σ = (M − M_bg) F_bg in den strukturierten Schichten, Streufeld ohne Blochphase). Ausgabe statt der
-Effizienzen (`efficiencies.csv`, Seite `S_up`, `S_down`, `S_abs`; Python `result.scattering`): Leistung des
+Effizienzen (`efficiencies.csv`, Seite `S_up`, `S_down`, `S_lat`, `S_abs`; Python `result.scattering`): Leistung des
 Streufeldes durch die Ebenen y = Oberkante und y = 0 über den physikalischen Bereich, bezogen auf die Intensität der
 einfallenden Welle (1D: Streubreite in µm, 2D: Streuquerschnitt in µm²), `lateral`: durch die Seiten der Box
 (physikalischer Bereich × Schichten), `absorbed`: Fluss des Totalfeldes in die Box minus Hintergrund. Nur die Summe
@@ -262,7 +262,9 @@ angeregt durch einen Strahl auf der Achse oder eine ebene Welle; `period_um`, `t
 
 `dk_factor` setzt die Dichte der Stützstellen. Um Plasmonen des planaren Hintergrunds, die zwischen den Brechzahlen der
 Halbräume liegen, verfeinert das Gitter automatisch (Plan v2.33). Ein Beispiel ist Silber/Luft bei einem Silberfilm auf
-Glas.
+Glas. Ebenso um die geführten Moden eines verlustfreien Hintergrunds (z. B. ein hochbrechender Film, in dem ein Loch
+sitzt) auf dem deformierten Weg (Plan v2.38); deren Leistung fließt seitlich ab und fehlt in `C_Sup`/`C_Sdown`, die
+gesamte Streuung zeigt dann `C_Sext_ot` (`"optical_theorem": true`).
 
 `rings`: n Radien und n + 1 Materialien von innen nach außen (das letzte gilt außerhalb). Erlaubt sind `homogeneous`,
 `rings` und `rings_profile`, isotrope Materialien, homogene Halbräume.

@@ -778,6 +778,15 @@ class StackSolver final : public Solver {
       o.deformA = ka;
       o.deformB = kb;
       o.delta = cs.deltaRel * (kb - ka);
+      // guided modes of the lossless planar background lie on the deformed section, close to the path near
+      // k_a (modes near cut-off): graded panels around them (V21d, Plan v2.38)
+      std::vector<cplx> bgEps;
+      std::vector<double> bgH;
+      for (const auto& l : c.layers) {
+        bgEps.push_back(l->epsList.back());
+        bgH.push_back(l->thickness_um() * s.k0);
+      }
+      o.boundModes = cyl::planarBoundModes(sub.eps, sup.eps, bgEps, bgH, ka, kb);
     }
     c.grid = cyl::spectralGrid(o);
     c.kmax = o.kmax;

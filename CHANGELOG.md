@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Geändert
+- Plan v2.38 (Planfehler V21d): Gebundene Moden des verlustfreien planaren Hintergrunds nahe der Abschneidung lagen zu
+  dicht am deformierten Weg (Sinusprofil, an k_a flach) und wurden bei kleinem R_s nicht aufgelöst; das Kontaktloch
+  (Film n = 2,1) wanderte mit `dk_factor` um 10 %. Der Löser bestimmt jetzt die TE/TM-Moden des Hintergrunds
+  (`cyl::planarBoundModes`, Schichtmatrizen, Bisektion) und legt gestufte Panels um sie (`SpectrumOptions::boundModes`,
+  Breite = Abstand des Pols zum Weg). Ohne geführte Moden im Hintergrund ist das Gitter unverändert; Golden Files
+  bitgleich. Tests `CylSpectrum.PlanarBoundModesOfAFilm`, `CylSpectrum.GradedPanelsAroundBoundModes`.
+
+### Hinzugefügt
+- M20 V21d (Plan v2.38): Säule und Kontaktloch gegen den kartesischen Pfad mit PML (M18), gesamter Streuquerschnitt
+  (`V21d.*`); der Vergleich des Kontaktlochs braucht N ≥ 14 kartesisch und läuft nur mit `FG_SERVER_TESTS=1`
+  (Zielsystem).
+- `efficiencies.csv` enthält bei PML die Zeile `S_lat` (seitlicher Fluss des Streufeldes, bisher nur in C++/Python).
+
 ### Hinzugefügt
 - M24 (Plan v2.37, Issue #30): `profile1d` mit `"shape": "nurbs"`: eine offene, periodische NURBS-Linie in 1D-Gittern
   (Überhänge erlaubt, kein Selbstschnitt), unter ihr `below`. Bleibt eine Schicht: Die kritischen Höhen (y-Extrema

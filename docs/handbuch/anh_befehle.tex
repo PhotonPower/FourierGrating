@@ -378,6 +378,9 @@ aus \\
 \val{1} verlangt Bitgleichheit mit den Golden Files (gleiche Maschine und gleicher Compiler) \\
 \texttt{FG\_REGRESSION\_UPDATE}\index{FG_REGRESSION_UPDATE@\texttt{FG\_REGRESSION\_UPDATE}} & Regressionstests:
 \val{1} schreibt die Golden Files neu (nur mit Begründung im \file{CHANGELOG.md}) \\
+\texttt{FG\_SERVER\_TESTS}\index{FG_SERVER_TESTS@\texttt{FG\_SERVER\_TESTS}} & Validierungstests:
+\val{1} führt auch die Fälle aus, die nur auf dem Zielsystem laufen (z.\,B. \texttt{V21d.ContactHoleAgainstCartesianPml},
+kartesisch bis $N=26$); sonst werden sie übersprungen \\
 \texttt{FG\_GUI\_*} & GUI, siehe Abschnitt~\ref{sec:gui-betrieb} \\
 \bottomrule
 \end{tabularx}

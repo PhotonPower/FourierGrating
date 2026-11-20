@@ -185,6 +185,17 @@ Konvergenzstudie V21h bestätigen):
         $\operatorname{Re}k_p\pm w\,2^j$, $w=\max(\operatorname{Im}k_p,10^{-3}h_{\max})$ mit der Panelbreite $h_{\max}=\pi/(2R_s\,\mathtt{dk\_factor})$, solange $w\,2^j<h_{\max}$ und
         innerhalb der benachbarten festen Grenzen. Resonanzen im deformierten Abschnitt bleiben dem komplexen Weg
         überlassen.
+  \item \textbf{Gebundene Moden auf dem deformierten Abschnitt (v2.38):} Der Sinusweg ist an der Stelle $t$ nur
+        $\delta\sin\big(\pi\tfrac{t-k_a}{k_b-k_a}\big)$ von der reellen Achse entfernt. Eine Mode nahe der Abschneidung
+        ($k_p\gtrsim k_a$) liegt daher dicht am Weg, und die Knoten der Panelbreite $\le\pi/(2R_s)$ lösen den Pol bei
+        kleinem $R_s$ nicht auf (V21d). Ist der planare Hintergrund verlustfrei (Halbräume, homogene Schichten, äußeres
+        Material der Ringe), werden seine TE- und TM-Moden als reelle Nullstellen der charakteristischen Funktion der
+        Schichtmatrizen in $(k_a,k_b)$ bestimmt: $(u,w)=(E_z,E_z')$ bzw.\ $(H_z,H_z'/\varepsilon)$ von der abklingenden
+        Lösung im Substrat, $u'=\cos(\beta h)\,u+p\,\tfrac{\sin\beta h}{\beta}\,w$,
+        $w'=-\tfrac{\beta\sin\beta h}{p}\,u+\cos(\beta h)\,w$ ($p=1$ bzw.\ $\varepsilon_j$, ganz in $\beta^2$), Mode bei
+        $w+\gamma_c u/p_c=0$; Vorzeichenwechsel auf 4096 Punkten, dann Bisektion. Um jede Mode $k_p$ gestufte Panels wie
+        oben mit $w=\max\big(\delta\sin\big(\pi\tfrac{k_p-k_a}{k_b-k_a}\big),10^{-3}h_{\max}\big)$. Verlustbehaftete
+        Hintergründe bleiben beim bisherigen Gitter (ihre Pole liegen oberhalb der Achse).
 \end{itemize}
 
 \subsection{Galerkin-Matrizen}\label{sec:cylgal}
@@ -814,6 +825,36 @@ Plan vorgesehen:
         (Ag, Al; Knoten bei 21--$81^\circ$).
 \end{itemize}
 
+\paragraph{Umsetzung (v2.38): V21d, Vergleich mit dem kartesischen Pfad (M18).}
+Säule ($n=1{,}45$, $r=0{,}4$\,µm, $0{,}3$\,µm auf Glas, $\lambda=1$\,µm) und Kontaktloch wie V20g ($r=0{,}25$\,µm im Film
+$n=2{,}1$, $0{,}3$\,µm, auf Glas, 633\,nm), Normaleinfall, Li in $r$; kartesisch \verb|contour2d| in einer Zelle mit PML
+($0{,}3$\,µm) in $x$ und $z$.
+\begin{itemize}[nosep]
+  \item \textbf{Was verglichen wird:} M18 gibt den Fluss des Streufeldes durch die Box (Fenster $\times$ Schichten)
+        aus; nur die Summe oben $+$ unten $+$ seitlich hängt nicht vom Fenster ab. M20 gibt oben und unten über die ganze
+        Ebene; die Leistung in geführten Moden des Hintergrunds fehlt dort. Ohne geführte Moden (Säule) ist das
+        $\sigma_{\text{sca}}$, beim Film die Extinktion aus dem optischen Theorem (verlustfrei $=$ gesamte Streuung).
+  \item \textbf{Säule:} M20 konvergiert rasch ($\kappa_{\max}=8\to16$: $7\cdot10^{-5}$; \verb|dk_factor|-unabhängig auf
+        $10^{-9}$), $\sigma=0{,}38965$\,µm$^2$. M18 (Zelle 2\,µm) $0{,}38458$ / $0{,}38723$ / $0{,}38903$ bei $N=4/6/8$,
+        Zelle $2{,}4$\,µm, $N=10$: $0{,}39006$. Abweichung bei $N=8$: $6{,}2\cdot10^{-4}$.
+  \item \textbf{Planfehler (Kontaktloch):} Der Film führt TE$_0$, TM$_0$, TE$_1$ ($k_p=1{,}9655$, $1{,}9026$, $1{,}5666$).
+        Mit dem Standardweg ($\delta=0{,}05(k_b-k_a)$) liegt TE$_1$ nur $0{,}010$ unter dem Weg, die Knoten haben bei
+        $R_s=2{,}48$ den Abstand $\approx0{,}08$: Extinktion $0{,}6146$ / $0{,}5485$ / $0{,}5170$ bei \verb|dk_factor|
+        $0{,}5$ / 1 / 2, auch tiefere Wege konvergieren erst mit doppelter Knotenzahl ($\delta=0{,}2$, $0{,}3$:
+        $0{,}55489$, $0{,}55488$). Mit den gestuften Panels um die Moden (Abschnitt~\ref{sec:cylgrid}): $0{,}554838$
+        bei \verb|dk_factor| $0{,}5$, 1 und 2 gleich, $N_k$ $128\to312$ (Rechenzeit $\times30$, die nahen Knotenpaare
+        brauchen die Quadratur statt Lommel). $\kappa_{\max}=8$: $0{,}554369$; $\sigma_{\text{sca}}$ (oben $+$ unten)
+        $0{,}4339$, also tragen die geführten Moden $\approx20\,\%$.
+  \item \textbf{Kartesisch (Kontaktloch):} $0{,}5700$ / $0{,}5686$ / $0{,}5640$ bei $N=8/10/12$ (Zelle 2\,µm, Absorption
+        bis $6\cdot10^{-3}$, $N=12$: $7{,}5$\,min auf dem Entwicklungsrechner). Bei $n=2{,}1$ und 633\,nm reicht das nicht;
+        der Vergleich auf $10^{-3}$ mit $N=14$, 18, 22 (und Zelle $2{,}4$\,µm, $N=26$) läuft auf dem Zielsystem
+        (\verb|FG_SERVER_TESTS=1|).
+  \item Tests: Unit \verb|CylSpectrum.PlanarBoundModesOfAFilm| (Moden gegen die Dispersionsrelation $10^{-12}$),
+        \verb|CylSpectrum.GradedPanelsAroundBoundModes| ($\int dk/(k-p)$ über den Weg mit Pol bei $1{,}5666$: $1{,}8$ ohne, $2{,}4\cdot10^{-7}$ mit Stufung),
+        \verb|V21d.PillarAgainstCartesianPml|, \verb|V21d.ContactHoleSpectrumIndependentOfDensity|,
+        \verb|V21d.ContactHoleAgainstCartesianPml| (Zielsystem).
+\end{itemize}
+
 \subsection{Tests und Abnahme (M20)}
 \begin{itemize}[nosep]
   \item Unit: Prüfpunkt zu \eqref{eq:cyl_M}; \eqref{eq:lommel} gegen Quadratur ($5\cdot10^{-14}$, auch komplex; Auslöschung an der Schwelle $|a-b|\,r=10^{-2}$);
@@ -830,7 +871,9 @@ Plan vorgesehen:
         $\kappa_{\max}=8$ ($N=20,40$), Rest in $\kappa_{\max}$ als $\kappa^{-2}$: $-5{,}7\cdot10^{-4}$ ($\sigma_{\text{ext}}$ und
         Goldkugel mit dem Nahfeld).
   \item \textbf{V21d} (gegen kartesisch): runde Säule und rundes Kontaktloch (wie V20g) bei Normaleinfall: Streu- bzw.\
-        Transmissionsleistung $=$ M18-Ergebnis innerhalb dessen Konvergenz ($10^{-3}$).
+        Transmissionsleistung $=$ M18-Ergebnis innerhalb dessen Konvergenz ($10^{-3}$). \textbf{Umsetzung (v2.38):}
+        verglichen wird der gesamte Streuquerschnitt (M18: oben $+$ unten $+$ seitlich; M20 beim Loch die Extinktion
+        aus dem optischen Theorem, weil die geführten Moden des Films seitlich abfließen), s.\ unten.
   \item \textbf{V21e} (Streufeld $=$ Totalfeld): Gauß-Strahl, Streufeld $+$ Hintergrund $=$ Totalfeld (RCWA $10^{-10}$,
         RK auf RK-Toleranz), Laurent und Li in $r$.
   \item \textbf{V21f} (Symmetrie und Weg): $m\leftrightarrow-m$ $10^{-12}$; Ergebnisse unabhängig von $\delta$ für

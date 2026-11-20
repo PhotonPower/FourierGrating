@@ -843,7 +843,8 @@ void writeRows(std::ofstream& out, const std::string& prefix, const std::vector<
     for (const auto& o : results[k].transmitted) row("T", o);
     const ScatteringResult& sc = results[k].scattering;  // aperiodic (M18): widths in the efficiency column
     if (sc.present)
-      for (const auto& [side, v] : {std::pair<const char*, double>{"S_up", sc.up}, {"S_down", sc.down}, {"S_abs", sc.absorbed}})
+      for (const auto& [side, v] : {std::pair<const char*, double>{"S_up", sc.up}, {"S_down", sc.down}, {"S_lat", sc.lateral},
+                                    {"S_abs", sc.absorbed}})
         row(side, OrderEfficiency{0, 0, v, 0, 0});
     const ModalResult& mr = results[k].modal;  // modal excitation (M18): guided-mode powers, n = mode number
     if (mr.present) {
