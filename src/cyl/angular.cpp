@@ -124,7 +124,8 @@ VecC angularCoefficients(const Region& region, double r, int P, int qmax) {
     chi(0) += (a.phiB - a.phiA) / (2 * PI);
     for (int q = 1; q <= qmax; ++q) {
       const double n = double(q) * P;
-      chi(q) += (std::exp(cplx(0, -n * a.phiB)) - std::exp(cplx(0, -n * a.phiA))) / cplx(0, -n) / (2 * PI);
+      // 1/(-i n) = i/n (a real division; MSVC flags the complex division by (0, -n) as C4723)
+      chi(q) += cplx(0, 1) * (std::exp(cplx(0, -n * a.phiB)) - std::exp(cplx(0, -n * a.phiA))) / (2 * PI * n);
     }
   }
   return chi;
