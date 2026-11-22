@@ -459,13 +459,17 @@ tiefer Weg mit doppelter Knotenzahl (δ = 0,3: 0,554877). N_k steigt dabei von 1
 
 ## P-zählige Drehsymmetrie (M21, V22)
 
-`tests/validation/test_v22_cylp.cpp`; Säule n = 1,45 (0,3 µm) auf Glas, λ = 1 µm, κ_max = 3.
+`tests/validation/test_v22_cylp.cpp`; Säule n = 1,45 (0,3 µm) auf Glas, λ = 1 µm, κ_max = 3 (V22c: siehe Zeile).
+
+Konvergenz V22c (Quadrat, lokal): Klassenpfad L = 1 bei κ_max = 4/6/8: 0,30063 / 0,29951 / 0,29919; κ_max = 6, L = 2:
+0,29852. M18 N = 6/8: 0,30314 / 0,30206 (Absorption in der Box bis −2e-3). Beide nähern sich von oben.
 
 | Test | Fall | Ergebnis |
 |---|---|---|
 | V22a | Ringschicht (Li in r) über den Klassenpfad, P = 1, 2, 3, L = 1, Strahl w₀ = 0,25 µm | R, T je Harmonischer = M20 auf 3e-13, dunkle Harmonische < 1e-14 |
 | V22a | zentrierter Kreis als `contour2d` (P = 3, L = 2, Laurent) gegen `rings` (Laurent), φ = 30° | 3e-13 µm² bei σ = 0,24 µm² (L = 5: 4e-14) |
 | V22b | exzentrischer Faserkern (P = 1) gegen zentrierten Kern, HE₁₁ | 8,4e-5 (x₀ = 0,3, L = 3) … 1,6e-10 (x₀ = 0,6, L = 7) |
+| V22c | Quadrat 0,6 µm (P = 4), n = 1,45, Normaleinfall, gegen M18 mit PML (Zelle 2 µm), beide Laurent | lokal grob: Klassenpfad κ_max = 4, L = 1: 0,30063 µm², M18 N = 6: 0,30314 (2,5e-3); Abnahme auf dem Zielsystem (`FG_SERVER_TESTS=1`: κ_max = 8, L = 2/3 gegen N = 10/14; auch Sechseck und Silber) |
 | V22d | Quadrat: Blöcke l − l' ∉ 4ℤ (eine Klasse von P = 1) | 6e-18 gegen 1,4e-2 |
 | V22d | Quadrat, P = 4, L = 1, Einfallsazimut Ψ = 0° / 90° | σ gleich auf 1e-15, Fernfeld gedreht auf 4e-15 |
 | V22e | Quadrat, P = 4, L = 2, Strahl zirkular + / − | R, T und Harmonische m ↔ −m auf 1e-13 |

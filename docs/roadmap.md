@@ -252,7 +252,11 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
     `polygon2d`/`contour2d` im Zylinderstapel mit `"symmetry": {"rotation": P, "L": n}`, ebene Welle
     (`coupledSource`) und Strahl je Klasse; **V22a** (3e-13), **V22d**, **V22e**, `V22Config` –
     `tests/validation/test_v22_cylp.cpp`
-  - Als Nächstes: V22c (quadratische und hexagonale Säule gegen M18 mit PML, Konvergenz in L; Zielsystem), Volumen-
+  - Erledigt (Plan v2.41): V22c als Test – lokal grob (`V22c.SquarePillarCoarse`, 2,5e-3), Abnahme auf dem
+    Zielsystem
+  - **Offen für die Abnahme:** `V22c.PillarsAgainstCartesianPml` auf dem Zielsystem (`FG_SERVER_TESTS=1`; Quadrat und
+    Sechseck κ_max = 8, L = 2/3 gegen M18 N = 10/14, Silber als Konvergenzstudie)
+  - Als Nächstes: Volumen-
     integrale und Nahfeld im Klassenpfad, `cad` mit Drehsymmetrie (V22f, `E_ROT_SYMMETRY`), Gradienten (V22g);
     Beschleunigung: Halbräume und homogene Schichten blockweise
 

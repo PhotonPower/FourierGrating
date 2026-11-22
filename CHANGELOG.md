@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M21 V22c (Plan v2.41): quadratische und hexagonale Säule gegen den kartesischen Pfad mit PML (M18), beide Laurent;
+  lokal ein grober Vergleich (`V22c.SquarePillarCoarse`), die Abnahme bei 1e-3 und die Silbersäule als
+  Konvergenzstudie nur mit `FG_SERVER_TESTS=1` (`V22c.PillarsAgainstCartesianPml`).
 - M21, Löser je Symmetrieklasse (Plan v2.40): `"cylindrical": {"symmetry": {"rotation": P, "L": n}}` mit Schichten
   `polygon2d` und `contour2d` um die Achse (Symmetrieprüfung, Fehlermeldung mit der gefundenen Ordnung). `CylBasis`
   rechnet eine Klasse m₀ + lP (Ringschichten blockdiagonal, Querschnitte über `coupledQ`), ebene Wellen mit der Quelle

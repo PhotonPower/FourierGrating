@@ -1,13 +1,15 @@
 // V22 (M21, Plan section "Tests und Abnahme (M21)"): P-fold rotational symmetry with coupled harmonics.
 // V22b: guided modes of an eccentric fiber core (P = 1) equal those of the centred core (Plan "Befund Prototyp").
-// V22a: rotationally symmetric structures through the class path equal M20; V22d: selection rules; V22e: mirror
-// symmetry (classes m0 and -m0).
+// V22a: rotationally symmetric structures through the class path equal M20; V22c: square and hexagonal pillar
+// against the Cartesian path with PML (M18); V22d: selection rules; V22e: mirror symmetry (classes m0 and -m0).
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "fg/cyl/coupled.hpp"
@@ -66,6 +68,69 @@ double perHarmonic(const fg::CylindricalResult& r, const std::vector<double>& v,
   return std::nan("");
 }
 
+bool serverTests() {
+  const char* v = std::getenv("FG_SERVER_TESTS");
+  return v && std::string(v) == "1";
+}
+
+/// JSON vertices of the pillar cross section centred at (c, c): square of side 0.6 um or regular hexagon of
+/// circumradius 0.37 um (about the same area), 17 digits (the symmetry check works at 1e-9 of the radius).
+std::string vertices(bool hexagon, double c) {
+  std::string v = "[";
+  const int n = hexagon ? 6 : 4;
+  const double R = hexagon ? 0.37 : 0.3 * std::sqrt(2.0), a0 = hexagon ? 0.0 : 0.25 * fg::PI;
+  for (int k = 0; k < n; ++k) {
+    char b[96];
+    const double a = a0 + 2 * fg::PI * k / n;
+    std::snprintf(b, sizeof b, "%s[%.17g, %.17g]", k ? ", " : "", c + R * std::cos(a), c + R * std::sin(a));
+    v += b;
+  }
+  return v + "]";
+}
+
+/// V22c pillar (height 0.3 um on glass, lambda = 1 um, normal incidence): material "p" is n = 1.45 or silver
+/// (eps = -40 + 4i, roughly at 1 um).
+std::string materials(bool silver) {
+  return std::string(R"("materials": {"air": {"n": 1.0}, "glass": {"n": 1.5}, "p": )") +
+         (silver ? R"({"eps": [-40.0, 4.0]})" : R"({"n": 1.45})") + "},";
+}
+
+/// Threads for the server runs (Eigen's products with OpenMP).
+int blasThreads() { return std::max(1, static_cast<int>(std::thread::hardware_concurrency())); }
+
+/// Class path: P = 4 (square) or 6 (hexagon), Laurent, kappa_max, L; scattering cross section in um^2.
+double v22cCylindrical(bool hexagon, bool silver, double kappa, int L) {
+  const std::string head = materials(silver);
+  const std::string json = R"({"threads": {"blas": )" + std::to_string(blasThreads()) +
+                           R"(}, "cylindrical": {"factorization": "laurent", "symmetry": {"rotation": )" +
+                           (hexagon ? "6" : "4") + R"(, "L": )" + std::to_string(L) +
+                           R"(}, "spectrum": {"kappa_max": )" + std::to_string(kappa) + "}}, " + head +
+                           R"( "superstrate": "air", "substrate": "glass",
+      "incidence": {"type": "plane_wave", "lambda_um": 1.0, "phi_deg": 0, "psi_deg": 0, "delta_deg": 0},
+      "layers": [{"type": "polygon2d", "thickness_um": 0.3, "background": "air",
+                  "inclusions": [{"material": "p", "vertices_um": )" + vertices(hexagon, 0.0) + "}]}]}";
+  const auto c = solveConfig(json).cylindrical;
+  EXPECT_TRUE(c.present && c.planeWave);
+  return c.scattering_um2;
+}
+
+/// Cartesian cell 2 x 2 um with PML (0.3 um) in x and z, truncation N, Laurent: up + down + lateral (um^2) and the
+/// absorbed power in the box (a convergence indicator for the dielectric pillar).
+std::pair<double, double> v22cCartesian(bool hexagon, bool silver, int N) {
+  const std::string head = materials(silver);
+  const std::string json = R"({"threads": {"blas": )" + std::to_string(blasThreads()) +
+                           R"(}, "dimension": "2D", "solver": "rcwa", "truncation": {"Nx": )" + std::to_string(N) +
+                           R"(, "Nz": )" + std::to_string(N) + R"(}, "period_um": {"x": 2.0, "z": 2.0}, )" + head +
+                           R"( "superstrate": "air", "substrate": "glass",
+      "incidence": {"lambda_um": 1.0, "phi_deg": 0, "psi_deg": 0, "delta_deg": 0},
+      "aperiodic": {"pml": {"x": {"width_um": 0.3, "beta": 1.0}, "z": {"width_um": 0.3, "beta": 1.0}}},
+      "layers": [{"type": "polygon2d", "thickness_um": 0.3, "background": "air", "factorization": "laurent",
+                  "inclusions": [{"material": "p", "vertices_um": )" + vertices(hexagon, 1.0) + "}]}]}";
+  const fg::Result r = solveConfig(json);
+  EXPECT_TRUE(r.scattering.present);
+  return {r.scattering.up + r.scattering.down + r.scattering.lateral, r.scattering.absorbed};
+}
+
 }  // namespace
 
 // Rings layer (Li in r) through the class path: the class is block-diagonal with the M20 blocks, so R and T of every
@@ -113,6 +178,41 @@ TEST(V22a, CircleThroughTheClassPathEqualsM20) {
   }
   std::printf("V22a circle: largest deviation per harmonic %.1e (sigma %.6f)\n", worst, scale);
   EXPECT_LT(worst, 1e-12);
+}
+
+// Square pillar, coarse: class path kappa_max = 4, L = 1 (0.30063) against M18 N = 6 (0.30314). Both converge from
+// above (class path L = 1, kappa_max 4/6/8: 0.30063/0.29951/0.29919, kappa_max 6, L = 2: 0.29852; M18 N = 6/8:
+// 0.30314/0.30206 with |absorbed| up to 2e-3), the acceptance at 1e-3 runs on the target system (below).
+TEST(V22c, SquarePillarCoarse) {
+  const double cyl = v22cCylindrical(false, false, 4, 1);
+  const auto [cart, absorbed] = v22cCartesian(false, false, 6);
+  std::printf("V22c square, coarse: class path %.6f | M18 %.6f (absorbed %.1e)\n", cyl, cart, absorbed);
+  EXPECT_NEAR(cyl, cart, 5e-3);
+}
+
+// Square (P = 4) and hexagonal (P = 6) dielectric pillar against M18 within its convergence (Plan: 1e-3, both
+// Laurent): |class path - M18(N = 14)| <= max(1e-3, |M18(14) - M18(10)|); the class path at kappa_max = 8, L = 2 and
+// 3. Silver pillar as a convergence study (output only; FFF stage 2). Target system: FG_SERVER_TESTS=1.
+TEST(V22c, PillarsAgainstCartesianPml) {
+  if (!serverTests()) GTEST_SKIP() << "target system only (FG_SERVER_TESTS=1)";
+  for (const bool hexagon : {false, true}) {
+    const char* name = hexagon ? "hexagon" : "square";
+    const double c2 = v22cCylindrical(hexagon, false, 8, 2), c3 = v22cCylindrical(hexagon, false, 8, 3);
+    const auto m10 = v22cCartesian(hexagon, false, 10), m14 = v22cCartesian(hexagon, false, 14);
+    std::printf("V22c %s: class path L = 2/3: %.6f / %.6f | M18 N = 10/14: %.6f / %.6f (absorbed %.1e / %.1e)\n",
+                name, c2, c3, m10.first, m14.first, m10.second, m14.second);
+    EXPECT_NEAR(c3, m14.first, std::max(1e-3, std::abs(m14.first - m10.first))) << name;
+    EXPECT_LT(std::abs(c3 - c2), 1e-3) << name;
+  }
+  for (const bool hexagon : {false, true}) {
+    const char* name = hexagon ? "hexagon" : "square";
+    const double c4 = v22cCylindrical(hexagon, true, 4, 2), c8 = v22cCylindrical(hexagon, true, 8, 2);
+    const auto m10 = v22cCartesian(hexagon, true, 10), m14 = v22cCartesian(hexagon, true, 14);
+    std::printf("V22c silver %s: class path kappa_max = 4/8: %.6f / %.6f | M18 N = 10/14: up + down + lateral "
+                "%.6f / %.6f (absorbed %.4f / %.4f)\n",
+                name, c4, c8, m10.first, m14.first, m10.second, m14.second);
+    EXPECT_TRUE(std::isfinite(c8) && std::isfinite(m14.first)) << name;
+  }
 }
 
 // Selection rules: in one class of P = 1 the Laurent blocks of a square couple only harmonics that differ by a
