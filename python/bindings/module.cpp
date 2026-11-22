@@ -112,6 +112,8 @@ py::dict toDict(const fg::Result& r, double seconds, const std::vector<fg::prof:
     cy["transmitted_per_harmonic"] = r.cylindrical.transmittedPerHarmonic;
     cy["nodes"] = r.cylindrical.nodes;
     cy["plane_wave"] = r.cylindrical.planeWave;
+    cy["rotation"] = r.cylindrical.rotation;  // M21: P (0: axial) and the truncation L of the classes
+    cy["class_L"] = r.cylindrical.classL;
     if (r.cylindrical.planeWave) {  // cross sections in um^2 (per harmonic: the *_per_harmonic lists)
       cy["scattered_up_um2"] = r.cylindrical.scatteredUp_um2;
       cy["scattered_down_um2"] = r.cylindrical.scatteredDown_um2;

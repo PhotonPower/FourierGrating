@@ -247,7 +247,7 @@ angeregt durch einen Strahl auf der Achse oder eine ebene Welle; `period_um`, `t
 
 ```jsonc
 "cylindrical": {
-  "symmetry": "axial",
+  "symmetry": "axial",                                     // oder {"rotation": P, "L": n} (M21, s. u.)
   "harmonics": "auto",                                    // oder Liste, z. B. [-1, 1]
   "spectrum": {"kappa_max": 6, "dk_factor": 1.0, "nodes_per_panel": 8,
                "deform": "auto"},                          // "auto" | false | {"delta": 0.05} (> 0, relativ zu k_b - k_a)
@@ -268,6 +268,21 @@ gesamte Streuung zeigt dann `C_Sext_ot` (`"optical_theorem": true`).
 
 `rings`: n Radien und n + 1 Materialien von innen nach außen (das letzte gilt außerhalb). Erlaubt sind `homogeneous`,
 `rings` und `rings_profile`, isotrope Materialien, homogene Halbräume.
+
+**P-zählige Drehsymmetrie (M21, in Arbeit).** Mit `"symmetry": {"rotation": P, "L": n}` im Block `"cylindrical"`
+sind zusätzlich `polygon2d` und `contour2d` erlaubt: Querschnitte um die Achse (x = z = 0), die bei Drehung um
+2π/P in sich übergehen (P = 1: beliebig; Prüfung mit der Toleranz 1e-9 des größten Radius, die Fehlermeldung nennt
+die gefundene Ordnung). Gerechnet wird je Symmetrieklasse m₀ + lP, |l| ≤ L, mit gekoppelten Harmonischen (Laurent in
+diesen Schichten; `"factorization": "li_r"` gilt dann nur für die Ringschichten). `L` ohne Angabe: ⌈m_cut/P⌉ + 2
+(m_cut: größtes |m| der Anregung); Konvergenz in `L` prüfen. Der Aufwand wächst mit (2L + 1)³. Ausgabe wie oben, je
+Harmonischer aller Klassen; Python zusätzlich `rotation`, `class_L`. Noch nicht verfügbar: σ_abs und das optische
+Theorem (bei verlustbehafteten Querschnitten `nan`), Nahfeld, Gradienten, Strahl als Streufeld, `cad`.
+
+```jsonc
+"cylindrical": {"symmetry": {"rotation": 4, "L": 2}, "factorization": "laurent"},
+"layers": [{"type": "polygon2d", "thickness_um": 0.3, "background": "air",
+            "inclusions": [{"material": "p", "rectangle_um": {"center": [0, 0], "size": [0.5, 0.5]}}]}]
+```
 
 `rings_profile`: Radien als Funktionen der Höhe y über der Schichtunterkante, gerechnet als Treppe aus `slices`
 Scheiben (Standard `rcwa.slices`) mit den Radien in der Scheibenmitte; ein Ring ohne Breite entfällt, sich kreuzende

@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M21, Löser je Symmetrieklasse (Plan v2.40): `"cylindrical": {"symmetry": {"rotation": P, "L": n}}` mit Schichten
+  `polygon2d` und `contour2d` um die Achse (Symmetrieprüfung, Fehlermeldung mit der gefundenen Ordnung). `CylBasis`
+  rechnet eine Klasse m₀ + lP (Ringschichten blockdiagonal, Querschnitte über `coupledQ`), ebene Wellen mit der Quelle
+  je Klasse (`fg::cyl::coupledSource`), Strahlen je Klasse; Ausgabe je Harmonischer, Python `rotation`, `class_L`.
+  M20 bitgleich. Tests V22a (Klassenpfad = M20, 3e-13), V22d (Auswahlregeln, Drehung des Einfallsazimuts), V22e
+  (Spiegelsymmetrie), `V22Config`.
 - M21, erster Schritt (Plan v2.39): Winkelkoeffizienten χ_q(r) von Querschnitten um die Achse
   (`fg::cyl::arcsInside`, `angularCoefficients`, Plan eq:cylP_chi), kritische Radien (`criticalRadii`),
   Prüfung der P-zähligen Drehsymmetrie und Symmetrieordnung (`hasRotationSymmetry`, `rotationOrder`). Unit-Tests

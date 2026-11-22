@@ -55,11 +55,21 @@ VecC tiledK(const VecC& k, int blocks) {
   return t;
 }
 
-CylQ coupledQ(const SpectralGrid& grid, const HarmonicMap& map, const AngularSection& section, int nodesPerPanel) {
+namespace {
+
+/// The radial rule of a class and d_q(r_i) r_i W_i = sum_b (eps_b - epsBg) chi_q^(b)(r_i) r_i W_i for
+/// q = -qmax..qmax (row qmax + q; chi_{-q} = conj chi_q). The panels are as wide as allowed by kabs.
+struct RadialTable {
+  std::vector<double> r;
+  MatC d;
+  int qmax = 0;
+};
+
+RadialTable radialTable(const HarmonicMap& map, const AngularSection& section, double kabs, int nodesPerPanel) {
   FG_REQUIRE(map.P >= 1 && map.L >= 0, "coupledQ: P >= 1, L >= 0");
   FG_REQUIRE(section.regions.size() == section.eps.size(), "coupledQ: one permittivity per region");
-  const Eigen::Index nk = grid.k.size();
-  const int nb = map.blocks(), qmax = 2 * map.L;
+  RadialTable t;
+  t.qmax = 2 * map.L;
   // critical radii of all regions: chi_q is smooth between them
   std::vector<double> breaks{0.0};
   for (const auto& reg : section.regions) {
@@ -70,34 +80,49 @@ CylQ coupledQ(const SpectralGrid& grid, const HarmonicMap& map, const AngularSec
   const double tol = 1e-12 * std::max(breaks.back(), 1e-300);
   breaks.erase(std::unique(breaks.begin(), breaks.end(), [&](double a, double b) { return b - a <= tol; }),
                breaks.end());
-  std::vector<double> r, W;
-  const double kabs = grid.k.cwiseAbs().maxCoeff();
-  radialRule(breaks, PI / (2 * std::max(kabs, 1e-300)), nodesPerPanel, r, W);
-  const auto nr = static_cast<Eigen::Index>(r.size());
-  // d_q(r_i) = sum_b (eps_b - epsBg) chi_q^(b)(r_i), q = -qmax..qmax (chi_{-q} = conj chi_q), times r_i W_i
-  MatC d = MatC::Zero(2 * qmax + 1, nr);
+  std::vector<double> W;
+  radialRule(breaks, PI / (2 * std::max(kabs, 1e-300)), nodesPerPanel, t.r, W);
+  const auto nr = static_cast<Eigen::Index>(t.r.size());
+  const int qmax = t.qmax;
+  t.d = MatC::Zero(2 * qmax + 1, nr);
   for (Eigen::Index i = 0; i < nr; ++i)
     for (std::size_t b = 0; b < section.regions.size(); ++b) {
       const cplx de = section.eps[b] - section.epsBg;
-      const VecC chi = angularCoefficients(section.regions[b], r[static_cast<std::size_t>(i)], map.P, qmax);
-      const double rw = r[static_cast<std::size_t>(i)] * W[static_cast<std::size_t>(i)];
+      const VecC chi = angularCoefficients(section.regions[b], t.r[static_cast<std::size_t>(i)], map.P, qmax);
+      const double rw = t.r[static_cast<std::size_t>(i)] * W[static_cast<std::size_t>(i)];
       for (int q = 0; q <= qmax; ++q) {
-        d(qmax + q, i) += de * chi(q) * rw;
-        if (q) d(qmax - q, i) += de * std::conj(chi(q)) * rw;
+        t.d(qmax + q, i) += de * chi(q) * rw;
+        if (q) t.d(qmax - q, i) += de * std::conj(chi(q)) * rw;
       }
     }
-  // Bessel tables T_nu(j, i) = J_nu(k_j r_i) for nu = m_min - 1 .. m_max + 1
-  const int nuMin = map.m(0) - 1, nuMax = map.m(nb - 1) + 1, aMax = std::max(std::abs(nuMin), std::abs(nuMax));
+  return t;
+}
+
+/// Bessel tables T_nu(j, i) = J_nu(k_j r_i), nu = nuMin..nuMax.
+std::vector<MatC> besselTables(const VecC& k, const std::vector<double>& r, int nuMin, int nuMax) {
+  const Eigen::Index nk = k.size(), nr = static_cast<Eigen::Index>(r.size());
+  const int aMax = std::max(std::abs(nuMin), std::abs(nuMax));
   std::vector<MatC> T(static_cast<std::size_t>(nuMax - nuMin + 1), MatC(nk, nr));
   for (Eigen::Index j = 0; j < nk; ++j)
     for (Eigen::Index i = 0; i < nr; ++i) {
-      const auto v = besselJAll(aMax, grid.k(j) * r[static_cast<std::size_t>(i)]);
+      const auto v = besselJAll(aMax, k(j) * r[static_cast<std::size_t>(i)]);
       for (int nu = nuMin; nu <= nuMax; ++nu) {
         const int a = std::abs(nu);
         const double sg = (nu < 0 && a % 2) ? -1.0 : 1.0;  // J_{-n} = (-1)^n J_n
         T[static_cast<std::size_t>(nu - nuMin)](j, i) = sg * v[static_cast<std::size_t>(a)];
       }
     }
+  return T;
+}
+
+}  // namespace
+
+CylQ coupledQ(const SpectralGrid& grid, const HarmonicMap& map, const AngularSection& section, int nodesPerPanel) {
+  const Eigen::Index nk = grid.k.size();
+  const int nb = map.blocks();
+  const RadialTable rt = radialTable(map, section, grid.k.cwiseAbs().maxCoeff(), nodesPerPanel);
+  const int qmax = rt.qmax, nuMin = map.m(0) - 1, nuMax = map.m(nb - 1) + 1;
+  const std::vector<MatC> T = besselTables(grid.k, rt.r, nuMin, nuMax);
   auto table = [&](int nu) -> const MatC& { return T[static_cast<std::size_t>(nu - nuMin)]; };
   const VecC wk = grid.w.cwiseProduct(grid.k);
   const Eigen::Index nf = nb * nk;
@@ -105,7 +130,7 @@ CylQ coupledQ(const SpectralGrid& grid, const HarmonicMap& map, const AngularSec
     MatC Q = MatC::Zero(nf, nf);
     for (int b = 0; b < nb; ++b)
       for (int bp = 0; bp < nb; ++bp) {
-        const VecC dq = d.row(qmax + (b - bp)).transpose();
+        const VecC dq = rt.d.row(qmax + (b - bp)).transpose();
         Q.block(b * nk, bp * nk, nk, nk) =
             (table(map.m(b) + s) * dq.asDiagonal() * table(map.m(bp) + s).transpose()) * wk.asDiagonal();
         if (b == bp) Q.block(b * nk, b * nk, nk, nk).diagonal().array() += section.epsBg;
@@ -119,6 +144,40 @@ CylQ coupledQ(const SpectralGrid& grid, const HarmonicMap& map, const AngularSec
   Q.Qpm = MatC::Zero(nf, nf);
   Q.Qmp = MatC::Zero(nf, nf);
   return Q;
+}
+
+PlaneWaveSource coupledSource(const SpectralGrid& grid, const HarmonicMap& map, const AngularSection& section,
+                              double kpar, double Psi, int nodesPerPanel) {
+  const Eigen::Index nk = grid.k.size();
+  const int nb = map.blocks();
+  const RadialTable rt =
+      radialTable(map, section, std::max(grid.k.cwiseAbs().maxCoeff(), std::abs(kpar)), nodesPerPanel);
+  const int qmax = rt.qmax, nuMin = map.m(0) - 1, nuMax = map.m(nb - 1) + 1;
+  const std::vector<MatC> T = besselTables(grid.k, rt.r, nuMin, nuMax);
+  const std::vector<MatC> Tk = besselTables(VecC::Constant(1, kpar), rt.r, nuMin, nuMax);
+  auto idx = [&](int nu) { return static_cast<std::size_t>(nu - nuMin); };
+  // i^nu e^{-i nu Psi} (Plan eq:cyl_jacobi)
+  auto phase = [Psi](int nu) { return std::polar(1.0, nu * (0.5 * PI - Psi)); };
+  const Eigen::Index nf = nb * nk;
+  // block l: sum_l' phase(nu_l') int d_{l-l'} J_{nu_l}(k_j r) J_{nu_l'}(kpar r) r dr, nu_l = m_l + s
+  auto column = [&](int s) {
+    VecC c = VecC::Zero(nf);
+    for (int b = 0; b < nb; ++b) {
+      VecC g = VecC::Zero(static_cast<Eigen::Index>(rt.r.size()));
+      for (int bp = 0; bp < nb; ++bp) {
+        const int nup = map.m(bp) + s;
+        g += phase(nup) * rt.d.row(qmax + (b - bp)).transpose().cwiseProduct(Tk[idx(nup)].row(0).transpose());
+      }
+      c.segment(b * nk, nk) = T[idx(map.m(b) + s)] * g;
+    }
+    return c;
+  };
+  PlaneWaveSource B;
+  B.By = column(0);
+  B.Bpm = MatC::Zero(2 * nf, 2);
+  B.Bpm.col(0).head(nf) = column(+1);
+  B.Bpm.col(1).tail(nf) = column(-1);
+  return B;
 }
 
 }  // namespace fg::cyl

@@ -22,6 +22,7 @@
 #include "fg/linalg/backend.hpp"
 #include "fg/physics/anisotropic.hpp"
 #include "fg/physics/efficiency.hpp"
+#include "fg/cyl/angular.hpp"
 #include "fg/cyl/bessel.hpp"
 #include "fg/cyl/field.hpp"
 #include "fg/cyl/propagation.hpp"
@@ -412,6 +413,7 @@ class StackSolver final : public Solver {
   /// The cylindrical forward problem (detail::cylProblem, gradients V21i).
   detail::CylProblem cylProblem(const Stack& stackIn, const Wavelength& wl) const {
     detail::CylProblem p;
+    FG_REQUIRE(stackIn.cylindrical.rotation == 0, "cylindrical gradients: not yet available with symmetry.rotation (M21)");
     p.stack = detail::expandRingsProfiles(stackIn, opt_.rcwaSlices);
     CylContext c = cylContext(p.stack, wl);
     for (const int m : c.ms) p.aIn.push_back(c.planeWave ? VecC() : cylIncident(c, m));
@@ -747,6 +749,12 @@ class StackSolver final : public Solver {
         Rs_um = std::max(Rs_um, r->radii_um.back());
         RingsUm = std::max(RingsUm, r->radii_um.back());
       }
+      if (c.layers[k]->angular)  // M21: largest radius of the cross section
+        for (const auto& reg : c.layers[k]->section.regions) {
+          const double r = cyl::criticalRadii(reg).back() / s.k0;
+          Rs_um = std::max(Rs_um, r);
+          RingsUm = std::max(RingsUm, r);
+        }
       for (const cplx e : c.layers[k]->epsList) {
         nLayers = std::max(nLayers, std::sqrt(e).real());
         (e.real() < 0 ? metals : dielectrics).push_back(e);
@@ -794,7 +802,7 @@ class StackSolver final : public Solver {
     c.fac = cs.liR ? cyl::CylFactorization::LiR : cyl::CylFactorization::Laurent;
     const Eigen::Index n = c.grid.k.size();
     if (c.planeWave) {
-      FG_REQUIRE(RingsUm > 0, "cylindrical plane wave: the stack needs a rings layer");
+      FG_REQUIRE(RingsUm > 0, "cylindrical plane wave: the stack needs a rings, polygon2d or contour2d layer");
       // background stack (rings -> outer material) at the incidence order, solved as M18 (Airy)
       Stack bs = stack;  // Cartesian background problem (one order, the period is not used)
       bs.cylindrical = {};
@@ -832,6 +840,7 @@ class StackSolver final : public Solver {
       c.g1(j) = 0.25 * k * w0 * w0 * w0 * w0 * ph;
     }
     if (opt_.scatteredField) {  // plane waves are always a scattered field
+      FG_REQUIRE(cs.rotation == 0, "cylindrical: scattered_field for beams is not available with symmetry.rotation (M21)");
       c.beamScattered = true;
       Stack bs = stack;
       for (LayerEntry& le : bs.layers)
@@ -880,8 +889,10 @@ class StackSolver final : public Solver {
 
   /// Basis of harmonic m; plane waves: sources of the ring layers (Plan eq:cyl_scat) as the hook of the
   /// scattered-field assembly (s.cylSource refers to the basis: reset it before the basis goes).
-  std::unique_ptr<detail::CylBasis> cylBasis(CylContext& c, int m) const {
-    auto basis = std::make_unique<detail::CylBasis>(c.grid, m, c.epsSup, c.epsSub, c.layers, c.fac);
+  std::unique_ptr<detail::CylBasis> cylBasis(CylContext& c, int m) const { return cylBasis(c, cyl::HarmonicMap{m, 1, 0}); }
+  /// Basis of a class m0 + l P, |l| <= L (M21).
+  std::unique_ptr<detail::CylBasis> cylBasis(CylContext& c, const cyl::HarmonicMap& map) const {
+    auto basis = std::make_unique<detail::CylBasis>(c.grid, map, c.epsSup, c.epsSub, c.layers, c.fac);
     if (c.planeWave) {
       basis->setPlaneWave(c.kpar, c.Psi);
       const detail::CylBasis* b = basis.get();
@@ -1181,6 +1192,7 @@ class StackSolver final : public Solver {
     FG_PROF_SCOPE("solve.cylindrical");
     const Stack stack = detail::expandRingsProfiles(stackIn, opt_.rcwaSlices);  // rings_profile -> staircase
     CylContext c = cylContext(stack, wl);
+    if (stack.cylindrical.rotation > 0) return cylClassSolve(stack, c);
     Result res;
     res.diag.precision = linalg::precisionName(linalg::precision());
     const Eigen::Index n = c.grid.k.size();
@@ -1293,6 +1305,122 @@ class StackSolver final : public Solver {
     return res;
   }
 
+  /// Class index m0 in {ceil(-P/2) + 1, ..., floor(P/2)} of harmonic m (Plan sec:cylP).
+  static int harmonicClass(int m, int P) {
+    int r = ((m % P) + P) % P;
+    if (r > P / 2) r -= P;
+    return r;
+  }
+  /// Harmonic b of a class state (4 n_f) as the state of one harmonic (4 N_k).
+  static VecC blockState(const VecC& F, int b, Eigen::Index n) {
+    const Eigen::Index nf = F.size() / 4;
+    VecC out(4 * n);
+    for (Eigen::Index u = 0; u < 4; ++u) out.segment(u * n, n) = F.segment(u * nf + b * n, n);
+    return out;
+  }
+
+  /// P-fold rotational symmetry (M21, Plan sec:cylP "Anregung und Symmetrieklassen"): one assembly per class
+  /// m0 + l P, |l| <= L, holding the harmonics of the incidence; powers per harmonic from the half-space states
+  /// (the harmonics are orthogonal there). Volume integrals are not available yet: sigma_abs and the rings
+  /// absorption are NaN with lossy structured layers (0 otherwise; the beam's C_A = 1 - R - T holds anyway).
+  Result cylClassSolve(const Stack& stack, CylContext& c) {
+    const CylindricalSpec& cs = stack.cylindrical;
+    const int P = cs.rotation;
+    Result res;
+    res.diag.precision = linalg::precisionName(linalg::precision());
+    const Eigen::Index n = c.grid.k.size();
+    int mcut = 0;
+    for (const int m : c.ms) mcut = std::max(mcut, std::abs(m));
+    const int L = cs.classL >= 0 ? cs.classL : (mcut + P - 1) / P + 2;
+    std::vector<int> classes;
+    for (const int m : c.ms) classes.push_back(harmonicClass(m, P));
+    std::sort(classes.begin(), classes.end());
+    classes.erase(std::unique(classes.begin(), classes.end()), classes.end());
+    bool lossy = false;
+    for (const auto& Ly : c.layers)
+      if (!Ly->homogeneous())
+        for (const cplx e : Ly->epsList) lossy = lossy || e.imag() != 0.0;
+    CylindricalResult& cr = res.cylindrical;
+    cr.present = true;
+    cr.planeWave = c.planeWave;
+    cr.nodes = static_cast<int>(n);
+    cr.rotation = P;
+    cr.classL = L;
+    const bool losslessSub = std::abs(c.epsSub.imag()) < 1e-14 && c.epsSub.real() > 0;
+    std::vector<CylOutgoing> outs;
+    double pInc = 0, pR = 0, pT = 0;
+    for (const int m0 : classes) {
+      const cyl::HarmonicMap map{m0, P, L};
+      const int nb = map.blocks();
+      const Eigen::Index nf = nb * n;
+      VecC aIn;
+      if (!c.planeWave) {
+        aIn = VecC::Zero(2 * nf);
+        for (int b = 0; b < nb; ++b) {
+          const VecC a = cylIncident(c, map.m(b));
+          aIn.segment(b * n, n) = a.head(n);
+          aIn.segment(nf + b * n, n) = a.tail(n);
+        }
+        if (aIn.isZero(0.0)) continue;
+      }
+      const auto basis = cylBasis(c, map);
+      const Assembly as = assemble(c.s, *basis, c.ptrs, false, {}, res.diag);
+      VecC Vup = VecC::Zero(4 * nf), Vdown = VecC::Zero(4 * nf);
+      if (c.planeWave) {  // scattered field, nothing comes in
+        Vup.tail(2 * nf) = as.totalSrc.u;
+        Vdown.head(2 * nf) = as.totalSrc.v;
+      } else {
+        Vup.tail(2 * nf) = as.total.S12 * aIn;
+        Vdown.head(2 * nf) = as.total.S22 * aIn;
+        VecC Vin = VecC::Zero(4 * nf);
+        Vin.head(2 * nf) = aIn;
+        const VecC Fin = basis->ref().Psi * Vin;
+        for (int b = 0; b < nb; ++b) pInc -= cyl::flux(c.grid, blockState(Fin, b, n));
+      }
+      const VecC Fup = basis->ref().Psi * Vup, Fdown = basis->sub().Psi * Vdown;
+      for (int b = 0; b < nb; ++b) {
+        const int m = map.m(b);
+        const VecC fu = blockState(Fup, b, n), fd = blockState(Fdown, b, n);
+        const double up = cyl::flux(c.grid, fu), down = -cyl::flux(c.grid, fd);
+        cr.harmonics.push_back(m);
+        cr.reflectedPerHarmonic.push_back(up);
+        cr.transmittedPerHarmonic.push_back(down);
+        pR += up;
+        pT += down;
+        outs.push_back(cylOutgoing(c, m, 1, fu, c.epsSup));
+        if (losslessSub) outs.push_back(cylOutgoing(c, m, -1, fd, c.epsSub));
+      }
+      c.s.cylSource = nullptr;
+    }
+    if (c.planeWave) {
+      const double toArea = 1.0 / (c.s.incIntensity * c.s.k0 * c.s.k0);  // normalized power -> um^2
+      for (double& v : cr.reflectedPerHarmonic) v *= toArea;
+      for (double& v : cr.transmittedPerHarmonic) v *= toArea;
+      cr.scatteredUp_um2 = pR * toArea;
+      cr.scatteredDown_um2 = pT * toArea;
+      cr.scattering_um2 = cr.scatteredUp_um2 + cr.scatteredDown_um2;
+      cylFarOutputs(c, outs, toArea, cs.farFieldPhi, cr);
+      cr.absorption_um2 = lossy ? std::nan("") : 0.0;
+      cr.extinction_um2 = cr.scattering_um2 + cr.absorption_um2;
+      cr.extinctionTheorem_um2 = std::nan("");
+      if (lossy || cs.opticalTheorem)
+        res.diag.warnings.push_back(
+            "cylindrical symmetry.rotation: volume integrals (sigma_abs, optical theorem) are not available yet (M21)");
+      return res;
+    }
+    FG_REQUIRE(pInc > 0, "cylindrical: the incident beam carries no power (harmonics?)");
+    for (double& v : cr.reflectedPerHarmonic) v /= pInc;
+    for (double& v : cr.transmittedPerHarmonic) v /= pInc;
+    cr.reflected = pR / pInc;
+    cr.transmitted = pT / pInc;
+    cr.absorbed = 1.0 - cr.reflected - cr.transmitted;
+    cr.absorbedRings = lossy ? std::nan("") : 0.0;
+    cylFarOutputs(c, outs, 1.0 / pInc, cs.farFieldPhi, cr);
+    res.absorption = cr.absorbed;
+    res.diag.energyBalance = cr.reflected + cr.transmitted;
+    return res;
+  }
+
   /// Near-field cuts of a cylindrical stack (Plan "M20: S-Matrix, Loeser und Nahfeld"): spectra per
   /// harmonic at the heights of the cuts, synthesis E_pm(r) = sum_j w_j k_j e_pm,j J_{m+-1}(k_j r), sum over
   /// m with e^{i m phi}, Cartesian components by Plan eq:cyl_pm. Li in r (FFF reconstruction): G_pm
@@ -1300,6 +1428,7 @@ class StackSolver final : public Solver {
   NearFieldResult cylNearField(const Stack& stackIn, const Wavelength& wl, const NearFieldRequest& req) {
     FG_PROF_SCOPE("nearfield.cylindrical");
     const Stack stack = detail::expandRingsProfiles(stackIn, opt_.rcwaSlices);
+    FG_REQUIRE(stack.cylindrical.rotation == 0, "cylindrical near field: not yet available with symmetry.rotation (M21)");
     CylContext c = cylContext(stack, wl);
     const double k0 = c.s.k0;
     const Eigen::Index n = c.grid.k.size();

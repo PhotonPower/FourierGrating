@@ -457,6 +457,19 @@ Extinktion 0,6146 / 0,5485 / 0,5170 bei dk_factor 0,5 / 1 / 2. Seit v2.38 bestim
 verlustfreien planaren Hintergrunds und legt gestufte Panels um sie: 0,554838 für dk_factor 0,5, 1 und 2 gleich, wie ein
 tiefer Weg mit doppelter Knotenzahl (δ = 0,3: 0,554877). N_k steigt dabei von 128 auf 312.
 
+## P-zählige Drehsymmetrie (M21, V22)
+
+`tests/validation/test_v22_cylp.cpp`; Säule n = 1,45 (0,3 µm) auf Glas, λ = 1 µm, κ_max = 3.
+
+| Test | Fall | Ergebnis |
+|---|---|---|
+| V22a | Ringschicht (Li in r) über den Klassenpfad, P = 1, 2, 3, L = 1, Strahl w₀ = 0,25 µm | R, T je Harmonischer = M20 auf 3e-13, dunkle Harmonische < 1e-14 |
+| V22a | zentrierter Kreis als `contour2d` (P = 3, L = 2, Laurent) gegen `rings` (Laurent), φ = 30° | 3e-13 µm² bei σ = 0,24 µm² (L = 5: 4e-14) |
+| V22b | exzentrischer Faserkern (P = 1) gegen zentrierten Kern, HE₁₁ | 8,4e-5 (x₀ = 0,3, L = 3) … 1,6e-10 (x₀ = 0,6, L = 7) |
+| V22d | Quadrat: Blöcke l − l' ∉ 4ℤ (eine Klasse von P = 1) | 6e-18 gegen 1,4e-2 |
+| V22d | Quadrat, P = 4, L = 1, Einfallsazimut Ψ = 0° / 90° | σ gleich auf 1e-15, Fernfeld gedreht auf 4e-15 |
+| V22e | Quadrat, P = 4, L = 2, Strahl zirkular + / − | R, T und Harmonische m ↔ −m auf 1e-13 |
+
 ## CAD-Import für 1D-Gitter (M23, V24)
 
 `tests/cad/test_cad.cpp` (`CAD_V24`, Label `validation`, nur mit Nurbforge), ohne Nurbforge

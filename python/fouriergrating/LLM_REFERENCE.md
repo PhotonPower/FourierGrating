@@ -125,7 +125,8 @@ fg.llm_reference() -> str                              this text
 - `Result`: `reflected`, `transmitted` (ORDER_DTYPE arrays), `absorption`, `diagnostics`, `incidence` (scan
   points), `efficiency(side, n, m=0)`, plus `scattering` (PML: `up`, `down`, `lateral`, `absorbed`; widths in µm,
   in 2D cross sections in µm²), `modal` (mode excitation) and `cylindrical` (axial structures: dict with `reflected`,
-  `transmitted`, `absorbed`, `absorbed_rings`, per-harmonic lists; plane wave `scattering_um2`, `absorption_um2`,
+  `transmitted`, `absorbed`, `absorbed_rings`, per-harmonic lists, `rotation`/`class_L` (M21: P-fold symmetry,
+  classes m0 + lP, |l| ≤ L; 0 = axial); plane wave `scattering_um2`, `absorption_um2`,
   `extinction_um2`, `extinction_theorem_um2`; `angular_spectrum`: per harmonic and side `{"m", "side": "up"/"down",
   "theta_deg", "weight", "s", "p"}` with dP/dθ per rad, Σ weight·(s + p) = power of the harmonic; `far_field` with
   `"cylindrical": {"far_field": {"n_phi": 72}}`: per side `theta_deg`, `phi_deg`, `s`, `p` (rows θ, columns φ) as dP/dΩ
