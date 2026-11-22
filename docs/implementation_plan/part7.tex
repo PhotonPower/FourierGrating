@@ -1019,6 +1019,47 @@ Modul \verb|fg::cyl| (\verb|include/fg/cyl/angular.hpp|), unabhängig vom Löser
         verschiedene Materialien 1).
 \end{itemize}
 
+\paragraph{Umsetzung (v2.40): Löser je Klasse.}
+\begin{itemize}[nosep]
+  \item \verb|CylBasis| nimmt statt einer Harmonischen eine Klasse (\verb|HarmonicMap|; $m$ allein ist die Klasse
+        $\{m\}$ mit $L=0$, der M20-Pfad bleibt bitgleich). Halbräume und homogene Schichten über
+        $\mathbb 1_{2L+1}\otimes\kappa$; Ringschichten blockdiagonal aus \verb|cylQ| je Harmonischer (Laurent oder Li in $r$,
+        $\mathfrak A$ ebenso blockweise); Schichten \verb|polygon2d|/\verb|contour2d| über \verb|coupledQ| (immer Laurent,
+        auch wenn der Block \verb|"factorization": "li_r"| verlangt; das gilt dann nur für die Ringschichten). Die
+        Querschnitte werden mit $k_0$ skaliert; Symmetrieprüfung beim Aufbau der Schicht mit der Toleranz $10^{-9}$ des
+        größten Radius des Querschnitts (\textbf{Abweichung} von $10^{-9}R_s$: $R_s$ steht beim Aufbau noch nicht fest),
+        die Fehlermeldung nennt die gefundene Ordnung (\verb|rotationOrder| bis $\max(P,12)$).
+  \item Ebene Welle je Klasse (\verb|coupledSource|): Block $l$ von $(p_+;p_-)$ und $p_y$ ist
+        $\sum_{|l'|\le L}\hk{\varepsilon_{l-l'}-\varepsilon_{\text{bg}}\delta_{l l'}}_{\nu_l\leftarrow\nu_{l'}}$ am
+        Zusatzknoten $k_\parallel$ mal der Phase $i^{\nu'}e^{-i\nu'\Psi}$, $\nu=m\pm1,m$; die Hintergrundharmonischen
+        werden wie das Feld abgeschnitten (konsistent mit $Q$). Ringschichten einer Klasse: \verb|planeWaveSource| je
+        Harmonischer, blockweise eingesetzt.
+  \item Konfiguration \verb|"symmetry": {"rotation": P, "L": n}| (\verb|"axial"| bleibt M20). Klassen: die $m_0$ der
+        Harmonischen der Anregung (Strahl $\pm1$ bzw.\ $0$, ebene Welle $|m|\le m_{\text{cut}}$, oder die Liste
+        \verb|harmonics|); $L$ ohne Angabe $\lceil m_{\text{cut}}/P\rceil+2$ mit $m_{\text{cut}}=\max|m|$ der Anregung.
+        $R_s$ und $m_{\text{cut}}$ berücksichtigen den größten Radius der Querschnitte. Ausgabe je Harmonischer aller
+        Klassen (die Harmonischen sind in den Halbräumen orthogonal: Fluss und Fernfeld blockweise), Python
+        \verb|rotation|, \verb|class_L|.
+  \item Noch nicht im Klassenpfad: Volumenintegrale ($\sigma_{\text{abs}}$, optisches Theorem; bei verlustbehafteten
+        strukturierten Schichten \verb|nan| mit Warnung, sonst $0$; $C_A=1-R-T$ des Strahls gilt), Nahfeld, Gradienten,
+        Strahl als Streufeld, Schichttyp \verb|cad| (V22f).
+  \item \textbf{Befund Aufwand:} Die dichten S-Matrix-Produkte der Größe $4(2L+1)N_k$ dominieren. Säule $r=0{,}3$\,µm,
+        $\kappa_{\max}=3$, schräge ebene Welle, $P=3$ (drei Klassen): $L=5$ (Standard) 5\,min, $L=2$ 30\,s. Die Halbräume und homogenen Schichten sind blockdiagonal; sie blockweise zu behandeln wäre die
+        naheliegende Beschleunigung.
+  \item \textbf{V22a} (\verb|tests/validation/test_v22_cylp.cpp|): Säule $n=1{,}45$ auf Glas. Ringschicht (Li in $r$) über
+        $P=1,2,3$, $L=1$, Strahl: $R$, $T$ je Harmonischer $=$ M20 auf $3\cdot10^{-13}$, dunkle Harmonische
+        $<10^{-14}$. Zentrierter Kreis als \verb|contour2d| ($P=3$, $L=2$, Laurent, Quadratur) gegen die
+        Ringschicht (Laurent, Lommel), schräge ebene Welle: $3\cdot10^{-13}$\,µm$^2$ bei $\sigma=0{,}24$\,µm$^2$
+        ($L=5$: $4\cdot10^{-14}$); Toleranz $10^{-12}$\,µm$^2$.
+  \item \textbf{V22d}: Quadrat, eine Klasse von $P=1$: Blöcke mit $l-l'\notin4\mathbb Z$ $6\cdot10^{-18}$ gegen
+        $1{,}4\cdot10^{-2}$; Einfallsazimut $\Psi$ um $90^\circ$ gedreht ($P=4$, $L=1$, schräg): $\sigma_{\text{up}}$,
+        $\sigma_{\text{down}}$ gleich auf $10^{-15}$, Fernfeld um $90^\circ$ gedreht auf $4\cdot10^{-15}$ relativ.
+  \item \textbf{V22e}: Quadrat, $P=4$, $L=2$, zirkularer Strahl $+$ (Klasse $1$) und $-$ (Klasse $-1$): $R$, $T$ auf
+        $10^{-13}$, Harmonische $m\leftrightarrow-m$ auf $10^{-13}$ (in $m\ne1$ gestreut: $1{,}6\cdot10^{-4}$).
+  \item \verb|V22Config|: \verb|polygon2d| ohne \verb|rotation|, Rechteck mit $P=4$ (gefunden 2), verschobenes Quadrat
+        (gefunden 1), ungültige Blöcke.
+\end{itemize}
+
 \subsection{Tests und Abnahme (M21)}
 \begin{itemize}[nosep]
   \item Unit: \eqref{eq:cylP_chi} für Kreis (nur $q=0$), Quadrat und regelmäßiges Sechseck gegen numerische Quadratur

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "fg/core/types.hpp"
+#include "fg/cyl/excitation.hpp"
 #include "fg/cyl/galerkin.hpp"
 #include "fg/cyl/spectrum.hpp"
 #include "fg/geometry/contour.hpp"
@@ -34,6 +35,14 @@ struct AngularSection {
 /// 16 Gauss nodes, square-root substitution at panel ends that are critical radii: chi ~ sqrt|r - r_t| at tangent
 /// radii, Plan sec:cylP). nodesPerPanel overrides the 16 (convergence checks).
 CylQ coupledQ(const SpectralGrid& grid, const HarmonicMap& map, const AngularSection& section, int nodesPerPanel = 16);
+
+/// Source spectra of one class for a background plane wave with lateral wave number kpar along the azimuth Psi (Plan
+/// sec:cylP "Anregung und Symmetrieklassen", Laurent): block l of (p_+; p_-) = Bpm (c_+; c_-) and p_y = e_y By is
+/// sum_{|l'| <= L} [[eps_{l-l'} - epsBg delta]]_{nu_l <- nu_l'} at the extra node k' = kpar (without weight) times
+/// the Jacobi-Anger phase i^nu' e^{-i nu' Psi}, nu = m + 1, m - 1, m. The background harmonics of the class are
+/// truncated like the field (|l'| <= L), consistent with coupledQ. Radial rule as coupledQ.
+PlaneWaveSource coupledSource(const SpectralGrid& grid, const HarmonicMap& map, const AngularSection& section,
+                              double kpar, double Psi, int nodesPerPanel = 16);
 
 /// 1_{2L+1} (x) kappa: the node values repeated over the blocks (the derivative parts of Plan eq:cyl_M do not depend
 /// on m); with coupledQ the argument of propagationMatrix.

@@ -156,6 +156,9 @@ struct CylindricalResult {
   /// Per harmonic: beam relative to the total incident power; plane wave the cross sections up/down (um^2).
   std::vector<double> reflectedPerHarmonic, transmittedPerHarmonic;
   int nodes = 0;  ///< N_k of the spectral grid
+  /// M21 (Plan sec:cylP): order P of the rotational symmetry (0: axial, one harmonic at a time) and the truncation L
+  /// of the classes m0 + l P; harmonics lists every m of the computed classes.
+  int rotation = 0, classL = 0;
   /// Volume integrals over the rings (Plan "M20: Ausgaben", Gauss nodes in r and y, summed over the
   /// harmonics). Plane wave: absorption cross section sigma_abs = 1/(2 I_inc) int Im eps |E|^2 dV,
   /// extinction sigma_ext = sigma_sca + sigma_abs and, as a control, the optical theorem in volume form

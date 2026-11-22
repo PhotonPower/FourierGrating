@@ -655,7 +655,24 @@ RunConfig parseConfig(const std::string& text, const std::string& baseDir) {
     const json& cj = j["cylindrical"];
     CylindricalSpec& c = cfg.stack.cylindrical;
     c.enabled = true;
-    FG_REQUIRE(cj.value("symmetry", std::string("axial")) == "axial", "cylindrical.symmetry must be \"axial\" (M20)");
+    // "axial" (M20) or {"rotation": P, "L": n} (M21, Plan sec:cylP "CAD und Konfiguration")
+    if (cj.contains("symmetry")) {
+      const json& sy = cj["symmetry"];
+      if (sy.is_object()) {
+        for (const auto& [key, v] : sy.items())
+          FG_REQUIRE(key == "rotation" || key == "L", "cylindrical.symmetry: unknown key '" + key + "' (rotation, L)");
+        FG_REQUIRE(sy.contains("rotation") && sy["rotation"].is_number_integer() && sy["rotation"].get<int>() >= 1,
+                   "cylindrical.symmetry.rotation must be an integer P >= 1 (M21)");
+        c.rotation = sy["rotation"].get<int>();
+        if (sy.contains("L")) {
+          FG_REQUIRE(sy["L"].is_number_integer() && sy["L"].get<int>() >= 0, "cylindrical.symmetry.L must be an integer >= 0");
+          c.classL = sy["L"].get<int>();
+        }
+      } else {
+        FG_REQUIRE(sy.is_string() && sy.get<std::string>() == "axial",
+                   "cylindrical.symmetry must be \"axial\" (M20) or {\"rotation\": P} (M21)");
+      }
+    }
     if (cj.contains("harmonics") && !(cj["harmonics"].is_string() && cj["harmonics"].get<std::string>() == "auto"))
       c.harmonics = cj["harmonics"].get<std::vector<int>>();
     if (cj.contains("spectrum")) {

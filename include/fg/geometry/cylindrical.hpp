@@ -9,8 +9,14 @@ namespace fg {
 
 struct CylindricalSpec {
   bool enabled = false;
-  /// Azimuthal harmonics m; empty: those of the incidence (Plan sec:cylexc).
+  /// Azimuthal harmonics m; empty: those of the incidence (Plan sec:cylexc). With rotation > 0: the classes of
+  /// these harmonics are computed.
   std::vector<int> harmonics;
+  /// P-fold rotational symmetry (M21, Plan sec:cylP): 0 = axial (M20, one harmonic at a time); P >= 1: classes
+  /// m0 + l P, |l| <= classL, with polygon2d / contour2d layers (Laurent there).
+  int rotation = 0;
+  /// Truncation L of a class; < 0: ceil(m_cut / P) + 2 (Plan sec:cylP "Anregung und Symmetrieklassen").
+  int classL = -1;
   // spectrum (Plan sec:cylgrid)
   double kappaMax = 6.0;  ///< k_max = kappa_max max Re sqrt(eps)
   double dkFactor = 1.0;  ///< panel width pi / (2 R_s dk_factor)
