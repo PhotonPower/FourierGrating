@@ -7,85 +7,12 @@
 #include <sstream>
 
 #include "fg/core/error.hpp"
+#include "fg/geometry/bernstein.hpp"
 
 namespace fg {
 namespace geometry {
 
 namespace {
-
-double binom(int n, int k) {
-  double r = 1;
-  for (int i = 1; i <= k; ++i) r = r * (n - k + i) / i;
-  return r;
-}
-
-/// Value of a Bernstein polynomial at t (de Casteljau).
-double bernstein(std::vector<double> c, double t) {
-  for (std::size_t r = 1; r < c.size(); ++r)
-    for (std::size_t j = 0; j + r < c.size(); ++j) c[j] = (1 - t) * c[j] + t * c[j + 1];
-  return c.front();
-}
-
-/// Coefficients on [0, 1/2] and [1/2, 1] of a Bernstein polynomial (de Casteljau at 1/2).
-void split(const std::vector<double>& c, std::vector<double>& l, std::vector<double>& r) {
-  std::vector<double> w = c;
-  const std::size_t n = c.size();
-  l.assign(n, 0.0);
-  r.assign(n, 0.0);
-  l[0] = w[0];
-  r[n - 1] = w[n - 1];
-  for (std::size_t k = 1; k < n; ++k) {
-    for (std::size_t j = 0; j + k < n; ++j) w[j] = 0.5 * (w[j] + w[j + 1]);
-    l[k] = w[0];
-    r[n - 1 - k] = w[n - 1 - k];
-  }
-}
-
-int signChanges(const std::vector<double>& c) {
-  int v = 0, last = 0;
-  for (double x : c) {
-    const int s = x > 0 ? 1 : x < 0 ? -1 : 0;
-    if (s == 0) continue;
-    if (last != 0 && s != last) ++v;
-    last = s;
-  }
-  return v;
-}
-
-/// Simple roots of the Bernstein polynomial `full` inside (a, b), whose coefficients on [a, b] are c: subdivision
-/// until one sign change (exactly one root, variation diminishing), then bisection on the full polynomial.
-void isolate(const std::vector<double>& full, const std::vector<double>& c, double a, double b, int depth,
-             std::vector<double>& roots) {
-  const int v = signChanges(c);
-  if (v == 0) return;
-  if (v == 1 && c.front() != 0 && c.back() != 0) {
-    double lo = a, hi = b, flo = c.front();
-    for (int it = 0; it < 200 && hi - lo > 1e-17; ++it) {
-      const double m = 0.5 * (lo + hi), fm = bernstein(full, m);
-      if (fm == 0) {
-        lo = hi = m;
-        break;
-      }
-      if ((fm > 0) == (flo > 0)) {
-        lo = m;
-        flo = fm;
-      } else {
-        hi = m;
-      }
-    }
-    roots.push_back(0.5 * (lo + hi));
-    return;
-  }
-  if (depth > 60) {  // a multiple root (no sign change of y'), not an extremum we can separate
-    return;
-  }
-  std::vector<double> l, r;
-  split(c, l, r);
-  const double m = 0.5 * (a + b);
-  isolate(full, l, a, m, depth + 1, roots);
-  if (l.back() == 0) roots.push_back(m);  // root exactly at the split point
-  isolate(full, r, m, b, depth + 1, roots);
-}
 
 /// Message of an error without the source location FG_REQUIRE puts in front ("file.cpp:123: ").
 std::string withoutLocation(const std::string& w) {
@@ -127,8 +54,7 @@ std::vector<double> yExtremaParameters(const BezierSegment& s) {
   double mx = 0;
   for (double x : c) mx = std::max(mx, std::abs(x));
   if (mx <= 1e-13 * scale || mx == 0) return {};
-  std::vector<double> t;
-  isolate(c, c, 0.0, 1.0, 0, t);
+  const std::vector<double> t = bernsteinRoots(c);
   std::vector<double> out;
   for (double x : t)
     if (x > 1e-12 && x < 1 - 1e-12) out.push_back(x);

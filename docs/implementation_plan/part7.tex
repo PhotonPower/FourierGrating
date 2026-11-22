@@ -980,6 +980,45 @@ Pfad (M18) meist günstiger; die Wahl bleibt beim Anwender, \verb|fgsolve --info
 \verb|cad| (Schnitte wie M14, Achse bei $x=z=0$) und \verb|rings|. Die CAD-Prüfung meldet zusätzlich die tatsächlich
 gefundene Symmetrieordnung (größtes $P$ mit erfüllter Drehsymmetrie), damit das Sprachmodell $P$ korrekt setzt.
 
+\paragraph{Umsetzung (v2.39): Winkelkoeffizienten, kritische Radien, Symmetrieprüfung, gekoppelte Blöcke.}
+Modul \verb|fg::cyl| (\verb|include/fg/cyl/angular.hpp|), unabhängig vom Löser:
+\begin{itemize}[nosep]
+  \item \verb|arcsInside|: Schnittpunkte des Kreises $|\mathbf x|=r$ mit jedem rationalen Bézierstück als Nullstellen von
+        $|\mathbf P(t)|^2-r^2w(t)^2$ in Bernsteinform (homogene Koordinaten, Produkt zweier Polynome vom Grad $p$).
+        \textbf{Abweichung:} Innen/außen der Bögen nicht über den Punkttest in der Bogenmitte (er arbeitet auf dem
+        geglätteten Polygon), sondern exakt aus der Randtangente $\mathbf d$ am Schnittpunkt: Der Kreis tritt in das
+        Material ein, wenn $\mathbf e_\varphi$ links von $\mathbf d$ liegt (Material links nach \verb|normalize|). Die
+        Schnittpunkte müssen sich abwechseln, sonst Fehler (nicht normierte oder sich schneidende Region). Ohne
+        Schnittpunkt entscheidet der Punkttest bei $(r,0)$.
+  \item \verb|angularCoefficients|: \eqref{eq:cylP_chi} für $q=0\dots q_{\max}$; $\chi_{-q}=\overline{\chi_q}$.
+  \item \verb|criticalRadii|: $0$, Radien der Segmentenden, innere Extrema von $|\mathbf C(t)|$ als Nullstellen von
+        $XX'W-X^2W'+ZZ'W-Z^2W'$ (Bernstein, Grad $3p-1$).
+  \item \verb|hasRotationSymmetry|, \verb|rotationOrder|: 17 Randstichproben je Segment, um $2\pi/P$ gedreht, müssen
+        auf dem Rand einer Region desselben Materials liegen (Abstand: nächste von 64 Stichproben, dann Goldener Schnitt).
+  \item \verb|coupledQ| (\verb|include/fg/cyl/coupled.hpp|): Laurent-Blöcke \eqref{eq:cylP_Q} einer Klasse
+        (\verb|HarmonicMap|: $m_0$, $P$, $L$, Block $b=l+L$, Index $bN_k+j$) für einen Querschnitt
+        (\verb|AngularSection|: Regionen mit $\varepsilon_b$ auf $\varepsilon_{\text{bg}}$, normierte Koordinaten).
+        r-Quadratur: Panels zwischen den kritischen Radien aller Regionen, Teilpanels $\le\pi/(2\max|k|)$, je mindestens
+        zwei, 16 Gauß-Knoten, Wurzelsubstitution an beiden Panelenden (wie an den Verzweigungspunkten in $k$); $\chi_q$
+        einmal je Knoten für alle $q$, Bessel-Tafeln für $\nu=m_{\min}-1\dots m_{\max}+1$. \verb|tiledK| liefert
+        $\mathbb 1_{2L+1}\otimes\kappa$ für \verb|propagationMatrix| (unverändert). Statt der geplanten adaptiven
+        Verdopplung genügt die feste Regel: 16 und 32 Knoten stimmen für den exzentrischen Kern auf $2\cdot10^{-16}$
+        überein (Unit-Test).
+  \item \textbf{V22b} (\verb|tests/validation/test_v22_cylp.cpp|): Kern $\varepsilon=4$, $a=2$, Mantel 1, $k_{\max}=3$,
+        $R_s=2{,}6$ ($N_k=48$), zentriert HE$_{11}$ $1{,}7167536220$ (wie der Prototyp); Abweichung des HE$_{11}$-Paares
+        $x_0=0{,}3$: $8{,}4\cdot10^{-5}$ ($L=3$), $3{,}0\cdot10^{-9}$ ($L=5$); $x_0=0{,}6$: $6{,}8\cdot10^{-7}$ ($L=5$),
+        $1{,}6\cdot10^{-10}$ ($L=7$).
+  \item Die Bernstein-Hilfen (Wert, Produkt, Ableitung, einfache Nullstellen) sind aus M24 nach
+        \verb|fg/geometry/bernstein.hpp| gezogen (M24 bitgleich).
+  \item Unit-Tests \verb|test_cyl_angular|: zentrierte Scheibe über \verb|coupledQ| $=$ M20 je Block ($10^{-12}$,
+        Blöcke außerhalb der Diagonale $<10^{-15}$); Quadrat und Sechseck (auch gedreht) gegen die exakten Bögen
+        ($\theta=\pi/n-\arccos(a/r)$, $\chi_q=e^{-iqn\psi_0}\sin(qn\theta)/(\pi q)$) $10^{-13}$; Harmonische, die kein
+        Vielfaches von $n$ sind, verschwinden ($10^{-15}$); zentrierter Bézier-Kreis exakt, exzentrischer gegen
+        $\chi_q=\sin(q\alpha)/(\pi q)$ $10^{-13}$; Region mit Loch, beide Orientierungen; kritische Radien; Symmetrie
+        (Sechseck 6, um $10^{-6}$\,µm gestörtes Sechseck 1, Quadrat 4, zentrierter Kreis jede Ordnung, zwei Scheiben 2,
+        verschiedene Materialien 1).
+\end{itemize}
+
 \subsection{Tests und Abnahme (M21)}
 \begin{itemize}[nosep]
   \item Unit: \eqref{eq:cylP_chi} für Kreis (nur $q=0$), Quadrat und regelmäßiges Sechseck gegen numerische Quadratur

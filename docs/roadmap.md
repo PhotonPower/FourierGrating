@@ -242,6 +242,14 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
 - [ ] **M21** P-zählige Drehsymmetrie: gekoppelte Harmonische m0 + lP, Winkelkoeffizienten aus `polygon2d`/
   `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)
   - Abnahme: V22a–g (Plan)
+  - Erledigt (Plan v2.39): Winkelkoeffizienten χ_q(r) aus Regionen (`fg::cyl::arcsInside`, `angularCoefficients`,
+    Kreis-Rand-Schnitte als Bernstein-Nullstellen, innen/außen aus der Randtangente), kritische Radien,
+    Symmetrieprüfung und -ordnung (`hasRotationSymmetry`, `rotationOrder`) – `tests/unit/test_cyl_angular.cpp`;
+    Bernstein-Hilfen nach `fg/geometry/bernstein.hpp` (M24 bitgleich); gekoppelte Laurent-Blöcke (`coupledQ`,
+    `HarmonicMap`, `AngularSection`, Plan eq:cylP_Q); **V22b** (exzentrischer Kern, 1,6e-10 bei L = 7) –
+    `tests/validation/test_v22_cylp.cpp`
+  - Als Nächstes: Löser für eine Klasse (Schichttypen `polygon2d`/`contour2d` im Zylinderstapel,
+    `"symmetry": {"rotation": P}`, Strahl und ebene Welle je Klasse), V22a, V22d, V22e
 
 ## Dispersive Materialien (Plan v2.18–v2.19, Teil 8: M22)
 

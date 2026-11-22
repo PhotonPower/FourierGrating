@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Hinzugefügt
+- M21, erster Schritt (Plan v2.39): Winkelkoeffizienten χ_q(r) von Querschnitten um die Achse
+  (`fg::cyl::arcsInside`, `angularCoefficients`, Plan eq:cylP_chi), kritische Radien (`criticalRadii`),
+  Prüfung der P-zähligen Drehsymmetrie und Symmetrieordnung (`hasRotationSymmetry`, `rotationOrder`). Unit-Tests
+  `test_cyl_angular` (n-Ecke und Kreise gegen exakte Bögen 1e-13). Gekoppelte Laurent-Blöcke einer Symmetrieklasse
+  (`fg::cyl::coupledQ`, `HarmonicMap`, Plan eq:cylP_Q) und V22b (exzentrischer Faserkern = zentrierter Kern,
+  1,6e-10 bei L = 7). Die Bernstein-Hilfen aus M24 liegen jetzt in `fg/geometry/bernstein.hpp` (M24 bitgleich).
+
 ### Geändert
 - Plan v2.38 (Planfehler V21d): Gebundene Moden des verlustfreien planaren Hintergrunds nahe der Abschneidung lagen zu
   dicht am deformierten Weg (Sinusprofil, an k_a flach) und wurden bei kleinem R_s nicht aufgelöst; das Kontaktloch
