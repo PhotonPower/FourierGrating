@@ -16,6 +16,7 @@ add_library(fg_core
   adjoint/shape.cpp
   geometry/aperiodic.cpp
   geometry/coordinate_transform.cpp
+  geometry/bernstein.cpp
   geometry/contour.cpp
   geometry/line_section.cpp
   geometry/nurbs_profile.cpp
@@ -46,6 +47,8 @@ add_library(fg_core
   cyl/propagation.cpp
   cyl/excitation.cpp
   cyl/field.cpp
+  cyl/angular.cpp
+  cyl/coupled.cpp
   linalg/cpu_backend.cpp
   io/config.cpp
 )

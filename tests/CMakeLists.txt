@@ -26,6 +26,7 @@ set(FG_UNIT_TESTS
   test_coordinate_transform
   test_adjoint
   test_cyl
+  test_cyl_angular
   test_line_section
   test_sectioned1d
   test_nurbs_profile
@@ -138,6 +139,9 @@ gtest_discover_tests(test_validation_v23 PROPERTIES LABELS "validation" TIMEOUT 
 add_executable(test_validation_v25 validation/test_v25_nurbs.cpp)
 target_link_libraries(test_validation_v25 PRIVATE fg_core GTest::gtest_main nlohmann_json::nlohmann_json)
 gtest_discover_tests(test_validation_v25 PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)
+add_executable(test_validation_v22 validation/test_v22_cylp.cpp)
+target_link_libraries(test_validation_v22 PRIVATE fg_core GTest::gtest_main)
+gtest_discover_tests(test_validation_v22 PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)
 add_executable(test_validation_v21 validation/test_v21_cyl.cpp)
 target_link_libraries(test_validation_v21 PRIVATE fg_core GTest::gtest_main nlohmann_json::nlohmann_json)
 gtest_discover_tests(test_validation_v21 PROPERTIES LABELS "validation" TIMEOUT 900 DISCOVERY_TIMEOUT 60)
