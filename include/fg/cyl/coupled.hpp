@@ -44,6 +44,19 @@ CylQ coupledQ(const SpectralGrid& grid, const HarmonicMap& map, const AngularSec
 PlaneWaveSource coupledSource(const SpectralGrid& grid, const HarmonicMap& map, const AngularSection& section,
                               double kpar, double Psi, int nodesPerPanel = 16);
 
+/// Volume integrals over an angular layer (M21, Plan sec:cylP "Volumenintegrale"): the radial rule of coupledQ (same
+/// panels and nodes, so that the integrals are consistent with the Galerkin blocks) and per node r_i the angular
+/// coefficients of Im eps (q = 0 includes Im epsBg on [0, largest critical radius]) and of the contrast eps - epsBg,
+/// both times r_i W_i, row qmax + q, q = -qmax..qmax, qmax = 2L. With E = sum_l E_l(r) e^{i m_l phi}:
+/// int_0^{2 pi} int Im eps |E|^2 r dr dphi = 2 pi sum_i sum_{l,l'} conj(E_l(r_i)) imEps(qmax + l - l', i) E_l'(r_i).
+struct SectionVolume {
+  std::vector<double> r;
+  MatC imEps, contrast;
+  int qmax = 0;
+};
+SectionVolume sectionVolume(const SpectralGrid& grid, const HarmonicMap& map, const AngularSection& section,
+                            int nodesPerPanel = 16);
+
 /// 1_{2L+1} (x) kappa: the node values repeated over the blocks (the derivative parts of Plan eq:cyl_M do not depend
 /// on m); with coupledQ the argument of propagationMatrix.
 VecC tiledK(const VecC& k, int blocks);

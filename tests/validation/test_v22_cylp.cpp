@@ -98,8 +98,9 @@ std::string materials(bool silver) {
 /// Threads for the server runs (Eigen's products with OpenMP).
 int blasThreads() { return std::max(1, static_cast<int>(std::thread::hardware_concurrency())); }
 
-/// Class path: P = 4 (square) or 6 (hexagon), Laurent, kappa_max, L; scattering cross section in um^2.
-double v22cCylindrical(bool hexagon, bool silver, double kappa, int L) {
+/// Class path: P = 4 (square) or 6 (hexagon), Laurent, kappa_max, L; scattering and absorption cross sections in um^2
+/// (the absorption from the volume integral, 0 for the dielectric pillar).
+std::pair<double, double> v22cCylindrical(bool hexagon, bool silver, double kappa, int L) {
   const std::string head = materials(silver);
   const std::string json = R"({"threads": {"blas": )" + std::to_string(blasThreads()) +
                            R"(}, "cylindrical": {"factorization": "laurent", "symmetry": {"rotation": )" +
@@ -111,7 +112,7 @@ double v22cCylindrical(bool hexagon, bool silver, double kappa, int L) {
                   "inclusions": [{"material": "p", "vertices_um": )" + vertices(hexagon, 0.0) + "}]}]}";
   const auto c = solveConfig(json).cylindrical;
   EXPECT_TRUE(c.present && c.planeWave);
-  return c.scattering_um2;
+  return {c.scattering_um2, c.absorption_um2};
 }
 
 /// Cartesian cell 2 x 2 um with PML (0.3 um) in x and z, truncation N, Laurent: up + down + lateral (um^2) and the
@@ -184,7 +185,7 @@ TEST(V22a, CircleThroughTheClassPathEqualsM20) {
 // above (class path L = 1, kappa_max 4/6/8: 0.30063/0.29951/0.29919, kappa_max 6, L = 2: 0.29852; M18 N = 6/8:
 // 0.30314/0.30206 with |absorbed| up to 2e-3), the acceptance at 1e-3 runs on the target system (below).
 TEST(V22c, SquarePillarCoarse) {
-  const double cyl = v22cCylindrical(false, false, 4, 1);
+  const double cyl = v22cCylindrical(false, false, 4, 1).first;
   const auto [cart, absorbed] = v22cCartesian(false, false, 6);
   std::printf("V22c square, coarse: class path %.6f | M18 %.6f (absorbed %.1e)\n", cyl, cart, absorbed);
   EXPECT_NEAR(cyl, cart, 5e-3);
@@ -197,7 +198,7 @@ TEST(V22c, PillarsAgainstCartesianPml) {
   if (!serverTests()) GTEST_SKIP() << "target system only (FG_SERVER_TESTS=1)";
   for (const bool hexagon : {false, true}) {
     const char* name = hexagon ? "hexagon" : "square";
-    const double c2 = v22cCylindrical(hexagon, false, 8, 2), c3 = v22cCylindrical(hexagon, false, 8, 3);
+    const double c2 = v22cCylindrical(hexagon, false, 8, 2).first, c3 = v22cCylindrical(hexagon, false, 8, 3).first;
     const auto m10 = v22cCartesian(hexagon, false, 10), m14 = v22cCartesian(hexagon, false, 14);
     std::printf("V22c %s: class path L = 2/3: %.6f / %.6f | M18 N = 10/14: %.6f / %.6f (absorbed %.1e / %.1e)\n",
                 name, c2, c3, m10.first, m14.first, m10.second, m14.second);
@@ -206,12 +207,12 @@ TEST(V22c, PillarsAgainstCartesianPml) {
   }
   for (const bool hexagon : {false, true}) {
     const char* name = hexagon ? "hexagon" : "square";
-    const double c4 = v22cCylindrical(hexagon, true, 4, 2), c8 = v22cCylindrical(hexagon, true, 8, 2);
+    const auto c4 = v22cCylindrical(hexagon, true, 4, 2), c8 = v22cCylindrical(hexagon, true, 8, 2);
     const auto m10 = v22cCartesian(hexagon, true, 10), m14 = v22cCartesian(hexagon, true, 14);
-    std::printf("V22c silver %s: class path kappa_max = 4/8: %.6f / %.6f | M18 N = 10/14: up + down + lateral "
-                "%.6f / %.6f (absorbed %.4f / %.4f)\n",
-                name, c4, c8, m10.first, m14.first, m10.second, m14.second);
-    EXPECT_TRUE(std::isfinite(c8) && std::isfinite(m14.first)) << name;
+    std::printf("V22c silver %s: class path kappa_max = 4/8: sca %.6f / %.6f, abs %.6f / %.6f | M18 N = 10/14: "
+                "up + down + lateral %.6f / %.6f, absorbed %.6f / %.6f\n",
+                name, c4.first, c8.first, c4.second, c8.second, m10.first, m14.first, m10.second, m14.second);
+    EXPECT_TRUE(std::isfinite(c8.first) && std::isfinite(c8.second) && std::isfinite(m14.first)) << name;
   }
 }
 
@@ -292,6 +293,127 @@ TEST(V22e, MirrorSymmetryMapsTheClasses) {
   std::printf("V22e: harmonics m <-> -m deviation %.1e; power scattered into m != 1: %.3e\n", dev, coupled);
   EXPECT_LT(dev, 1e-12);
   EXPECT_GT(coupled, 1e-6);  // the square does couple (m = -3, 5, ...)
+}
+
+/// The pillar of `pillar` with the lossy material n = 1.45 + 0.1i.
+std::string lossy(std::string json) {
+  const std::string from = R"("p": {"n": 1.45})";
+  json.replace(json.find(from), from.size(), R"("p": {"eps": [2.0925, 0.29]})");
+  return json;
+}
+
+// Volume integrals in the class path (Plan v2.42): Laurent keeps the energy discretely, so the rings absorption of a
+// beam equals 1 - R - T and the optical theorem of a plane wave equals sigma_sca + sigma_abs up to rounding; turning
+// the azimuth of incidence by 2 pi / P leaves sigma_abs unchanged (V22d).
+TEST(V22Volume, LaurentKeepsTheEnergyBalance) {
+  const std::string sym = R"("factorization": "laurent", "symmetry": {"rotation": 4, "L": 1})";
+  const auto beam = solveConfig(lossy(pillar(sym, kBeam, kSquare))).cylindrical;
+  std::printf("V22Volume: beam A = 1 - R - T = %.15f, rings %.15f\n", beam.absorbed, beam.absorbedRings);
+  EXPECT_GT(beam.absorbedRings, 1e-3);
+  EXPECT_NEAR(beam.absorbedRings, beam.absorbed, 1e-12);
+
+  const auto a = solveConfig(lossy(pillar(sym, kOblique, kSquare))).cylindrical;
+  std::printf("V22Volume: sca %.15f abs %.15f ext %.15f theorem %.15f um^2\n", a.scattering_um2, a.absorption_um2,
+              a.extinction_um2, a.extinctionTheorem_um2);
+  EXPECT_GT(a.absorption_um2, 1e-3);
+  EXPECT_NEAR(a.extinctionTheorem_um2, a.extinction_um2, 1e-12 * a.extinction_um2);
+  std::string rotated = kOblique;
+  rotated.replace(rotated.find(R"("psi_deg": 0)"), 12, R"("psi_deg": 90)");
+  const auto b = solveConfig(lossy(pillar(sym, rotated, kSquare))).cylindrical;
+  std::printf("V22Volume: sigma_abs %.15f / %.15f (psi 0 / 90)\n", a.absorption_um2, b.absorption_um2);
+  EXPECT_NEAR(a.absorption_um2, b.absorption_um2, 1e-12 * a.absorption_um2);
+}
+
+// Rotationally symmetric lossy layers through the class path equal M20: rings layer (Li in r, block-wise through the
+// M20 volume integral) with a beam, and the centred circle (contour2d, coupled angular coefficients) against the rings
+// layer with Laurent for an oblique plane wave (sigma_abs and the optical theorem).
+TEST(V22Volume, RotationallySymmetricLayersEqualM20) {
+  const auto ref = solveConfig(lossy(pillar(R"("factorization": "li_r")", kBeam, kRings))).cylindrical;
+  const auto cls =
+      solveConfig(lossy(pillar(R"("factorization": "li_r", "symmetry": {"rotation": 3, "L": 1})", kBeam, kRings)))
+          .cylindrical;
+  std::printf("V22Volume: rings absorption %.15f (M20) / %.15f (P = 3)\n", ref.absorbedRings, cls.absorbedRings);
+  EXPECT_GT(ref.absorbedRings, 1e-3);
+  EXPECT_NEAR(cls.absorbedRings, ref.absorbedRings, 1e-12);
+
+  const auto rings = solveConfig(lossy(pillar(R"("factorization": "laurent")", kOblique, kRings))).cylindrical;
+  const auto circle = solveConfig(lossy(pillar(R"("factorization": "laurent", "symmetry": {"rotation": 3, "L": 2})",
+                                               kOblique, kCircle)))
+                          .cylindrical;
+  std::printf("V22Volume: abs %.15f / %.15f, theorem %.15f / %.15f um^2 (rings M20 / circle P = 3)\n",
+              rings.absorption_um2, circle.absorption_um2, rings.extinctionTheorem_um2, circle.extinctionTheorem_um2);
+  EXPECT_GT(rings.absorption_um2, 1e-3);
+  EXPECT_NEAR(circle.absorption_um2, rings.absorption_um2, 1e-12);
+  EXPECT_NEAR(circle.extinctionTheorem_um2, rings.extinctionTheorem_um2, 1e-12);
+}
+
+/// Near field of a configuration with the cuts of `block` (V21 style).
+fg::NearFieldResult nearFieldOf(const std::string& json, const std::string& block) {
+  const auto p = json.rfind('}');
+  fg::io::RunConfig cfg = fg::io::parseConfig(json.substr(0, p) + R"(, "nearfield": {"enabled": true, )" + block + "}}");
+  return fg::makeSolver(cfg.solver)->nearField(cfg.stack, cfg.scan.front(), cfg.field);
+}
+
+/// Largest |E| and largest deviation of E and H between two near fields (both cuts), and the largest material
+/// deviation.
+struct FieldDeviation {
+  double scale = 0, dev = 0, material = 0;
+};
+FieldDeviation deviation(const fg::NearFieldResult& a, const fg::NearFieldResult& b) {
+  FieldDeviation d;
+  for (const bool vertical : {true, false}) {
+    const fg::FieldCut &x = vertical ? a.vertical : a.horizontal, &y = vertical ? b.vertical : b.horizontal;
+    EXPECT_EQ(x.E[0].size(), y.E[0].size());
+    for (int c = 0; c < 3; ++c)
+      for (std::size_t i = 0; i < x.E[c].size(); ++i) {
+        d.scale = std::max(d.scale, std::abs(x.E[c][i]));
+        d.dev = std::max({d.dev, std::abs(x.E[c][i] - y.E[c][i]), std::abs(x.H[c][i] - y.H[c][i])});
+      }
+    for (std::size_t i = 0; i < x.material.size(); ++i) d.material = std::max(d.material, std::abs(x.material[i] - y.material[i]));
+  }
+  return d;
+}
+
+/// Cuts within about R_s (beam: R_s = 2 w0 = 0.5 um, plane wave: R_s = 0.3 um, the pillar radius); beyond R_s the
+/// synthesis loses accuracy (Plan v2.25) and amplifies the tiny differences of the spectra. No point lies on the wall
+/// r = 0.3 um (rings count it to the inside, Region::contains to the outside).
+std::string cuts(double extent) {
+  return R"("horizontal_y_um": 0.15, "nx": 15, "nz": 15, "ny": 7, "y_range_um": [-0.2, 0.5], "extent_um": )" +
+         std::to_string(extent);
+}
+
+// Near field in the class path (Plan v2.42): the class spectra split into their harmonics and synthesized as in M20.
+// Rings layer (Li in r, FFF reconstruction per block) with a beam equals the M20 near field (1e-11); the centred
+// circle (contour2d, Laurent, quadrature) with an oblique plane wave equals the rings layer (Laurent, Lommel integrals)
+// to 1e-9 (measured 3e-10); the material map of the square follows its cross section.
+TEST(V22NearField, ClassPathEqualsM20) {
+  const auto ref = nearFieldOf(pillar(R"("factorization": "li_r")", kBeam, kRings), cuts(0.5));
+  const auto cls =
+      nearFieldOf(pillar(R"("factorization": "li_r", "symmetry": {"rotation": 3, "L": 1})", kBeam, kRings), cuts(0.5));
+  const FieldDeviation r = deviation(ref, cls);
+  std::printf("V22NearField: rings, beam: deviation %.1e of max |E| %.3f, material %.1e\n", r.dev, r.scale, r.material);
+  EXPECT_LT(r.dev, 1e-11 * r.scale);
+  EXPECT_EQ(r.material, 0.0);
+
+  const auto rings = nearFieldOf(pillar(R"("factorization": "laurent")", kOblique, kRings), cuts(0.29));
+  const auto circle =
+      nearFieldOf(pillar(R"("factorization": "laurent", "symmetry": {"rotation": 3, "L": 2})", kOblique, kCircle), cuts(0.29));
+  const FieldDeviation c = deviation(rings, circle);
+  std::printf("V22NearField: circle, plane wave: deviation %.1e of max |E| %.3f, material %.1e\n", c.dev, c.scale,
+              c.material);
+  EXPECT_LT(c.dev, 1e-9 * c.scale);  // quadrature against Lommel integrals: 3e-10
+  EXPECT_EQ(c.material, 0.0);
+
+  // square 0.5 x 0.5 um: (0.2, 0.2) inside, (0.3, 0.1) outside at the height of the layer
+  const auto sq = nearFieldOf(pillar(R"("factorization": "laurent", "symmetry": {"rotation": 4, "L": 1})", kBeam, kSquare),
+                              R"("horizontal_y_um": 0.15, "nx": 7, "nz": 7, "ny": 1, "y_range_um": [0.15, 0.15], "extent_um": 0.3)");
+  const auto& h = sq.horizontal;
+  auto material = [&](int ix, int iz) { return h.material[static_cast<std::size_t>(iz * 7 + ix)]; };
+  EXPECT_DOUBLE_EQ(material(5, 5), 1.45 * 1.45);  // (0.2, 0.2)
+  EXPECT_DOUBLE_EQ(material(6, 4), 1.0);          // (0.3, 0.1)
+  EXPECT_DOUBLE_EQ(material(3, 3), 1.45 * 1.45);  // axis
+  for (int c3 = 0; c3 < 3; ++c3)
+    for (const cplx v : h.E[c3]) EXPECT_TRUE(std::isfinite(std::abs(v)));
 }
 
 // Configuration (Plan sec:cylP "CAD und Konfiguration"): polygon2d / contour2d need symmetry.rotation; a cross

@@ -61,7 +61,8 @@ namespace {
 /// q = -qmax..qmax (row qmax + q; chi_{-q} = conj chi_q). The panels are as wide as allowed by kabs.
 struct RadialTable {
   std::vector<double> r;
-  MatC d;
+  MatC d;    ///< contrast eps - epsBg times r W
+  MatC dIm;  ///< Im eps (with Im epsBg in q = 0) times r W
   int qmax = 0;
 };
 
@@ -85,16 +86,23 @@ RadialTable radialTable(const HarmonicMap& map, const AngularSection& section, d
   const auto nr = static_cast<Eigen::Index>(t.r.size());
   const int qmax = t.qmax;
   t.d = MatC::Zero(2 * qmax + 1, nr);
-  for (Eigen::Index i = 0; i < nr; ++i)
+  t.dIm = MatC::Zero(2 * qmax + 1, nr);
+  for (Eigen::Index i = 0; i < nr; ++i) {
+    const double rw = t.r[static_cast<std::size_t>(i)] * W[static_cast<std::size_t>(i)];
+    t.dIm(qmax, i) += section.epsBg.imag() * rw;
     for (std::size_t b = 0; b < section.regions.size(); ++b) {
       const cplx de = section.eps[b] - section.epsBg;
       const VecC chi = angularCoefficients(section.regions[b], t.r[static_cast<std::size_t>(i)], map.P, qmax);
-      const double rw = t.r[static_cast<std::size_t>(i)] * W[static_cast<std::size_t>(i)];
       for (int q = 0; q <= qmax; ++q) {
         t.d(qmax + q, i) += de * chi(q) * rw;
-        if (q) t.d(qmax - q, i) += de * std::conj(chi(q)) * rw;
+        t.dIm(qmax + q, i) += de.imag() * chi(q) * rw;
+        if (q) {
+          t.d(qmax - q, i) += de * std::conj(chi(q)) * rw;
+          t.dIm(qmax - q, i) += de.imag() * std::conj(chi(q)) * rw;
+        }
       }
     }
+  }
   return t;
 }
 
@@ -178,6 +186,17 @@ PlaneWaveSource coupledSource(const SpectralGrid& grid, const HarmonicMap& map, 
   B.Bpm.col(0).head(nf) = column(+1);
   B.Bpm.col(1).tail(nf) = column(-1);
   return B;
+}
+
+SectionVolume sectionVolume(const SpectralGrid& grid, const HarmonicMap& map, const AngularSection& section,
+                            int nodesPerPanel) {
+  RadialTable t = radialTable(map, section, grid.k.cwiseAbs().maxCoeff(), nodesPerPanel);
+  SectionVolume v;
+  v.r = std::move(t.r);
+  v.imEps = std::move(t.dIm);
+  v.contrast = std::move(t.d);
+  v.qmax = t.qmax;
+  return v;
 }
 
 }  // namespace fg::cyl

@@ -1040,9 +1040,8 @@ Modul \verb|fg::cyl| (\verb|include/fg/cyl/angular.hpp|), unabhängig vom Löser
         $R_s$ und $m_{\text{cut}}$ berücksichtigen den größten Radius der Querschnitte. Ausgabe je Harmonischer aller
         Klassen (die Harmonischen sind in den Halbräumen orthogonal: Fluss und Fernfeld blockweise), Python
         \verb|rotation|, \verb|class_L|.
-  \item Noch nicht im Klassenpfad: Volumenintegrale ($\sigma_{\text{abs}}$, optisches Theorem; bei verlustbehafteten
-        strukturierten Schichten \verb|nan| mit Warnung, sonst $0$; $C_A=1-R-T$ des Strahls gilt), Nahfeld, Gradienten,
-        Strahl als Streufeld, Schichttyp \verb|cad| (V22f).
+  \item Noch nicht im Klassenpfad: Volumenintegrale und Nahfeld (seit v2.42 umgesetzt), Gradienten, Strahl als
+        Streufeld, Schichttyp \verb|cad| (V22f).
   \item \textbf{Befund Aufwand:} Die dichten S-Matrix-Produkte der Größe $4(2L+1)N_k$ dominieren. Säule $r=0{,}3$\,µm,
         $\kappa_{\max}=3$, schräge ebene Welle, $P=3$ (drei Klassen): $L=5$ (Standard) 5\,min, $L=2$ 30\,s. Die Halbräume und homogenen Schichten sind blockdiagonal; sie blockweise zu behandeln wäre die
         naheliegende Beschleunigung.
@@ -1073,13 +1072,44 @@ $2\times2$\,µm mit PML $0{,}3$\,µm in $x$ und $z$, Vergleich mit oben $+$ unte
   \item \textbf{Aufwand:} Klassenpfad $\kappa_{\max}=8$, $L=1$ (zwei Klassen) 2{,}7\,min lokal, Aufwand $\propto(2L+1)^3$;
         M18 $N=8$ 1\,min, $\propto(2N+1)^6$. Lokal ohne OpenMP rechnen Eigens Produkte auf einem Kern; die Servertests
         setzen \verb|threads.blas| auf die Kernzahl.
-  \item Silbersäule ($\varepsilon=-40+4i$) als Konvergenzstudie (nur Ausgabe; Volumenintegrale im Klassenpfad fehlen noch,
-        verglichen wird die Streuung): grob $\kappa_{\max}=4$, $L=1$ Sechseck $1{,}216$ gegen M18 $N=5$ $1{,}425$, wie
+  \item Silbersäule ($\varepsilon=-40+4i$) als Konvergenzstudie (nur Ausgabe; seit v2.42 mit $\sigma_{\text{abs}}$ des
+        Klassenpfads gegen die Absorption in der Box von M18): grob $\kappa_{\max}=4$, $L=1$ Sechseck $1{,}216$ gegen M18 $N=5$ $1{,}425$, wie
         erwartet weit auseinander (Anlass für FFF Stufe~2).
   \item Tests: \verb|V22c.SquarePillarCoarse| (immer: $\kappa_{\max}=4$, $L=1$ gegen $N=6$, $5\cdot10^{-3}$, gemessen
         $2{,}5\cdot10^{-3}$); \verb|V22c.PillarsAgainstCartesianPml| (\verb|FG_SERVER_TESTS=1|): $\kappa_{\max}=8$,
         $L=2,3$ gegen $N=10,14$; Abnahme $|\sigma_{L=3}-\sigma_{N=14}|\le\max(10^{-3},|\sigma_{N=14}-\sigma_{N=10}|)$ (\enquote{innerhalb
         dessen Konvergenz}) und $|\sigma_{L=3}-\sigma_{L=2}|<10^{-3}$; dazu Silber $\kappa_{\max}=4,8$ gegen $N=10,14$.
+\end{itemize}
+
+\paragraph{Umsetzung (v2.42): Volumenintegrale und Nahfeld im Klassenpfad.}
+Mit $\mathbf E=\sum_l\mathbf E_l(r,y)e^{im_l\varphi}$ und $\varepsilon=\sum_q\varepsilon_qe^{iqP\varphi}$ gilt
+$\int_0^{2\pi}\varepsilon\,\mathbf A\cdot\bar{\mathbf B}\,d\varphi=2\pi\sum_{l,l'}\bar{\mathbf B}_l\cdot\varepsilon_{l-l'}\mathbf A_{l'}$
+(dieselbe Kopplung wie \eqref{eq:cylP_Q}); Harmonische verschiedener Klassen tragen nicht bei.
+\begin{itemize}[nosep]
+  \item \textbf{Querschnittsschichten:} $\sigma_{\text{abs}}$ mit den Koeffizienten von $\operatorname{Im}\varepsilon$
+        ($\operatorname{Im}\varepsilon_{\text{bg}}\delta_{q0}+\sum_b\operatorname{Im}(\varepsilon_b-\varepsilon_{\text{bg}})\chi^{(b)}_q$),
+        das optische Theorem mit denen von $\varepsilon-\varepsilon_\infty$ ($\varepsilon_\infty=\varepsilon_{\text{bg}}$ der
+        Schicht), beide auf der r-Regel von \verb|coupledQ| (\verb|cyl::sectionVolume|: dieselben Panels und Knoten, daher
+        konsistent mit den Galerkin-Blöcken); $\mathbf E_l$ direkt synthetisiert (Laurent), der Hintergrund einer ebenen
+        Welle je Block aus \eqref{eq:cyl_jacobi} und wie seine Quelle auf die Harmonischen der Klasse beschränkt. In $y$ die
+        Knoten aus M20 (v2.25). Ringschichten einer Klasse: das M20-Integral je Block (Harmonische entkoppelt).
+  \item Steuerung wie M20: nur bei verlustbehafteten strukturierten Schichten oder \verb|"optical_theorem": true|;
+        verlustbehafteter Hintergrund $\Rightarrow$ Theorem NaN mit Warnung. Strahl: \verb|absorbed_rings| (alle
+        strukturierten Schichten).
+  \item \textbf{Nahfeld:} Spektren je Klasse an den Schnitthöhen, in ihre Harmonischen zerlegt und wie in M20 synthetisiert
+        (FFF-Rekonstruktion der Ringschichten blockweise, Querschnittsschichten direkt). Material am Punkt aus
+        \verb|Region::contains| (ein Punkt auf der Wand zählt nach außen, bei Ringen nach innen).
+  \item \textbf{Befunde} (verlustbehaftete Säule $n=1{,}45+0{,}1i$, $\kappa_{\max}=3$): Quadrat ($P=4$, $L=1$, Laurent),
+        Strahl: Ringabsorption $=1-R-T$ auf $1{,}3\cdot10^{-13}$; schräge ebene Welle: Theorem $=\sigma_{\text{sca}}+\sigma_{\text{abs}}$
+        auf $4\cdot10^{-14}$ relativ (diskreter Energiesatz wie in M20), $\sigma_{\text{abs}}$ bei $\Psi=90^\circ$ bitgleich.
+        Ringschicht (Li in $r$) über $P=3$ gegen M20: $5\cdot10^{-15}$; zentrierter Kreis ($P=3$, $L=2$) gegen die
+        Ringschicht (Laurent): $\sigma_{\text{abs}}$ $5\cdot10^{-14}$, Theorem $9\cdot10^{-14}$\,µm$^2$. Nahfeld: Ringschicht über
+        $P=3$ gegen M20 $1{,}5\cdot10^{-12}$ relativ (Strahl, Schnitte bis $R_s$); Kreis (Quadratur) gegen Ringschicht
+        (Lommel-Integrale) $3{,}1\cdot10^{-10}$ relativ bis $R_s$, $3{,}5\cdot10^{-10}$ bis $2R_s$ (Ursache nicht untersucht; die
+        Q-Blöcke beider Wege stimmen im Unit-Test auf $10^{-12}$, $\sigma$ auf $10^{-12}$). Silber-Sechseck
+        ($\kappa_{\max}=4$, $L=1$): Theorem $=\sigma_{\text{ext}}$ auf $8\cdot10^{-9}$ (y-Quadratur im Metall).
+  \item Tests (\verb|tests/validation/test_v22_cylp.cpp|): \verb|V22Volume.LaurentKeepsTheEnergyBalance|,
+        \verb|V22Volume.RotationallySymmetricLayersEqualM20|, \verb|V22NearField.ClassPathEqualsM20|.
 \end{itemize}
 
 \subsection{Tests und Abnahme (M21)}
