@@ -1040,8 +1040,8 @@ Modul \verb|fg::cyl| (\verb|include/fg/cyl/angular.hpp|), unabhängig vom Löser
         $R_s$ und $m_{\text{cut}}$ berücksichtigen den größten Radius der Querschnitte. Ausgabe je Harmonischer aller
         Klassen (die Harmonischen sind in den Halbräumen orthogonal: Fluss und Fernfeld blockweise), Python
         \verb|rotation|, \verb|class_L|.
-  \item Noch nicht im Klassenpfad: Volumenintegrale und Nahfeld (seit v2.42 umgesetzt), Gradienten, Strahl als
-        Streufeld, Schichttyp \verb|cad| (V22f, seit v2.43 umgesetzt).
+  \item Noch nicht im Klassenpfad: Volumenintegrale und Nahfeld (seit v2.42 umgesetzt), Gradienten (seit v2.44 für
+        Strahlen umgesetzt), Strahl als Streufeld, Schichttyp \verb|cad| (V22f, seit v2.43 umgesetzt).
   \item \textbf{Befund Aufwand:} Die dichten S-Matrix-Produkte der Größe $4(2L+1)N_k$ dominieren. Säule $r=0{,}3$\,µm,
         $\kappa_{\max}=3$, schräge ebene Welle, $P=3$ (drei Klassen): $L=5$ (Standard) 5\,min, $L=2$ 30\,s. Die Halbräume und homogenen Schichten sind blockdiagonal; sie blockweise zu behandeln wäre die
         naheliegende Beschleunigung.
@@ -1136,6 +1136,47 @@ $\int_0^{2\pi}\varepsilon\,\mathbf A\cdot\bar{\mathbf B}\,d\varphi=2\pi\sum_{l,l
         (Ordnung 4), gleichseitiges Dreieck mit $P=3$: Achse im Schwerpunkt auf $10^{-12}$.
   \item Tests (\verb|tests/cad/test_cad.cpp|, nur mit Nurbforge): \verb|CAD_V22f.HexagonalPillarEqualsPolygon2D|,
         \verb|CAD_V22f.FrustumStaircaseEqualsRingsProfile|, \verb|CAD_V22f.FindingsAndOrder|.
+\end{itemize}
+
+\paragraph{Umsetzung (v2.44): Gradienten im Klassenpfad (V22g).}
+Formableitung von \eqref{eq:cylP_chi} über die Bogenenden: Ein Schnittpunkt $\mathbf p=\mathbf C(t)$ des Kreises
+$|\mathbf x|=r$ mit dem Rand bleibt auf dem Kreis, bei Randgeschwindigkeit $\mathbf V=\partial\mathbf C/\partial\theta$ gilt
+\begin{equation}
+  \frac{\partial t}{\partial\theta}=-\frac{\mathbf p\cdot\mathbf V}{\mathbf p\cdot\mathbf C'},\qquad
+  \frac{\partial\varphi}{\partial\theta}=\frac{\mathbf p\times(\mathbf V+\mathbf C'\,\partial_\theta t)}{r^2},\qquad
+  \frac{\partial\chi_q}{\partial\theta}=\frac1{2\pi}\sum_{\text{Schnittpunkte}}\pm e^{-iqP\varphi}\frac{\partial\varphi}{\partial\theta}
+  \label{eq:cylP_shape}
+\end{equation}
+($+$ beim Verlassen, $-$ beim Eintreten des Materials). $\chi_q$ ist in $r$ stetig; die wandernden kritischen Radien
+liefern daher keine Randterme, und $\partial_\theta\int g\,\chi_q\,r\,dr=\int g\,\partial_\theta\chi_q\,r\,dr$. An
+Tangentialradien divergiert $\partial_\theta\chi_q$ wie $|r-r_t|^{-1/2}$; die Wurzelsubstitution der Panels von
+\verb|coupledQ| deckt das ab.
+\begin{itemize}[nosep]
+  \item \verb|cyl::angularCoefficientsShape| (\eqref{eq:cylP_shape}), \verb|cyl::coupledQBar| (Rückwärtsregel von
+        \eqref{eq:cylP_Q}: $\operatorname{tr}(\bar Q^H T_aDB)=\sum_iD_{ii}(B\bar Q^HT_a)_{ii}$ je Block und $s$, daraus die
+        Kotangenten von $\varepsilon_b$, $\varepsilon_{\text{bg}}$ und $G_q(r_i)$), \verb|cyl::coupledQShape|
+        ($\sum_b(\varepsilon_b-\varepsilon_{\text{bg}})\partial_\theta\chi^{(b)}_q$ auf der r-Regel von \verb|coupledQ|).
+  \item Die Kette von V21i (Stufe 1) läuft je Einheit: eine Harmonische (M20, unverändert) oder eine Klasse; Fluss
+        und Strahl blockweise, $\mathbb 1_{2L+1}\otimes\kappa$ in \verb|propagationMatrixBar|, Ringschichten einer Klasse
+        über \verb|cylQBar| je Harmonischer, Querschnittsschichten über \verb|coupledQBar|.
+  \item Parameter wie V21i, dazu jede Zahl einer \verb|polygon2d|- oder \verb|contour2d|-Geometrie
+        (\verb|/layers/k/regions/...|, \verb|/layers/k/inclusions/...|): $\mathbf V=(\mathbf C(\theta+\delta)-\mathbf C(\theta-\delta))/(2\delta)$,
+        $\delta=10^{-6}\max(1,|\theta|)$, je Segment und Kurvenparameter wie die kartesischen Formparameter. Ein Parameter,
+        der die $P$-zählige Symmetrie bricht, scheitert an der Symmetrieprüfung der Schicht bei $\theta\pm\delta$ (der
+        Klassenpfad kennte die Kopplung der Klassen nicht); $P=1$ ist beliebig. Noch nicht: ebene Wellen.
+  \item \textbf{Befund:} In einem regelmäßigen Vieleck fallen alle Ecken- und alle Tangentialradien zusammen. Ein
+        verschobener Eckpunkt spaltet sie um $\delta$ auf, die Wurzelsubstitution sitzt dann $\delta$ neben der
+        Singularität, und die diskrete Abbildung ändert sich um etwa $\delta^{3/2}$. Ihre Differenzenquotienten weichen
+        dann um $10^{-3}$ relativ ab, die analytische Ableitung bleibt bei 16, 32 und 64 Knoten je Panel gleich. Die Tests
+        nehmen daher ein unregelmäßiges Fünfeck.
+  \item \textbf{V22g} (Strahl $\lambda=1$\,µm, $w_0=0{,}2$\,µm, $\kappa_{\max}=2$, $L=1$, Zielfunktion
+        $R+\tfrac12T+2T_{m=1}$, Kriterium von M19): $P=1$, unregelmäßiges \verb|contour2d|-Fünfeck über einem Film
+        (Eckpunkte $x$, $z$, Kernmaterial Re/Im, Filmmaterial, Dicke): $\le2{,}9\cdot10^{-9}$; $P=2$, zentrierte Ellipse
+        (Halbachse, Winkel) über einer Ringschicht mit Li in $r$ (Radius, Materialien): $\le6{,}5\cdot10^{-8}$. Ein
+        symmetriebrechender Parameter (Ellipsenmitte) wird abgelehnt. Unit: \eqref{eq:cylP_shape} gegen
+        Differenzenquotienten $3{,}2\cdot10^{-10}$, \verb|coupledQBar| (Materialien, Eckpunkt) $10^{-8}$ relativ.
+  \item Tests: \verb|CylAngular.ShapeDerivativeAgainstDifferences|, \verb|CylCoupled.ReverseRuleAgainstDifferences|
+        (\verb|tests/unit/test_cyl_angular.cpp|), \verb|V22g.*| (\verb|tests/validation/test_v22_cylp.cpp|).
 \end{itemize}
 
 \subsection{Tests und Abnahme (M21)}

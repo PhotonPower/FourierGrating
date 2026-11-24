@@ -12,6 +12,9 @@
 #include <thread>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
+#include "fg/adjoint/gradient.hpp"
 #include "fg/cyl/coupled.hpp"
 #include "fg/cyl/propagation.hpp"
 #include "fg/cyl/spectrum.hpp"
@@ -476,4 +479,81 @@ TEST(V22b, EccentricFiberCoreHasTheModesOfTheCentredCore) {
     std::printf("V22b: x0 = %.1f, L = %d: HE11 pair %.10f %.10f, deviation %.1e\n", c.x0, c.L, b[0], b[1], dev);
     EXPECT_LT(dev, c.tol) << c.x0 << " " << c.L;
   }
+}
+
+// V22g (Plan "Tests und Abnahme (M21)"): gradients in the class path (Gaussian beam, total field, RCWA) against central
+// difference quotients, criterion of M19 1e-6 max(1, |fd|). The spectral grid stays fixed (substrate of the highest
+// index, R_s = 2 w0 larger than the cross sections). P = 1: the vertices of an irregular contour2d pentagon (a
+// regular one would make the difference quotients of the discrete map unreliable: its critical radii coincide and
+// split under the step), its material, the thickness and the background; P = 2: semi-axis and angle of a centred
+// ellipse (both keep the 2-fold symmetry) above a rings layer (Li in r, block-diagonal over the class)
+namespace {
+
+nlohmann::json v22gCase(int P) {
+  auto j = nlohmann::json::parse(R"({
+    "cylindrical": {"spectrum": {"kappa_max": 2, "dk_factor": 1}, "factorization": "li_r", "symmetry": {"L": 1}},
+    "materials": {"air": {"n": 1.0}, "sub": {"n": 2.0}, "core": {"n": [1.7, 0.02]}, "film": {"n": 1.6}},
+    "superstrate": "air", "substrate": "sub",
+    "incidence": {"type": "gaussian_beam", "lambda_um": 1.0, "waist_um": 0.2, "focus_y_um": 0.1,
+                  "polarization": "x"},
+    "layers": []})");
+  j["cylindrical"]["symmetry"]["rotation"] = P;
+  if (P == 1) {
+    j["layers"] = nlohmann::json::array(
+        {{{"type", "homogeneous"}, {"thickness_um", 0.08}, {"material", "film"}},
+         {{"type", "contour2d"}, {"thickness_um", 0.15}, {"background", "film"},
+          {"regions", {{{"material", "core"},
+                        {"polygon_um", {{0.15, 0.03}, {0.05, 0.16}, {-0.12, 0.11}, {-0.1, -0.09}, {0.07, -0.13}}}}}}}});
+  } else {
+    j["layers"] = nlohmann::json::array(
+        {{{"type", "rings"}, {"thickness_um", 0.08}, {"radii_um", {0.12}}, {"materials", {"film", "air"}}},
+         {{"type", "contour2d"}, {"thickness_um", 0.15}, {"background", "air"},
+          {"regions",
+           {{{"material", "core"}, {"ellipse", {{"center_um", {0, 0}}, {"radii_um", {0.18, 0.1}}, {"angle_deg", 20}}}}}}}});
+  }
+  return j;
+}
+
+double v22gObjective(const fg::CylindricalResult& r) {
+  double t1 = 0;
+  for (std::size_t i = 0; i < r.harmonics.size(); ++i)
+    if (r.harmonics[i] == 1) t1 = r.transmittedPerHarmonic[i];
+  return r.reflected + 0.5 * r.transmitted + 2 * t1;
+}
+
+void checkV22g(int P, const std::vector<std::string>& params) {
+  fg::Objective obj;
+  obj.cylindrical = {{fg::CylRef{'R', true, 0}, 1.0}, {fg::CylRef{'T', true, 0}, 0.5}, {fg::CylRef{'T', false, 1}, 2.0}};
+  const nlohmann::json j = v22gCase(P);
+  const fg::GradientResult g = fg::gradient(j.dump(), obj, params);
+  EXPECT_NEAR(g.value, v22gObjective(solveConfig(j.dump()).cylindrical), 1e-12) << P;
+  for (std::size_t q = 0; q < params.size(); ++q) {
+    const nlohmann::json::json_pointer p(params[q]);
+    const double v = j.at(p).get<double>(), h = 1e-5 * std::max(0.1, std::abs(v));
+    nlohmann::json a = j, b = j;
+    a[p] = v + h;
+    b[p] = v - h;
+    const double fd =
+        (v22gObjective(solveConfig(a.dump()).cylindrical) - v22gObjective(solveConfig(b.dump()).cylindrical)) / (2 * h);
+    std::printf("V22g P = %d %-40s adjoint %+.10e  fd %+.10e  diff %.1e\n", P, params[q].c_str(), g.grad[q], fd,
+                std::abs(g.grad[q] - fd));
+    EXPECT_NEAR(g.grad[q], fd, 1e-6 * std::max(1.0, std::abs(fd))) << P << " " << params[q];
+  }
+}
+
+}  // namespace
+
+TEST(V22g, ContourVerticesOfOneClass) {
+  checkV22g(1, {"/layers/1/regions/0/polygon_um/1/0", "/layers/1/regions/0/polygon_um/1/1",
+                "/layers/1/regions/0/polygon_um/3/0", "/materials/core/n/0", "/materials/core/n/1",
+                "/materials/film/n", "/layers/1/thickness_um"});
+}
+
+TEST(V22g, EllipseAboveRingsWithTwofoldSymmetry) {
+  checkV22g(2, {"/layers/1/regions/0/ellipse/radii_um/0", "/layers/1/regions/0/ellipse/angle_deg",
+                "/layers/0/radii_um/0", "/materials/film/n", "/materials/core/n/1"});
+  // a parameter that breaks the 2-fold symmetry is rejected (the class path would ignore the coupling)
+  fg::Objective obj;
+  obj.cylindrical = {{fg::CylRef{'R', true, 0}, 1.0}};
+  EXPECT_THROW(fg::gradient(v22gCase(2).dump(), obj, {"/layers/1/regions/0/ellipse/center_um/0"}), fg::Error);
 }

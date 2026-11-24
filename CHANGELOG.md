@@ -3,7 +3,13 @@
 ## [Unreleased]
 
 ### Hinzugefügt
-- M21 V22f, CAD mit Drehsymmetrie (Plan v2.43): Schicht `cad` in einem Zylinderstapel mit `"symmetry": {"rotation": P}`
+- M21 V22g, Gradienten im Klassenpfad (Plan v2.44): Gauß-Strahlen mit `"symmetry": {"rotation": P}` nach Dicken,
+  Ringradien, Materialien und jeder Zahl einer `polygon2d`/`contour2d`-Geometrie, die die P-zählige Symmetrie erhält.
+  Formableitung der Winkelkoeffizienten über die Bogenenden (`fg::cyl::angularCoefficientsShape`), Rückwärtsregel
+  von `coupledQ` (`fg::cyl::coupledQBar`, `coupledQShape`); die M20-Kette läuft je Harmonischer unverändert. Tests
+  `V22g` (Adjungierte gegen Differenzenquotienten ≤ 6,5e-8), `CylAngular.ShapeDerivativeAgainstDifferences`,
+  `CylCoupled.ReverseRuleAgainstDifferences`.
+- M21 V22f, CAD mit Drehsymmetrie (Plan v2.43; die LLM-Referenz nennt `E_ROT_SYMMETRY`): Schicht `cad` in einem Zylinderstapel mit `"symmetry": {"rotation": P}`
   (ohne `"axisymmetric"`); Achse ohne `cell_origin_um` im Schwerpunkt des untersten Schnitts, Bänder `contour2d`
   bzw. `contour2d_staircase`, Befund `E_ROT_SYMMETRY` mit der gefundenen Ordnung, Bericht `"dimension": "rotation"`
   mit `rotation_order`. Tests `CAD_V22f` (Sechseck aus STEP = `polygon2d` auf 1,3e-14, Kegelstumpf-Treppe =

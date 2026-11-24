@@ -277,7 +277,9 @@ die gefundene Ordnung). Gerechnet wird je Symmetrieklasse m₀ + lP, |l| ≤ L, 
 diesen Schichten; `"factorization": "li_r"` gilt dann nur für die Ringschichten). `L` ohne Angabe: ⌈m_cut/P⌉ + 2
 (m_cut: größtes |m| der Anregung); Konvergenz in `L` prüfen. Der Aufwand wächst mit (2L + 1)³. Ausgabe wie oben, je
 Harmonischer aller Klassen; Python zusätzlich `rotation`, `class_L`. σ_abs, optisches Theorem und Nahfeld wie oben.
-Noch nicht verfügbar: Gradienten, Strahl als Streufeld, `cad`.
+`cad` ohne `"axisymmetric"`: P-zählig drehsymmetrische CAD-Körper ([`cad.md`](cad.md)). Gradienten für Gauß-Strahlen
+wie in M20, dazu jede Zahl einer `polygon2d`/`contour2d`-Geometrie, solange sie die P-zählige Symmetrie erhält (sonst
+Fehler; P = 1 beliebig). Noch nicht verfügbar: Gradienten für ebene Wellen, Strahl als Streufeld.
 
 ```jsonc
 "cylindrical": {"symmetry": {"rotation": 4, "L": 2}, "factorization": "laurent"},

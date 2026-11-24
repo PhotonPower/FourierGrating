@@ -60,7 +60,7 @@ namespace {
 /// The radial rule of a class and d_q(r_i) r_i W_i = sum_b (eps_b - epsBg) chi_q^(b)(r_i) r_i W_i for
 /// q = -qmax..qmax (row qmax + q; chi_{-q} = conj chi_q). The panels are as wide as allowed by kabs.
 struct RadialTable {
-  std::vector<double> r;
+  std::vector<double> r, rw;  ///< nodes, r W
   MatC d;    ///< contrast eps - epsBg times r W
   MatC dIm;  ///< Im eps (with Im epsBg in q = 0) times r W
   int qmax = 0;
@@ -89,6 +89,7 @@ RadialTable radialTable(const HarmonicMap& map, const AngularSection& section, d
   t.dIm = MatC::Zero(2 * qmax + 1, nr);
   for (Eigen::Index i = 0; i < nr; ++i) {
     const double rw = t.r[static_cast<std::size_t>(i)] * W[static_cast<std::size_t>(i)];
+    t.rw.push_back(rw);
     t.dIm(qmax, i) += section.epsBg.imag() * rw;
     for (std::size_t b = 0; b < section.regions.size(); ++b) {
       const cplx de = section.eps[b] - section.epsBg;
@@ -197,6 +198,70 @@ SectionVolume sectionVolume(const SpectralGrid& grid, const HarmonicMap& map, co
   v.contrast = std::move(t.d);
   v.qmax = t.qmax;
   return v;
+}
+
+CoupledQBar coupledQBar(const SpectralGrid& grid, const HarmonicMap& map, const AngularSection& section,
+                        const CylQ& Qbar, int nodesPerPanel) {
+  const Eigen::Index nk = grid.k.size();
+  const int nb = map.blocks();
+  FG_REQUIRE(Qbar.Qpp.rows() == nb * nk && Qbar.Qmm.rows() == nb * nk && Qbar.Qyy.rows() == nb * nk,
+             "coupledQBar: sizes");
+  RadialTable rt = radialTable(map, section, grid.k.cwiseAbs().maxCoeff(), nodesPerPanel);
+  const int qmax = rt.qmax, nuMin = map.m(0) - 1, nuMax = map.m(nb - 1) + 1;
+  const auto nr = static_cast<Eigen::Index>(rt.r.size());
+  const std::vector<MatC> T = besselTables(grid.k, rt.r, nuMin, nuMax);
+  auto table = [&](int nu) -> const MatC& { return T[static_cast<std::size_t>(nu - nuMin)]; };
+  const VecC wk = grid.w.cwiseProduct(grid.k);
+  CoupledQBar out;
+  out.qmax = qmax;
+  out.r = rt.r;
+  out.rw = rt.rw;
+  // block (b, b') of Q_ss = T_a diag(d_{b-b'} r W) T_b'^T diag(w k): tr(X^H T_a D B) = sum_i D_ii (B X^H T_a)_ii
+  out.G = MatC::Zero(2 * qmax + 1, nr);
+  for (const auto& [Qb, s] : {std::pair<const MatC*, int>{&Qbar.Qpp, 1}, {&Qbar.Qmm, -1}, {&Qbar.Qyy, 0}}) {
+    for (int b = 0; b < nb; ++b)
+      for (int bp = 0; bp < nb; ++bp) {
+        const MatC Y = Qb->block(b * nk, bp * nk, nk, nk).adjoint() * table(map.m(b) + s);  // nk x nr
+        const MatC& Tb = table(map.m(bp) + s);
+        for (Eigen::Index i = 0; i < nr; ++i)
+          out.G(qmax + (b - bp), i) += Tb.col(i).cwiseProduct(wk).cwiseProduct(Y.col(i)).sum();
+        if (b == bp) out.epsBg += Qb->block(b * nk, b * nk, nk, nk).trace();
+      }
+  }
+  // d_q(r_i) r_i W_i = sum_b (eps_b - epsBg) chi_q^(b)(r_i) r_i W_i: dL = Re sum G d(d); bar = conj(sum G chi r W)
+  for (std::size_t reg = 0; reg < section.regions.size(); ++reg) {
+    cplx g = 0;
+    for (Eigen::Index i = 0; i < nr; ++i) {
+      const VecC chi = angularCoefficients(section.regions[reg], rt.r[static_cast<std::size_t>(i)], map.P, qmax);
+      cplx gi = out.G(qmax, i) * chi(0);
+      for (int q = 1; q <= qmax; ++q) gi += out.G(qmax + q, i) * chi(q) + out.G(qmax - q, i) * std::conj(chi(q));
+      g += gi * rt.rw[static_cast<std::size_t>(i)];
+    }
+    out.eps.push_back(std::conj(g));
+    out.epsBg -= std::conj(g);
+  }
+  return out;
+}
+
+double coupledQShape(const CoupledQBar& bar, const HarmonicMap& map, const AngularSection& section,
+                     const std::vector<BoundaryVelocity>& velocity) {
+  FG_REQUIRE(velocity.size() == section.regions.size(), "coupledQShape: one velocity per region");
+  const int qmax = bar.qmax;
+  double dL = 0;
+  for (std::size_t reg = 0; reg < section.regions.size(); ++reg) {
+    if (!velocity[reg]) continue;
+    const cplx de = section.eps[reg] - section.epsBg;
+    cplx g = 0;
+    for (std::size_t i = 0; i < bar.r.size(); ++i) {
+      const auto ii = static_cast<Eigen::Index>(i);
+      const VecC dchi = angularCoefficientsShape(section.regions[reg], bar.r[i], map.P, qmax, velocity[reg]);
+      cplx gi = bar.G(qmax, ii) * dchi(0);
+      for (int q = 1; q <= qmax; ++q) gi += bar.G(qmax + q, ii) * dchi(q) + bar.G(qmax - q, ii) * std::conj(dchi(q));
+      g += gi * bar.rw[i];
+    }
+    dL += std::real(de * g);
+  }
+  return dL;
 }
 
 }  // namespace fg::cyl
