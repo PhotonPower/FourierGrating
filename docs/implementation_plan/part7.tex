@@ -1041,7 +1041,7 @@ Modul \verb|fg::cyl| (\verb|include/fg/cyl/angular.hpp|), unabhängig vom Löser
         Klassen (die Harmonischen sind in den Halbräumen orthogonal: Fluss und Fernfeld blockweise), Python
         \verb|rotation|, \verb|class_L|.
   \item Noch nicht im Klassenpfad: Volumenintegrale und Nahfeld (seit v2.42 umgesetzt), Gradienten, Strahl als
-        Streufeld, Schichttyp \verb|cad| (V22f).
+        Streufeld, Schichttyp \verb|cad| (V22f, seit v2.43 umgesetzt).
   \item \textbf{Befund Aufwand:} Die dichten S-Matrix-Produkte der Größe $4(2L+1)N_k$ dominieren. Säule $r=0{,}3$\,µm,
         $\kappa_{\max}=3$, schräge ebene Welle, $P=3$ (drei Klassen): $L=5$ (Standard) 5\,min, $L=2$ 30\,s. Die Halbräume und homogenen Schichten sind blockdiagonal; sie blockweise zu behandeln wäre die
         naheliegende Beschleunigung.
@@ -1110,6 +1110,32 @@ $\int_0^{2\pi}\varepsilon\,\mathbf A\cdot\bar{\mathbf B}\,d\varphi=2\pi\sum_{l,l
         ($\kappa_{\max}=4$, $L=1$): Theorem $=\sigma_{\text{ext}}$ auf $8\cdot10^{-9}$ (y-Quadratur im Metall).
   \item Tests (\verb|tests/validation/test_v22_cylp.cpp|): \verb|V22Volume.LaurentKeepsTheEnergyBalance|,
         \verb|V22Volume.RotationallySymmetricLayersEqualM20|, \verb|V22NearField.ClassPathEqualsM20|.
+\end{itemize}
+
+\paragraph{Umsetzung (v2.43): CAD mit Drehsymmetrie (V22f).}
+\begin{itemize}[nosep]
+  \item Ein \verb|cad|-Block im Zylinderstapel ohne \verb|"axisymmetric"| verlangt \verb|"symmetry": {"rotation": P}|
+        und übernimmt $P$ (\verb|CadOptions::rotation|); \verb|"axisymmetric": true| bleibt M20 (Ringe, auch im
+        Klassenpfad). \verb|cell_origin_um| ist die Achse; ohne Angabe der Schwerpunkt des untersten Schnitts mit
+        Rändern (Bandmitten von unten; erste Momente über den Satz von Green, 48 Gauß-Knoten je halbem Bézier-Stück wie
+        \verb|Contour2D::signedArea|). Jeder Schnitt einer $P$-zählig symmetrischen Anordnung hat seinen Schwerpunkt auf
+        der Achse; die Mitte des Hüllquaders genügt nur für gerade $P$.
+  \item Bänder: \verb|homogeneous|; \verb|contour2d| (Extrusionsbänder, der Schnitt in Bandmitte, exakt wie in M14);
+        \verb|contour2d_staircase| (sonst: \verb|slicing.rcwa_slices| Schichten \verb|contour2d| mit den Schnitten in den
+        Scheibenmitten, wie die Treppe von \verb|rings_profile|). Keine periodischen Bilder, keine Vorschau.
+  \item Symmetrieprüfung jedes Schnitts (Bandmitte und Scheibenmitten) mit derselben Toleranz wie beim Aufbau der
+        Schicht ($10^{-9}$ des größten kritischen Radius des Schnitts), sonst Befund \verb|E_ROT_SYMMETRY| mit Höhe und
+        gefundener Ordnung. Der Bericht (\verb|"dimension": "rotation"|, \verb|axis_um|, \verb|rotation|) nennt
+        \verb|rotation_order|: die größte Ordnung $n\le\max(P,12)$, unter der alle Schnitte in Bandmitte invariant sind
+        (Kreise: $\max(P,12)$; keine Symmetrie: 1).
+  \item \textbf{Befunde} ($\kappa_{\max}=2$, Strahl $w_0=0{,}25$\,µm, Laurent): sechseckige Säule (Umkreis 0,37\,µm,
+        Achse bei CAD $(2,3)$) aus STEP gegen \verb|polygon2d| ($P=6$, $L=1$): $R$, $T$ und je Harmonischer auf
+        $1{,}3\cdot10^{-14}$; Kegelstumpf ($P=4$, $L=0$, 6 Scheiben) als \verb|contour2d|-Treppe gegen die
+        \verb|rings_profile|-Treppe desselben STEP-Körpers: $2{,}5\cdot10^{-14}$. Befunde: um $10^{-4}$\,µm gestörtes
+        Sechseck (Ordnung 1), Quadrat mit $P=6$ (Ordnung 4) \verb|E_ROT_SYMMETRY|, Quadrat mit $P=2$ zulässig
+        (Ordnung 4), gleichseitiges Dreieck mit $P=3$: Achse im Schwerpunkt auf $10^{-12}$.
+  \item Tests (\verb|tests/cad/test_cad.cpp|, nur mit Nurbforge): \verb|CAD_V22f.HexagonalPillarEqualsPolygon2D|,
+        \verb|CAD_V22f.FrustumStaircaseEqualsRingsProfile|, \verb|CAD_V22f.FindingsAndOrder|.
 \end{itemize}
 
 \subsection{Tests und Abnahme (M21)}

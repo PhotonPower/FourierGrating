@@ -26,6 +26,11 @@ std::string Report::json() const {
   if (axisymmetric) {
     j["dimension"] = "axisymmetric";
     j["axis_um"] = {cellOrigin_um[0], cellOrigin_um[1]};
+  } else if (rotation > 0) {
+    j["dimension"] = "rotation";
+    j["axis_um"] = {cellOrigin_um[0], cellOrigin_um[1]};
+    j["rotation"] = rotation;
+    j["rotation_order"] = rotationOrder;
   } else if (oneD) {
     j["dimension"] = "1D";
     j["cell_origin_um"] = {cellOrigin_um[0]};
@@ -58,12 +63,15 @@ std::string llmToolSpec() {
        "(SHELL_OPEN, "
        "SHELL_ORIENTATION, BODY_OVERLAP, PERIODIC_OVERLAP, OUT_OF_RANGE, UNIT_SUSPECT, "
        "FEATURE_SMALL, "
-       "BODY_UNASSIGNED, STEP_UNSUPPORTED, NOT_Z_INVARIANT, NOT_AXISYMMETRIC), positions in micrometres (FG axes: y = "
+       "BODY_UNASSIGNED, STEP_UNSUPPORTED, NOT_Z_INVARIANT, NOT_AXISYMMETRIC, E_ROT_SYMMETRY), positions in micrometres (FG axes: y = "
        "stacking direction = CAD "
        "+Z, x = CAD +X, z = -CAD Y by default) and the band decomposition. 1D gratings (\"dimension\": "
        "\"1D\"): every body must be extruded along FG z (a line of a line grating); it is cut once at "
        "z_cut_um. Solids of revolution (\"cylindrical\" stack, cad \"axisymmetric\": true): every "
-       "section must be circles about the axis (FG y through axis_um). Fix every error and "
+       "section must be circles about the axis (FG y through axis_um). P-fold rotational symmetry "
+       "(\"cylindrical\" stack with \"symmetry\": {\"rotation\": P}): every section must go over into "
+       "itself under a rotation by 360/P degrees about the axis (default: the centroid of a section); "
+       "rotation_order is the order found. Fix every error and "
        "check again."},
       {"parameters",
        {{"type", "object"},

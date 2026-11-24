@@ -126,11 +126,28 @@ erhält Intervalle mit Materialien und die Normalen an den Grenzen.
 
 ## Rotationskörper (M20)
 
-In einem Stapel mit `"cylindrical"` liest der Slicer Rotationskörper um FG y: `"axisymmetric": true` (Pflicht im
-Zylinderstapel, sonst unzulässig). `cell_origin_um` ist die Achse (x0, z0), Standard die Mitte des Hüllquaders. Jeder
+In einem Stapel mit `"cylindrical"` liest der Slicer Rotationskörper um FG y: `"axisymmetric": true` (nur im
+Zylinderstapel; ohne `"symmetry": {"rotation": P}` dort Pflicht). `cell_origin_um` ist die Achse (x0, z0), Standard die Mitte des Hüllquaders. Jeder
 Schnitt muss aus Kreisen um die Achse bestehen; ein Bereich ist eine Scheibe oder ein Ring (Rohr). Bänder:
 `homogeneous`, `rings` (Extrusionsbänder, Radien aus dem Mittelschnitt) oder `rings_profile` (Radien aus den
 Schnitten in den Scheibenmitten, `slicing.rcwa_slices` Scheiben). Keine periodischen Bilder, keine Vorschau.
+
+## Drehsymmetrie (M21)
+
+Mit `"cylindrical": {"symmetry": {"rotation": P}}` darf der Körper P-zählig drehsymmetrisch um FG y sein (Säulen mit
+quadratischem oder sechseckigem Querschnitt usw.); `"axisymmetric"` entfällt dann. `cell_origin_um` ist die Achse,
+Standard der Schwerpunkt des untersten Schnitts (für ungerade P liegt die Mitte des Hüllquaders nicht auf der Achse).
+Jeder Schnitt muss bei Drehung um 360°/P in sich übergehen (Toleranz 1e-9 des größten Radius, wie bei `polygon2d` im
+Zylinderstapel). Bänder: `homogeneous`, `contour2d` (Extrusionsbänder, exakter Mittelschnitt) oder
+`contour2d_staircase` (`slicing.rcwa_slices` Schichten `contour2d` aus den Schnitten in den Scheibenmitten). Der
+Bericht hat `"dimension": "rotation"`, `axis_um`, `rotation` (P) und `rotation_order`: die größte Ordnung bis
+max(P, 12), unter der alle Mittelschnitte invariant sind (ein Quadrat meldet 4, Kreise 12).
+
+```json
+"cylindrical": {"symmetry": {"rotation": 6, "L": 2}, "factorization": "laurent"},
+"layers": [{"type": "cad", "file": "hex_pillar.step", "background": "superstrate",
+            "bodies": [{"name": "pillar", "material": "si"}]}]
+```
 
 ## Geometrieprüfung (für die Prüfschleife eines Sprachmodells)
 
@@ -147,6 +164,7 @@ Schnitten in den Scheibenmitten, `slicing.rcwa_slices` Scheiben). Keine periodis
 | `STEP_UNSUPPORTED` | nicht lesbare Datei oder nicht unterstützte Entität (Name und Instanz) |
 | `NOT_Z_INVARIANT` | 1D-Gitter: Körper ist nicht entlang z extrudiert |
 | `NOT_AXISYMMETRIC` | Rotationskörper (`"axisymmetric": true`): ein Schnitt besteht nicht aus Kreisen um die Achse (Toleranz 1e-9 R_s), mit Höhe und Radiusbereich |
+| `E_ROT_SYMMETRY` | Drehsymmetrie (`"symmetry": {"rotation": P}`): ein Schnitt geht bei Drehung um 360°/P nicht in sich über (Toleranz 1e-9 des größten Radius), mit Höhe und gefundener Ordnung |
 
 Positionen in µm, FG-Koordinaten. Python:
 

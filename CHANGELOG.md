@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M21 V22f, CAD mit Drehsymmetrie (Plan v2.43): Schicht `cad` in einem Zylinderstapel mit `"symmetry": {"rotation": P}`
+  (ohne `"axisymmetric"`); Achse ohne `cell_origin_um` im Schwerpunkt des untersten Schnitts, Bänder `contour2d`
+  bzw. `contour2d_staircase`, Befund `E_ROT_SYMMETRY` mit der gefundenen Ordnung, Bericht `"dimension": "rotation"`
+  mit `rotation_order`. Tests `CAD_V22f` (Sechseck aus STEP = `polygon2d` auf 1,3e-14, Kegelstumpf-Treppe =
+  `rings_profile` auf 2,5e-14, Befunde).
 - M21, Volumenintegrale und Nahfeld im Klassenpfad (Plan v2.42): σ_abs, optisches Theorem und die Ringabsorption
   eines Strahls mit `"symmetry": {"rotation": P}` (Querschnittsschichten über die Winkelkoeffizienten von Im ε und
   ε − ε_∞ auf der r-Regel von `coupledQ`, `fg::cyl::sectionVolume`; Ringschichten je Harmonischer wie M20), Nahfeld je

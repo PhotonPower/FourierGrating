@@ -1136,6 +1136,135 @@ TEST(CAD_M20, FindingsAndConfiguration) {
   EXPECT_THROW(fg::io::parseConfig(base(json::array({axisymLayer(off, bodies)})).dump()), fg::Error);
 }
 
+// ------------------------------------------------------------------ M21: P-fold rotational symmetry (V22f)
+// cad in a cylindrical stack with "symmetry": {"rotation": P} (Plan sec:cylP "CAD"): the sections must go over
+// into themselves under a rotation by 2 pi / P about the axis (default: the centroid of a section), bands become
+// contour2d layers (y-variable bands: a staircase of contour2d layers at the slice centres), E_ROT_SYMMETRY
+// otherwise; the report gives the largest order of the sections (rotation_order, up to max(P, 12)).
+namespace {
+
+/// cylBase with P-fold rotational symmetry, Laurent, class size L and a narrow beam (waist 0.25 um: the spectral
+/// grid follows R_s = max(radius, 2 w0)).
+json rotBase(const json& layers, int P, int L = 1) {
+  json c = cylBase(layers);
+  c["cylindrical"] = {{"spectrum", {{"kappa_max", 2}}}, {"factorization", "laurent"},
+                      {"symmetry", {{"rotation", P}, {"L", L}}}};
+  c["incidence"]["waist_um"] = 0.25;
+  return c;
+}
+
+json rotLayer(const std::string& stepText, const json& bodies) {
+  return json{{"type", "cad"}, {"step", stepText}, {"background", "superstrate"}, {"bodies", bodies},
+              {"slicing", {{"rcwa_slices", 6}}}};
+}
+
+/// Regular n-gon of circumradius R about (cx, cy), first vertex at angle a0 (CAD X-Y plane).
+std::vector<std::array<double, 2>> ngon(int n, double R, double cx, double cy, double a0 = 0) {
+  std::vector<std::array<double, 2>> v;
+  for (int k = 0; k < n; ++k)
+    v.push_back({cx + R * std::cos(a0 + 2 * pi * k / n), cy + R * std::sin(a0 + 2 * pi * k / n)});
+  return v;
+}
+
+}  // namespace
+
+TEST(CAD_V22f, HexagonalPillarEqualsPolygon2D) {
+  // axis at CAD (X, Y) = (2, 3): FG (x, z) = (2, -3); FG z = -CAD Y mirrors the hexagon onto itself
+  const std::string s = step({prism(ngon(6, 0.37, 2, 3), 0.0, 0.2)}, {"hex"});
+  const json bodies = json::array({{{"name", "hex"}, {"material", "pillar"}}});
+  const json cfg = rotBase(json::array({rotLayer(s, bodies)}), 6);
+  const json rep = report(cfg);
+  EXPECT_TRUE(rep["ok"].get<bool>()) << rep.dump(2);
+  EXPECT_EQ(rep["dimension"], "rotation");
+  EXPECT_EQ(rep["rotation"], 6);
+  EXPECT_EQ(rep["rotation_order"], 6);
+  EXPECT_NEAR(rep["axis_um"][0].get<double>(), 2.0, 1e-12);
+  EXPECT_NEAR(rep["axis_um"][1].get<double>(), -3.0, 1e-12);
+  ASSERT_EQ(rep["bands"].size(), 1u);
+  EXPECT_EQ(rep["bands"][0]["kind"], "contour2d");
+  const auto c = fg::io::parseConfig(cfg.dump());
+  ASSERT_EQ(c.stack.layers.size(), 1u);
+  ASSERT_NE(std::get_if<fg::Contour2DLayer>(&c.stack.layers[0].spec), nullptr);
+  json verts = json::array();
+  for (const auto& p : ngon(6, 0.37, 0, 0)) verts.push_back({p[0], p[1]});
+  const json hand = rotBase(json::array({{{"type", "polygon2d"}, {"thickness_um", 0.2}, {"background", "air"},
+                                          {"inclusions", {{{"material", "pillar"}, {"vertices_um", verts}}}}}}),
+                            6);
+  const fg::Result a = solve(cfg), b = solve(hand);
+  std::printf("V22f hexagonal pillar (cad): R = %.12f (polygon2d %.1e), T = %.12f (polygon2d %.1e)\n",
+              a.cylindrical.reflected, a.cylindrical.reflected - b.cylindrical.reflected, a.cylindrical.transmitted,
+              a.cylindrical.transmitted - b.cylindrical.transmitted);
+  EXPECT_NEAR(a.cylindrical.reflected, b.cylindrical.reflected, 1e-10);
+  EXPECT_NEAR(a.cylindrical.transmitted, b.cylindrical.transmitted, 1e-10);
+  ASSERT_EQ(a.cylindrical.harmonics, b.cylindrical.harmonics);
+  for (std::size_t i = 0; i < a.cylindrical.harmonics.size(); ++i) {
+    EXPECT_NEAR(a.cylindrical.reflectedPerHarmonic[i], b.cylindrical.reflectedPerHarmonic[i], 1e-10);
+    EXPECT_NEAR(a.cylindrical.transmittedPerHarmonic[i], b.cylindrical.transmittedPerHarmonic[i], 1e-10);
+  }
+}
+
+TEST(CAD_V22f, FrustumStaircaseEqualsRingsProfile) {
+  // a cone frustum is not y-invariant: a staircase of contour2d circles at the slice centres, the same radii as the
+  // rings_profile staircase of the axisymmetric cad block (Laurent for both)
+  const std::string s = step({frustum(1, 1, 0.3, 0.15, 0.0, 0.25)}, {"cone"});
+  const json bodies = json::array({{{"name", "cone"}, {"material", "pillar"}}});
+  const json cfg = rotBase(json::array({rotLayer(s, bodies)}), 4, 0);  // circles: chi_q = 0 for q != 0
+  const json rep = report(cfg);
+  EXPECT_TRUE(rep["ok"].get<bool>()) << rep.dump(2);
+  EXPECT_EQ(rep["rotation_order"], 12);  // circles: every order up to max(P, 12)
+  ASSERT_EQ(rep["bands"].size(), 1u);
+  EXPECT_EQ(rep["bands"][0]["kind"], "contour2d_staircase");
+  const auto c = fg::io::parseConfig(cfg.dump());
+  ASSERT_EQ(c.stack.layers.size(), 6u);
+  for (const auto& le : c.stack.layers) {
+    const auto* l = std::get_if<fg::Contour2DLayer>(&le.spec);
+    ASSERT_NE(l, nullptr);
+    EXPECT_NEAR(l->thickness_um, 0.25 / 6, 1e-15);
+  }
+  const json axisym = rotBase(json::array({axisymLayer(s, bodies)}), 4, 0);
+  const fg::Result a = solve(cfg), b = solve(axisym);
+  std::printf("V22f frustum (contour2d staircase): R = %.12f (rings %.1e), T = %.12f (rings %.1e)\n",
+              a.cylindrical.reflected, a.cylindrical.reflected - b.cylindrical.reflected, a.cylindrical.transmitted,
+              a.cylindrical.transmitted - b.cylindrical.transmitted);
+  EXPECT_NEAR(a.cylindrical.reflected, b.cylindrical.reflected, 1e-10);
+  EXPECT_NEAR(a.cylindrical.transmitted, b.cylindrical.transmitted, 1e-10);
+}
+
+TEST(CAD_V22f, FindingsAndOrder) {
+  const json bodies = json::array({{{"name", "body"}, {"material", "pillar"}}});
+  auto rep = [&](const nf::Shell& sh, int P) { return report(rotBase(json::array({rotLayer(step({sh}, {"body"}), bodies)}), P)); };
+  // a hexagon with one vertex moved by 1e-4 um has no rotational symmetry
+  auto bent = ngon(6, 0.37, 0, 0);
+  bent[2][0] += 1e-4;
+  json r = rep(prism(bent, 0.0, 0.2), 6);
+  EXPECT_FALSE(r["ok"].get<bool>());
+  EXPECT_EQ(codes(r), std::vector<std::string>{"E_ROT_SYMMETRY"});
+  EXPECT_EQ(r["rotation_order"], 1);
+  EXPECT_NEAR(r["errors"][0]["where_um"][1].get<double>(), 0.1, 1e-9);  // band mid height
+  // a square is 4-fold: wrong for P = 6, fine for P = 2
+  const auto square = ngon(4, 0.28, 0, 0, 0.25 * pi);
+  r = rep(prism(square, 0.0, 0.2), 6);
+  EXPECT_EQ(codes(r), std::vector<std::string>{"E_ROT_SYMMETRY"});
+  EXPECT_EQ(r["rotation_order"], 4);
+  r = rep(prism(square, 0.0, 0.2), 2);
+  EXPECT_TRUE(r["ok"].get<bool>()) << r.dump(2);
+  EXPECT_EQ(r["rotation_order"], 4);
+  // equilateral triangle about (1, 1): the default axis is the centroid (the bounding box centre is not on the axis)
+  r = rep(prism(ngon(3, 0.3, 1, 1, 0.5 * pi), 0.0, 0.2), 3);
+  EXPECT_TRUE(r["ok"].get<bool>()) << r.dump(2);
+  EXPECT_EQ(r["rotation_order"], 3);
+  EXPECT_NEAR(r["axis_um"][0].get<double>(), 1.0, 1e-12);
+  EXPECT_NEAR(r["axis_um"][1].get<double>(), -1.0, 1e-12);
+  // solve: the geometry check fails with the code
+  const json bad = rotBase(json::array({rotLayer(step({prism(bent, 0.0, 0.2)}, {"body"}), bodies)}), 6);
+  try {
+    (void)fg::io::parseConfig(bad.dump());
+    ADD_FAILURE() << "E_ROT_SYMMETRY expected";
+  } catch (const fg::Error& e) {
+    EXPECT_NE(std::string(e.what()).find("E_ROT_SYMMETRY"), std::string::npos) << e.what();
+  }
+}
+
 // V25c (Plan section "M24: Tests und Abnahme"): the rounded line of the example as profile1d "nurbs" (exact
 // rational arcs, one layer with band boundaries) equals the CAD line (STEP, three band layers); RK for both (the
 // RCWA staircases differ: 30 slices per band against 30 over the layer). The step sequences differ (one layer
