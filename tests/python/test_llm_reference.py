@@ -47,7 +47,7 @@ def test_layer_types_keys_and_codes():
     keys |= set(re.findall(r'\bj\["([A-Za-z_0-9]+)"\]', cfg))
     common = (ROOT / "src" / "cad" / "cad_common.cpp").read_text(encoding="utf-8")
     codes = set(re.findall(r"\b([A-Z]+(?:_[A-Z]+)+)\b", common.split('"description"', 1)[1].split("positions", 1)[0]))
-    assert len(types) >= 7 and len(keys) > 50 and len(codes) == 11
+    assert len(types) >= 7 and len(keys) > 50 and len(codes) == 12
     assert not missing(f"`{t}`" for t in types | {"cad"})
     assert not missing(keys)
     assert not missing(codes)
