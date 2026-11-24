@@ -1041,7 +1041,7 @@ Modul \verb|fg::cyl| (\verb|include/fg/cyl/angular.hpp|), unabhängig vom Löser
         Klassen (die Harmonischen sind in den Halbräumen orthogonal: Fluss und Fernfeld blockweise), Python
         \verb|rotation|, \verb|class_L|.
   \item Noch nicht im Klassenpfad: Volumenintegrale und Nahfeld (seit v2.42 umgesetzt), Gradienten (seit v2.44 für
-        Strahlen umgesetzt), Strahl als Streufeld, Schichttyp \verb|cad| (V22f, seit v2.43 umgesetzt).
+        Strahlen umgesetzt), Strahl als Streufeld (seit v2.46 umgesetzt), Schichttyp \verb|cad| (V22f, seit v2.43 umgesetzt).
   \item \textbf{Befund Aufwand:} Die dichten S-Matrix-Produkte der Größe $4(2L+1)N_k$ dominieren. Säule $r=0{,}3$\,µm,
         $\kappa_{\max}=3$, schräge ebene Welle, $P=3$ (drei Klassen): $L=5$ (Standard) 5\,min, $L=2$ 30\,s. Die Halbräume und homogenen Schichten sind blockdiagonal; sie blockweise zu behandeln wäre die
         naheliegende Beschleunigung (seit v2.45 umgesetzt, s.\ dort).
@@ -1202,6 +1202,21 @@ koppeln nur die Amplituden $\{g,G+g\}$ (\enquote{gruppiert}).
         LU-Zerlegungen je Sternprodukt mit einer strukturierten Schicht.
   \item Test: \verb|CylGrouped.EqualTheDenseOperations| (\verb|tests/unit/test_cyl.cpp|): gruppierte Formen gegen die
         dichten $4\cdot10^{-15}$, Sternprodukt mit einem gruppierten Faktor (auch mit Quellen) $1{,}1\cdot10^{-14}$.
+\end{itemize}
+
+\paragraph{Umsetzung (v2.46): Strahl als Streufeld im Klassenpfad.}
+Wie V21e (v2.27): Der Hintergrundstapel ersetzt jede strukturierte Schicht durch ihr äußeres Material (Ringe:
+$\varepsilon_\infty$, \verb|polygon2d|/\verb|contour2d|: \verb|background|). Er enthält nur homogene Schichten, ist also
+diagonal in den Harmonischen; je Klasse wird er mit der Klassenbasis ($\mathbb 1_{2L+1}\otimes\kappa$) im Totalfeld auf
+dem Gitter gelöst, sein Feld je Schicht als Exponentiale der Klasse.
+\begin{itemize}[nosep]
+  \item Quelle einer strukturierten Schicht $\sigma=(M-M_{\text{bg}})F_{\text{bg}}$ mit der gekoppelten Matrix $M$ der Klasse
+        und der blockdiagonalen $M_{\text{bg}}$; Ausgaben (Leistungen je Harmonischer, Ringabsorption, Nahfeld) aus
+        Streufeld $+$ Hintergrund wie in M20.
+  \item Die Gradienten bleiben auf das Totalfeld beschränkt (wie V21i).
+  \item Test \verb|V22Scattered.BeamScatteredFieldEqualsTotalField|: verlustbehaftetes Quadrat ($P=4$, $L=1$) über einer
+        Ringschicht (Li in $r$) in einem Film, $x$-polarisierter Strahl, $\kappa_{\max}=2$: $R$, $T$, $A_{\text{Ringe}}$ je
+        Harmonischer $6\cdot10^{-14}$, Nahfeld $4{,}6\cdot10^{-13}$ relativ zu $\max|E|$ (Toleranz $10^{-10}$).
 \end{itemize}
 
 \subsection{Tests und Abnahme (M21)}

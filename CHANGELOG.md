@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M21, Strahl als Streufeld im Klassenpfad (Plan v2.46): `"scattered_field": true` mit `"symmetry": {"rotation": P}`;
+  der Hintergrundstapel (Ringe → Außenmaterial, `polygon2d`/`contour2d` → `background`) ist diagonal in den
+  Harmonischen und wird je Klasse auf dem Gitter gelöst, Quelle σ = (M − M_bg) F_bg wie V21e. Test
+  `V22Scattered.BeamScatteredFieldEqualsTotalField` (R, T, A_Ringe je Harmonischer 6e-14, Nahfeld 4,6e-13 relativ).
+  M20 unverändert.
 - M21, Beschleunigung des Klassenpfads (Plan v2.45): Halbräume und homogene Schichten der Hankel-Basis gruppenweise
   (`groupedLayerSMatrix`, `groupedFromTransfer`, `groupedStar`, Marke `SMatrix::groups`, `star` mit einem gruppierten
   Faktor in O(n²) außer den zwei LU), Ψ⁻¹W der strukturierten Schichten gruppenweise, Quellen der ebenen Welle über das

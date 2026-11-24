@@ -227,7 +227,7 @@ einer Rechenzelle mit absorbierenden Randzonen (PML, komplexe Koordinatenstrecku
 },
 "superstrate_structure": {"type": "lamellar1d", "breakpoints_um": [0, 1.3, 1.7, 3.0], "materials": ["air", "core", "air"]},
 "substrate_structure": {...},     // y-invariante Querschnitte (lamellar1d, polygon2d, contour2d), Dicke entfällt
-"scattered_field": false          // Streufeldformulierung für periodische Gitter (Test, V20d) und Strahlen (M20, V21e)
+"scattered_field": false          // Streufeldformulierung für periodische Gitter (Test, V20d) und Strahlen (M20/M21, V21e)
 ```
 
 Physikalischer Bereich: [w, d − w] (bzw. das Rechteck in 2D); Strukturen dürfen nicht in die Zonen reichen
@@ -280,7 +280,8 @@ gehen seit Plan v2.45 blockweise, nur die strukturierten Schichten bleiben dicht
 Harmonischer aller Klassen; Python zusätzlich `rotation`, `class_L`. σ_abs, optisches Theorem und Nahfeld wie oben.
 `cad` ohne `"axisymmetric"`: P-zählig drehsymmetrische CAD-Körper ([`cad.md`](cad.md)). Gradienten für Gauß-Strahlen
 wie in M20, dazu jede Zahl einer `polygon2d`/`contour2d`-Geometrie, solange sie die P-zählige Symmetrie erhält (sonst
-Fehler; P = 1 beliebig). Noch nicht verfügbar: Gradienten für ebene Wellen, Strahl als Streufeld.
+Fehler; P = 1 beliebig). `"scattered_field": true` für Strahlen wie in M20 (Hintergrund: jede strukturierte Schicht
+durch ihr äußeres Material bzw. `background` ersetzt). Noch nicht verfügbar: Gradienten für ebene Wellen.
 
 ```jsonc
 "cylindrical": {"symmetry": {"rotation": 4, "L": 2}, "factorization": "laurent"},
