@@ -258,9 +258,11 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
     Klassenpfad (`cyl::sectionVolume`); `V22Volume` (Energiesatz 1e-13), `V22NearField`
   - Erledigt (Plan v2.43): **V22f** – `cad` mit Drehsymmetrie (Bänder `contour2d`/`contour2d_staircase`,
     `E_ROT_SYMMETRY`, `rotation_order`; Sechseck aus STEP = `polygon2d` auf 1,3e-14) – `tests/cad/test_cad.cpp`
+  - Erledigt (Plan v2.44): **V22g** – Gradienten im Klassenpfad (Gauß-Strahl; Formparameter von `polygon2d`/`contour2d`
+    über die Bogenenden, `cyl::coupledQBar`; ≤ 6,5e-8 gegen Differenzenquotienten) – `tests/validation/test_v22_cylp.cpp`
   - **Offen für die Abnahme:** `V22c.PillarsAgainstCartesianPml` auf dem Zielsystem (`FG_SERVER_TESTS=1`; Quadrat und
     Sechseck κ_max = 8, L = 2/3 gegen M18 N = 10/14, Silber als Konvergenzstudie)
-  - Als Nächstes: Gradienten (V22g);
+  - Als Nächstes: Gradienten für ebene Wellen und Strahl als Streufeld im Klassenpfad;
     Beschleunigung: Halbräume und homogene Schichten blockweise
 
 ## Dispersive Materialien (Plan v2.18–v2.19, Teil 8: M22)

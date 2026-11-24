@@ -131,6 +131,34 @@ VecC angularCoefficients(const Region& region, double r, int P, int qmax) {
   return chi;
 }
 
+VecC angularCoefficientsShape(const Region& region, double r, int P, int qmax, const BoundaryVelocity& velocity) {
+  FG_REQUIRE(r > 0 && P >= 1 && qmax >= 0, "angularCoefficientsShape: r > 0, P >= 1, qmax >= 0");
+  VecC d = VecC::Zero(qmax + 1);
+  const auto cs = contours(region);
+  for (std::size_t c = 0; c < cs.size(); ++c)
+    for (std::size_t s = 0; s < cs[c]->segments.size(); ++s) {
+      const BezierSegment& seg = cs[c]->segments[s];
+      const Homogeneous h = homogeneous(seg);
+      const auto f = add(add(geometry::bernsteinProduct(h.X, h.X), geometry::bernsteinProduct(h.Z, h.Z)),
+                         geometry::bernsteinProduct(h.W, h.W), -r * r);
+      for (const double t : geometry::bernsteinRoots(f)) {
+        Point2 p, dp;
+        seg.eval(t, p, dp);
+        const double phi = std::atan2(p[1], p[0]);
+        const double left = -std::sin(phi) * (-dp[1]) + std::cos(phi) * dp[0];  // entering (as arcsInside)
+        const Point2 V = velocity(c, s, t);
+        const double pt = p[0] * dp[0] + p[1] * dp[1];
+        FG_REQUIRE(pt != 0.0, "angularCoefficientsShape: r is a tangent radius");
+        const double dt = -(p[0] * V[0] + p[1] * V[1]) / pt;
+        const double dphi = (p[0] * (V[1] + dp[1] * dt) - p[1] * (V[0] + dp[0] * dt)) / (r * r);
+        const double sg = left > 0 ? -1.0 : 1.0;
+        for (int q = 0; q <= qmax; ++q)
+          d(q) += sg * std::exp(cplx(0, -double(q) * P * phi)) * dphi / (2 * PI);
+      }
+    }
+  return d;
+}
+
 std::vector<double> criticalRadii(const Region& region) {
   std::vector<double> radii{0.0};
   double rmax = 0;

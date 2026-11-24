@@ -259,3 +259,105 @@ TEST(CylCoupled, RadialQuadratureConvergedForAnEccentricDisc) {
   // the eccentric disc couples neighbouring harmonics
   EXPECT_GT(maxAbs(Q16.Qyy.block(0, grid.k.size(), grid.k.size(), grid.k.size())), 1e-3);
 }
+
+// ---- shape derivatives (M21 gradients, V22g): d chi_q / d theta from the crossings of the circle with the moving
+// boundary, and the reverse rule of coupledQ, both against central differences
+namespace {
+
+/// Velocity (C(theta + h) - C(theta - h)) / (2 h) of the boundary of a region given at theta +- h.
+cyl::BoundaryVelocity velocity(const Region& plus, const Region& minus, double h) {
+  return [plus, minus, h](std::size_t c, std::size_t s, double t) {
+    const auto& cp = c == 0 ? plus.outer : plus.holes[c - 1];
+    const auto& cm = c == 0 ? minus.outer : minus.holes[c - 1];
+    const Point2 a = cp.segments[s].point(t), b = cm.segments[s].point(t);
+    return Point2{(a[0] - b[0]) / (2 * h), (a[1] - b[1]) / (2 * h)};
+  };
+}
+
+/// Irregular pentagon about the origin with vertex 2 moved by (dx, dz). Irregular: in a regular one all vertex radii
+/// and all tangent radii coincide, a moved vertex splits them by dx, and the discrete map (whose square-root
+/// substitution then sits dx away from the singularity) changes by about dx^{3/2}: its difference quotients are off
+/// by 1e-3, the analytic derivative is not.
+Contour2D pentagon(double dx, double dz) {
+  const double rad[5] = {1.5, 1.3, 1.45, 1.2, 1.38}, ang[5] = {0.3, 1.5, 2.6, 3.9, 5.0};
+  std::vector<Point2> v;
+  for (int k = 0; k < 5; ++k) v.push_back({rad[k] * std::cos(ang[k]), rad[k] * std::sin(ang[k])});
+  v[2][0] += dx;
+  v[2][1] += dz;
+  return Contour2D::polygon(v);
+}
+
+}  // namespace
+
+TEST(CylAngular, ShapeDerivativeAgainstDifferences) {
+  const double h = 1e-6;
+  double worst = 0;
+  // eccentric disc: centre x0 and radius as parameters; pentagon: one vertex (with the tangent radii of its edges)
+  struct Case {
+    std::function<Region(double)> at;
+    std::vector<double> radii;
+  };
+  const std::vector<Case> cases = {
+      {[](double d) { return region(Contour2D::circle({0.6 + d, 0.0}, 2.0)); }, samples(1.41, 2.59, 7)},
+      {[](double d) { return region(Contour2D::circle({0.6, 0.0}, 2.0 + d)); }, samples(1.41, 2.59, 7)},
+      {[](double d) { return region(pentagon(d, 0.0)); }, samples(0.8, 1.6, 11)},
+      {[](double d) { return region(pentagon(0.0, d)); }, samples(0.8, 1.6, 11)}};
+  for (const auto& c : cases) {
+    const Region r0 = c.at(0), rp = c.at(h), rm = c.at(-h);
+    const auto v = velocity(rp, rm, h);
+    for (const double r : c.radii) {
+      const fg::VecC d = cyl::angularCoefficientsShape(r0, r, 1, 4, v);
+      const fg::VecC fd = (cyl::angularCoefficients(rp, r, 1, 4) - cyl::angularCoefficients(rm, r, 1, 4)) / (2 * h);
+      worst = std::max(worst, (d - fd).cwiseAbs().maxCoeff());
+    }
+  }
+  std::printf("shape derivative of chi_q: max |analytic - fd| = %.1e\n", worst);
+  EXPECT_LT(worst, 1e-8);
+}
+
+TEST(CylCoupled, ReverseRuleAgainstDifferences) {
+  // dL = Re sum conj(Qbar) dQ for a fixed cotangent Qbar: permittivities (real and imaginary parts, background) and a
+  // vertex of a pentagon (P = 1, harmonics -1, 0, 1) against central differences of coupledQ
+  const auto grid = fiberGrid(2.0, 1.6);
+  const Eigen::Index nf = 3 * grid.k.size();
+  const cyl::HarmonicMap map{0, 1, 1};
+  auto section = [](double dz, cplx e, cplx bg) {
+    cyl::AngularSection s;
+    s.regions = {region(pentagon(0.0, dz))};
+    s.eps = {e};
+    s.epsBg = bg;
+    return s;
+  };
+  const cplx e0(4.0, 0.3), bg0(1.2, 0.05);
+  cyl::CylQ Qb;
+  auto pattern = [nf](double a) {
+    fg::MatC M(nf, nf);
+    for (Eigen::Index i = 0; i < nf; ++i)
+      for (Eigen::Index j = 0; j < nf; ++j) M(i, j) = cplx(std::sin(a * i + 0.3 * j), std::cos(0.7 * i - a * j));
+    return M;
+  };
+  Qb.Qpp = pattern(0.11);
+  Qb.Qmm = pattern(0.23);
+  Qb.Qyy = pattern(0.37);
+  Qb.Qpm = Qb.Qmp = fg::MatC::Zero(nf, nf);
+  auto L = [&](const cyl::AngularSection& s) {
+    const auto Q = cyl::coupledQ(grid, map, s);
+    return (Qb.Qpp.conjugate().cwiseProduct(Q.Qpp).sum() + Qb.Qmm.conjugate().cwiseProduct(Q.Qmm).sum() +
+            Qb.Qyy.conjugate().cwiseProduct(Q.Qyy).sum()).real();
+  };
+  const auto bar = cyl::coupledQBar(grid, map, section(0, e0, bg0), Qb);
+  const double h = 1e-6;
+  auto check = [](const char* what, double analytic, double fd) {
+    std::printf("coupledQ reverse %-8s analytic %+.10e  fd %+.10e\n", what, analytic, fd);
+    EXPECT_NEAR(analytic, fd, 1e-7 * std::max(1.0, std::abs(fd))) << what;
+  };
+  for (const cplx d : {cplx(1, 0), cplx(0, 1)}) {
+    check(d.real() ? "Re eps" : "Im eps", std::real(std::conj(bar.eps[0]) * d),
+          (L(section(0, e0 + h * d, bg0)) - L(section(0, e0 - h * d, bg0))) / (2 * h));
+    check(d.real() ? "Re bg" : "Im bg", std::real(std::conj(bar.epsBg) * d),
+          (L(section(0, e0, bg0 + h * d)) - L(section(0, e0, bg0 - h * d))) / (2 * h));
+  }
+  const auto sp = section(h, e0, bg0), sm = section(-h, e0, bg0);
+  const double shape = cyl::coupledQShape(bar, map, section(0, e0, bg0), {velocity(sp.regions[0], sm.regions[0], h)});
+  check("vertex", shape, (L(sp) - L(sm)) / (2 * h));
+}

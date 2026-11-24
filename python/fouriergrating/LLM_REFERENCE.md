@@ -144,7 +144,8 @@ fg.llm_reference() -> str                              this text
 - Objectives and cotangents: `{("R", -1, 0): 1.0, ("T", 0, 0): -0.5}` or `[("R", -1, 0, 1.0)]`; PML:
   `{("scattering", "up"): w}`, `{("mode", "R", j): w}`; cylindrical beams: `{("cylindrical", "R"): w}`,
   `{("cylindrical", "T", m): w}` (harmonic m), parameters `/layers/k/radii_um/i`, thicknesses, materials (not
-  the half spaces); plane waves: R/T are the scattered cross sections up/down in um^2.
+  the half spaces); plane waves: R/T are the scattered cross sections up/down in um^2. With `"symmetry":
+  {"rotation": P}`: beams only, plus `polygon2d`/`contour2d` geometry numbers that keep the P-fold symmetry.
 - Gradient parameters are JSON pointers to numbers of the configuration: `/layers/k/thickness_um`,
   `/layers/k/breakpoints_um/j`, `/layers/k/depth_um`, `/layers/k/x0_um`, any number of `polygon2d`/`contour2d`
   geometry, `/materials/name/n` (`/n/0` = real part, `/n/1` = imaginary part), `/materials/name/eps`, model values such as

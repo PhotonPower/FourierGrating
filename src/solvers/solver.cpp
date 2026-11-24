@@ -413,10 +413,28 @@ class StackSolver final : public Solver {
   /// The cylindrical forward problem (detail::cylProblem, gradients V21i).
   detail::CylProblem cylProblem(const Stack& stackIn, const Wavelength& wl) const {
     detail::CylProblem p;
-    FG_REQUIRE(stackIn.cylindrical.rotation == 0, "cylindrical gradients: not yet available with symmetry.rotation (M21)");
     p.stack = detail::expandRingsProfiles(stackIn, opt_.rcwaSlices);
     CylContext c = cylContext(p.stack, wl);
-    for (const int m : c.ms) p.aIn.push_back(c.planeWave ? VecC() : cylIncident(c, m));
+    if (p.stack.cylindrical.rotation > 0) {  // M21 (V22g): the classes and the beam per class as cylClassSolve
+      FG_REQUIRE(!c.planeWave, "cylindrical gradients with symmetry.rotation: Gaussian beams only (V22g)");
+      const Eigen::Index n = c.grid.k.size();
+      for (const cyl::HarmonicMap& map : cylClasses(p.stack.cylindrical, c.ms)) {
+        const Eigen::Index nf = map.blocks() * n;
+        VecC aIn = VecC::Zero(2 * nf);
+        for (int b = 0; b < map.blocks(); ++b) {
+          const VecC a = cylIncident(c, map.m(b));
+          aIn.segment(b * n, n) = a.head(n);
+          aIn.segment(nf + b * n, n) = a.tail(n);
+        }
+        p.classes.push_back(map);
+        p.aIn.push_back(std::move(aIn));
+      }
+    } else {
+      for (const int m : c.ms) {
+        p.classes.push_back({m, 1, 0});
+        p.aIn.push_back(c.planeWave ? VecC() : cylIncident(c, m));
+      }
+    }
     p.grid = std::move(c.grid);
     p.layers = std::move(c.layers);
     p.fac = c.fac;

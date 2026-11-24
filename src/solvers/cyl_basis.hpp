@@ -34,6 +34,9 @@ class CylLayer final : public StackLayer {
 /// "symmetry": {"rotation": P} (M21) and are checked for the P-fold symmetry (tolerance 1e-9 of their largest radius).
 std::vector<std::unique_ptr<CylLayer>> buildCylLayers(const Stack& stack, double k0);
 
+/// The block of harmonic b (N_k nodes) of a block-diagonal class matrix (ring layers of a class; frak A if present).
+cyl::CylQ diagonalBlock(const cyl::CylQ& Q, Eigen::Index b, Eigen::Index n);
+
 /// The stack with every rings_profile layer replaced by its staircase of rings layers (ringsStaircase; the
 /// factorization entry is kept).
 Stack expandRingsProfiles(const Stack& stack, int defaultSlices);
@@ -67,6 +70,8 @@ class CylBasis final : public ModalBasis {
   const cyl::HarmonicMap& harmonics() const { return map_; }
   cyl::CylFactorization factorization() const { return f_; }
   std::size_t index(const StackLayer& layer) const;
+  /// The Galerkin matrices of layer i (empty for homogeneous layers; gradients).
+  const cyl::CylQ& Q(std::size_t i) const { return Q_.at(i); }
   /// e_y = Q_yy^{-1} (d_y - p_y) with d_y = -1/2 kappa (h_+ + h_-) (Plan eq:cyl_spec, eq:cyl_scat); p_y of
   /// the plane-wave background e_y on the axis (zero for beams). Homogeneous layers: d_y / eps.
   VecC ey(std::size_t layer, const VecC& hp, const VecC& hm, cplx eyBg = 0.0) const;
@@ -99,6 +104,9 @@ struct CylProblem {
   cplx epsSup = 1.0, epsSub = 1.0;
   double k0 = 0, yTop = 0;
   std::vector<int> ms;
+  /// The units of the computation: one harmonic {m, 1, 0} per entry of ms (M20) or the symmetry classes (M21,
+  /// symmetry.rotation); aIn per unit (2 n_f, empty for plane waves).
+  std::vector<cyl::HarmonicMap> classes;
   std::vector<VecC> aIn;
   bool planeWave = false, beamScattered = false;
   /// Plane wave (scattered field): lateral wave number, azimuth, normalized power -> um^2, and per layer the

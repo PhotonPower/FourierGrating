@@ -52,6 +52,8 @@ cyl::CylQ blockDiagonal(const std::vector<cyl::CylQ>& q, Eigen::Index n) {
   return Q;
 }
 
+}  // namespace
+
 /// The block of harmonic b of a block-diagonal class matrix (the inverse of blockDiagonal).
 cyl::CylQ diagonalBlock(const cyl::CylQ& Q, Eigen::Index b, Eigen::Index n) {
   const Eigen::Index nf = Q.Qpp.rows();
@@ -68,8 +70,6 @@ cyl::CylQ diagonalBlock(const cyl::CylQ& Q, Eigen::Index b, Eigen::Index n) {
   }
   return s;
 }
-
-}  // namespace
 
 std::vector<std::unique_ptr<CylLayer>> buildCylLayers(const Stack& stack, double k0) {
   std::vector<std::unique_ptr<CylLayer>> out;

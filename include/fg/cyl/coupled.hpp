@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "fg/core/types.hpp"
+#include "fg/cyl/angular.hpp"
 #include "fg/cyl/excitation.hpp"
 #include "fg/cyl/galerkin.hpp"
 #include "fg/cyl/spectrum.hpp"
@@ -56,6 +57,26 @@ struct SectionVolume {
 };
 SectionVolume sectionVolume(const SpectralGrid& grid, const HarmonicMap& map, const AngularSection& section,
                             int nodesPerPanel = 16);
+
+/// Reverse of coupledQ (M21 gradients, V22g) for the cotangent Qbar (Qpp, Qmm, Qyy; Qpm = Qmp = 0 in the forward
+/// map), dL = Re sum conj(Qbar) dQ: the cotangents of the region permittivities and of epsBg (dL = Re conj(bar) d eps)
+/// and, for coupledQShape, G(qmax + q, i) = dL / d(d_q(r_i) r_i W_i) on the radial rule of coupledQ (r, r W).
+struct CoupledQBar {
+  std::vector<cplx> eps;
+  cplx epsBg = 0.0;
+  std::vector<double> r, rw;
+  MatC G;
+  int qmax = 0;
+};
+CoupledQBar coupledQBar(const SpectralGrid& grid, const HarmonicMap& map, const AngularSection& section,
+                        const CylQ& Qbar, int nodesPerPanel = 16);
+
+/// Shape derivative dL/dtheta of coupledQ for regions moving with velocity[b] (empty: region b fixed): sum_b
+/// (eps_b - epsBg) d chi_q^(b) / d theta (angularCoefficientsShape) on the radial rule of bar. chi_q is continuous in
+/// r, so the moving critical radii add no terms; the derivative is that of the exact integrals (the quadrature of
+/// coupledQ resolves them to about 1e-12, the square-root substitution covers d chi ~ |r - r_t|^{-1/2}).
+double coupledQShape(const CoupledQBar& bar, const HarmonicMap& map, const AngularSection& section,
+                     const std::vector<BoundaryVelocity>& velocity);
 
 /// 1_{2L+1} (x) kappa: the node values repeated over the blocks (the derivative parts of Plan eq:cyl_M do not depend
 /// on m); with coupledQ the argument of propagationMatrix.
