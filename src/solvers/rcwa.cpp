@@ -189,11 +189,77 @@ LayerModes layerModesHomogeneous(const ModeBasis& mb) {
   return m;
 }
 
+namespace {
+
+/// PsiInv W for PsiInv block-diagonal over G groups (state rows {g + k G}).
+MatC groupedProduct(const MatC& PsiInv, const MatC& W, Eigen::Index G) {
+  MatC C(W.rows(), W.cols());
+  for (Eigen::Index g = 0; g < G; ++g) {
+    const Eigen::Index idx[4] = {g, G + g, 2 * G + g, 3 * G + g};
+    for (int r = 0; r < 4; ++r) {
+      auto row = C.row(idx[r]);
+      row = PsiInv(idx[r], idx[0]) * W.row(idx[0]);
+      for (int c = 1; c < 4; ++c) row += PsiInv(idx[r], idx[c]) * W.row(idx[c]);
+    }
+  }
+  return C;
+}
+
+}  // namespace
+
+SMatrix groupedLayerSMatrix(const LayerModes& m, double h, const ModeBasis& ref, Eigen::Index G,
+                            RCWASliceRecord* record) {
+  FG_PROF_SCOPE("rcwa.layer_smatrix_grouped");
+  const Eigen::Index n = m.lu.size();
+  FG_REQUIRE(n == 2 * G && ref.PsiInv.rows() == 4 * G, "groupedLayerSMatrix: 2G modes per direction");
+  SMatrix out;
+  out.S11 = out.S12 = out.S21 = out.S22 = MatC::Zero(n, n);
+  out.groups = G;
+  if (record) {
+    record->modes = m;
+    record->h = h;
+    record->G = MatC::Zero(2 * n, 2 * n);
+  }
+  for (Eigen::Index g = 0; g < G; ++g) {
+    const Eigen::Index s4[4] = {g, G + g, 2 * G + g, 3 * G + g}, s2[2] = {g, G + g};
+    MatC P(4, 4), Wu(4, 2), Wd(4, 2);
+    for (int r = 0; r < 4; ++r) {
+      for (int c = 0; c < 4; ++c) P(r, c) = ref.PsiInv(s4[r], s4[c]);
+      for (int c = 0; c < 2; ++c) {
+        Wu(r, c) = m.Wu(s4[r], s2[c]);
+        Wd(r, c) = m.Wd(s4[r], s2[c]);
+      }
+    }
+    const MatC Cu = P * Wu, Cd = P * Wd;  // as stableLayerSMatrix with n = 2
+    const MatC Au = Cu.topRows(2), Bu = Cu.bottomRows(2), Ad = Cd.topRows(2), Bd = Cd.bottomRows(2);
+    VecC Xu(2), Xd(2);
+    for (int c = 0; c < 2; ++c) {
+      Xu(c) = std::exp(m.lu(s2[c]) * h);
+      Xd(c) = std::exp(-m.ld(s2[c]) * h);
+    }
+    MatC Gs(4, 4), Hs(4, 4);
+    Gs << Bu, Bd * Xd.asDiagonal(), Au * Xu.asDiagonal(), Ad;
+    Hs << Bu * Xu.asDiagonal(), Bd, Au, Ad * Xd.asDiagonal();
+    const MatC S = Gs.transpose().partialPivLu().solve(Hs.transpose()).transpose();
+    // small index t: 0, 1 -> s2 (first half), 2, 3 -> n + s2 (second half)
+    auto big = [&](int t) { return t < 2 ? s2[t] : n + s2[t - 2]; };
+    for (int r = 0; r < 4; ++r)
+      for (int c = 0; c < 4; ++c) {
+        const Eigen::Index R = big(r), Cc = big(c);
+        MatC& blk = R < n ? (Cc < n ? out.S11 : out.S12) : (Cc < n ? out.S21 : out.S22);
+        blk(R % n, Cc % n) = S(r, c);
+        if (record) record->G(R, Cc) = Gs(r, c);
+      }
+  }
+  return out;
+}
+
 SMatrix stableLayerSMatrix(const LayerModes& m, double h, const ModeBasis& ref,
-                           RCWASliceRecord* record) {
+                           RCWASliceRecord* record, Eigen::Index refGroups) {
   FG_PROF_SCOPE("rcwa.layer_smatrix");
   const Eigen::Index n = m.lu.size();
-  const MatC Cu = linalg::product(ref.PsiInv, m.Wu), Cd = linalg::product(ref.PsiInv, m.Wd);
+  const MatC Cu = refGroups ? groupedProduct(ref.PsiInv, m.Wu, refGroups) : linalg::product(ref.PsiInv, m.Wu),
+             Cd = refGroups ? groupedProduct(ref.PsiInv, m.Wd, refGroups) : linalg::product(ref.PsiInv, m.Wd);
   const MatC Au = Cu.topRows(n), Bu = Cu.bottomRows(n);
   const MatC Ad = Cd.topRows(n), Bd = Cd.bottomRows(n);
   const VecC Xu = (m.lu * h).array().exp().matrix();     // |.| <= 1

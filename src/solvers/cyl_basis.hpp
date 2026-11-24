@@ -57,6 +57,8 @@ class CylBasis final : public ModalBasis {
   LayerModes modes(const MatC& M) const override;
   LayerModes homogeneousModes(const StackLayer& layer) const override;
   double rhoEstimate(const StackLayer& layer) const override;
+  /// One group per spectral node and harmonic: superstrate, substrate and homogeneous layers decouple there.
+  Eigen::Index groups() const override { return k_.size(); }
 
   /// Plane-wave background with lateral wave number kpar along the azimuth Psi (Plan eq:cyl_jacobi):
   /// prepares the source spectra of the ring layers.

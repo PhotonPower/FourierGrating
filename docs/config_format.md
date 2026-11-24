@@ -275,7 +275,8 @@ sind zusätzlich `polygon2d` und `contour2d` erlaubt: Querschnitte um die Achse 
 2π/P in sich übergehen (P = 1: beliebig; Prüfung mit der Toleranz 1e-9 des größten Radius, die Fehlermeldung nennt
 die gefundene Ordnung). Gerechnet wird je Symmetrieklasse m₀ + lP, |l| ≤ L, mit gekoppelten Harmonischen (Laurent in
 diesen Schichten; `"factorization": "li_r"` gilt dann nur für die Ringschichten). `L` ohne Angabe: ⌈m_cut/P⌉ + 2
-(m_cut: größtes |m| der Anregung); Konvergenz in `L` prüfen. Der Aufwand wächst mit (2L + 1)³. Ausgabe wie oben, je
+(m_cut: größtes |m| der Anregung); Konvergenz in `L` prüfen. Der Aufwand wächst mit (2L + 1)³ (Halbräume und homogene Schichten
+gehen seit Plan v2.45 blockweise, nur die strukturierten Schichten bleiben dicht). Ausgabe wie oben, je
 Harmonischer aller Klassen; Python zusätzlich `rotation`, `class_L`. σ_abs, optisches Theorem und Nahfeld wie oben.
 `cad` ohne `"axisymmetric"`: P-zählig drehsymmetrische CAD-Körper ([`cad.md`](cad.md)). Gradienten für Gauß-Strahlen
 wie in M20, dazu jede Zahl einer `polygon2d`/`contour2d`-Geometrie, solange sie die P-zählige Symmetrie erhält (sonst

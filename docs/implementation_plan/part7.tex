@@ -1044,7 +1044,7 @@ Modul \verb|fg::cyl| (\verb|include/fg/cyl/angular.hpp|), unabhängig vom Löser
         Strahlen umgesetzt), Strahl als Streufeld, Schichttyp \verb|cad| (V22f, seit v2.43 umgesetzt).
   \item \textbf{Befund Aufwand:} Die dichten S-Matrix-Produkte der Größe $4(2L+1)N_k$ dominieren. Säule $r=0{,}3$\,µm,
         $\kappa_{\max}=3$, schräge ebene Welle, $P=3$ (drei Klassen): $L=5$ (Standard) 5\,min, $L=2$ 30\,s. Die Halbräume und homogenen Schichten sind blockdiagonal; sie blockweise zu behandeln wäre die
-        naheliegende Beschleunigung.
+        naheliegende Beschleunigung (seit v2.45 umgesetzt, s.\ dort).
   \item \textbf{V22a} (\verb|tests/validation/test_v22_cylp.cpp|): Säule $n=1{,}45$ auf Glas. Ringschicht (Li in $r$) über
         $P=1,2,3$, $L=1$, Strahl: $R$, $T$ je Harmonischer $=$ M20 auf $3\cdot10^{-13}$, dunkle Harmonische
         $<10^{-14}$. Zentrierter Kreis als \verb|contour2d| ($P=3$, $L=2$, Laurent, Quadratur) gegen die
@@ -1177,6 +1177,31 @@ Tangentialradien divergiert $\partial_\theta\chi_q$ wie $|r-r_t|^{-1/2}$; die Wu
         Differenzenquotienten $3{,}2\cdot10^{-10}$, \verb|coupledQBar| (Materialien, Eckpunkt) $10^{-8}$ relativ.
   \item Tests: \verb|CylAngular.ShapeDerivativeAgainstDifferences|, \verb|CylCoupled.ReverseRuleAgainstDifferences|
         (\verb|tests/unit/test_cyl_angular.cpp|), \verb|V22g.*| (\verb|tests/validation/test_v22_cylp.cpp|).
+\end{itemize}
+
+\paragraph{Umsetzung (v2.45): Beschleunigung des Klassenpfads.}
+In der Hankel-Basis koppeln Superstrat, Substrat und homogene Schichten nur die vier Komponenten eines Knotens einer
+Harmonischen: Zustandszeilen $\{g+kG\}$, $k=0..3$, Modenspalten $\{g,G+g\}$, $G=n_f$ Gruppen. Ihre S-Matrizen
+koppeln nur die Amplituden $\{g,G+g\}$ (\enquote{gruppiert}).
+\begin{itemize}[nosep]
+  \item \verb|groupedLayerSMatrix|, \verb|groupedFromTransfer|, \verb|groupedStar|: dieselben Formeln wie
+        \verb|stableLayerSMatrix|, \verb|fromTransfer|, \verb|star| je $4\times4$- bzw.\ $2\times2$-Gruppe, $O(G)$ statt
+        $O(G^3)$. \verb|SMatrix::groups| markiert gruppierte S-Matrizen (gespeichert bleiben sie voll); \verb|star| nutzt
+        die Marke: zwei gruppierte Faktoren gruppenweise, einer gruppiert $\Rightarrow$ seine Produkte in $O(n^2)$, nur
+        die zwei LU-Zerlegungen bleiben dicht (auch mit Quellen). \verb|ModalBasis::groups()| ($n_f$ in der
+        Hankel-Basis, sonst 0) schaltet das in der Assemblierung ein; strukturierte Schichten nehmen
+        $\Psi_{\text{ref}}^{-1}W$ gruppenweise.
+  \item Ebene Welle (Streufeld): $M=\bigl(\begin{smallmatrix}0&P\\R&0\end{smallmatrix}\bigr)$ exakt, daher
+        $(\kappa-M)^{-1}\sigma$ über das Schur-Komplement $(\kappa^2-PR)x=\kappa a+Pb$, $y=(b+Rx)/\kappa$: eine Zerlegung
+        der Größe $2n_f$ je Exponent statt $4n_f$ (nur Zylinderpfad; die kartesischen Ergebnisse bleiben bitgleich).
+  \item M20 läuft mit $G=N_k$ über dieselben Wege. Die Gradienten (V21i, V22g) rechnen weiter dicht.
+  \item \textbf{Befunde} (lokal, 8\,GB, OpenMP): Säule $r=0{,}3$\,µm als \verb|contour2d|, $\kappa_{\max}=3$, schräge
+        ebene Welle, $P=3$, $L=2$: 29,1\,s $\to$ 16,3\,s; quadratische Säule ($P=4$, $L=1$, $\kappa_{\max}=2$) zwischen zwei
+        homogenen Schichten: 7,2\,s $\to$ 2,6\,s. Ergebnisse auf allen ausgegebenen Stellen gleich. Danach dominieren
+        die Eigenzerlegung ($2n_f$, schon reduziert), die LU der Schicht-S-Matrix ($4n_f$) und die zwei dichten
+        LU-Zerlegungen je Sternprodukt mit einer strukturierten Schicht.
+  \item Test: \verb|CylGrouped.EqualTheDenseOperations| (\verb|tests/unit/test_cyl.cpp|): gruppierte Formen gegen die
+        dichten $4\cdot10^{-15}$, Sternprodukt mit einem gruppierten Faktor (auch mit Quellen) $1{,}1\cdot10^{-14}$.
 \end{itemize}
 
 \subsection{Tests und Abnahme (M21)}

@@ -8,15 +8,19 @@
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <tuple>
 #include <cmath>
 
 #include "fg/core/quadrature.hpp"
 #include "fg/cyl/bessel.hpp"
+#include "fg/cyl/coupled.hpp"
 #include "fg/cyl/excitation.hpp"
 #include "fg/cyl/field.hpp"
 #include "fg/cyl/galerkin.hpp"
 #include "fg/cyl/propagation.hpp"
 #include "fg/cyl/spectrum.hpp"
+#include "fg/smatrix/smatrix.hpp"
+#include "fg/solvers/rcwa.hpp"
 
 using fg::cplx;
 using fg::MatC;
@@ -667,4 +671,60 @@ TEST(CylAdjoint, PlaneWaveSource) {
       }
       check([](cyl::Rings& r, double d) { r.epsInf += d; }, b.epsInf.real(), "Re eps_inf");
     }
+}
+
+// Grouped S-matrices (M21 acceleration): homogeneous layers, the substrate transfer and their star products are
+// block-diagonal over the G = n_f spectral nodes of a class (4 x 4 per node); per group they equal the dense
+// stableLayerSMatrix, fromTransfer and star
+TEST(CylGrouped, EqualTheDenseOperations) {
+  VecC k(7);
+  for (Eigen::Index j = 0; j < k.size(); ++j) k(j) = cplx(0.25 + 0.4 * j, j == 3 ? -0.05 : 0.0);  // one deformed node
+  const VecC kt = cyl::tiledK(k, 3);  // a class of three harmonics
+  const Eigen::Index G = kt.size();
+  const fg::ModeBasis ref = cyl::homogeneousModes(1.0, kt), sub = cyl::homogeneousModes(2.25, kt);
+  const fg::LayerModes film = fg::layerModesHomogeneous(cyl::homogeneousModes(cplx(2.1, 0.3), kt)),
+                       glass = fg::layerModesHomogeneous(cyl::homogeneousModes(2.25, kt));
+  auto diff = [](const fg::SMatrix& a, const fg::SMatrix& b) {
+    return std::max({(a.S11 - b.S11).cwiseAbs().maxCoeff(), (a.S12 - b.S12).cwiseAbs().maxCoeff(),
+                     (a.S21 - b.S21).cwiseAbs().maxCoeff(), (a.S22 - b.S22).cwiseAbs().maxCoeff()});
+  };
+  fg::RCWASliceRecord ra, rb;
+  const fg::SMatrix Lf = fg::stableLayerSMatrix(film, 0.7, ref, &ra), Lg = fg::groupedLayerSMatrix(film, 0.7, ref, G, &rb);
+  const fg::SMatrix Gf = fg::stableLayerSMatrix(glass, 1.3, ref), Gg = fg::groupedLayerSMatrix(glass, 1.3, ref, G);
+  const fg::SMatrix Tf = fg::fromTransfer(ref.PsiInv * sub.Psi), Tg = fg::groupedFromTransfer(ref.PsiInv, sub.Psi, G);
+  const double dl = std::max(diff(Lf, Lg), diff(Gf, Gg)), dt = diff(Tf, Tg);
+  const double dG = (ra.G - rb.G).cwiseAbs().maxCoeff();
+  const double ds = diff(fg::star(fg::star(Tf, Lf), Gf), fg::groupedStar(fg::groupedStar(Tg, Lg, G), Gg, G));
+  std::printf("grouped: layer %.1e, record G %.1e, transfer %.1e, star %.1e\n", dl, dG, dt, ds);
+  EXPECT_LT(dl, 1e-14);
+  EXPECT_LT(dG, 1e-14);
+  EXPECT_LT(dt, 1e-14);
+  EXPECT_LT(ds, 1e-14);
+  // the reference product of a dense slice: grouped Psi^-1 (W) equals the dense product
+  // (modes of the substrate with a small dense perturbation: a well-conditioned slice that couples every node)
+  MatC W(4 * G, 4 * G);
+  for (Eigen::Index i = 0; i < W.rows(); ++i)
+    for (Eigen::Index j = 0; j < W.cols(); ++j) W(i, j) = 0.05 * cplx(std::sin(0.3 * i + j), std::cos(i - 0.7 * j));
+  W += sub.Psi;
+  fg::LayerModes m = fg::layerModesHomogeneous(sub);
+  m.Wd = W.leftCols(2 * G);
+  m.Wu = W.rightCols(2 * G);
+  const double dd = diff(fg::stableLayerSMatrix(m, 0.4, ref), fg::stableLayerSMatrix(m, 0.4, ref, nullptr, G));
+  std::printf("grouped reference product of a dense slice: %.1e\n", dd);
+  EXPECT_LT(dd, 1e-12);
+  // star products with one grouped factor (flag SMatrix::groups) equal the dense ones, also with sources
+  const fg::SMatrix D = fg::stableLayerSMatrix(m, 0.4, ref);
+  fg::SMatrix Ld = Lg;
+  Ld.groups = 0;
+  const double dm = std::max(diff(fg::star(Lg, D), fg::star(Ld, D)), diff(fg::star(D, Lg), fg::star(D, Ld)));
+  const VecC u = VecC::LinSpaced(2 * G, cplx(0.1, 0.2), cplx(-0.3, 0.4)), v = u.reverse();
+  const fg::SourcedSMatrix a{Lg, u, v}, ad{Ld, u, v}, b{D, v, u}, z{Gg, VecC::Zero(2 * G), VecC::Zero(2 * G)};
+  double dsrc = 0;
+  for (const auto& [x, y, xd, yd] : {std::tuple{a, b, ad, b}, std::tuple{b, a, b, ad}, std::tuple{a, z, ad, z}}) {
+    const fg::SourcedSMatrix c = fg::star(x, y), cd = fg::star(xd, yd);
+    dsrc = std::max({dsrc, diff(c.S, cd.S), (c.u - cd.u).cwiseAbs().maxCoeff(), (c.v - cd.v).cwiseAbs().maxCoeff()});
+  }
+  std::printf("star with a grouped factor: %.1e, with sources %.1e\n", dm, dsrc);
+  EXPECT_LT(dm, 1e-13);
+  EXPECT_LT(dsrc, 1e-13);
 }

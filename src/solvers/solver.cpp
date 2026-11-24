@@ -2058,6 +2058,19 @@ class StackSolver final : public Solver {
     const double lmax = std::max(modes.lu.cwiseAbs().maxCoeff(), modes.ld.cwiseAbs().maxCoeff());
     const Eigen::Index N = M.rows();
     VecC F0 = VecC::Zero(N), F1 = VecC::Zero(N);
+    // Hankel basis (M21 acceleration): M = [[0, P], [R, 0]] exactly, (kappa - M) p = sigma through the Schur complement
+    // (kappa^2 - P R) x = kappa a + P b, y = (b + R x) / kappa: one 2 n_f factorization per exponent instead of 4 n_f
+    const Eigen::Index h = N / 2;
+    const bool schur = s.cylSource && M.topLeftCorner(h, h).isZero(0.0) && M.bottomRightCorner(h, h).isZero(0.0);
+    const MatC PR = schur ? MatC(M.topRightCorner(h, h) * M.bottomLeftCorner(h, h)) : MatC();
+    auto particular = [&](cplx kap, const VecC& sig) -> VecC {
+      if (!schur || std::abs(kap) < 1e-8 * std::max(lmax, 1.0)) return (kap * MatC::Identity(N, N) - M).partialPivLu().solve(sig);
+      const VecC a = sig.head(h), b = sig.tail(h);
+      const VecC x = (kap * kap * MatC::Identity(h, h) - PR).partialPivLu().solve(kap * a + M.topRightCorner(h, h) * b);
+      VecC p(N);
+      p << x, (b + M.bottomLeftCorner(h, h) * x) / kap;
+      return p;
+    };
     if (L.onGrid)
       gridParticular(M, modes, y0, y1, L, lmax, F0, F1, rec);
     else
@@ -2075,7 +2088,7 @@ class StackSolver final : public Solver {
           modalParticular(modes, sig, {kap}, {k < 2 ? L.y1 : L.y0}, y0, y1, lmax, F0, F1, rec);
           continue;
         }
-        const VecC p = (kap * MatC::Identity(N, N) - M).partialPivLu().solve(sourceOf(s, layer, M, MB, L, L.Psi.col(k))) * L.amp(k);
+        const VecC p = particular(kap, sourceOf(s, layer, M, MB, L, L.Psi.col(k))) * L.amp(k);
         const double yr = k < 2 ? L.y1 : L.y0;
         F0 += p * std::exp(kap * (y0 - yr));
         F1 += p * std::exp(kap * (y1 - yr));
@@ -2214,7 +2227,9 @@ class StackSolver final : public Solver {
             return;
           }
           RCWASliceRecord rec;
-          e.S = stableLayerSMatrix(modes(), H, sys.ref(), record ? &rec : nullptr);
+          const Eigen::Index G = sys.groups();
+          e.S = G ? groupedLayerSMatrix(modes(), H, sys.ref(), G, record ? &rec : nullptr)
+                  : stableLayerSMatrix(modes(), H, sys.ref(), record ? &rec : nullptr);
           e.modes = std::move(rec.modes);
           e.G = std::move(rec.G);
           out.push_back(std::move(e));
@@ -2244,7 +2259,7 @@ class StackSolver final : public Solver {
               return;
             }
             RCWASliceRecord rec;
-            e.S = stableLayerSMatrix(sys.modes(M), H / K, sys.ref(), record ? &rec : nullptr);
+            e.S = stableLayerSMatrix(sys.modes(M), H / K, sys.ref(), record ? &rec : nullptr, sys.groups());
             e.modes = std::move(rec.modes);
             e.G = std::move(rec.G);
             out.push_back(std::move(e));
@@ -2296,7 +2311,9 @@ class StackSolver final : public Solver {
     };
     {
       Element e0;
-      e0.S = fromTransfer(linalg::product(sys.ref().PsiInv, sys.sub().Psi));  // substrate -> reference (Plan eq:Stot)
+      // substrate -> reference (Plan eq:Stot); grouped in the Hankel basis
+      e0.S = sys.groups() ? groupedFromTransfer(sys.ref().PsiInv, sys.sub().Psi, sys.groups())
+                          : fromTransfer(linalg::product(sys.ref().PsiInv, sys.sub().Psi));
       push(e0);
       if (record) as.elems.push_back(std::move(e0));
     }
@@ -2489,7 +2506,7 @@ class StackSolver final : public Solver {
       e.layerY0 = y0;
       e.qHeight_um = yq;
       RCWASliceRecord rec;
-      e.S = stableLayerSMatrix(modes, e.y1 - e.y0, sys.ref(), record ? &rec : nullptr);
+      e.S = stableLayerSMatrix(modes, e.y1 - e.y0, sys.ref(), record ? &rec : nullptr, sys.groups());
       e.modes = std::move(rec.modes);
       e.G = std::move(rec.G);
       if (!modalSources(s, m, M, s.blochSource ? &MB : nullptr, modes, e.S, e.y0, e.y1, sys.ref(), e.su, e.sv,
