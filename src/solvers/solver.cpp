@@ -960,8 +960,10 @@ class StackSolver final : public Solver {
       const std::vector<StateSample> sb = stateSamples(bg->s, bg->basis->ref(), bg->basis->sub(), bg->as, aIn, yn);
       for (std::size_t i = 0; i < st.size(); ++i) st[i].F += sb[i].F;
     }
-    const Eigen::Index n = c.grid.k.size();
-    const VecC& k = c.grid.k;
+    // class bases (M21): n_f = (2L + 1) N_k per component, kappa repeated over the blocks
+    const int nb = basis.harmonics().blocks();
+    const Eigen::Index n = nb * c.grid.k.size();
+    const VecC k = nb == 1 ? c.grid.k : cyl::tiledK(c.grid.k, nb);
     std::vector<double> tops;
     double y = 0;
     for (const auto* l : c.ptrs) tops.push_back(y += l->thickness_um() * s.k0);
@@ -1032,16 +1034,16 @@ class StackSolver final : public Solver {
   static CylRadial cylRadial(const CylContext& c) {
     std::vector<double> br;
     for (const auto& L : c.layers)
-      if (!L->homogeneous()) br.insert(br.end(), L->rings.radii.begin(), L->rings.radii.end());
+      if (!L->homogeneous() && !L->angular) br.insert(br.end(), L->rings.radii.begin(), L->rings.radii.end());
     std::sort(br.begin(), br.end());
     std::vector<double> u;
     for (const double r : br)
       if (u.empty() || r > u.back() * (1 + 1e-12)) u.push_back(r);
     CylRadial out;
-    out.rule = cyl::radialRule(u, c.kmax);
+    if (!u.empty()) out.rule = cyl::radialRule(u, c.kmax);
     for (const auto& L : c.layers) {
       out.eps.emplace_back();
-      if (L->homogeneous()) continue;
+      if (L->homogeneous() || L->angular) continue;
       for (const double r : out.rule.r) {
         const auto it = std::lower_bound(L->rings.radii.begin(), L->rings.radii.end(), r);
         out.eps.back().push_back(it == L->rings.radii.end() ? L->rings.epsInf
@@ -1073,6 +1075,7 @@ class StackSolver final : public Solver {
     double absorbed = 0;
     cplx ext = 0.0;
     for (std::size_t l = 0; l < c.layers.size(); ++l) {
+      if (c.layers[l]->angular) continue;  // cylAngularVolume (M21)
       std::vector<std::size_t> idx;
       for (std::size_t i = 0; i < yn.size(); ++i)
         if (yn[i].layer == l) idx.push_back(i);
@@ -1106,6 +1109,122 @@ class StackSolver final : public Solver {
       }
     }
     return {PI * absorbed, PI * ext.imag()};  // 1/2 * 2 pi (phi)
+  }
+
+  /// Spectra of harmonic b of class spectra (blocks of N_k nodes; G as (G_+; G_-) of all blocks).
+  static std::vector<CylSpectra> blockSpectra(const std::vector<CylSpectra>& sp, int b, Eigen::Index n) {
+    std::vector<CylSpectra> out;
+    for (const CylSpectra& f : sp) {
+      CylSpectra g;
+      g.region = f.region;
+      g.layer = f.layer;
+      g.bg = f.bg;
+      g.ep = f.ep.segment(b * n, n);
+      g.em = f.em.segment(b * n, n);
+      g.ey = f.ey.segment(b * n, n);
+      g.hp = f.hp.segment(b * n, n);
+      g.hm = f.hm.segment(b * n, n);
+      g.hy = f.hy.segment(b * n, n);
+      if (f.g.size()) {
+        const Eigen::Index nf = f.g.size() / 2;
+        g.g.resize(2 * n);
+        g.g << f.g.segment(b * n, n), f.g.segment(nf + b * n, n);
+      }
+      out.push_back(std::move(g));
+    }
+    return out;
+  }
+
+  /// Volume integrals of one class (M21): ring layers per harmonic (cylVolume on the blocks, the harmonics do not
+  /// couple there), angular layers with the coupled angular coefficients of Im eps and eps - eps_inf on the radial
+  /// rule of coupledQ (cyl::sectionVolume): sum_{l,l'} conj(E_l) [Im eps]_{l-l'} E_l' per node, Laurent (E direct).
+  /// The plane-wave background is truncated to the harmonics of the class, as its source (coupledSource).
+  std::pair<double, double> cylClassVolume(const CylContext& c, const cyl::HarmonicMap& map,
+                                           const std::vector<CylSpectra>& sp, const std::vector<CylYNode>& yn,
+                                           const CylRadial& rad) const {
+    const Eigen::Index n = c.grid.k.size();
+    const int nb = map.blocks();
+    double absorbed = 0, extinct = 0;  // normalized powers
+    bool rings = false;
+    for (const auto& L : c.layers) rings = rings || (!L->homogeneous() && !L->angular);
+    if (rings)
+      for (int b = 0; b < nb; ++b) {
+        const auto [a, e] = cylVolume(c, map.m(b), blockSpectra(sp, b, n), yn, rad);
+        absorbed += a;
+        extinct += e;
+      }
+    for (std::size_t l = 0; l < c.layers.size(); ++l) {
+      const detail::CylLayer& L = *c.layers[l];
+      if (!L.angular) continue;
+      std::vector<std::size_t> idx;
+      for (std::size_t i = 0; i < yn.size(); ++i)
+        if (yn[i].layer == l) idx.push_back(i);
+      if (idx.empty()) continue;
+      const cyl::SectionVolume sv = cyl::sectionVolume(c.grid, map, L.section);
+      const auto nr = static_cast<Eigen::Index>(sv.r.size()), ny = static_cast<Eigen::Index>(idx.size());
+      // fields of every block at the nodes: column t * nb + b
+      MatC Ep(nr, ny * nb), Em(nr, ny * nb), Ey(nr, ny * nb), Bp = MatC::Zero(nr, nb), Bm = MatC::Zero(nr, nb),
+          By = MatC::Zero(nr, nb);
+      for (int b = 0; b < nb; ++b) {
+        const int m = map.m(b);
+        const cyl::Synthesis T = cyl::synthesis(c.grid, m, sv.r);
+        MatC P(n, ny), Mn(n, ny), Y(n, ny);
+        for (Eigen::Index t = 0; t < ny; ++t) {
+          const CylSpectra& f = sp[idx[static_cast<std::size_t>(t)]];
+          P.col(t) = f.ep.segment(b * n, n);
+          Mn.col(t) = f.em.segment(b * n, n);
+          Y.col(t) = f.ey.segment(b * n, n);
+        }
+        const MatC Pr = T.Tp * P, Mr = T.Tm * Mn, Yr = T.T0 * Y;
+        for (Eigen::Index t = 0; t < ny; ++t) {
+          Ep.col(t * nb + b) = Pr.col(t);
+          Em.col(t * nb + b) = Mr.col(t);
+          Ey.col(t * nb + b) = Yr.col(t);
+        }
+        if (c.planeWave)
+          for (Eigen::Index s = 0; s < nr; ++s) {
+            const double kr = c.kpar * sv.r[static_cast<std::size_t>(s)];
+            Bp(s, b) = jacobiPhase(m + 1, c.Psi) * cyl::besselJ(m + 1, kr);
+            Bm(s, b) = jacobiPhase(m - 1, c.Psi) * cyl::besselJ(m - 1, kr);
+            By(s, b) = jacobiPhase(m, c.Psi) * cyl::besselJ(m, kr);
+          }
+      }
+      const int qmax = sv.qmax;
+      double aL = 0;
+      cplx eL = 0.0;
+      for (Eigen::Index t = 0; t < ny; ++t) {
+        const CylSpectra& f = sp[idx[static_cast<std::size_t>(t)]];
+        const double wy = yn[idx[static_cast<std::size_t>(t)]].w;
+        const cplx cp = f.bg(0) + I * f.bg(2), cm = f.bg(0) - I * f.bg(2), eyb = f.bg(1);
+        for (Eigen::Index s = 0; s < nr; ++s) {
+          // total field of every block at r_s
+          std::vector<cplx> ep(static_cast<std::size_t>(nb)), em(ep.size()), ey(ep.size()), bp(ep.size()), bm(ep.size()),
+              by(ep.size());
+          for (int b = 0; b < nb; ++b) {
+            const auto u = static_cast<std::size_t>(b);
+            bp[u] = cp * Bp(s, b);
+            bm[u] = cm * Bm(s, b);
+            by[u] = eyb * By(s, b);
+            ep[u] = Ep(s, t * nb + b) + bp[u];
+            em[u] = Em(s, t * nb + b) + bm[u];
+            ey[u] = Ey(s, t * nb + b) + by[u];
+          }
+          cplx a = 0.0, e = 0.0;
+          for (int b = 0; b < nb; ++b)
+            for (int bq = 0; bq < nb; ++bq) {
+              const auto u = static_cast<std::size_t>(b), v = static_cast<std::size_t>(bq);
+              const cplx im = sv.imEps(qmax + b - bq, s), de = sv.contrast(qmax + b - bq, s);
+              a += im * (0.5 * (std::conj(ep[u]) * ep[v] + std::conj(em[u]) * em[v]) + std::conj(ey[u]) * ey[v]);
+              e += de * (0.5 * (std::conj(bp[u]) * ep[v] + std::conj(bm[u]) * em[v]) + std::conj(by[u]) * ey[v]);
+            }
+          aL += wy * a.real();
+          eL += wy * e;
+        }
+      }
+      absorbed += PI * aL;  // 1/2 * 2 pi (phi)
+      extinct += PI * eL.imag();
+    }
+    return {absorbed, extinct};
   }
 
   /// Outgoing field of one harmonic on one side for the angular spectrum and the far field (Plan "M20:
@@ -1311,6 +1430,20 @@ class StackSolver final : public Solver {
     if (r > P / 2) r -= P;
     return r;
   }
+  /// Classes m0 + l P, |l| <= L, of the harmonics ms (Plan sec:cylP): L from "symmetry" or ceil(m_cut / P) + 2.
+  static std::vector<cyl::HarmonicMap> cylClasses(const CylindricalSpec& cs, const std::vector<int>& ms) {
+    const int P = cs.rotation;
+    int mcut = 0;
+    for (const int m : ms) mcut = std::max(mcut, std::abs(m));
+    const int L = cs.classL >= 0 ? cs.classL : (mcut + P - 1) / P + 2;
+    std::vector<int> m0;
+    for (const int m : ms) m0.push_back(harmonicClass(m, P));
+    std::sort(m0.begin(), m0.end());
+    m0.erase(std::unique(m0.begin(), m0.end()), m0.end());
+    std::vector<cyl::HarmonicMap> out;
+    for (const int m : m0) out.push_back({m, P, L});
+    return out;
+  }
   /// Harmonic b of a class state (4 n_f) as the state of one harmonic (4 N_k).
   static VecC blockState(const VecC& F, int b, Eigen::Index n) {
     const Eigen::Index nf = F.size() / 4;
@@ -1321,25 +1454,27 @@ class StackSolver final : public Solver {
 
   /// P-fold rotational symmetry (M21, Plan sec:cylP "Anregung und Symmetrieklassen"): one assembly per class
   /// m0 + l P, |l| <= L, holding the harmonics of the incidence; powers per harmonic from the half-space states
-  /// (the harmonics are orthogonal there). Volume integrals are not available yet: sigma_abs and the rings
-  /// absorption are NaN with lossy structured layers (0 otherwise; the beam's C_A = 1 - R - T holds anyway).
+  /// (the harmonics are orthogonal there). Volume integrals (sigma_abs, optical theorem, rings absorption of a beam)
+  /// per class with cylClassVolume, as in M20 only with lossy structured layers or "optical_theorem".
   Result cylClassSolve(const Stack& stack, CylContext& c) {
     const CylindricalSpec& cs = stack.cylindrical;
     const int P = cs.rotation;
     Result res;
     res.diag.precision = linalg::precisionName(linalg::precision());
     const Eigen::Index n = c.grid.k.size();
-    int mcut = 0;
-    for (const int m : c.ms) mcut = std::max(mcut, std::abs(m));
-    const int L = cs.classL >= 0 ? cs.classL : (mcut + P - 1) / P + 2;
-    std::vector<int> classes;
-    for (const int m : c.ms) classes.push_back(harmonicClass(m, P));
-    std::sort(classes.begin(), classes.end());
-    classes.erase(std::unique(classes.begin(), classes.end()), classes.end());
+    const std::vector<cyl::HarmonicMap> classes = cylClasses(cs, c.ms);
+    const int L = classes.front().L;
     bool lossy = false;
     for (const auto& Ly : c.layers)
       if (!Ly->homogeneous())
         for (const cplx e : Ly->epsList) lossy = lossy || e.imag() != 0.0;
+    // volume integrals as in M20 (Plan v2.25): lossless structured layers have sigma_abs = 0 exactly
+    const bool volume = lossy || (c.planeWave && cs.opticalTheorem);
+    const std::vector<CylYNode> yq = volume ? cylYNodes(c) : std::vector<CylYNode>{};
+    const CylRadial rad = volume ? cylRadial(c) : CylRadial{};
+    std::vector<double> ys;
+    for (const auto& q : yq) ys.push_back(q.y);
+    double pAbs = 0, pExt = 0;
     CylindricalResult& cr = res.cylindrical;
     cr.present = true;
     cr.planeWave = c.planeWave;
@@ -1349,8 +1484,7 @@ class StackSolver final : public Solver {
     const bool losslessSub = std::abs(c.epsSub.imag()) < 1e-14 && c.epsSub.real() > 0;
     std::vector<CylOutgoing> outs;
     double pInc = 0, pR = 0, pT = 0;
-    for (const int m0 : classes) {
-      const cyl::HarmonicMap map{m0, P, L};
+    for (const cyl::HarmonicMap& map : classes) {
       const int nb = map.blocks();
       const Eigen::Index nf = nb * n;
       VecC aIn;
@@ -1364,7 +1498,7 @@ class StackSolver final : public Solver {
         if (aIn.isZero(0.0)) continue;
       }
       const auto basis = cylBasis(c, map);
-      const Assembly as = assemble(c.s, *basis, c.ptrs, false, {}, res.diag);
+      const Assembly as = assemble(c.s, *basis, c.ptrs, volume, ys, res.diag);
       VecC Vup = VecC::Zero(4 * nf), Vdown = VecC::Zero(4 * nf);
       if (c.planeWave) {  // scattered field, nothing comes in
         Vup.tail(2 * nf) = as.totalSrc.u;
@@ -1390,6 +1524,11 @@ class StackSolver final : public Solver {
         outs.push_back(cylOutgoing(c, m, 1, fu, c.epsSup));
         if (losslessSub) outs.push_back(cylOutgoing(c, m, -1, fd, c.epsSub));
       }
+      if (volume) {
+        const auto [a, e] = cylClassVolume(c, map, cylSpectra(c, *basis, as, aIn, ys), yq, rad);
+        pAbs += a;
+        pExt += e;
+      }
       c.s.cylSource = nullptr;
     }
     if (c.planeWave) {
@@ -1400,12 +1539,16 @@ class StackSolver final : public Solver {
       cr.scatteredDown_um2 = pT * toArea;
       cr.scattering_um2 = cr.scatteredUp_um2 + cr.scatteredDown_um2;
       cylFarOutputs(c, outs, toArea, cs.farFieldPhi, cr);
-      cr.absorption_um2 = lossy ? std::nan("") : 0.0;
+      cr.absorption_um2 = pAbs * toArea;
       cr.extinction_um2 = cr.scattering_um2 + cr.absorption_um2;
-      cr.extinctionTheorem_um2 = std::nan("");
-      if (lossy || cs.opticalTheorem)
+      bool lossless = std::abs(c.epsSub.imag()) < 1e-14;
+      for (const auto& Ly : c.layers)
+        lossless = lossless && std::abs((Ly->homogeneous() ? Ly->eps : Ly->epsList.back()).imag()) < 1e-14;
+      cr.extinctionTheorem_um2 = lossless && volume ? pExt * toArea : std::nan("");
+      if (!lossless && volume)
         res.diag.warnings.push_back(
-            "cylindrical symmetry.rotation: volume integrals (sigma_abs, optical theorem) are not available yet (M21)");
+            "cylindrical plane wave: lossy background, sigma_abs counts the structured layers only and the optical "
+            "theorem is not evaluated");
       return res;
     }
     FG_REQUIRE(pInc > 0, "cylindrical: the incident beam carries no power (harmonics?)");
@@ -1414,7 +1557,7 @@ class StackSolver final : public Solver {
     cr.reflected = pR / pInc;
     cr.transmitted = pT / pInc;
     cr.absorbed = 1.0 - cr.reflected - cr.transmitted;
-    cr.absorbedRings = lossy ? std::nan("") : 0.0;
+    cr.absorbedRings = pAbs / pInc;
     cylFarOutputs(c, outs, 1.0 / pInc, cs.farFieldPhi, cr);
     res.absorption = cr.absorbed;
     res.diag.energyBalance = cr.reflected + cr.transmitted;
@@ -1428,7 +1571,6 @@ class StackSolver final : public Solver {
   NearFieldResult cylNearField(const Stack& stackIn, const Wavelength& wl, const NearFieldRequest& req) {
     FG_PROF_SCOPE("nearfield.cylindrical");
     const Stack stack = detail::expandRingsProfiles(stackIn, opt_.rcwaSlices);
-    FG_REQUIRE(stack.cylindrical.rotation == 0, "cylindrical near field: not yet available with symmetry.rotation (M21)");
     CylContext c = cylContext(stack, wl);
     const double k0 = c.s.k0;
     const Eigen::Index n = c.grid.k.size();
@@ -1447,28 +1589,62 @@ class StackSolver final : public Solver {
       return v;
     };
     const std::vector<double> xs = axis(req.nx), zs = axis(req.nz);
-    // spectra of every harmonic at every height
+    // spectra of every harmonic at every height; with symmetry.rotation (M21) per class, then split into its
+    // harmonics (hs)
     Diagnostics diag;
     std::vector<std::vector<CylSpectra>> sp;
-    for (const int m : c.ms) {
-      const VecC aIn = c.planeWave ? VecC() : cylIncident(c, m);
-      const auto basis = cylBasis(c, m);
-      std::optional<CylBackground> bg;
-      if (c.beamScattered) bg = cylBackground(c, m, aIn, diag);
-      const Assembly as = assemble(c.s, *basis, c.ptrs, true, sorted, diag);
-      sp.push_back(cylSpectra(c, *basis, as, aIn, yn, bg ? &*bg : nullptr));
-      c.s.cylSource = nullptr;
+    std::vector<int> hs;
+    if (stack.cylindrical.rotation > 0) {
+      for (const cyl::HarmonicMap& map : cylClasses(stack.cylindrical, c.ms)) {
+        const int nb = map.blocks();
+        VecC aIn;
+        if (!c.planeWave) {
+          aIn = VecC::Zero(2 * nb * n);
+          for (int b = 0; b < nb; ++b) {
+            const VecC a = cylIncident(c, map.m(b));
+            aIn.segment(b * n, n) = a.head(n);
+            aIn.segment((nb + b) * n, n) = a.tail(n);
+          }
+          if (aIn.isZero(0.0)) continue;
+        }
+        const auto basis = cylBasis(c, map);
+        const Assembly as = assemble(c.s, *basis, c.ptrs, true, sorted, diag);
+        const std::vector<CylSpectra> all = cylSpectra(c, *basis, as, aIn, yn);
+        for (int b = 0; b < nb; ++b) {
+          hs.push_back(map.m(b));
+          sp.push_back(blockSpectra(all, b, n));
+        }
+        c.s.cylSource = nullptr;
+      }
+    } else {
+      for (const int m : c.ms) {
+        const VecC aIn = c.planeWave ? VecC() : cylIncident(c, m);
+        const auto basis = cylBasis(c, m);
+        std::optional<CylBackground> bg;
+        if (c.beamScattered) bg = cylBackground(c, m, aIn, diag);
+        const Assembly as = assemble(c.s, *basis, c.ptrs, true, sorted, diag);
+        sp.push_back(cylSpectra(c, *basis, as, aIn, yn, bg ? &*bg : nullptr));
+        hs.push_back(m);
+        c.s.cylSource = nullptr;
+      }
     }
+    FG_REQUIRE(!sp.empty(), "cylindrical near field: the incidence excites no harmonic");
     const bool fff = req.reconstruction == Reconstruction::FFF && c.fac == cyl::CylFactorization::LiR;
     const double rmax = c.delta > 0 ? std::log(1e3) / c.delta : 1e300;  // deformed path: J grows like e^{|Im k| r}
     NearFieldResult out;
     bool beyond = false;
-    // permittivity at (r, sample)
-    auto epsAt = [&](const CylSpectra& f, double r) -> std::pair<cplx, cplx> {  // (eps, eps_inf of the layer)
+    // permittivity at the normalized point (x, z) of a sample
+    auto epsAt = [&](const CylSpectra& f, double x, double z) -> std::pair<cplx, cplx> {  // (eps, eps_inf of the layer)
       if (f.region > 0) return {c.epsSup, c.epsSup};
       if (f.region < 0) return {c.epsSub, c.epsSub};
       const detail::CylLayer& L = *c.layers[f.layer];
       if (L.homogeneous()) return {L.eps, L.eps};
+      if (L.angular) {  // M21: the first region containing the point (regions do not overlap)
+        for (std::size_t b = 0; b < L.section.regions.size(); ++b)
+          if (L.section.regions[b].contains(x, z)) return {L.section.eps[b], L.section.epsBg};
+        return {L.section.epsBg, L.section.epsBg};
+      }
+      const double r = std::hypot(x, z);
       const auto it = std::lower_bound(L.rings.radii.begin(), L.rings.radii.end(), r);
       return {it == L.rings.radii.end() ? L.rings.epsInf : L.rings.eps[static_cast<std::size_t>(it - L.rings.radii.begin())],
               L.rings.epsInf};
@@ -1488,10 +1664,10 @@ class StackSolver final : public Solver {
       radii.erase(std::unique(radii.begin(), radii.end()), radii.end());
       const int mmax = [&] {
         int v = 0;
-        for (const int m : c.ms) v = std::max(v, std::abs(m) + 1);
+        for (const int m : hs) v = std::max(v, std::abs(m) + 1);
         return v;
       }();
-      const std::size_t nm = c.ms.size(), ns = static_cast<std::size_t>(i1 - i0), nrad = radii.size();
+      const std::size_t nm = hs.size(), ns = static_cast<std::size_t>(i1 - i0), nrad = radii.size();
       std::vector<std::array<cplx, 6>> val(nrad * nm * ns);  // (E+ or G+, E- or G-, Ey, H+, H-, Hy)
       const VecC wk = c.grid.w.cwiseProduct(c.grid.k);
       const Settings settings = currentSettings();
@@ -1501,7 +1677,7 @@ class StackSolver final : public Solver {
         if (r > rmax) return;
         const MatC t = cyl::besselTable(c.grid.k, mmax, r);
         for (std::size_t h = 0; h < nm; ++h) {
-          const int m = c.ms[h];
+          const int m = hs[h];
           VecC Jp(n), Jm(n), J0(n);
           for (Eigen::Index j = 0; j < n; ++j) {
             Jp(j) = wk(j) * cyl::tableJ(t, m + 1, j);
@@ -1528,7 +1704,7 @@ class StackSolver final : public Solver {
             const std::size_t ri = static_cast<std::size_t>(std::lower_bound(radii.begin(), radii.end(), r) - radii.begin());
             const std::size_t si = static_cast<std::size_t>(i - i0);
             const CylSpectra& f0 = sp.front()[static_cast<std::size_t>(i)];
-            const auto [eps, ei] = epsAt(f0, r);
+            const auto [eps, ei] = epsAt(f0, x * k0, z * k0);
             fc.material.push_back(eps.real());
             if (r > rmax) {
               beyond = true;
@@ -1540,7 +1716,7 @@ class StackSolver final : public Solver {
             }
             std::array<cplx, 6> S{};  // sum over the harmonics
             for (std::size_t h = 0; h < nm; ++h) {
-              const cplx e = std::polar(1.0, c.ms[h] * phi);
+              const cplx e = std::polar(1.0, hs[h] * phi);
               const auto& v = val[(ri * nm + h) * ns + si];
               for (int a = 0; a < 6; ++a) S[static_cast<std::size_t>(a)] += v[static_cast<std::size_t>(a)] * e;
             }

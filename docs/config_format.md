@@ -275,8 +275,8 @@ sind zusätzlich `polygon2d` und `contour2d` erlaubt: Querschnitte um die Achse 
 die gefundene Ordnung). Gerechnet wird je Symmetrieklasse m₀ + lP, |l| ≤ L, mit gekoppelten Harmonischen (Laurent in
 diesen Schichten; `"factorization": "li_r"` gilt dann nur für die Ringschichten). `L` ohne Angabe: ⌈m_cut/P⌉ + 2
 (m_cut: größtes |m| der Anregung); Konvergenz in `L` prüfen. Der Aufwand wächst mit (2L + 1)³. Ausgabe wie oben, je
-Harmonischer aller Klassen; Python zusätzlich `rotation`, `class_L`. Noch nicht verfügbar: σ_abs und das optische
-Theorem (bei verlustbehafteten Querschnitten `nan`), Nahfeld, Gradienten, Strahl als Streufeld, `cad`.
+Harmonischer aller Klassen; Python zusätzlich `rotation`, `class_L`. σ_abs, optisches Theorem und Nahfeld wie oben.
+Noch nicht verfügbar: Gradienten, Strahl als Streufeld, `cad`.
 
 ```jsonc
 "cylindrical": {"symmetry": {"rotation": 4, "L": 2}, "factorization": "laurent"},

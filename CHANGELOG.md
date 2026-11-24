@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M21, Volumenintegrale und Nahfeld im Klassenpfad (Plan v2.42): σ_abs, optisches Theorem und die Ringabsorption
+  eines Strahls mit `"symmetry": {"rotation": P}` (Querschnittsschichten über die Winkelkoeffizienten von Im ε und
+  ε − ε_∞ auf der r-Regel von `coupledQ`, `fg::cyl::sectionVolume`; Ringschichten je Harmonischer wie M20), Nahfeld je
+  Klasse in die Harmonischen zerlegt. Laurent erhält die Energie diskret (1 − R − T = Ringabsorption auf 1e-13).
+  Tests `V22Volume`, `V22NearField`; V22c gibt für Silber zusätzlich σ_abs aus. M20 bitgleich.
 - M21 V22c (Plan v2.41): quadratische und hexagonale Säule gegen den kartesischen Pfad mit PML (M18), beide Laurent;
   lokal ein grober Vergleich (`V22c.SquarePillarCoarse`), die Abnahme bei 1e-3 und die Silbersäule als
   Konvergenzstudie nur mit `FG_SERVER_TESTS=1` (`V22c.PillarsAgainstCartesianPml`).

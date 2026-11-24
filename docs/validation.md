@@ -473,6 +473,9 @@ Konvergenz V22c (Quadrat, lokal): Klassenpfad L = 1 bei κ_max = 4/6/8: 0,30063 
 | V22d | Quadrat: Blöcke l − l' ∉ 4ℤ (eine Klasse von P = 1) | 6e-18 gegen 1,4e-2 |
 | V22d | Quadrat, P = 4, L = 1, Einfallsazimut Ψ = 0° / 90° | σ gleich auf 1e-15, Fernfeld gedreht auf 4e-15 |
 | V22e | Quadrat, P = 4, L = 2, Strahl zirkular + / − | R, T und Harmonische m ↔ −m auf 1e-13 |
+| V22Volume | verlustbehaftetes Quadrat (n = 1,45 + 0,1i), P = 4, L = 1, Laurent | Strahl: Ringabsorption = 1 − R − T auf 1,3e-13; ebene Welle: Theorem = σ_sca + σ_abs auf 4e-14 relativ, σ_abs bei Ψ = 90° bitgleich |
+| V22Volume | verlustbehaftete Ringschicht über P = 3 gegen M20; Kreis (P = 3, L = 2) gegen Ringschicht, Laurent | Ringabsorption 5e-15; σ_abs 5e-14, Theorem 9e-14 µm² |
+| V22NearField | Nahfeld im Klassenpfad: Ringschicht (Li in r, Strahl) gegen M20; Kreis gegen Ringschicht (ebene Welle); Materialkarte des Quadrats | 1,5e-12 bzw. 3e-10 relativ (Schnitte bis R_s) |
 
 ## CAD-Import für 1D-Gitter (M23, V24)
 
