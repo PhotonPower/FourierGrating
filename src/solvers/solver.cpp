@@ -858,11 +858,15 @@ class StackSolver final : public Solver {
       c.g1(j) = 0.25 * k * w0 * w0 * w0 * w0 * ph;
     }
     if (opt_.scatteredField) {  // plane waves are always a scattered field
-      FG_REQUIRE(cs.rotation == 0, "cylindrical: scattered_field for beams is not available with symmetry.rotation (M21)");
       c.beamScattered = true;
-      Stack bs = stack;
+      Stack bs = stack;  // background stack: structured layers -> their outer material (M21: polygon2d / contour2d)
       for (LayerEntry& le : bs.layers)
-        if (const auto* r = std::get_if<RingsLayer>(&le.spec)) le.spec = HomogeneousLayer{r->thickness_um, r->materials.back()};
+        if (const auto* r = std::get_if<RingsLayer>(&le.spec))
+          le.spec = HomogeneousLayer{r->thickness_um, r->materials.back()};
+        else if (const auto* p = std::get_if<Polygon2DLayer>(&le.spec))
+          le.spec = HomogeneousLayer{p->thickness_um, p->background};
+        else if (const auto* q = std::get_if<Contour2DLayer>(&le.spec))
+          le.spec = HomogeneousLayer{q->thickness_um, q->background};
       c.bgLayers = detail::buildCylLayers(bs, s.k0);
       for (const auto& L : c.bgLayers) c.bgPtrs.push_back(L.get());
       s.scattered = true;
@@ -923,26 +927,28 @@ class StackSolver final : public Solver {
     return basis;
   }
 
-  /// Background of a beam in the scattered-field formulation (V21e), harmonic m: the background stack
-  /// (homogeneous layers only) solved on the grid by the total-field assembly; its field in every layer as
-  /// N exponentials (c.s.bg, on the grid) for the sources sigma = (M - M_bg) F_bg of the ring layers.
+  /// Background of a beam in the scattered-field formulation (V21e), harmonic m or class `map` (M21): the background
+  /// stack (homogeneous layers only, diagonal in the harmonics) solved on the grid by the total-field assembly; its
+  /// field in every layer as N exponentials (c.s.bg, on the grid) for the sources sigma = (M - M_bg) F_bg of the
+  /// structured layers.
   struct CylBackground {
     Setup s;  ///< total-field setup of the background
     std::unique_ptr<detail::CylBasis> basis;
     Assembly as;
   };
-  CylBackground cylBackground(CylContext& c, int m, const VecC& aIn, Diagnostics& diag) {
+  CylBackground cylBackground(CylContext& c, const cyl::HarmonicMap& map, const VecC& aIn, Diagnostics& diag) {
     CylBackground b;
     c.s.bg.clear();
     b.s = c.s;
     b.s.scattered = false;
-    b.basis = std::make_unique<detail::CylBasis>(c.grid, m, c.epsSup, c.epsSub, c.bgLayers, c.fac);
+    b.basis = std::make_unique<detail::CylBasis>(c.grid, map, c.epsSup, c.epsSub, c.bgLayers, c.fac);
+    const VecC kt = cyl::tiledK(c.grid.k, map.blocks());
     b.as = assemble(b.s, *b.basis, c.bgPtrs, true, {}, diag);
     std::vector<double> yb{0.0};
     for (const auto* l : c.bgPtrs) yb.push_back(yb.back() + l->thickness_um() * c.s.k0);
     const std::vector<StateSample> st = stateSamples(b.s, b.basis->ref(), b.basis->sub(), b.as, aIn, yb);
     for (std::size_t l = 0; l < c.bgLayers.size(); ++l) {
-      const ModeBasis mb = cyl::homogeneousModes(c.bgLayers[l]->eps, c.grid.k);
+      const ModeBasis mb = cyl::homogeneousModes(c.bgLayers[l]->eps, kt);
       const Eigen::Index nh = mb.lambda.size() / 2;
       Setup::BgLayer L;
       L.onGrid = true;
@@ -1405,7 +1411,7 @@ class StackSolver final : public Solver {
       }
       const auto basis = cylBasis(c, m);
       std::optional<CylBackground> bg;
-      if (c.beamScattered) bg = cylBackground(c, m, aIn, res.diag);
+      if (c.beamScattered) bg = cylBackground(c, {m, 1, 0}, aIn, res.diag);
       const Assembly as = assemble(c.s, *basis, c.ptrs, volume, ys, res.diag);
       // scattered field (V21e): up/down amplitudes of the sources plus those of the background
       const VecC b = bg ? VecC(as.totalSrc.u + bg->as.total.S12 * aIn) : VecC(as.total.S12 * aIn);
@@ -1516,14 +1522,21 @@ class StackSolver final : public Solver {
         if (aIn.isZero(0.0)) continue;
       }
       const auto basis = cylBasis(c, map);
+      std::optional<CylBackground> bg;
+      if (c.beamScattered) bg = cylBackground(c, map, aIn, res.diag);
       const Assembly as = assemble(c.s, *basis, c.ptrs, volume, ys, res.diag);
       VecC Vup = VecC::Zero(4 * nf), Vdown = VecC::Zero(4 * nf);
       if (c.planeWave) {  // scattered field, nothing comes in
         Vup.tail(2 * nf) = as.totalSrc.u;
         Vdown.head(2 * nf) = as.totalSrc.v;
+      } else if (bg) {  // beam as scattered field: source amplitudes plus those of the background (V21e)
+        Vup.tail(2 * nf) = as.totalSrc.u + bg->as.total.S12 * aIn;
+        Vdown.head(2 * nf) = as.totalSrc.v + bg->as.total.S22 * aIn;
       } else {
         Vup.tail(2 * nf) = as.total.S12 * aIn;
         Vdown.head(2 * nf) = as.total.S22 * aIn;
+      }
+      if (!c.planeWave) {
         VecC Vin = VecC::Zero(4 * nf);
         Vin.head(2 * nf) = aIn;
         const VecC Fin = basis->ref().Psi * Vin;
@@ -1543,7 +1556,7 @@ class StackSolver final : public Solver {
         if (losslessSub) outs.push_back(cylOutgoing(c, m, -1, fd, c.epsSub));
       }
       if (volume) {
-        const auto [a, e] = cylClassVolume(c, map, cylSpectra(c, *basis, as, aIn, ys), yq, rad);
+        const auto [a, e] = cylClassVolume(c, map, cylSpectra(c, *basis, as, aIn, ys, bg ? &*bg : nullptr), yq, rad);
         pAbs += a;
         pExt += e;
       }
@@ -1626,8 +1639,10 @@ class StackSolver final : public Solver {
           if (aIn.isZero(0.0)) continue;
         }
         const auto basis = cylBasis(c, map);
+        std::optional<CylBackground> bg;
+        if (c.beamScattered) bg = cylBackground(c, map, aIn, diag);
         const Assembly as = assemble(c.s, *basis, c.ptrs, true, sorted, diag);
-        const std::vector<CylSpectra> all = cylSpectra(c, *basis, as, aIn, yn);
+        const std::vector<CylSpectra> all = cylSpectra(c, *basis, as, aIn, yn, bg ? &*bg : nullptr);
         for (int b = 0; b < nb; ++b) {
           hs.push_back(map.m(b));
           sp.push_back(blockSpectra(all, b, n));
@@ -1639,7 +1654,7 @@ class StackSolver final : public Solver {
         const VecC aIn = c.planeWave ? VecC() : cylIncident(c, m);
         const auto basis = cylBasis(c, m);
         std::optional<CylBackground> bg;
-        if (c.beamScattered) bg = cylBackground(c, m, aIn, diag);
+        if (c.beamScattered) bg = cylBackground(c, {m, 1, 0}, aIn, diag);
         const Assembly as = assemble(c.s, *basis, c.ptrs, true, sorted, diag);
         sp.push_back(cylSpectra(c, *basis, as, aIn, yn, bg ? &*bg : nullptr));
         hs.push_back(m);

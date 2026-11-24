@@ -447,6 +447,45 @@ TEST(V22Config, SymmetryChecksAndErrors) {
   EXPECT_NE(message(pillar(R"("symmetry": "helical")", kBeam, kSquare)).find("axial"), std::string::npos);
 }
 
+/// Lossy square pillar (P = 4) over a ring layer in a film, Li in r (the rings per block, the square Laurent), x-polarized
+/// beam; `scattered`: in the scattered-field formulation.
+std::string scatteredStack(bool scattered) {
+  return R"({)" + std::string(scattered ? R"("scattered_field": true, )" : "") +
+         R"("cylindrical": {"factorization": "li_r", "symmetry": {"rotation": 4, "L": 1}, "spectrum": {"kappa_max": 2}},
+    "materials": {"air": {"n": 1.0}, "glass": {"n": 1.5}, "f": {"n": 1.38}, "p": {"eps": [2.0925, 0.29]}, "q": {"n": 2.0}},
+    "superstrate": "air", "substrate": "glass",
+    "incidence": {"type": "gaussian_beam", "lambda_um": 1.0, "waist_um": 0.25, "focus_y_um": 0.3, "polarization": "x"},
+    "layers": [{"type": "rings", "thickness_um": 0.15, "radii_um": [0.2], "materials": ["q", "f"]},
+               {"type": "polygon2d", "thickness_um": 0.25, "background": "air",
+                "inclusions": [{"material": "p", "rectangle_um": {"center": [0, 0], "size": [0.4, 0.4]}}]}]})";
+}
+
+// Beam as scattered field in the class path (Plan v2.46, V21e for M21): the background stack (structured layers ->
+// their outer material) is diagonal in the harmonics and solved per class on the grid; scattered field + background
+// = total field for R, T, A_rings per harmonic and the near field.
+TEST(V22Scattered, BeamScatteredFieldEqualsTotalField) {
+  const fg::CylindricalResult t = solveConfig(scatteredStack(false)).cylindrical,
+                              s = solveConfig(scatteredStack(true)).cylindrical;
+  std::printf("V22Scattered: R = %.12f (%.1e)  T = %.12f (%.1e)  A_rings = %.12f (%.1e)\n", t.reflected,
+              s.reflected - t.reflected, t.transmitted, s.transmitted - t.transmitted, t.absorbedRings,
+              s.absorbedRings - t.absorbedRings);
+  EXPECT_GT(t.absorbedRings, 1e-3);
+  EXPECT_NEAR(s.reflected, t.reflected, 1e-10);
+  EXPECT_NEAR(s.transmitted, t.transmitted, 1e-10);
+  EXPECT_NEAR(s.absorbedRings, t.absorbedRings, 1e-10);
+  ASSERT_EQ(s.harmonics, t.harmonics);
+  for (std::size_t i = 0; i < t.reflectedPerHarmonic.size(); ++i) {
+    EXPECT_NEAR(s.reflectedPerHarmonic[i], t.reflectedPerHarmonic[i], 1e-10) << t.harmonics[i];
+    EXPECT_NEAR(s.transmittedPerHarmonic[i], t.transmittedPerHarmonic[i], 1e-10) << t.harmonics[i];
+  }
+  const std::string nf =
+      R"("horizontal_y_um": 0.27, "nx": 9, "nz": 9, "ny": 7, "y_range_um": [-0.1, 0.5], "extent_um": 0.45)";
+  const FieldDeviation d = deviation(nearFieldOf(scatteredStack(false), nf), nearFieldOf(scatteredStack(true), nf));
+  std::printf("V22Scattered near field: deviation %.1e of max |E| %.3f\n", d.dev, d.scale);
+  EXPECT_LT(d.dev, 1e-10 * d.scale);
+  EXPECT_EQ(d.material, 0.0);
+}
+
 TEST(V22b, EccentricFiberCoreHasTheModesOfTheCentredCore) {
   // core eps = 4, radius a = 2 (normalized, as V21b), cladding eps = 1; Laurent, k_max = 3, one grid for all cases
   // (R_s = a + 0.6); class m0 = 1 of P = 1 holds HE11 at m = +1 and m = -1

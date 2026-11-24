@@ -264,7 +264,9 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
     Sechseck κ_max = 8, L = 2/3 gegen M18 N = 10/14, Silber als Konvergenzstudie)
   - Erledigt (Plan v2.45): Beschleunigung – Halbräume und homogene Schichten gruppenweise, Quellen über das
     Schur-Komplement (Säule P = 3, L = 2: 29 s → 16 s) – `CylGrouped.EqualTheDenseOperations`
-  - Als Nächstes: Gradienten für ebene Wellen und Strahl als Streufeld im Klassenpfad
+  - Erledigt (Plan v2.46): Strahl als Streufeld im Klassenpfad (Hintergrund je Klasse auf dem Gitter, strukturierte
+    Schichten → Außenmaterial) – `V22Scattered.BeamScatteredFieldEqualsTotalField`
+  - Als Nächstes: Gradienten für ebene Wellen im Klassenpfad
 
 ## Dispersive Materialien (Plan v2.18–v2.19, Teil 8: M22)
 
