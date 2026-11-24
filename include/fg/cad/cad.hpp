@@ -55,6 +55,12 @@ struct CadOptions {
   /// set of circles about the axis (NOT_AXISYMMETRIC otherwise); cellOrigin_um is the axis (x0, z0), default
   /// the centre of the bounding box. Bands become rings / rings_profile layers.
   bool axisymmetric = false;
+  /// P-fold rotational symmetry about FG y in a "cylindrical" stack with "symmetry": {"rotation": P} (M21, Plan
+  /// sec:cylP "CAD"); 0: off. Every section must go over into itself under a rotation by 2 pi / P about the axis
+  /// within 1e-9 of its largest radius (E_ROT_SYMMETRY otherwise); cellOrigin_um is the axis (x0, z0), default the
+  /// centroid of the section at the middle height of the first body. Bands become contour2d layers, y-variable bands
+  /// a staircase of slicing.rcwa_slices contour2d layers (sections at the slice centres).
+  int rotation = 0;
 };
 
 /// One finding of the geometry check (Plan section "Geometriepruefung fuer das Sprachmodell"):
@@ -70,7 +76,8 @@ struct Finding {
 struct Band {
   double y0_um = 0, y1_um = 0;
   /// "homogeneous" | "extrusion" (Contour2D) | "sectioned" (SectionedLayer); 1D: "homogeneous" |
-  /// "lamellar1d" | "sectioned1d" (Sectioned1DLayer); axisymmetric: "homogeneous" | "rings" | "rings_profile"
+  /// "lamellar1d" | "sectioned1d" (Sectioned1DLayer); axisymmetric: "homogeneous" | "rings" | "rings_profile";
+  /// rotation (M21): "homogeneous" | "contour2d" | "contour2d_staircase"
   std::string kind;
   std::string material;  ///< homogeneous bands
   std::vector<std::pair<std::string, double>>
@@ -85,6 +92,9 @@ struct Report {
   bool oneD = false;  ///< 1D grating (Plan section "M23"): z_cut_um, cell origin x0 only, length fractions
   double zCut_um = std::numeric_limits<double>::quiet_NaN();
   bool axisymmetric = false;  ///< solid of revolution (M20): cellOrigin_um is the axis
+  /// P-fold rotational symmetry (M21): cellOrigin_um is the axis; rotationOrder is the largest order n <= max(P, 12)
+  /// such that every section with boundaries goes over into itself under a rotation by 2 pi / n (1: none)
+  int rotation = 0, rotationOrder = 0;
   /// JSON (fgsolve --cad-report, Python fg.cad.check).
   std::string json() const;
 };

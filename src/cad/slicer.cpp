@@ -17,6 +17,8 @@
 #include "fg/cad/cad.hpp"
 #include "fg/core/error.hpp"
 #include "fg/core/prof.hpp"
+#include "fg/core/quadrature.hpp"
+#include "fg/cyl/angular.hpp"
 #include "fg/geometry/line_section.hpp"
 #include "fg/geometry/section.hpp"
 
@@ -101,6 +103,7 @@ struct Model {
   double zCut = kNaN;
   // solids of revolution (Plan "M20: Schichttypen"): axis at x = z = 0 after the shift, largest radius
   bool axisym = false;
+  int rot = 0;  ///< P-fold rotational symmetry (M21): axis at x = z = 0 as for axisym
   double Rs = 0;
   std::shared_ptr<const std::vector<geometry::ProfileBody>> profiles;
 };
@@ -108,8 +111,10 @@ struct Model {
 bool loadModel(const CadOptions& o, const Stack& st, Model& m, Report& r) {
   // 2D: sections in the (x, z) cell; 1D (dz = 0): z-invariant bodies cut once at z_cut (Plan "M23")
   m.axisym = o.axisymmetric;
-  FG_REQUIRE(m.axisym || st.dx_um > 0, "cad: period_um.x must be positive");
-  m.oneD = !m.axisym && st.dz_um <= 0;
+  m.rot = o.rotation;
+  const bool axial = m.axisym || m.rot > 0;  // about an axis, no period
+  FG_REQUIRE(axial || st.dx_um > 0, "cad: period_um.x must be positive");
+  m.oneD = !axial && st.dz_um <= 0;
   auto error = [&](const std::string& code, const std::string& msg,
                    std::array<double, 3> w = {kNaN, kNaN, kNaN}) {
     r.errors.push_back({code, msg, w});
@@ -195,9 +200,10 @@ bool loadModel(const CadOptions& o, const Stack& st, Model& m, Report& r) {
                                    "') matches no body of the STEP file");
   if (m.bodies.empty()) return false;
   // ---- cell origin, y range, translation into the cell
-  // axisymmetric: the origin is the axis (default: centre of the bounding box)
+  // axisymmetric: the origin is the axis (default: centre of the bounding box); rotation: a first guess, the
+  // centroid of a section follows (centreOnAxis)
   m.origin = o.cellOrigin_um ? *o.cellOrigin_um
-             : m.axisym    ? std::array<double, 2>{0.5 * (all[0] + all[3]), 0.5 * (all[2] + all[5])}
+             : axial       ? std::array<double, 2>{0.5 * (all[0] + all[3]), 0.5 * (all[2] + all[5])}
                            : std::array<double, 2>{all[0], all[2]};
   if (m.oneD) m.origin[1] = 0;  // z stays FG z (z_cut_um)
   const nf::Transform shift = nf::Transform::translation({-m.origin[0], 0, -m.origin[1]});
@@ -215,7 +221,7 @@ bool loadModel(const CadOptions& o, const Stack& st, Model& m, Report& r) {
   // 1D: the extrusion length in z is arbitrary and not checked
   const double extent = m.oneD ? std::max(all[3] - all[0], all[4] - all[1])
                                : std::max({all[3] - all[0], all[4] - all[1], all[5] - all[2]}),
-               period = m.axisym ? (o.lambda_um > 0 ? o.lambda_um : extent) : std::max(st.dx_um, st.dz_um);
+               period = axial ? (o.lambda_um > 0 ? o.lambda_um : extent) : std::max(st.dx_um, st.dz_um);
   const double ref = o.lambda_um > 0 ? std::max(period, o.lambda_um) : period;
   if (extent > 100 * ref || extent < 1e-3 * std::min(period, ref))
     error("UNIT_SUSPECT", fmt("bodies are %.6g um large for a period of %.6g um (factor 1000 off? "
@@ -500,6 +506,56 @@ std::vector<std::array<double, 2>> bands(const Model& m, const CadOptions& o, Re
     out.erase(out.begin() + static_cast<std::ptrdiff_t>(k));
   }
   return out;
+}
+
+/// Centroid (x, z) of the regions of a section: first moments by Green's theorem, int x dA = 1/2 oint x^2 dz and
+/// int z dA = -1/2 oint z^2 dx (outer loops counter-clockwise, holes clockwise; 48 Gauss nodes per half segment as
+/// Contour2D::signedArea).
+std::array<double, 2> centroid(const CrossSection& cs) {
+  const auto& g = quadrature::gaussLegendre(48);
+  double a = 0, mx = 0, mz = 0;
+  for (const auto& reg : cs.regions) {
+    std::vector<const geometry::Contour2D*> loops{&reg.outer};
+    for (const auto& h : reg.holes) loops.push_back(&h);
+    for (const auto* c : loops)
+      for (const auto& seg : c->segments) {
+        geometry::BezierSegment halves[2];
+        seg.split(0.5, halves[0], halves[1]);
+        for (const auto& h : halves)
+          for (std::size_t l = 0; l < g.x.size(); ++l) {
+            geometry::Point2 p, dp;
+            h.eval(0.5 * (g.x[l] + 1), p, dp);
+            const double w = 0.25 * g.w[l];
+            a += w * (p[0] * dp[1] - p[1] * dp[0]);
+            mx += w * p[0] * p[0] * dp[1];
+            mz -= w * p[1] * p[1] * dp[0];
+          }
+      }
+  }
+  FG_REQUIRE(a != 0, "cad: section without area");
+  return {mx / a, mz / a};
+}
+
+/// P-fold rotational symmetry (M21) without cad.cell_origin_um: the axis through the centroid of the lowest section
+/// with boundaries (band mid heights; every section of a P-fold symmetric arrangement has its centroid on the axis,
+/// P >= 2), the bodies shifted onto it.
+void centreOnAxis(const CadOptions& o, Model& m) {
+  if (m.rot == 0 || o.cellOrigin_um) return;
+  Report dummy;
+  for (const auto& band : bands(m, o, dummy)) {
+    const CrossSection cs = sectionAt(m.bodies, 0.5 * (band[0] + band[1]), 1e-6 * m.Rs);
+    if (cs.regions.empty()) continue;
+    const auto c = centroid(cs);
+    m.origin = {m.origin[0] + c[0], m.origin[1] + c[1]};
+    const nf::Transform shift = nf::Transform::translation({-c[0], 0, -c[1]});
+    m.Rs = 0;
+    for (auto& b : m.bodies) {
+      b.shell = transformed(b.shell, shift);
+      b.box = bounds(b.shell);
+      for (int i : {0, 2, 3, 5}) m.Rs = std::max(m.Rs, std::abs(b.box[static_cast<std::size_t>(i)]));
+    }
+    return;
+  }
 }
 
 // ------------------------------------------------------------------ overlaps
@@ -876,9 +932,107 @@ std::vector<LayerEntry> layersOfAxisym(const Model& m, const CadOptions& o, Repo
   return out;
 }
 
+// ------------------------------------------------------------------ P-fold rotational symmetry (M21)
+
+/// Bands of a P-fold rotationally symmetric arrangement (Plan sec:cylP "CAD"): homogeneous, contour2d (y-invariant
+/// bands: the section at mid height) or contour2d_staircase (slicing.rcwa_slices contour2d layers, the sections at
+/// the slice centres). Every section must go over into itself under a rotation by 2 pi / P within 1e-9 of its
+/// largest radius, as the cylindrical layers check it (E_ROT_SYMMETRY otherwise); r.rotationOrder is the largest
+/// order n <= max(P, 12) of all sections at the band mid heights.
+std::vector<LayerEntry> layersOfRotation(const Model& m, const CadOptions& o, Report& r) {
+  const double sampleTol = 1e-6 * m.Rs;
+  const int P = m.rot, maxOrder = std::max(P, 12);
+  std::vector<bool> order(static_cast<std::size_t>(maxOrder + 1), true);
+  auto tolOf = [](const CrossSection& cs) {
+    double rmax = 0;
+    for (const auto& reg : cs.regions) rmax = std::max(rmax, cyl::criticalRadii(reg).back());
+    return 1e-9 * rmax;
+  };
+  auto symmetric = [&](const CrossSection& cs, double y) {
+    const double tol = tolOf(cs);
+    if (cyl::hasRotationSymmetry(cs.regions, P, tol)) return true;
+    r.errors.push_back(
+        {"E_ROT_SYMMETRY",
+         "section at y = " + fmt("%.9g um is not %.0f-fold rotationally symmetric about the axis (largest order found: ", y,
+                                 P) +
+             std::to_string(cyl::rotationOrder(cs.regions, maxOrder, tol)) +
+             "; tolerance 1e-9 of the largest radius; the axis is cad.cell_origin_um, default the centroid of a "
+             "section)",
+         {m.origin[0], y, m.origin[1]}});
+    r.ok = false;
+    return false;
+  };
+  auto contour = [&](const CrossSection& cs, double h) {
+    Contour2DLayer c;
+    c.thickness_um = h;
+    c.background = m.background;
+    c.regions = cs.regions;
+    c.normalField = o.normalField;
+    LayerEntry le;
+    le.factorization = o.factorization;
+    le.spec = std::move(c);
+    return le;
+  };
+  std::vector<LayerEntry> out;
+  for (const auto& band : bands(m, o, r)) {
+    const double y0 = band[0], y1 = band[1], ym = 0.5 * (y0 + y1);
+    const CrossSection mid = sectionAt(m.bodies, ym, sampleTol);
+    Band rb{y0, y1, "", "", {}};
+    bool any = false, extrusion = true;
+    for (const auto& b : m.bodies) {
+      if (y1 <= b.box[1] || y0 >= b.box[4]) continue;
+      any = true;
+      extrusion = extrusion && nf::is_extrusion_band(b.shell, {0, 1, 0}, y0, y1);
+    }
+    if (mid.regions.empty()) {
+      std::string mat = m.background;  // no boundary in the band: the material on the axis
+      for (const auto& b : m.bodies)
+        if (nf::point_in_shell(b.shell, {0, ym, 0})) mat = b.material;
+      rb.kind = "homogeneous";
+      rb.material = mat;
+      LayerEntry le;
+      le.factorization = o.factorization;
+      le.spec = HomogeneousLayer{y1 - y0, mat};
+      r.bands.push_back(rb);
+      out.push_back(std::move(le));
+      continue;
+    }
+    const double tol = tolOf(mid);
+    for (int n = 2; n <= maxOrder; ++n)
+      if (order[static_cast<std::size_t>(n)]) order[static_cast<std::size_t>(n)] = cyl::hasRotationSymmetry(mid.regions, n, tol);
+    if (!symmetric(mid, ym)) continue;
+    if (!any || extrusion) {
+      rb.kind = "contour2d";
+      out.push_back(contour(mid, y1 - y0));
+    } else {
+      rb.kind = "contour2d_staircase";
+      const int K = std::max(1, o.rcwaSlices);
+      bool ok = true;
+      std::vector<LayerEntry> steps;
+      for (int k = 0; k < K && ok; ++k) {
+        const double yy = y0 + (k + 0.5) * (y1 - y0) / K;
+        const CrossSection cs = sectionAt(m.bodies, yy, sampleTol);
+        ok = symmetric(cs, yy);
+        steps.push_back(contour(cs, (y1 - y0) / K));
+      }
+      if (!ok) continue;
+      for (auto& e : steps) out.push_back(std::move(e));
+    }
+    r.bands.push_back(rb);
+  }
+  r.rotationOrder = 1;
+  for (int n = maxOrder; n > 1; --n)
+    if (order[static_cast<std::size_t>(n)]) {
+      r.rotationOrder = n;
+      break;
+    }
+  return out;
+}
+
 std::vector<LayerEntry> layersOf(const Model& m, const CadOptions& o, const Stack& st, Report& r) {
   if (m.oneD) return layersOf1D(m, o, st, r);
   if (m.axisym) return layersOfAxisym(m, o, r);
+  if (m.rot > 0) return layersOfRotation(m, o, r);
   const int G = std::max(o.normalField.grid, 64);
   const double h = std::min(st.dx_um, st.dz_um) / G, sampleTol = 1e-3 * h;
   const auto shared = std::make_shared<const std::vector<Body>>(m.bodies);
@@ -943,9 +1097,10 @@ void checkOverlaps(const CadOptions& o, const Stack& st, Model& m, Report& r) {
     checkOverlaps1D(o, st, m, r);
     return;
   }
-  // axisymmetric: no periodic images
-  const double tol = 1e-4 * (m.axisym ? m.Rs : std::min(st.dx_um, st.dz_um));
-  const int span = m.axisym ? 0 : 1;
+  // axisymmetric and rotational symmetry: no periodic images
+  const bool axial = m.axisym || m.rot > 0;
+  const double tol = 1e-4 * (axial ? m.Rs : std::min(st.dx_um, st.dz_um));
+  const int span = axial ? 0 : 1;
   std::vector<std::array<int, 3>> reported;  // (i, j, periodic)
   // priority changes one pair per round, then everything is checked again; one round more than pairs
   // verifies the last change (v2.24; v2.21 stopped after four rounds without a final check)
@@ -1045,10 +1200,12 @@ Report check(const CadOptions& o, const Stack& st) {
   Report r;
   Model m;
   r.axisymmetric = o.axisymmetric;
-  r.oneD = !o.axisymmetric && st.dz_um <= 0;
+  r.rotation = o.rotation;
+  r.oneD = !o.axisymmetric && o.rotation == 0 && st.dz_um <= 0;
   if (!loadModel(o, st, m, r)) return r;
-  r.cellOrigin_um = m.origin;
   checkModel(o, m, r);
+  if (r.ok) centreOnAxis(o, m);
+  r.cellOrigin_um = m.origin;
   r.zCut_um = m.zCut;
   if (r.ok) checkOverlaps(o, st, m, r);
   if (!r.ok) return r;
@@ -1066,10 +1223,12 @@ std::vector<LayerEntry> slice(const CadOptions& o, const Stack& st, Report* repo
   Model m;
   std::vector<LayerEntry> layers;
   r.axisymmetric = o.axisymmetric;
-  r.oneD = !o.axisymmetric && st.dz_um <= 0;
+  r.rotation = o.rotation;
+  r.oneD = !o.axisymmetric && o.rotation == 0 && st.dz_um <= 0;
   if (loadModel(o, st, m, r)) {
-    r.cellOrigin_um = m.origin;
     checkModel(o, m, r);
+    if (r.ok) centreOnAxis(o, m);
+    r.cellOrigin_um = m.origin;
     r.zCut_um = m.zCut;
     if (r.ok) checkOverlaps(o, st, m, r);
     if (r.ok) layers = layersOf(m, o, st, r);
@@ -1128,7 +1287,8 @@ std::string previewSvg(const CadOptions& o, const Stack& st, double y) {
   if (!loadModel(o, st, m, r))
     throw Error("cad preview: " + (r.errors.empty() ? std::string() : r.errors.front().message));
   if (m.oneD) return previewSvg1D(o, st, m, r);
-  FG_REQUIRE(!m.axisym, "cad preview: not available for solids of revolution (M20); see the report bands");
+  FG_REQUIRE(!m.axisym && m.rot == 0,
+             "cad preview: not available in a cylindrical stack (M20, M21); see the report bands");
   FG_REQUIRE(std::isfinite(y), "cad preview: y_um is required for 2D gratings");
   const double h = std::min(st.dx_um, st.dz_um) / 512;
   const CrossSection cs = sectionAt(m.bodies, y, 1e-3 * h);

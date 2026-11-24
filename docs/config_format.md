@@ -126,7 +126,8 @@ dürfen sich nicht überlappen); Einschlüsse dürfen sich nicht überlappen. Be
 `cad` (M14, Build mit `FG_ENABLE_NURBFORGE`): STEP-Körper, beim Laden in Bänder expandiert (homogen,
 `contour2d`, y-variabel); in 1D-Stapeln (M23) z-invariante Körper, ein Schnitt bei `z_cut_um`, Bänder homogen,
 `lamellar1d` oder y-variabel; in Zylinderstapeln (M20) Rotationskörper mit `"axisymmetric": true`, Bänder
-homogen, `rings` oder `rings_profile`. Schlüssel und Prüfcodes in [`cad.md`](cad.md).
+homogen, `rings` oder `rings_profile`; mit `"symmetry": {"rotation": P}` (M21) P-zählig drehsymmetrische Körper,
+Bänder homogen, `contour2d` oder `contour2d_staircase`. Schlüssel und Prüfcodes in [`cad.md`](cad.md).
 
 `contour2d` (M13): Regionen mit äußerer Kontur und Löchern, paarweise disjunkt (auch mit den periodischen
 Bildern; geprüft, sonst Fehler). Formen: `circle`, `ellipse` (exakt als rationale Quadratiken), `polygon_um`,
@@ -319,7 +320,8 @@ Theorem in Volumenform, ½ Im ∫(ε − ε_∞) E·Ē_bg dV). Die Volumenintegr
 (sonst σ_abs = 0, σ_ext = σ_sca) oder mit `"optical_theorem": true` (etwa doppelte Rechenzeit); `C_Sext_ot` fehlt
 sonst, ebenso bei verlustbehaftetem Hintergrund (Python dann `nan`). Python
 `absorption_um2`, `extinction_um2`, `extinction_theorem_um2`. CAD-Rotationskörper: Schicht `cad` mit
-`"axisymmetric": true` ([`cad.md`](cad.md)).
+`"axisymmetric": true`; P-zählig drehsymmetrische CAD-Körper: Schicht `cad` ohne `"axisymmetric"` in einem Stapel mit
+`"symmetry": {"rotation": P}` ([`cad.md`](cad.md)).
 
 Winkelspektrum und Fernfeld (M20): je Harmonischer und Seite (oben ins Superstrat, unten ins Substrat, falls
 verlustfrei) dP/dθ an den Knoten des Spektrums mit k < n (θ = asin(k/n)), getrennt nach s (TE) und p (TM), dazu das
