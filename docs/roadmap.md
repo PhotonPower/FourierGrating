@@ -262,8 +262,9 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
     über die Bogenenden, `cyl::coupledQBar`; ≤ 6,5e-8 gegen Differenzenquotienten) – `tests/validation/test_v22_cylp.cpp`
   - **Offen für die Abnahme:** `V22c.PillarsAgainstCartesianPml` auf dem Zielsystem (`FG_SERVER_TESTS=1`; Quadrat und
     Sechseck κ_max = 8, L = 2/3 gegen M18 N = 10/14, Silber als Konvergenzstudie)
-  - Als Nächstes: Gradienten für ebene Wellen und Strahl als Streufeld im Klassenpfad;
-    Beschleunigung: Halbräume und homogene Schichten blockweise
+  - Erledigt (Plan v2.45): Beschleunigung – Halbräume und homogene Schichten gruppenweise, Quellen über das
+    Schur-Komplement (Säule P = 3, L = 2: 29 s → 16 s) – `CylGrouped.EqualTheDenseOperations`
+  - Als Nächstes: Gradienten für ebene Wellen und Strahl als Streufeld im Klassenpfad
 
 ## Dispersive Materialien (Plan v2.18–v2.19, Teil 8: M22)
 

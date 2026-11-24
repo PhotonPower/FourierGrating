@@ -16,6 +16,9 @@ namespace fg {
 
 struct SMatrix {
   MatC S11, S12, S21, S22;
+  /// > 0: grouped over this many groups (the blocks couple only the amplitudes {g, groups + g}; stored in full).
+  /// A hint for star: grouped factors make its products O(n^2), two grouped factors the whole product O(n).
+  Eigen::Index groups = 0;
 
   int nh() const { return static_cast<int>(S11.rows()); }
   /// Neutral element of the star product (transparent layer of zero thickness).
@@ -28,8 +31,17 @@ struct SMatrix {
 /// Use only for thin slices (T11 must be well conditioned).
 SMatrix fromTransfer(const MatC& T);
 
-/// Redheffer star product C = lower * upper (Plan eq:star).
+/// Redheffer star product C = lower * upper (Plan eq:star). Grouped factors (SMatrix::groups) are used: both
+/// grouped -> groupedStar, one grouped -> its products per group, only the two LU factorizations stay dense.
 SMatrix star(const SMatrix& lower, const SMatrix& upper);
+
+/// Grouped forms (cylindrical classes, M21 acceleration): S-matrices whose blocks couple only the amplitudes
+/// {g, G + g} of each group g = 0..G-1 (n_h = 2G; homogeneous layers and half spaces of the Hankel basis, one group
+/// per spectral node and harmonic). The same formulas per 2 x 2 group, O(G) instead of O(G^3); the result has the
+/// same structure.
+SMatrix groupedStar(const SMatrix& lower, const SMatrix& upper, Eigen::Index G);
+/// fromTransfer(PsiInv Psi) for block-diagonal PsiInv, Psi over the groups (state rows {g + k G}, k = 0..3).
+SMatrix groupedFromTransfer(const MatC& PsiInv, const MatC& Psi, Eigen::Index G);
 
 /// Star product of S_0 * S_1 * ... * S_{K-1} as a balanced binary tree of fixed shape (Plan section
 /// "M15", step 3): pairs (0,1), (2,3), ..., an unpaired last element moves up one level, then

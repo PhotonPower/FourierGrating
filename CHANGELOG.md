@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M21, Beschleunigung des Klassenpfads (Plan v2.45): Halbräume und homogene Schichten der Hankel-Basis gruppenweise
+  (`groupedLayerSMatrix`, `groupedFromTransfer`, `groupedStar`, Marke `SMatrix::groups`, `star` mit einem gruppierten
+  Faktor in O(n²) außer den zwei LU), Ψ⁻¹W der strukturierten Schichten gruppenweise, Quellen der ebenen Welle über das
+  Schur-Komplement (2n_f statt 4n_f). Säule P = 3, L = 2: 29 s → 16 s; Quadrat zwischen homogenen Schichten 7,2 s → 2,6 s;
+  volle lokale Testsuite 49 → 36 min. Test `CylGrouped.EqualTheDenseOperations`.
+  Kartesische Ergebnisse bitgleich.
 - M21 V22g, Gradienten im Klassenpfad (Plan v2.44): Gauß-Strahlen mit `"symmetry": {"rotation": P}` nach Dicken,
   Ringradien, Materialien und jeder Zahl einer `polygon2d`/`contour2d`-Geometrie, die die P-zählige Symmetrie erhält.
   Formableitung der Winkelkoeffizienten über die Bogenenden (`fg::cyl::angularCoefficientsShape`), Rückwärtsregel

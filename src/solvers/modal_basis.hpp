@@ -44,6 +44,10 @@ class ModalBasis {
   virtual double rhoEstimate(const StackLayer& layer) const = 0;
   /// Reduced 2 n_f system of one polarization (Cartesian 1D only, Plan eq:TE / eq:TM).
   virtual std::optional<Polarization> polarization() const { return std::nullopt; }
+  /// G > 0: the half-space bases and the modes of homogeneous layers are block-diagonal over G groups (state rows
+  /// {g + k G}, k = 0..3; mode columns {g, G + g}), so that their S-matrices are grouped (groupedLayerSMatrix,
+  /// groupedFromTransfer, groupedStar). Hankel basis: one group per spectral node and harmonic (M21 acceleration).
+  virtual Eigen::Index groups() const { return 0; }
 };
 
 }  // namespace fg::detail

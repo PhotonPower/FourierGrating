@@ -48,8 +48,16 @@ struct RCWASliceRecord {
   MatC G;  ///< system matrix of eq:rcwa_S
 };
 
-/// Stable slice S-matrix S = H G^-1 in the reference basis (Plan eq:rcwa_S).
+/// Stable slice S-matrix S = H G^-1 in the reference basis (Plan eq:rcwa_S). refGroups > 0: ref.PsiInv is
+/// block-diagonal over that many groups (state rows {g + k G}, cylindrical classes), the products PsiInv W are taken
+/// per group (O(G^2) instead of O(G^3)).
 SMatrix stableLayerSMatrix(const LayerModes& m, double h, const ModeBasis& ref,
-                           RCWASliceRecord* record = nullptr);
+                           RCWASliceRecord* record = nullptr, Eigen::Index refGroups = 0);
+
+/// stableLayerSMatrix for modes that are block-diagonal over G groups as the reference (homogeneous layers of the
+/// Hankel basis, M21 acceleration): state rows {g + k G}, mode columns {g, G + g} of Wu and Wd. The same formulas per
+/// 4 x 4 group, O(G); the record (modes, h, G) as stableLayerSMatrix.
+SMatrix groupedLayerSMatrix(const LayerModes& m, double h, const ModeBasis& ref, Eigen::Index G,
+                            RCWASliceRecord* record = nullptr);
 
 }  // namespace fg
