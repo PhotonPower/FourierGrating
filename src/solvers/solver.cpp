@@ -817,7 +817,14 @@ class StackSolver final : public Solver {
       }
       o.boundModes = cyl::planarBoundModes(sub.eps, sup.eps, bgEps, bgH, ka, kb);
     }
-    c.grid = cyl::spectralGrid(o);
+    if (cs.fixedK.empty()) {
+      c.grid = cyl::spectralGrid(o);
+    } else {  // C++ API: a fixed grid (gradient checks)
+      FG_REQUIRE(cs.fixedW.size() == cs.fixedK.size(), "cylindrical: fixedK and fixedW of equal length");
+      c.grid.k = Eigen::Map<const VecC>(cs.fixedK.data(), static_cast<Eigen::Index>(cs.fixedK.size()));
+      c.grid.w = Eigen::Map<const VecC>(cs.fixedW.data(), static_cast<Eigen::Index>(cs.fixedW.size()));
+      c.grid.edges = cs.fixedEdges;
+    }
     c.kmax = o.kmax;
     c.delta = o.delta;
     c.fac = cs.liR ? cyl::CylFactorization::LiR : cyl::CylFactorization::Laurent;

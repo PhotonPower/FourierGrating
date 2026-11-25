@@ -588,6 +588,29 @@ TEST(CylAdjoint, FluxBar) {
     }
 }
 
+// Half-space materials (Plan v2.48): eps of homogeneousModes through Psi and PsiInv, lossy and lossless media, nodes
+// on the deformed path
+TEST(CylAdjoint, HomogeneousModesBar) {
+  const auto g = deformedGrid();
+  const Eigen::Index n = g.k.size();
+  const MatC Pb = randomMat(4 * n, 4 * n, 5), Qb = randomMat(4 * n, 4 * n, 6);
+  // lossless (superstrate: real direction only; Im would cross the branch cut of beta) off the branch points of the
+  // grid, and lossy
+  for (const cplx eps : {cplx(2.89, 0.0), cplx(-4.0, 0.6)}) {
+    auto L = [&](cplx e) {
+      const fg::ModeBasis mb = cyl::homogeneousModes(e, g.k);
+      return (Pb.conjugate().cwiseProduct(mb.Psi).sum() + Qb.conjugate().cwiseProduct(mb.PsiInv).sum()).real();
+    };
+    const cplx bar = cyl::homogeneousModesBar(eps, g.k, Pb, Qb);
+    const double h = 1e-6;
+    for (const cplx dir : {cplx(1, 0), cplx(0, 1)}) {
+      if (eps.imag() == 0.0 && dir.imag() != 0.0) continue;
+      const double fd = (L(eps + h * dir) - L(eps - h * dir)) / (2 * h);
+      EXPECT_NEAR(std::real(std::conj(bar) * dir), fd, 1e-7 * (1 + std::abs(fd))) << eps << " " << dir;
+    }
+  }
+}
+
 TEST(CylAdjoint, PropagationMatrixAndFactorization) {
   cyl::SpectrumOptions o;
   o.kmax = 4.0;
@@ -601,7 +624,7 @@ TEST(CylAdjoint, PropagationMatrixAndFactorization) {
   const cyl::Rings rings{{0.7, 1.6}, {cplx(4.0, 0.3), cplx(-6.0, 1.0)}, cplx(2.25, 0.0)};
   const double h = 1e-6;
   for (const auto f : {cyl::CylFactorization::Laurent, cyl::CylFactorization::LiR})
-    for (const int m : {0, 1, -2}) {
+    for (const int m : {0, 1, -2, 3}) {
       const MatC Mb = randomMat(4 * n, 4 * n, 11 + m);
       auto L = [&](const cyl::Rings& r) {
         return reDot(Mb, cyl::propagationMatrix(g.k, cyl::cylQ(g, m, r, f)));

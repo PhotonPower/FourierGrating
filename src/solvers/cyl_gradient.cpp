@@ -56,10 +56,10 @@ CylParam resolveCyl(const json& j, const io::RunConfig& cfg, const std::string& 
     p.kind = CylParam::Kind::Material;
     p.material = t[1];
     FG_REQUIRE(t[2] == "n" || t[2] == "eps", "gradient: material parameters are n or eps ('" + ptr + "')");
-    FG_REQUIRE(p.material != st.superstrate && p.material != st.substrate,
-               "gradient (cylindrical): materials of the half spaces are not parameters yet ('" + ptr + "')");
     p.viaN = t[2] == "n";
     p.comp = t.size() >= 4 ? std::stoi(t[3]) : 0;
+    FG_REQUIRE(p.material != st.superstrate || p.comp == 0,
+               "gradient (cylindrical): the superstrate stays lossless (no imaginary part as parameter): '" + ptr + "'");
     return p;
   }
   FG_REQUIRE(t.size() >= 3 && t[0] == "layers", "gradient (cylindrical): unsupported parameter '" + ptr + "'");
@@ -217,7 +217,29 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
   }
   for (std::size_t q = 0; q < ps.size(); ++q)
     if (ps[q].kind == CylParam::Kind::Shape) ps[q].velocity = shapeVelocity(j, params[q], cfg, P, ps[q].layer);
-  // plane wave: thicknesses and background materials (homogeneous layers, outer ring materials) change the
+  // half-space materials (Plan v2.48): through the bases of superstrate and substrate, the incident beam and P_inc;
+  // the spectral grid stays fixed. Plane waves: the substrate only (k_par depends on the superstrate).
+  bool supParam = false, subParam = false;
+  for (const CylParam& p : ps)
+    if (p.kind == CylParam::Kind::Material) {
+      supParam = supParam || p.material == P.stack.superstrate;
+      subParam = subParam || p.material == P.stack.substrate;
+    }
+  FG_REQUIRE(!(pw && supParam), "gradient (cylindrical plane wave): the superstrate material is not a parameter (the "
+                                "lateral wave number k_par of the incidence depends on it)");
+  cplx epsSupBar = 0.0, epsSubBar = 0.0;
+  const double yFocus = P.stack.cylindrical.focus_y_um * P.k0;
+  /// incident beam a_q ~ exp(i beta_q (y_f - y_top)), beta = sqrt(eps_sup - k^2): sum aInBar conj(d a / d eps_sup)
+  auto aInEpsBar = [&](const VecC& a, const VecC& abar) {
+    cplx bar = 0.0;
+    for (Eigen::Index q = 0; q < a.size(); ++q) {
+      if (a(q) == 0.0) continue;
+      const cplx kq = P.grid.k(q % P.grid.k.size()), beta = std::sqrt(P.epsSup - kq * kq);
+      bar += abar(q) * std::conj(I * (yFocus - P.yTop) / (2.0 * beta) * a(q));
+    }
+    return bar;
+  };
+  // plane wave: thicknesses and background materials (homogeneous layers, outer ring materials, substrate) change the
   // background field (Stufe 2b: its quantities by central differences, the rest analytic)
   std::vector<bool> moveBg(ps.size(), false);
   for (std::size_t q = 0; q < ps.size(); ++q) {
@@ -226,17 +248,18 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
       FG_REQUIRE(p.index < P.layers[p.layer]->rings.radii.size(), "gradient: radius index out of range");
     if (!pw) continue;
     if (p.kind == CylParam::Kind::Thickness) moveBg[q] = true;
-    if (p.kind == CylParam::Kind::Material)
+    if (p.kind == CylParam::Kind::Material) {
+      moveBg[q] = p.material == P.stack.substrate;
       for (const auto& nm : names) moveBg[q] = moveBg[q] || nm.back() == p.material;
+    }
   }
   // cotangents of the background quantities per ring layer and exponential (summed over the harmonics)
   std::vector<std::vector<BgValues>> bgBar(P.layers.size());
   for (std::size_t l = 0; l < P.layers.size(); ++l) bgBar[l].assign(P.bg[l].size(), BgValues{0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
 
   // normalization: beam -> 1 / P_inc (the phase of the beam does not change P_inc), plane wave -> um^2
-  double norm = P.toArea;
+  double norm = P.toArea, pInc = 0;
   if (!pw) {
-    double pInc = 0;
     const ModeBasis ref = cyl::homogeneousModes(P.epsSup, P.grid.k);
     for (std::size_t u = 0; u < P.classes.size(); ++u) {
       if (P.aIn[u].isZero(0.0)) continue;
@@ -322,7 +345,7 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
       } else {
         Q[l] = basis.Q(l);  // cylQ (block-diagonal over a class) or coupledQ (angular layers)
         Ml[l] = cyl::propagationMatrix(kt, Q[l]);
-        md = basis.modes(Ml[l]);
+        md = basis.modes(Ml[l]);  // ring layers of a class: per harmonic (CylBasis::modes)
       }
       RCWASliceRecord rec;
       E[l].S = stableLayerSMatrix(md, H, ref, &rec);
@@ -359,12 +382,10 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
     }
     const SourcedSMatrix& T = pre[L];
     const VecC b = T.S.S12 * aIn + T.u, aSub = T.S.S22 * aIn + T.v;
-    VecC V = VecC::Zero(4 * nf);
-    V.tail(2 * nf) = b;
-    const VecC Fup = ref.Psi * V;
-    V.setZero();
-    V.head(2 * nf) = aSub;
-    const VecC Fdown = basis.sub().Psi * V;
+    VecC Vup = VecC::Zero(4 * nf), Vdown = VecC::Zero(4 * nf);
+    Vup.tail(2 * nf) = b;
+    Vdown.head(2 * nf) = aSub;
+    const VecC Fup = ref.Psi * Vup, Fdown = basis.sub().Psi * Vdown;
     // powers per harmonic (orthogonal in the half spaces) and their cotangents
     VecC FupBar = VecC::Zero(4 * nf), FdownBar = VecC::Zero(4 * nf);
     for (int bk = 0; bk < nb; ++bk) {
@@ -383,6 +404,10 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
     // ---- reverse
     const VecC bBar = (ref.Psi.adjoint() * FupBar).tail(2 * nf);
     const VecC aSubBar = (basis.sub().Psi.adjoint() * FdownBar).head(2 * nf);
+    // half spaces: cotangents of their bases (outputs, layer S-matrices, the substrate transfer)
+    MatC refPsib, refPsiInvb, subPsib;
+    if (supParam) refPsib = FupBar * Vup.adjoint();
+    if (subParam) subPsib = FdownBar * Vdown.adjoint();
     SourcedSMatrix cur;
     cur.S.S11 = MatC::Zero(2 * nf, 2 * nf);
     cur.S.S21 = MatC::Zero(2 * nf, 2 * nf);
@@ -396,6 +421,7 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
         const cplx kq = P.grid.k(q % n), beta = std::sqrt(P.epsSup - kq * kq);
         yTopBar += std::real(std::conj(aInBar(q)) * (-I * beta * aIn(q)));
       }
+      if (supParam) epsSupBar += aInEpsBar(aIn, aInBar);
     }
     for (std::size_t l = L; l-- > 0;) {
       SourcedSMatrix Ab, Eb;
@@ -457,7 +483,7 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
       MatC Wub, Wdb;
       VecC lub, ldb;
       double hb = 0;
-      adjoint::layerSMatrix(modes[l], H, ref, Eb.S, Wub, Wdb, lub, ldb, hb);
+      adjoint::layerSMatrix(modes[l], H, ref, Eb.S, Wub, Wdb, lub, ldb, hb, supParam ? &refPsiInvb : nullptr);
       hBar[l] += hb;
       const Eigen::Index nm = modes[l].lu.size();
       MatC W(4 * nf, 2 * nm), Wb(4 * nf, 2 * nm);
@@ -519,7 +545,38 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
       }
       epsBar[names[l].back()] += qb.epsInf + qs.epsInf;
     }
+    if (supParam || subParam) {  // pre[0] = fromTransfer(Psi_ref^-1 Psi_sub), then the half-space bases
+      const MatC& subPsi = basis.sub().Psi;
+      MatC Tb;
+      adjoint::fromTransfer(ref.PsiInv * subPsi, cur.S, Tb);
+      if (supParam) {
+        adjoint::accumulate(refPsiInvb, MatC(Tb * subPsi.adjoint()));
+        epsSupBar += cyl::homogeneousModesBar(P.epsSup, kt, refPsib, refPsiInvb);
+      }
+      if (subParam) {
+        adjoint::accumulate(subPsib, MatC(ref.PsiInv.adjoint() * Tb));
+        epsSubBar += cyl::homogeneousModesBar(P.epsSub, kt, subPsib, MatC());
+      }
+    }
   }
+  // superstrate, beam: P_inc = -sum flux(Psi_ref (a_in; 0)) per harmonic; L = S / P_inc, so dL = (L / P_inc) sum d flux
+  if (supParam && !pw) {
+    const ModeBasis ref = cyl::homogeneousModes(P.epsSup, P.grid.k);
+    for (std::size_t u = 0; u < P.classes.size(); ++u) {
+      if (P.aIn[u].isZero(0.0)) continue;
+      const int nb = P.classes[u].blocks();
+      for (int b = 0; b < nb; ++b) {
+        VecC V = VecC::Zero(4 * n), a(2 * n);
+        a << P.aIn[u].segment(b * n, n), P.aIn[u].segment((nb + b) * n, n);
+        V.head(2 * n) = a;
+        const VecC Fb = cyl::fluxBar(P.grid, ref.Psi * V, value / pInc);
+        epsSupBar += cyl::homogeneousModesBar(P.epsSup, P.grid.k, MatC(Fb * V.adjoint()), MatC());
+        epsSupBar += aInEpsBar(a, VecC((ref.Psi.adjoint() * Fb).head(2 * n)));
+      }
+    }
+  }
+  epsBar[P.stack.superstrate] += epsSupBar;
+  epsBar[P.stack.substrate] += epsSubBar;
   out.value = value;
   double sumR = 0, sumT = 0;
   for (double v : cr.reflectedPerHarmonic) sumR += v;

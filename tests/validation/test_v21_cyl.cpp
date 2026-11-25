@@ -21,6 +21,7 @@
 #include "fg/io/config.hpp"
 #include "fg/solvers/simulation.hpp"
 #include "fg/solvers/solver.hpp"
+#include "../../src/solvers/cyl_basis.hpp"
 
 using fg::cplx;
 using fg::MatC;
@@ -1040,10 +1041,10 @@ TEST(V21i, PlaneWave) {
       EXPECT_NEAR(g.grad[q], fd, 1e-6 * std::max(1.0, std::abs(fd))) << fac << " " << params[q];
     }
   }
-  // the half spaces are no parameters yet
+  // the superstrate is no parameter for plane waves (k_par depends on it; Plan v2.48)
   nlohmann::json j = gradientCase("li_r", false);
   j["incidence"] = {{"type", "plane_wave"}, {"lambda_um", 0.633}, {"phi_deg", 30}, {"psi_deg", 20}, {"delta_deg", 0}};
-  EXPECT_THROW(fg::gradient(j.dump(), obj, {"/materials/sub/n"}), fg::Error);
+  EXPECT_THROW(fg::gradient(j.dump(), obj, {"/materials/air/n"}), fg::Error);
   // outer ring material = film: eps_inf of the rings and the background at once
   j["layers"][1]["materials"] = {"core", "shell", "film"};
   const std::string pf = "/materials/film/n";
@@ -1056,6 +1057,70 @@ TEST(V21i, PlaneWave) {
   std::printf("V21i plane wave, film as outer ring material: adjoint %+.10e  fd %+.10e  diff %.1e\n", gf.grad[0], fdf,
               std::abs(gf.grad[0] - fdf));
   EXPECT_NEAR(gf.grad[0], fdf, 1e-6 * std::max(1.0, std::abs(fdf)));
+}
+
+// Half-space materials (Plan v2.48): the gradients differentiate the discrete map at a fixed spectral grid, while
+// the branch points of the grid follow the half spaces; the differences therefore run on the grid of the unperturbed
+// problem (CylindricalSpec::fixedK, C++ API). Lossy substrate (real and imaginary part), the superstrate "air" (also
+// the outer ring material: half space, rings, the beam and P_inc at once); plane wave: the substrate (also through the
+// background solution, Stufe 2b).
+namespace {
+
+double fixedGridObjective(const nlohmann::json& j, const fg::detail::CylProblem& P0,
+                          const std::function<double(const fg::CylindricalResult&)>& L) {
+  fg::io::RunConfig cfg = fg::io::parseConfig(j.dump());
+  fg::CylindricalSpec& cs = cfg.stack.cylindrical;
+  cs.fixedK.assign(P0.grid.k.data(), P0.grid.k.data() + P0.grid.k.size());
+  cs.fixedW.assign(P0.grid.w.data(), P0.grid.w.data() + P0.grid.w.size());
+  cs.fixedEdges = P0.grid.edges;
+  return L(fg::makeSolver(cfg.solver)->solve(cfg.stack, cfg.scan.front()).cylindrical);
+}
+
+void checkHalfSpaces(const nlohmann::json& j, const fg::Objective& obj, const std::vector<std::string>& params,
+                     const std::function<double(const fg::CylindricalResult&)>& L, const char* label) {
+  const fg::io::RunConfig cfg = fg::io::parseConfig(j.dump());
+  const fg::detail::CylProblem P0 = fg::detail::cylProblem(cfg.solver, cfg.stack, cfg.scan.front());
+  const fg::GradientResult g = fg::gradient(j.dump(), obj, params);
+  EXPECT_NEAR(g.value, L(solveConfig(j.dump()).cylindrical), 1e-12) << label;
+  for (std::size_t q = 0; q < params.size(); ++q) {
+    const nlohmann::json::json_pointer p(params[q]);
+    // Richardson extrapolation of central differences (h, h/2): the nodes of the root substitution lie ~1e-4 from the
+    // branch point k = n_sup, so the h^2 term is large there (h = 1e-5: 2.5e-3, 1e-6: 2.5e-5 relative)
+    const double v = j.at(p).get<double>();
+    auto central = [&](double h) {
+      nlohmann::json a = j, b = j;
+      a[p] = v + h;
+      b[p] = v - h;
+      return (fixedGridObjective(a, P0, L) - fixedGridObjective(b, P0, L)) / (2 * h);
+    };
+    const double h = 2e-6 * std::max(0.1, std::abs(v)), fd = (4 * central(0.5 * h) - central(h)) / 3;
+    std::printf("V21i half spaces, %s %-22s adjoint %+.10e  fd %+.10e  diff %.1e\n", label, params[q].c_str(), g.grad[q],
+                fd, std::abs(g.grad[q] - fd));
+    EXPECT_NEAR(g.grad[q], fd, 1e-6 * std::max(1.0, std::abs(fd))) << label << " " << params[q];
+  }
+}
+
+}  // namespace
+
+TEST(V21i, HalfSpaceMaterials) {
+  fg::Objective obj;
+  obj.cylindrical = {{fg::CylRef{'R', true, 0}, 1.0}, {fg::CylRef{'T', true, 0}, 0.5}, {fg::CylRef{'T', false, 1}, 2.0}};
+  nlohmann::json j = gradientCase("li_r", false);
+  j["materials"]["sub"]["n"] = {2.0, 0.05};
+  checkHalfSpaces(j, obj, {"/materials/sub/n/0", "/materials/sub/n/1", "/materials/air/n"}, cylObjective, "beam");
+
+  fg::Objective pobj;
+  pobj.cylindrical = {{fg::CylRef{'R', true, 0}, 1.0}, {fg::CylRef{'T', true, 0}, 0.5}, {fg::CylRef{'T', false, 0}, 2.0}};
+  j["incidence"] = {{"type", "plane_wave"}, {"lambda_um", 0.633}, {"phi_deg", 30}, {"psi_deg", 20}, {"delta_deg", 0}};
+  j["cylindrical"]["harmonics"] = {0, 1};
+  checkHalfSpaces(j, pobj, {"/materials/sub/n/0", "/materials/sub/n/1"},
+                  [](const fg::CylindricalResult& r) {
+                    double t0 = 0;
+                    for (std::size_t i = 0; i < r.harmonics.size(); ++i)
+                      if (r.harmonics[i] == 0) t0 = r.transmittedPerHarmonic[i];
+                    return r.scatteredUp_um2 + 0.5 * r.scatteredDown_um2 + 2 * t0;
+                  },
+                  "plane wave");
 }
 
 // V21g (Plan "Tests und Abnahme (M20)"): aperture in a metal screen, qualitative comparison with Popov/Bonod [22]

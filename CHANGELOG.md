@@ -3,6 +3,19 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M20/M21, Gradienten nach den Halbraummaterialien (Plan v2.48): Substrat (Re, Im) und Superstrat (Re) für Strahlen,
+  Substrat für ebene Wellen, über die Basen der Halbräume (`fg::cyl::homogeneousModesBar`), den einfallenden Strahl
+  und P_inc; Spektralgitter fest. C++-API `CylindricalSpec::fixedK`/`fixedW`/`fixedEdges` für Prüfungen bei festem
+  Gitter. Tests `V21i.HalfSpaceMaterials`, `V22g.HalfSpaceMaterialsOfTheClassPath`, `CylAdjoint.HomogeneousModesBar`.
+
+### Behoben
+- M21: Ringschichten einer Klasse werden je Harmonischer in Moden zerlegt (`CylBasis::modes`). Die Harmonischen m
+  und −m haben dieselben Eigenwerte; die Zerlegung der ganzen Klassenmatrix mischte die Blöcke, kostete etwa 1e-9 im
+  Ergebnis und verfälschte den Gradienten nach dem Außenmaterial der Ringe (V22g-Fall: 2 %).
+- M21: Formparameter, die ein Randstück auf einem Kreis um die Achse bewegen (Kreis, Kreisring), lieferten einen
+  falschen Gradienten (0); sie werden jetzt mit einer Fehlermeldung abgelehnt.
+
+### Hinzugefügt
 - M21, Gradienten für ebene Wellen im Klassenpfad (Plan v2.47): die Quellenkette von V21i Stufe 2 läuft je Klasse
   (Quelle der Klasse aus `CylBasis::planeWaveSource`), Querschnittsschichten über die neue Rückwärtsregel
   `fg::cyl::coupledSourceBar` (Materialien und Form über `coupledQShape`), Ringschichten einer Klasse über
