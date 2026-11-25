@@ -163,6 +163,19 @@ void addBlockState(VecC& F, const VecC& f, int b, Eigen::Index n) {
   const Eigen::Index nf = F.size() / 4;
   for (Eigen::Index u = 0; u < 4; ++u) F.segment(u * nf + b * n, n) += f.segment(u * n, n);
 }
+/// Harmonic b (N_k nodes) of the source spectra of a class (ring layers: block-diagonal, as CylBasis::setPlaneWave).
+cyl::PlaneWaveSource sourceBlock(const cyl::PlaneWaveSource& B, int b, Eigen::Index n) {
+  const Eigen::Index nf = B.By.size();
+  cyl::PlaneWaveSource s;
+  s.By = B.By.segment(b * n, n);
+  s.Bpm.resize(2 * n, 2);
+  if (B.Apm.size()) s.Apm.resize(2 * n, 2);
+  for (Eigen::Index u = 0; u < 2; ++u) {
+    s.Bpm.middleRows(u * n, n) = B.Bpm.middleRows(u * nf + b * n, n);
+    if (B.Apm.size()) s.Apm.middleRows(u * n, n) = B.Apm.middleRows(u * nf + b * n, n);
+  }
+  return s;
+}
 
 }  // namespace
 
@@ -268,7 +281,6 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
     const cyl::HarmonicMap& map = P.classes[u];
     const int nb = map.blocks(), m = map.m0;
     const Eigen::Index nf = nb * n;
-    FG_REQUIRE(!pw || nb == 1, "gradient (cylindrical): plane waves per harmonic only");
     const VecC zero = VecC::Zero(2 * nf);
     const VecC aIn = pw ? zero : P.aIn[u];
     if (!pw && aIn.isZero(0.0)) {
@@ -319,19 +331,19 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
       E[l].v = zero;
       if (pw && !lay.homogeneous()) {
         Src& sr = src[l];
-        sr.B = cyl::planeWaveSource(P.grid, m, lay.rings, P.kpar, P.Psi, P.fac, Q[l]);
+        sr.B = basis.planeWaveSource(l);  // planeWaveSource per harmonic or coupledSource (angular layers, M21)
         sr.Qyy = std::make_unique<Eigen::PartialPivLU<MatC>>(Q[l].Qyy);
         const double lmax = std::max(modes[l].lu.cwiseAbs().maxCoeff(), modes[l].ld.cwiseAbs().maxCoeff());
         sr.bv = bgValues(P, l);
-        VecC F0 = VecC::Zero(4 * n), F1 = VecC::Zero(4 * n);
+        VecC F0 = VecC::Zero(4 * nf), F1 = VecC::Zero(4 * nf);
         for (const BgValues& t : sr.bv) {
           double dist = 1e300;
           for (Eigen::Index q = 0; q < modes[l].lu.size(); ++q)
             dist = std::min({dist, std::abs(t.kappa - modes[l].lu(q)), std::abs(t.kappa - modes[l].ld(q))});
           FG_REQUIRE(dist >= 1e-8 * lmax, "gradient (cylindrical plane wave): a background exponent resonates with "
                                           "a slice mode (the solver integrates that slice with RK)");
-          const VecC sig = cyl::scatteredSource(P.grid.k, *sr.Qyy, sr.B, t.cp, t.cm, t.ey);  // linear in (c, e_y)
-          const VecC pk = (t.kappa * MatC::Identity(4 * n, 4 * n) - Ml[l]).partialPivLu().solve(sig);
+          const VecC sig = cyl::scatteredSource(kt, *sr.Qyy, sr.B, t.cp, t.cm, t.ey);  // linear in (c, e_y)
+          const VecC pk = (t.kappa * MatC::Identity(4 * nf, 4 * nf) - Ml[l]).partialPivLu().solve(sig);
           sr.sigma.push_back(sig);
           sr.p.push_back(pk);
           F0 += pk * t.e0;
@@ -340,8 +352,8 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
         sr.g0 = ref.PsiInv * F0;
         sr.g1 = ref.PsiInv * F1;
         const SMatrix& S = E[l].S;
-        E[l].u = sr.g1.tail(2 * n) - S.S11 * sr.g0.tail(2 * n) - S.S12 * sr.g1.head(2 * n);
-        E[l].v = sr.g0.head(2 * n) - S.S21 * sr.g0.tail(2 * n) - S.S22 * sr.g1.head(2 * n);
+        E[l].u = sr.g1.tail(2 * nf) - S.S11 * sr.g0.tail(2 * nf) - S.S12 * sr.g1.head(2 * nf);
+        E[l].v = sr.g0.head(2 * nf) - S.S21 * sr.g0.tail(2 * nf) - S.S22 * sr.g1.head(2 * nf);
       }
       pre[l + 1] = star(pre[l], E[l]);
     }
@@ -402,19 +414,19 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
         const SMatrix& S = E[l].S;
         const VecC& ub = Eb.u;
         const VecC& vb = Eb.v;
-        const VecC g0t = sr.g0.tail(2 * n), g1h = sr.g1.head(2 * n);
+        const VecC g0t = sr.g0.tail(2 * nf), g1h = sr.g1.head(2 * nf);
         Eb.S.S11 -= ub * g0t.adjoint();
         Eb.S.S12 -= ub * g1h.adjoint();
         Eb.S.S21 -= vb * g0t.adjoint();
         Eb.S.S22 -= vb * g1h.adjoint();
-        VecC g0b(4 * n), g1b(4 * n);
+        VecC g0b(4 * nf), g1b(4 * nf);
         g0b << vb, -(S.S11.adjoint() * ub + S.S21.adjoint() * vb);
         g1b << -(S.S12.adjoint() * ub + S.S22.adjoint() * vb), ub;
         const VecC F0b = ref.PsiInv.adjoint() * g0b, F1b = ref.PsiInv.adjoint() * g1b;
-        Msrc = MatC::Zero(4 * n, 4 * n);
-        Bpmbar = MatC::Zero(2 * n, 2);
-        Bybar = VecC::Zero(n);
-        Qyysrc = MatC::Zero(n, n);
+        Msrc = MatC::Zero(4 * nf, 4 * nf);
+        Bpmbar = MatC::Zero(2 * nf, 2);
+        Bybar = VecC::Zero(nf);
+        Qyysrc = MatC::Zero(nf, nf);
         for (std::size_t t = 0; t < sr.p.size(); ++t) {
           const BgValues& term = sr.bv[t];
           BgValues& tb = bgBar[l][t];
@@ -422,20 +434,20 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
           tb.e1 += sr.p[t].dot(F1b);
           const VecC pb = std::conj(term.e0) * F0b + std::conj(term.e1) * F1b;
           // p = A^-1 sigma, A = kappa - M: rhs bar = A^-H pbar, Mbar += rhsbar p^H, kappabar = -p^H rhsbar
-          const MatC A = term.kappa * MatC::Identity(4 * n, 4 * n) - Ml[l];
+          const MatC A = term.kappa * MatC::Identity(4 * nf, 4 * nf) - Ml[l];
           const VecC rb = A.adjoint().partialPivLu().solve(pb);
           Msrc += rb * sr.p[t].adjoint();
           tb.kappa -= sr.p[t].dot(rb);
           const VecC& sb = rb;
           // sigma = (k o x, -k o x, Bpm (c+, c-) head, -tail), x = Q_yy^-1 (e_y B_y)
           const VecC x = sr.Qyy->solve(VecC(term.ey * sr.B.By));
-          const VecC xb = P.grid.k.conjugate().cwiseProduct(VecC(sb.head(n) - sb.segment(n, n)));
+          const VecC xb = kt.conjugate().cwiseProduct(VecC(sb.head(nf) - sb.segment(nf, nf)));
           const VecC z = Q[l].Qyy.adjoint().partialPivLu().solve(xb);
           Bybar += std::conj(term.ey) * z;
           Qyysrc -= z * x.adjoint();
           tb.ey += VecC(sr.Qyy->solve(sr.B.By)).dot(xb);  // x = e_y Q_yy^-1 B_y
-          VecC ppmb(2 * n);
-          ppmb << sb.segment(2 * n, n), -sb.segment(3 * n, n);
+          VecC ppmb(2 * nf);
+          ppmb << sb.segment(2 * nf, nf), -sb.segment(3 * nf, nf);
           Bpmbar.col(0) += ppmb * std::conj(term.cp);
           Bpmbar.col(1) += ppmb * std::conj(term.cm);
           tb.cp += VecC(sr.B.Bpm.col(0)).dot(ppmb);
@@ -463,24 +475,35 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
         epsBar[names[l][0]] += Qb.Qpp.trace() + Qb.Qmm.trace() + Qb.Qyy.trace();
         continue;
       }
-      if (lay.angular) {  // M21: coupledQ (Laurent), permittivities and the shape of the regions
-        const cyl::CoupledQBar cb = cyl::coupledQBar(P.grid, map, lay.section, Qb);
-        for (std::size_t i = 0; i < cb.eps.size(); ++i) epsBar[names[l][i]] += cb.eps[i];
-        epsBar[names[l].back()] += cb.epsBg;
-        for (std::size_t q = 0; q < ps.size(); ++q)
-          if (ps[q].kind == CylParam::Kind::Shape && ps[q].layer == l)
-            out.grad[q] += cyl::coupledQShape(cb, map, lay.section, ps[q].velocity);
+      if (Msrc.size() && (lay.angular || nb > 1)) Qb.Qyy += Qyysrc;
+      if (lay.angular) {  // M21: coupledQ (Laurent) and coupledSource, permittivities and the shape of the regions
+        std::vector<cyl::CoupledQBar> bars{cyl::coupledQBar(P.grid, map, lay.section, Qb)};
+        if (Msrc.size()) bars.push_back(cyl::coupledSourceBar(P.grid, map, lay.section, P.kpar, P.Psi, Bpmbar, Bybar));
+        for (const cyl::CoupledQBar& cb : bars) {
+          for (std::size_t i = 0; i < cb.eps.size(); ++i) epsBar[names[l][i]] += cb.eps[i];
+          epsBar[names[l].back()] += cb.epsBg;
+          for (std::size_t q = 0; q < ps.size(); ++q)
+            if (ps[q].kind == CylParam::Kind::Shape && ps[q].layer == l)
+              out.grad[q] += cyl::coupledQShape(cb, map, lay.section, ps[q].velocity);
+        }
         continue;
       }
-      if (nb > 1) {  // ring layer of a class: block-diagonal, cylQBar per harmonic
+      if (nb > 1) {  // ring layer of a class: block-diagonal, cylQBar (and planeWaveSourceBar) per harmonic
         for (int bk = 0; bk < nb; ++bk) {
-          const cyl::CylQBar qb = cyl::cylQBar(P.grid, map.m(bk), lay.rings, P.fac, diagonalBlock(Q[l], bk, n),
-                                               diagonalBlock(Qb, bk, n));
-          for (std::size_t i = 0; i < qb.eps.size(); ++i) {
-            epsBar[names[l][i]] += qb.eps[i];
-            rBar[l][i] += qb.radii[i];
+          const cyl::CylQ Qk = diagonalBlock(Q[l], bk, n);
+          cyl::CylQ Qbk = diagonalBlock(Qb, bk, n);
+          cyl::CylQBar qs;
+          if (Msrc.size()) {
+            const cyl::PlaneWaveSource Bk = sourceBlock(src[l].B, bk, n);
+            const cyl::PlaneWaveSource Bbk = sourceBlock({Bpmbar, Bybar, MatC()}, bk, n);
+            cyl::planeWaveSourceBar(P.grid, map.m(bk), lay.rings, P.kpar, P.Psi, P.fac, Qk, Bk, Bbk.Bpm, Bbk.By, Qbk, qs);
           }
-          epsBar[names[l].back()] += qb.epsInf;
+          const cyl::CylQBar qb = cyl::cylQBar(P.grid, map.m(bk), lay.rings, P.fac, Qk, Qbk);
+          for (std::size_t i = 0; i < qb.eps.size(); ++i) {
+            epsBar[names[l][i]] += qb.eps[i] + (qs.eps.empty() ? cplx(0.0) : qs.eps[i]);
+            rBar[l][i] += qb.radii[i] + (qs.radii.empty() ? 0.0 : qs.radii[i]);
+          }
+          epsBar[names[l].back()] += qb.epsInf + qs.epsInf;
         }
         continue;
       }

@@ -528,7 +528,7 @@ TEST(V22b, EccentricFiberCoreHasTheModesOfTheCentredCore) {
 // ellipse (both keep the 2-fold symmetry) above a rings layer (Li in r, block-diagonal over the class)
 namespace {
 
-nlohmann::json v22gCase(int P) {
+nlohmann::json v22gCase(int P, bool planeWave = false) {
   auto j = nlohmann::json::parse(R"({
     "cylindrical": {"spectrum": {"kappa_max": 2, "dk_factor": 1}, "factorization": "li_r", "symmetry": {"L": 1}},
     "materials": {"air": {"n": 1.0}, "sub": {"n": 2.0}, "core": {"n": [1.7, 0.02]}, "film": {"n": 1.6}},
@@ -537,6 +537,10 @@ nlohmann::json v22gCase(int P) {
                   "polarization": "x"},
     "layers": []})");
   j["cylindrical"]["symmetry"]["rotation"] = P;
+  if (planeWave) {  // oblique, harmonics -1..1 (P = 1: one class of three blocks; P = 2: classes 0 and 1)
+    j["incidence"] = {{"type", "plane_wave"}, {"lambda_um", 1.0}, {"phi_deg", 30}, {"psi_deg", 20}, {"delta_deg", 0}};
+    j["cylindrical"]["harmonics"] = {-1, 0, 1};
+  }
   if (P == 1) {
     j["layers"] = nlohmann::json::array(
         {{{"type", "homogeneous"}, {"thickness_um", 0.08}, {"material", "film"}},
@@ -553,17 +557,19 @@ nlohmann::json v22gCase(int P) {
   return j;
 }
 
+/// R + T/2 + 2 T_{m=1} (beam) or sigma_up + sigma_down / 2 + 2 sigma_{down, m=1} (plane wave, um^2).
 double v22gObjective(const fg::CylindricalResult& r) {
   double t1 = 0;
   for (std::size_t i = 0; i < r.harmonics.size(); ++i)
     if (r.harmonics[i] == 1) t1 = r.transmittedPerHarmonic[i];
+  if (r.planeWave) return r.scatteredUp_um2 + 0.5 * r.scatteredDown_um2 + 2 * t1;
   return r.reflected + 0.5 * r.transmitted + 2 * t1;
 }
 
-void checkV22g(int P, const std::vector<std::string>& params) {
+void checkV22g(int P, const std::vector<std::string>& params, bool planeWave = false) {
   fg::Objective obj;
   obj.cylindrical = {{fg::CylRef{'R', true, 0}, 1.0}, {fg::CylRef{'T', true, 0}, 0.5}, {fg::CylRef{'T', false, 1}, 2.0}};
-  const nlohmann::json j = v22gCase(P);
+  const nlohmann::json j = v22gCase(P, planeWave);
   const fg::GradientResult g = fg::gradient(j.dump(), obj, params);
   EXPECT_NEAR(g.value, v22gObjective(solveConfig(j.dump()).cylindrical), 1e-12) << P;
   for (std::size_t q = 0; q < params.size(); ++q) {
@@ -574,8 +580,8 @@ void checkV22g(int P, const std::vector<std::string>& params) {
     b[p] = v - h;
     const double fd =
         (v22gObjective(solveConfig(a.dump()).cylindrical) - v22gObjective(solveConfig(b.dump()).cylindrical)) / (2 * h);
-    std::printf("V22g P = %d %-40s adjoint %+.10e  fd %+.10e  diff %.1e\n", P, params[q].c_str(), g.grad[q], fd,
-                std::abs(g.grad[q] - fd));
+    std::printf("V22g %s P = %d %-40s adjoint %+.10e  fd %+.10e  diff %.1e\n", planeWave ? "plane wave" : "beam", P,
+                params[q].c_str(), g.grad[q], fd, std::abs(g.grad[q] - fd));
     EXPECT_NEAR(g.grad[q], fd, 1e-6 * std::max(1.0, std::abs(fd))) << P << " " << params[q];
   }
 }
@@ -595,4 +601,14 @@ TEST(V22g, EllipseAboveRingsWithTwofoldSymmetry) {
   fg::Objective obj;
   obj.cylindrical = {{fg::CylRef{'R', true, 0}, 1.0}};
   EXPECT_THROW(fg::gradient(v22gCase(2).dump(), obj, {"/layers/1/regions/0/ellipse/center_um/0"}), fg::Error);
+}
+
+// Plane-wave gradients in the class path (Plan v2.47): the source chain of V21i Stufe 2 per class, the class source
+// through coupledSourceBar (angular layers) or planeWaveSourceBar per harmonic (ring layers); background quantities
+// (thickness, background materials) by central differences as V21i Stufe 2b.
+TEST(V22g, PlaneWaveThroughTheClassPath) {
+  checkV22g(1, {"/layers/1/regions/0/polygon_um/1/0", "/materials/core/n/0", "/materials/film/n",
+                "/layers/1/thickness_um"}, true);
+  checkV22g(2, {"/layers/1/regions/0/ellipse/radii_um/0", "/layers/0/radii_um/0", "/materials/core/n/1",
+                "/layers/0/thickness_um"}, true);
 }

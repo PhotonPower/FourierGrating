@@ -361,3 +361,45 @@ TEST(CylCoupled, ReverseRuleAgainstDifferences) {
   const double shape = cyl::coupledQShape(bar, map, section(0, e0, bg0), {velocity(sp.regions[0], sm.regions[0], h)});
   check("vertex", shape, (L(sp) - L(sm)) / (2 * h));
 }
+
+TEST(CylCoupled, SourceReverseRuleAgainstDifferences) {
+  // dL = Re sum conj(Bbar) dB of the class source (coupledSource) for fixed cotangents of Bpm and By: permittivities
+  // (real and imaginary parts, background) and a vertex of a pentagon (P = 1, harmonics -1, 0, 1, oblique kpar, Psi)
+  // against central differences
+  const auto grid = fiberGrid(2.0, 1.6);
+  const Eigen::Index nf = 3 * grid.k.size();
+  const cyl::HarmonicMap map{0, 1, 1};
+  const double kpar = 0.7, Psi = 0.4;
+  auto section = [](double dz, cplx e, cplx bg) {
+    cyl::AngularSection s;
+    s.regions = {region(pentagon(0.0, dz))};
+    s.eps = {e};
+    s.epsBg = bg;
+    return s;
+  };
+  const cplx e0(4.0, 0.3), bg0(1.2, 0.05);
+  fg::MatC Bpmb(2 * nf, 2);
+  fg::VecC Byb(nf);
+  for (Eigen::Index i = 0; i < 2 * nf; ++i)
+    for (Eigen::Index c = 0; c < 2; ++c) Bpmb(i, c) = cplx(std::sin(0.13 * i + c), std::cos(0.29 * i - 0.5 * c));
+  for (Eigen::Index i = 0; i < nf; ++i) Byb(i) = cplx(std::cos(0.17 * i), std::sin(0.41 * i + 0.2));
+  auto L = [&](const cyl::AngularSection& s) {
+    const auto B = cyl::coupledSource(grid, map, s, kpar, Psi);
+    return (Bpmb.conjugate().cwiseProduct(B.Bpm).sum() + Byb.conjugate().cwiseProduct(B.By).sum()).real();
+  };
+  const auto bar = cyl::coupledSourceBar(grid, map, section(0, e0, bg0), kpar, Psi, Bpmb, Byb);
+  const double h = 1e-6;
+  auto check = [](const char* what, double analytic, double fd) {
+    std::printf("coupledSource reverse %-8s analytic %+.10e  fd %+.10e\n", what, analytic, fd);
+    EXPECT_NEAR(analytic, fd, 1e-7 * std::max(1.0, std::abs(fd))) << what;
+  };
+  for (const cplx d : {cplx(1, 0), cplx(0, 1)}) {
+    check(d.real() ? "Re eps" : "Im eps", std::real(std::conj(bar.eps[0]) * d),
+          (L(section(0, e0 + h * d, bg0)) - L(section(0, e0 - h * d, bg0))) / (2 * h));
+    check(d.real() ? "Re bg" : "Im bg", std::real(std::conj(bar.epsBg) * d),
+          (L(section(0, e0, bg0 + h * d)) - L(section(0, e0, bg0 - h * d))) / (2 * h));
+  }
+  const auto sp = section(h, e0, bg0), sm = section(-h, e0, bg0);
+  const double shape = cyl::coupledQShape(bar, map, section(0, e0, bg0), {velocity(sp.regions[0], sm.regions[0], h)});
+  check("vertex", shape, (L(sp) - L(sm)) / (2 * h));
+}

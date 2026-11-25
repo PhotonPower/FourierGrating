@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M21, Gradienten für ebene Wellen im Klassenpfad (Plan v2.47): die Quellenkette von V21i Stufe 2 läuft je Klasse
+  (Quelle der Klasse aus `CylBasis::planeWaveSource`), Querschnittsschichten über die neue Rückwärtsregel
+  `fg::cyl::coupledSourceBar` (Materialien und Form über `coupledQShape`), Ringschichten einer Klasse über
+  `planeWaveSourceBar` je Harmonischer; Hintergrundgrößen (Dicken, Hintergrundmaterialien) wie Stufe 2b. Tests
+  `V22g.PlaneWaveThroughTheClassPath` (≤ 4,6e-10), `CylCoupled.SourceReverseRuleAgainstDifferences`.
 - M21, Strahl als Streufeld im Klassenpfad (Plan v2.46): `"scattered_field": true` mit `"symmetry": {"rotation": P}`;
   der Hintergrundstapel (Ringe → Außenmaterial, `polygon2d`/`contour2d` → `background`) ist diagonal in den
   Harmonischen und wird je Klasse auf dem Gitter gelöst, Quelle σ = (M − M_bg) F_bg wie V21e. Test
