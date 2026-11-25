@@ -71,6 +71,12 @@ struct CoupledQBar {
 CoupledQBar coupledQBar(const SpectralGrid& grid, const HarmonicMap& map, const AngularSection& section,
                         const CylQ& Qbar, int nodesPerPanel = 16);
 
+/// Reverse of coupledSource (M21 plane-wave gradients) for the cotangents BpmBar (2 n_f x 2) and ByBar (n_f), dL = Re
+/// sum conj(bar) dB: the cotangents of the region permittivities and of epsBg and G on the radial rule of
+/// coupledSource (as coupledQBar; coupledQShape takes the result for the shape derivative).
+CoupledQBar coupledSourceBar(const SpectralGrid& grid, const HarmonicMap& map, const AngularSection& section,
+                             double kpar, double Psi, const MatC& BpmBar, const VecC& ByBar, int nodesPerPanel = 16);
+
 /// Shape derivative dL/dtheta of coupledQ for regions moving with velocity[b] (empty: region b fixed): sum_b
 /// (eps_b - epsBg) d chi_q^(b) / d theta (angularCoefficientsShape) on the radial rule of bar. chi_q is continuous in
 /// r, so the moving critical radii add no terms; the derivative is that of the exact integrals (the quadrature of

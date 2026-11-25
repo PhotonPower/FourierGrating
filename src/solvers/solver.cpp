@@ -416,17 +416,20 @@ class StackSolver final : public Solver {
     p.stack = detail::expandRingsProfiles(stackIn, opt_.rcwaSlices);
     CylContext c = cylContext(p.stack, wl);
     if (p.stack.cylindrical.rotation > 0) {  // M21 (V22g): the classes and the beam per class as cylClassSolve
-      FG_REQUIRE(!c.planeWave, "cylindrical gradients with symmetry.rotation: Gaussian beams only (V22g)");
       const Eigen::Index n = c.grid.k.size();
       for (const cyl::HarmonicMap& map : cylClasses(p.stack.cylindrical, c.ms)) {
         const Eigen::Index nf = map.blocks() * n;
+        p.classes.push_back(map);
+        if (c.planeWave) {
+          p.aIn.emplace_back();
+          continue;
+        }
         VecC aIn = VecC::Zero(2 * nf);
         for (int b = 0; b < map.blocks(); ++b) {
           const VecC a = cylIncident(c, map.m(b));
           aIn.segment(b * n, n) = a.head(n);
           aIn.segment(nf + b * n, n) = a.tail(n);
         }
-        p.classes.push_back(map);
         p.aIn.push_back(std::move(aIn));
       }
     } else {

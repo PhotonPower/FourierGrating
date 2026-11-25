@@ -266,7 +266,10 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
     Schur-Komplement (Säule P = 3, L = 2: 29 s → 16 s) – `CylGrouped.EqualTheDenseOperations`
   - Erledigt (Plan v2.46): Strahl als Streufeld im Klassenpfad (Hintergrund je Klasse auf dem Gitter, strukturierte
     Schichten → Außenmaterial) – `V22Scattered.BeamScatteredFieldEqualsTotalField`
-  - Als Nächstes: Gradienten für ebene Wellen im Klassenpfad
+  - Erledigt (Plan v2.47): Gradienten für ebene Wellen im Klassenpfad (Quellenkette von V21i Stufe 2 je Klasse,
+    `cyl::coupledSourceBar`; ≤ 4,6e-10 gegen Differenzenquotienten) – `V22g.PlaneWaveThroughTheClassPath`,
+    `CylCoupled.SourceReverseRuleAgainstDifferences`
+  - Als Nächstes: Abnahme `V22c.PillarsAgainstCartesianPml` auf dem Zielsystem, dann M21 abschließen
 
 ## Dispersive Materialien (Plan v2.18–v2.19, Teil 8: M22)
 

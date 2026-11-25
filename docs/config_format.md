@@ -279,9 +279,9 @@ diesen Schichten; `"factorization": "li_r"` gilt dann nur für die Ringschichten
 gehen seit Plan v2.45 blockweise, nur die strukturierten Schichten bleiben dicht). Ausgabe wie oben, je
 Harmonischer aller Klassen; Python zusätzlich `rotation`, `class_L`. σ_abs, optisches Theorem und Nahfeld wie oben.
 `cad` ohne `"axisymmetric"`: P-zählig drehsymmetrische CAD-Körper ([`cad.md`](cad.md)). Gradienten für Gauß-Strahlen
-wie in M20, dazu jede Zahl einer `polygon2d`/`contour2d`-Geometrie, solange sie die P-zählige Symmetrie erhält (sonst
+und ebene Wellen wie in M20, dazu jede Zahl einer `polygon2d`/`contour2d`-Geometrie, solange sie die P-zählige Symmetrie erhält (sonst
 Fehler; P = 1 beliebig). `"scattered_field": true` für Strahlen wie in M20 (Hintergrund: jede strukturierte Schicht
-durch ihr äußeres Material bzw. `background` ersetzt). Noch nicht verfügbar: Gradienten für ebene Wellen.
+durch ihr äußeres Material bzw. `background` ersetzt).
 
 ```jsonc
 "cylindrical": {"symmetry": {"rotation": 4, "L": 2}, "factorization": "laurent"},

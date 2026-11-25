@@ -74,6 +74,8 @@ class CylBasis final : public ModalBasis {
   std::size_t index(const StackLayer& layer) const;
   /// The Galerkin matrices of layer i (empty for homogeneous layers; gradients).
   const cyl::CylQ& Q(std::size_t i) const { return Q_.at(i); }
+  /// The plane-wave source spectra of layer i (after setPlaneWave; empty for homogeneous layers; gradients).
+  const cyl::PlaneWaveSource& planeWaveSource(std::size_t i) const { return src_.at(i); }
   /// e_y = Q_yy^{-1} (d_y - p_y) with d_y = -1/2 kappa (h_+ + h_-) (Plan eq:cyl_spec, eq:cyl_scat); p_y of
   /// the plane-wave background e_y on the axis (zero for beams). Homogeneous layers: d_y / eps.
   VecC ey(std::size_t layer, const VecC& hp, const VecC& hm, cplx eyBg = 0.0) const;

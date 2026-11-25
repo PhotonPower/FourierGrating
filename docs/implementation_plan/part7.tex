@@ -1163,7 +1163,8 @@ Tangentialradien divergiert $\partial_\theta\chi_q$ wie $|r-r_t|^{-1/2}$; die Wu
         (\verb|/layers/k/regions/...|, \verb|/layers/k/inclusions/...|): $\mathbf V=(\mathbf C(\theta+\delta)-\mathbf C(\theta-\delta))/(2\delta)$,
         $\delta=10^{-6}\max(1,|\theta|)$, je Segment und Kurvenparameter wie die kartesischen Formparameter. Ein Parameter,
         der die $P$-zählige Symmetrie bricht, scheitert an der Symmetrieprüfung der Schicht bei $\theta\pm\delta$ (der
-        Klassenpfad kennte die Kopplung der Klassen nicht); $P=1$ ist beliebig. Noch nicht: ebene Wellen.
+        Klassenpfad kennte die Kopplung der Klassen nicht); $P=1$ ist beliebig. Noch nicht: ebene Wellen (seit v2.47
+        umgesetzt).
   \item \textbf{Befund:} In einem regelmäßigen Vieleck fallen alle Ecken- und alle Tangentialradien zusammen. Ein
         verschobener Eckpunkt spaltet sie um $\delta$ auf, die Wurzelsubstitution sitzt dann $\delta$ neben der
         Singularität, und die diskrete Abbildung ändert sich um etwa $\delta^{3/2}$. Ihre Differenzenquotienten weichen
@@ -1217,6 +1218,25 @@ dem Gitter gelöst, sein Feld je Schicht als Exponentiale der Klasse.
   \item Test \verb|V22Scattered.BeamScatteredFieldEqualsTotalField|: verlustbehaftetes Quadrat ($P=4$, $L=1$) über einer
         Ringschicht (Li in $r$) in einem Film, $x$-polarisierter Strahl, $\kappa_{\max}=2$: $R$, $T$, $A_{\text{Ringe}}$ je
         Harmonischer $6\cdot10^{-14}$, Nahfeld $4{,}6\cdot10^{-13}$ relativ zu $\max|E|$ (Toleranz $10^{-10}$).
+\end{itemize}
+
+\paragraph{Umsetzung (v2.47): Gradienten für ebene Wellen im Klassenpfad.}
+Die Quellenkette von V21i Stufe~2 läuft je Klasse mit $n_f=(2L+1)N_k$: $p_k=(\kappa_k-M)^{-1}\sigma_k a_k$ mit der
+gekoppelten Matrix $M$ der Klasse und $\sigma_k=\sigma(c_\pm,e_y)$ aus der Quelle der Klasse ($\mathbb 1_{2L+1}\otimes\kappa$ in
+\eqref{eq:cyl_scat}). Rückwärts entstehen wie dort $\bar M$, $\bar Q_{yy}$, $\bar B_\pm$ und $\bar B_y$, jetzt der Größe $n_f$.
+\begin{itemize}[nosep]
+  \item Querschnittsschichten: \verb|cyl::coupledSourceBar|, die Rückwärtsregel von \verb|coupledSource|. Spalte $s$,
+        Block $l$: $c_l=T_{m_l+s}g_l$ mit $g_l(r_i)=\sum_{l'}i^{\nu'}e^{-i\nu'\Psi}d_{l-l'}(r_i)J_{\nu'}(k_\parallel r_i)$, also
+        $G_{l-l'}(r_i)\mathrel{+}=(T_{m_l+s}^T\bar c_l^{\,*})_i\,i^{\nu'}e^{-i\nu'\Psi}J_{\nu'}(k_\parallel r_i)$ auf der r-Regel von
+        \verb|coupledSource|. Daraus wie bei \verb|coupledQBar| die Kotangenten der Materialien und über
+        \verb|coupledQShape| die Formableitung \eqref{eq:cylP_shape}.
+  \item Ringschichten einer Klasse: \verb|planeWaveSourceBar| je Harmonischer auf den Diagonalblöcken.
+  \item Hintergrundgrößen (Dicken, Hintergrundmaterialien, auch \verb|background| der Querschnitte) über zentrale
+        Differenzen wie Stufe~2b; die Hintergrundlösung kennt die Klassen nicht.
+  \item Tests: \verb|CylCoupled.SourceReverseRuleAgainstDifferences| (Materialien, Hintergrund, Eckpunkt eines Fünfecks;
+        $5\cdot10^{-9}$ relativ); \verb|V22g.PlaneWaveThroughTheClassPath| (Fälle von V22g, ebene Welle $\varphi=30^\circ$,
+        $\psi=20^\circ$, Harmonische $-1..1$, $\sigma_\uparrow+\tfrac12\sigma_\downarrow+2\sigma_{\downarrow,m=1}$): $P=1$ Eckpunkt,
+        Kern- und Filmmaterial, Dicke; $P=2$ Halbachse, Ringradius, $\operatorname{Im}n$ des Kerns, Dicke: $\le4{,}6\cdot10^{-10}$.
 \end{itemize}
 
 \subsection{Tests und Abnahme (M21)}

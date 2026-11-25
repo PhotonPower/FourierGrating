@@ -124,6 +124,24 @@ std::vector<MatC> besselTables(const VecC& k, const std::vector<double>& r, int 
   return T;
 }
 
+/// Region permittivities and epsBg from G = dL/d(d_q(r_i) r_i W_i): d_q r W = sum_b (eps_b - epsBg) chi_q^(b) r W, so
+/// bar eps_b = conj(sum_i sum_q G chi r W) and bar epsBg gets minus their sum (added to bar.epsBg).
+void contrastBar(const HarmonicMap& map, const AngularSection& section, CoupledQBar& bar) {
+  const int qmax = bar.qmax;
+  for (std::size_t reg = 0; reg < section.regions.size(); ++reg) {
+    cplx g = 0;
+    for (std::size_t i = 0; i < bar.r.size(); ++i) {
+      const auto ii = static_cast<Eigen::Index>(i);
+      const VecC chi = angularCoefficients(section.regions[reg], bar.r[i], map.P, qmax);
+      cplx gi = bar.G(qmax, ii) * chi(0);
+      for (int q = 1; q <= qmax; ++q) gi += bar.G(qmax + q, ii) * chi(q) + bar.G(qmax - q, ii) * std::conj(chi(q));
+      g += gi * bar.rw[i];
+    }
+    bar.eps.push_back(std::conj(g));
+    bar.epsBg -= std::conj(g);
+  }
+}
+
 }  // namespace
 
 CylQ coupledQ(const SpectralGrid& grid, const HarmonicMap& map, const AngularSection& section, int nodesPerPanel) {
@@ -228,18 +246,42 @@ CoupledQBar coupledQBar(const SpectralGrid& grid, const HarmonicMap& map, const 
         if (b == bp) out.epsBg += Qb->block(b * nk, b * nk, nk, nk).trace();
       }
   }
-  // d_q(r_i) r_i W_i = sum_b (eps_b - epsBg) chi_q^(b)(r_i) r_i W_i: dL = Re sum G d(d); bar = conj(sum G chi r W)
-  for (std::size_t reg = 0; reg < section.regions.size(); ++reg) {
-    cplx g = 0;
-    for (Eigen::Index i = 0; i < nr; ++i) {
-      const VecC chi = angularCoefficients(section.regions[reg], rt.r[static_cast<std::size_t>(i)], map.P, qmax);
-      cplx gi = out.G(qmax, i) * chi(0);
-      for (int q = 1; q <= qmax; ++q) gi += out.G(qmax + q, i) * chi(q) + out.G(qmax - q, i) * std::conj(chi(q));
-      g += gi * rt.rw[static_cast<std::size_t>(i)];
+  contrastBar(map, section, out);
+  return out;
+}
+
+CoupledQBar coupledSourceBar(const SpectralGrid& grid, const HarmonicMap& map, const AngularSection& section,
+                             double kpar, double Psi, const MatC& BpmBar, const VecC& ByBar, int nodesPerPanel) {
+  const Eigen::Index nk = grid.k.size();
+  const int nb = map.blocks();
+  const Eigen::Index nf = nb * nk;
+  FG_REQUIRE(BpmBar.rows() == 2 * nf && BpmBar.cols() == 2 && ByBar.size() == nf, "coupledSourceBar: sizes");
+  const RadialTable rt =
+      radialTable(map, section, std::max(grid.k.cwiseAbs().maxCoeff(), std::abs(kpar)), nodesPerPanel);
+  const int qmax = rt.qmax, nuMin = map.m(0) - 1, nuMax = map.m(nb - 1) + 1;
+  const auto nr = static_cast<Eigen::Index>(rt.r.size());
+  const std::vector<MatC> T = besselTables(grid.k, rt.r, nuMin, nuMax);
+  const std::vector<MatC> Tk = besselTables(VecC::Constant(1, kpar), rt.r, nuMin, nuMax);
+  auto idx = [&](int nu) { return static_cast<std::size_t>(nu - nuMin); };
+  auto phase = [Psi](int nu) { return std::polar(1.0, nu * (0.5 * PI - Psi)); };
+  CoupledQBar out;
+  out.qmax = qmax;
+  out.r = rt.r;
+  out.rw = rt.rw;
+  out.G = MatC::Zero(2 * qmax + 1, nr);
+  // column s, block b: c_b = T_{m_b+s} g_b, g_b(i) = sum_b' phase(nu') d_{b-b'}(i) Tk_{nu'}(i): conj(cbar)^T dc_b =
+  // sum_i y_i dg_b(i) with y = T^T conj(cbar), hence G(qmax + b - b', i) += y_i phase(nu') Tk_{nu'}(i)
+  for (const auto& [cbar, s] : {std::pair<VecC, int>{BpmBar.col(0).head(nf), 1}, {BpmBar.col(1).tail(nf), -1}, {ByBar, 0}}) {
+    for (int b = 0; b < nb; ++b) {
+      const VecC y = T[idx(map.m(b) + s)].transpose() * cbar.segment(b * nk, nk).conjugate();
+      for (int bp = 0; bp < nb; ++bp) {
+        const int nup = map.m(bp) + s;
+        for (Eigen::Index i = 0; i < nr; ++i) out.G(qmax + (b - bp), i) += y(i) * phase(nup) * Tk[idx(nup)](0, i);
+      }
     }
-    out.eps.push_back(std::conj(g));
-    out.epsBg -= std::conj(g);
   }
+  // dL = Re sum G d(d) as in coupledQBar; contrastBar takes conj(sum G chi r W)
+  contrastBar(map, section, out);
   return out;
 }
 
