@@ -1149,7 +1149,8 @@ $|\mathbf x|=r$ mit dem Rand bleibt auf dem Kreis, bei Randgeschwindigkeit $\mat
   \label{eq:cylP_shape}
 \end{equation}
 ($+$ beim Verlassen, $-$ beim Eintreten des Materials). $\chi_q$ ist in $r$ stetig; die wandernden kritischen Radien
-liefern daher keine Randterme, und $\partial_\theta\int g\,\chi_q\,r\,dr=\int g\,\partial_\theta\chi_q\,r\,dr$. An
+liefern daher keine Randterme, und $\partial_\theta\int g\,\chi_q\,r\,dr=\int g\,\partial_\theta\chi_q\,r\,dr$ (Ausnahme:
+Randstücke auf Kreisen um die Achse, Planfehler in v2.48, Randterm seit v2.52). An
 Tangentialradien divergiert $\partial_\theta\chi_q$ wie $|r-r_t|^{-1/2}$; die Wurzelsubstitution der Panels von
 \verb|coupledQ| deckt das ab.
 \begin{itemize}[nosep]
@@ -1265,7 +1266,8 @@ Parametern, obwohl seine Verzweigungspunkte den Halbräumen folgen.
   \item \textbf{Planfehler (seit v2.44):} \eqref{eq:cylP_shape} setzt $\chi_q$ stetig in $r$ voraus. Ein Randstück auf einem
         Kreis um die Achse (Kreis, Kreisring) lässt $\chi_q$ bei seinem Radius springen; seine Normalbewegung braucht einen
         Randterm dort, den die Bogenenden nicht liefern (der Gradient nach dem Radius einer zentrierten Kreis-Ellipse war
-        $0$ statt $0{,}27$). Solche Parameter werden jetzt abgelehnt (Ringschichten nehmen diese Radien); der Randterm ist offen.
+        $0$ statt $0{,}27$). Solche Parameter werden jetzt abgelehnt (Ringschichten nehmen diese Radien); der Randterm ist offen
+        (seit v2.52 umgesetzt).
   \item Tests: \verb|CylAdjoint.HomogeneousModesBar|; \verb|V21i.HalfSpaceMaterials| (Strahl: Substrat $n=2+0{,}05i$ Re/Im,
         Superstrat \enquote{air}, zugleich Außenmaterial der Ringe; ebene Welle: Substrat): $\le1{,}8\cdot10^{-8}$;
         \verb|V22g.HalfSpaceMaterialsOfTheClassPath| ($P=2$, \enquote{air} zugleich Superstrat, Hintergrund der Ellipse und
@@ -1339,6 +1341,38 @@ Fehler mit dem Hinweis auf \verb|"harmonics"|). Der Imaginärteil des Superstrat
         $1{,}1\cdot10^{-8}$; \verb|V22g.HalfSpaceMaterialsOfTheClassPath| (ebene Welle, $P=2$, \enquote{air} zugleich
         Hintergrund der Ellipse und Außenmaterial der Ringe): $5\cdot10^{-10}$; Ablehnung des Imaginärteils in
         \verb|V21i.PlaneWave| und \verb|tests/python/test_gradient.py|.
+\end{itemize}
+
+\paragraph{Umsetzung (v2.52): Randterm für Kreisbögen um die Achse.}
+Ein Randstück auf $|\mathbf x|=R$ lässt $\chi_q$ bei $R$ springen. Die Formableitung nimmt dort die Flächenform: mit
+$\int g_q\chi_q\,r\,dr=\frac1{2\pi}\iint_{\mathcal R}g_q(r)e^{-iqP\varphi}\,dA$ ist
+\[
+  \frac{\partial}{\partial\theta}\Big|_{\text{Bogen}}=(\varepsilon_b-\varepsilon_{\text{bg}})\sum_qg_q(R)\,I_q,\qquad
+  I_q=\frac1{2\pi}\int_{\text{Bogen}}e^{-iqP\varphi}\,\mathbf V\cdot\mathbf n\,ds,\quad\mathbf n\,ds=(C_z',-C_x')\,dt
+\]
+($\mathbf n$ nach außen, Material links), $I_{-q}=\overline{I_q}$. Für alle anderen Randstücke bleibt \eqref{eq:cylP_shape}
+(beide Formen sind dort gleich, die Bogenendenform braucht kein $g$ außerhalb der Radialregel). Der Kreis $|\mathbf x|=r\ne R$
+schneidet den Bogen nicht, Doppelzählung entsteht also nicht.
+\begin{itemize}[nosep]
+  \item $g_q(r)$ ist die Funktion, deren Knotenwerte \verb|coupledQBar| und \verb|coupledSourceBar| als $G$ liefern
+        (Bessel-Produkte mit $\bar Q$ bzw.\ $\bar B$); sie wird zusätzlich an den Bogenradien ausgewertet
+        (\verb|CoupledQBar::rArc|, \verb|Garc|). Bogen: $|\mathbf C(t)|$ an neun Stellen auf $10^{-12}$ konstant. $I_q$ mit
+        Gauß--Legendre (32 Knoten) in $t$.
+  \item Gleichmäßige Normalbewegung (Radius eines Kreises oder Kreisrings) ebenso wie ungleichmäßige (ein Kreis wird zur
+        Ellipse); Tangentialbewegung (Drehung) gibt $\mathbf V\cdot\mathbf n=0$.
+  \item \textbf{Planfehler (seit v2.11, sichtbar seit v2.48):} \verb|adjoint::eig| setzt für entartete Paare einer Klasse
+        $P_{ij}=0$ (\enquote{nur ihr Unterraum}). Das ist nur richtig, wenn die Störung die Paare nicht koppelt. Am Kreis um die
+        Achse ist die Klassenmatrix blockdiagonal, die Harmonischen $m$ und $-m$ haben dieselben Eigenwerte, und die
+        Verformung zur Ellipse koppelt genau diese Blöcke: Mit dem Randterm allein kam $0{,}151$ statt $0{,}266$ heraus
+        (Adjungierte an Ellipsen dicht daneben: $0{,}2663$, stetig). Richtig: Der Anteil $E_{ij}=(W^{-1}dM\,W)_{ij}$ in einem
+        entarteten Unterraum bleibt in $\Lambda$ (nicht diagonal), $X=e^{\Lambda h}$ ändert sich um
+        $dX_{ij}=\frac{e^{\lambda_ih}-e^{\lambda_jh}}{\lambda_i-\lambda_j}E_{ij}$. \verb|adjoint::layerSMatrix| liefert dazu
+        $\bar X$ als volle Matrix (\verb|Lubar|, \verb|Ldbar|) und \verb|adjoint::eig| nimmt für entartete Paare
+        $K_{ij}=\bar\Lambda_{ij}$ statt $0$. Koppelt die Störung die Paare nicht ($E_{ij}=0$, etwa TE/TM einer homogenen
+        Schicht), ändert sich nichts. Der kartesische Pfad (M19) übergibt $\bar\Lambda$ noch nicht.
+  \item Tests: \verb|CylCoupled.ArcsAboutTheAxisAgainstDifferences| (Kreisring außen und innen, Kreis$\to$Ellipse;
+        \verb|coupledQ| und \verb|coupledSource|): $\le2{,}2\cdot10^{-9}$ relativ; \verb|V22g.EllipseAboveRingsWithTwofoldSymmetry|
+        (Halbachse der Kreis-Ellipse, $P=2$, gegen Differenzenquotienten statt der Ablehnung von v2.48): $2{,}7\cdot10^{-8}$.
 \end{itemize}
 
 \subsection{Tests und Abnahme (M21)}

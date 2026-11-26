@@ -362,6 +362,68 @@ TEST(CylCoupled, ReverseRuleAgainstDifferences) {
   check("vertex", shape, (L(sp) - L(sm)) / (2 * h));
 }
 
+TEST(CylCoupled, ArcsAboutTheAxisAgainstDifferences) {
+  // boundary pieces on circles about the axis (Plan v2.52): chi_q jumps at their radius, the shape derivative takes the
+  // boundary term (eps_b - epsBg) sum_q g_q(R) (1 / 2 pi) int e^{-iqP phi} V.n ds. Annulus (outer and inner radius
+  // moving uniformly) and a circle that becomes an ellipse (non-uniform normal velocity, harmonics -1, 0, 1); coupledQ
+  // and coupledSource against central differences
+  const auto grid = fiberGrid(2.0, 1.6);
+  const Eigen::Index nf = 3 * grid.k.size();
+  const cyl::HarmonicMap map{0, 1, 1};
+  const double kpar = 0.7, Psi = 0.4;
+  const cplx e0(4.0, 0.3), bg0(1.2, 0.05);
+  auto pattern = [nf](double a) {
+    fg::MatC M(nf, nf);
+    for (Eigen::Index i = 0; i < nf; ++i)
+      for (Eigen::Index j = 0; j < nf; ++j) M(i, j) = cplx(std::sin(a * i + 0.3 * j), std::cos(0.7 * i - a * j));
+    return M;
+  };
+  cyl::CylQ Qb;
+  Qb.Qpp = pattern(0.11);
+  Qb.Qmm = pattern(0.23);
+  Qb.Qyy = pattern(0.37);
+  Qb.Qpm = Qb.Qmp = fg::MatC::Zero(nf, nf);
+  fg::MatC Bpmb(2 * nf, 2);
+  fg::VecC Byb(nf);
+  for (Eigen::Index i = 0; i < 2 * nf; ++i)
+    for (Eigen::Index c = 0; c < 2; ++c) Bpmb(i, c) = cplx(std::sin(0.13 * i + c), std::cos(0.29 * i - 0.5 * c));
+  for (Eigen::Index i = 0; i < nf; ++i) Byb(i) = cplx(std::cos(0.17 * i), std::sin(0.41 * i + 0.2));
+  auto LQ = [&](const cyl::AngularSection& s) {
+    const auto Q = cyl::coupledQ(grid, map, s);
+    return (Qb.Qpp.conjugate().cwiseProduct(Q.Qpp).sum() + Qb.Qmm.conjugate().cwiseProduct(Q.Qmm).sum() +
+            Qb.Qyy.conjugate().cwiseProduct(Q.Qyy).sum()).real();
+  };
+  auto LB = [&](const cyl::AngularSection& s) {
+    const auto B = cyl::coupledSource(grid, map, s, kpar, Psi);
+    return (Bpmb.conjugate().cwiseProduct(B.Bpm).sum() + Byb.conjugate().cwiseProduct(B.By).sum()).real();
+  };
+  using Make = std::function<Region(double)>;
+  const std::vector<std::pair<const char*, Make>> cases = {
+      {"annulus outer", [](double d) { return region(Contour2D::circle({0, 0}, 1.4 + d), {Contour2D::circle({0, 0}, 0.8)}); }},
+      {"annulus inner", [](double d) { return region(Contour2D::circle({0, 0}, 1.4), {Contour2D::circle({0, 0}, 0.8 + d)}); }},
+      {"circle->ellipse", [](double d) { return region(Contour2D::ellipse({0, 0}, 1.3 + d, 1.3, 0.3)); }}};
+  const double h = 1e-6;
+  for (const auto& [name, make] : cases) {
+    auto section = [&](double d) {
+      cyl::AngularSection s;
+      s.regions = {make(d)};
+      s.eps = {e0};
+      s.epsBg = bg0;
+      return s;
+    };
+    const auto s0 = section(0), sp = section(h), sm = section(-h);
+    const std::vector<cyl::BoundaryVelocity> v = {velocity(sp.regions[0], sm.regions[0], h)};
+    const double aQ = cyl::coupledQShape(cyl::coupledQBar(grid, map, s0, Qb), map, s0, v),
+                 fQ = (LQ(sp) - LQ(sm)) / (2 * h);
+    const double aB = cyl::coupledQShape(cyl::coupledSourceBar(grid, map, s0, kpar, Psi, Bpmb, Byb), map, s0, v),
+                 fB = (LB(sp) - LB(sm)) / (2 * h);
+    std::printf("arcs about the axis %-16s coupledQ %+.10e fd %+.10e | coupledSource %+.10e fd %+.10e\n", name, aQ, fQ,
+                aB, fB);
+    EXPECT_NEAR(aQ, fQ, 1e-7 * std::max(1.0, std::abs(fQ))) << name;
+    EXPECT_NEAR(aB, fB, 1e-7 * std::max(1.0, std::abs(fB))) << name;
+  }
+}
+
 TEST(CylCoupled, SourceReverseRuleAgainstDifferences) {
   // dL = Re sum conj(Bbar) dB of the class source (coupledSource) for fixed cotangents of Bpm and By: permittivities
   // (real and imaginary parts, background) and a vertex of a pentagon (P = 1, harmonics -1, 0, 1, oblique kpar, Psi)

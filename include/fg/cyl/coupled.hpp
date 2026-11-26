@@ -67,6 +67,10 @@ struct CoupledQBar {
   std::vector<double> r, rw;
   MatC G;
   int qmax = 0;
+  /// G (the same function of r) at the radii of boundary pieces on circles about the axis (Plan v2.52): the boundary
+  /// term of their shape derivative
+  std::vector<double> rArc;
+  MatC Garc;
 };
 CoupledQBar coupledQBar(const SpectralGrid& grid, const HarmonicMap& map, const AngularSection& section,
                         const CylQ& Qbar, int nodesPerPanel = 16);
@@ -79,8 +83,10 @@ CoupledQBar coupledSourceBar(const SpectralGrid& grid, const HarmonicMap& map, c
 
 /// Shape derivative dL/dtheta of coupledQ for regions moving with velocity[b] (empty: region b fixed): sum_b
 /// (eps_b - epsBg) d chi_q^(b) / d theta (angularCoefficientsShape) on the radial rule of bar. chi_q is continuous in
-/// r, so the moving critical radii add no terms; the derivative is that of the exact integrals (the quadrature of
-/// coupledQ resolves them to about 1e-12, the square-root substitution covers d chi ~ |r - r_t|^{-1/2}).
+/// r except at boundary pieces on circles about the axis, so the other moving critical radii add no terms; the
+/// derivative is that of the exact integrals (the quadrature of coupledQ resolves them to about 1e-12, the square-root
+/// substitution covers d chi ~ |r - r_t|^{-1/2}). A piece on a circle |x| = R (Plan v2.52) adds the boundary term
+/// (eps_b - epsBg) sum_q g_q(R) (1 / 2 pi) int e^{-iqP phi} V.n ds, n the outward normal (material on the left).
 double coupledQShape(const CoupledQBar& bar, const HarmonicMap& map, const AngularSection& section,
                      const std::vector<BoundaryVelocity>& velocity);
 

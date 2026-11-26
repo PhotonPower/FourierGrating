@@ -124,6 +124,31 @@ std::vector<MatC> besselTables(const VecC& k, const std::vector<double>& r, int 
   return T;
 }
 
+/// Radii of the boundary pieces on circles about the axis (|C(t)| constant on the segment, Plan v2.52), ascending.
+bool onAxisCircle(const geometry::BezierSegment& s, double& R) {
+  double rmin = 1e300, rmax = 0;
+  for (int k = 0; k <= 8; ++k) {
+    const geometry::Point2 p = s.point(k / 8.0);
+    const double r = std::hypot(p[0], p[1]);
+    rmin = std::min(rmin, r);
+    rmax = std::max(rmax, r);
+  }
+  R = 0.5 * (rmin + rmax);
+  return rmax > 0 && rmax - rmin <= 1e-12 * rmax;
+}
+std::vector<double> arcRadii(const AngularSection& section) {
+  std::vector<double> out;
+  for (const auto& reg : section.regions)
+    for (std::size_t c = 0; c <= reg.holes.size(); ++c)
+      for (const auto& s : (c ? reg.holes[c - 1] : reg.outer).segments) {
+        double R = 0;
+        if (onAxisCircle(s, R)) out.push_back(R);
+      }
+  std::sort(out.begin(), out.end());
+  out.erase(std::unique(out.begin(), out.end(), [](double a, double b) { return b - a <= 1e-12 * b; }), out.end());
+  return out;
+}
+
 /// Region permittivities and epsBg from G = dL/d(d_q(r_i) r_i W_i): d_q r W = sum_b (eps_b - epsBg) chi_q^(b) r W, so
 /// bar eps_b = conj(sum_i sum_q G chi r W) and bar epsBg gets minus their sum (added to bar.epsBg).
 void contrastBar(const HarmonicMap& map, const AngularSection& section, CoupledQBar& bar) {
@@ -140,6 +165,13 @@ void contrastBar(const HarmonicMap& map, const AngularSection& section, CoupledQ
     bar.eps.push_back(std::conj(g));
     bar.epsBg -= std::conj(g);
   }
+}
+
+/// The columns of G beyond the radial rule are the arc radii: move them to Garc.
+void splitArcs(CoupledQBar& bar) {
+  const auto nr = static_cast<Eigen::Index>(bar.r.size()), na = static_cast<Eigen::Index>(bar.rArc.size());
+  bar.Garc = bar.G.rightCols(na);
+  bar.G.conservativeResize(Eigen::NoChange, nr);
 }
 
 }  // namespace
@@ -226,14 +258,17 @@ CoupledQBar coupledQBar(const SpectralGrid& grid, const HarmonicMap& map, const 
              "coupledQBar: sizes");
   RadialTable rt = radialTable(map, section, grid.k.cwiseAbs().maxCoeff(), nodesPerPanel);
   const int qmax = rt.qmax, nuMin = map.m(0) - 1, nuMax = map.m(nb - 1) + 1;
-  const auto nr = static_cast<Eigen::Index>(rt.r.size());
-  const std::vector<MatC> T = besselTables(grid.k, rt.r, nuMin, nuMax);
-  auto table = [&](int nu) -> const MatC& { return T[static_cast<std::size_t>(nu - nuMin)]; };
-  const VecC wk = grid.w.cwiseProduct(grid.k);
   CoupledQBar out;
   out.qmax = qmax;
   out.r = rt.r;
   out.rw = rt.rw;
+  out.rArc = arcRadii(section);
+  std::vector<double> rAll = rt.r;  // the rule, then the arc radii (G is a function of r)
+  rAll.insert(rAll.end(), out.rArc.begin(), out.rArc.end());
+  const auto nr = static_cast<Eigen::Index>(rAll.size());
+  const std::vector<MatC> T = besselTables(grid.k, rAll, nuMin, nuMax);
+  auto table = [&](int nu) -> const MatC& { return T[static_cast<std::size_t>(nu - nuMin)]; };
+  const VecC wk = grid.w.cwiseProduct(grid.k);
   // block (b, b') of Q_ss = T_a diag(d_{b-b'} r W) T_b'^T diag(w k): tr(X^H T_a D B) = sum_i D_ii (B X^H T_a)_ii
   out.G = MatC::Zero(2 * qmax + 1, nr);
   for (const auto& [Qb, s] : {std::pair<const MatC*, int>{&Qbar.Qpp, 1}, {&Qbar.Qmm, -1}, {&Qbar.Qyy, 0}}) {
@@ -246,6 +281,7 @@ CoupledQBar coupledQBar(const SpectralGrid& grid, const HarmonicMap& map, const 
         if (b == bp) out.epsBg += Qb->block(b * nk, b * nk, nk, nk).trace();
       }
   }
+  splitArcs(out);
   contrastBar(map, section, out);
   return out;
 }
@@ -259,15 +295,18 @@ CoupledQBar coupledSourceBar(const SpectralGrid& grid, const HarmonicMap& map, c
   const RadialTable rt =
       radialTable(map, section, std::max(grid.k.cwiseAbs().maxCoeff(), std::abs(kpar)), nodesPerPanel);
   const int qmax = rt.qmax, nuMin = map.m(0) - 1, nuMax = map.m(nb - 1) + 1;
-  const auto nr = static_cast<Eigen::Index>(rt.r.size());
-  const std::vector<MatC> T = besselTables(grid.k, rt.r, nuMin, nuMax);
-  const std::vector<MatC> Tk = besselTables(VecC::Constant(1, kpar), rt.r, nuMin, nuMax);
-  auto idx = [&](int nu) { return static_cast<std::size_t>(nu - nuMin); };
-  auto phase = [Psi](int nu) { return std::polar(1.0, nu * (0.5 * PI - Psi)); };
   CoupledQBar out;
   out.qmax = qmax;
   out.r = rt.r;
   out.rw = rt.rw;
+  out.rArc = arcRadii(section);
+  std::vector<double> rAll = rt.r;  // the rule, then the arc radii (G is a function of r)
+  rAll.insert(rAll.end(), out.rArc.begin(), out.rArc.end());
+  const auto nr = static_cast<Eigen::Index>(rAll.size());
+  const std::vector<MatC> T = besselTables(grid.k, rAll, nuMin, nuMax);
+  const std::vector<MatC> Tk = besselTables(VecC::Constant(1, kpar), rAll, nuMin, nuMax);
+  auto idx = [&](int nu) { return static_cast<std::size_t>(nu - nuMin); };
+  auto phase = [Psi](int nu) { return std::polar(1.0, nu * (0.5 * PI - Psi)); };
   out.G = MatC::Zero(2 * qmax + 1, nr);
   // column s, block b: c_b = T_{m_b+s} g_b, g_b(i) = sum_b' phase(nu') d_{b-b'}(i) Tk_{nu'}(i): conj(cbar)^T dc_b =
   // sum_i y_i dg_b(i) with y = T^T conj(cbar), hence G(qmax + b - b', i) += y_i phase(nu') Tk_{nu'}(i)
@@ -281,6 +320,7 @@ CoupledQBar coupledSourceBar(const SpectralGrid& grid, const HarmonicMap& map, c
     }
   }
   // dL = Re sum G d(d) as in coupledQBar; contrastBar takes conj(sum G chi r W)
+  splitArcs(out);
   contrastBar(map, section, out);
   return out;
 }
@@ -288,31 +328,41 @@ CoupledQBar coupledSourceBar(const SpectralGrid& grid, const HarmonicMap& map, c
 double coupledQShape(const CoupledQBar& bar, const HarmonicMap& map, const AngularSection& section,
                      const std::vector<BoundaryVelocity>& velocity) {
   FG_REQUIRE(velocity.size() == section.regions.size(), "coupledQShape: one velocity per region");
-  // A boundary piece on a circle about the axis (|C(t)| constant) makes chi_q jump in r; moving it normally needs a
-  // boundary term at that radius which the arc-end rule (Plan eq:cylP_shape) does not contain: rejected (Plan v2.48)
+  const int qmax = bar.qmax;
+  double dL = 0;
+  // boundary pieces on circles about the axis (Plan v2.52): chi_q jumps at their radius R; the area form of the shape
+  // derivative gives (eps_b - epsBg) sum_q g_q(R) I_q, I_q = (1 / 2 pi) int e^{-iqP phi} V.n ds with n ds = (C_z',
+  // -C_x') dt (material on the left), Gauss-Legendre in t (the integrand is smooth)
+  const auto& gl = quadrature::gaussLegendre(32);
   for (std::size_t reg = 0; reg < section.regions.size(); ++reg) {
     if (!velocity[reg]) continue;
-    const geometry::Region& R = section.regions[reg];
-    for (std::size_t c = 0; c <= R.holes.size(); ++c) {
-      const geometry::Contour2D& C = c ? R.holes[c - 1] : R.outer;
+    const geometry::Region& Rg = section.regions[reg];
+    const cplx de = section.eps[reg] - section.epsBg;
+    for (std::size_t c = 0; c <= Rg.holes.size(); ++c) {
+      const geometry::Contour2D& C = c ? Rg.holes[c - 1] : Rg.outer;
       for (std::size_t sg = 0; sg < C.segments.size(); ++sg) {
-        double rmin = 1e300, rmax = 0, vr = 0, vmax = 0;
-        for (const double t : {0.0, 0.2, 0.4, 0.6, 0.8, 1.0}) {
-          const geometry::Point2 p = C.segments[sg].point(t), v = velocity[reg](c, sg, t);
-          const double r = std::hypot(p[0], p[1]);
-          rmin = std::min(rmin, r);
-          rmax = std::max(rmax, r);
-          vr = std::max(vr, std::abs(p[0] * v[0] + p[1] * v[1]) / std::max(r, 1e-300));
-          vmax = std::max(vmax, std::hypot(v[0], v[1]));
+        double R = 0;
+        if (!onAxisCircle(C.segments[sg], R)) continue;
+        const auto it = std::min_element(bar.rArc.begin(), bar.rArc.end(),
+                                         [R](double a, double b) { return std::abs(a - R) < std::abs(b - R); });
+        FG_REQUIRE(it != bar.rArc.end() && std::abs(*it - R) <= 1e-12 * R,
+                   "coupledQShape: the cotangent misses the arc radius (coupledQBar of another section?)");
+        const auto ia = static_cast<Eigen::Index>(it - bar.rArc.begin());
+        VecC I = VecC::Zero(qmax + 1);
+        for (std::size_t g = 0; g < gl.x.size(); ++g) {
+          const double t = 0.5 * (gl.x[g] + 1), wt = 0.5 * gl.w[g];
+          geometry::Point2 p, dp;
+          C.segments[sg].eval(t, p, dp);
+          const geometry::Point2 V = velocity[reg](c, sg, t);
+          const double vn = V[0] * dp[1] - V[1] * dp[0], phi = std::atan2(p[1], p[0]);
+          for (int q = 0; q <= qmax; ++q) I(q) += wt * vn * std::exp(cplx(0, -double(q) * map.P * phi)) / (2 * PI);
         }
-        FG_REQUIRE(rmax - rmin > 1e-12 * rmax || vr <= 1e-9 * vmax,
-                   "gradient (cylindrical): the parameter moves a boundary piece that lies on a circle about the axis "
-                   "(circle, annulus); its shape derivative is not available (use a rings layer for such radii)");
+        cplx g = bar.Garc(qmax, ia) * I(0);
+        for (int q = 1; q <= qmax; ++q) g += bar.Garc(qmax + q, ia) * I(q) + bar.Garc(qmax - q, ia) * std::conj(I(q));
+        dL += std::real(de * g);
       }
     }
   }
-  const int qmax = bar.qmax;
-  double dL = 0;
   for (std::size_t reg = 0; reg < section.regions.size(); ++reg) {
     if (!velocity[reg]) continue;
     const cplx de = section.eps[reg] - section.epsBg;
