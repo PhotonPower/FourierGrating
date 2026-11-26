@@ -26,7 +26,7 @@ namespace {
 using json = nlohmann::json;
 
 struct CylParam {
-  enum class Kind { Thickness, Radius, Material, Shape };
+  enum class Kind { Thickness, Radius, Material, Shape, Profile };
   Kind kind = Kind::Thickness;
   std::size_t layer = 0;  ///< expanded stack
   std::size_t index = 0;  ///< radius index
@@ -35,6 +35,10 @@ struct CylParam {
   int comp = 0;  ///< 0: real part, 1: imaginary part
   /// Shape (M21, polygon2d / contour2d in the class path): the boundary velocity of every region of the layer
   std::vector<cyl::BoundaryVelocity> velocity;
+  /// Profile (rings_profile, Plan v2.50): per slice of the staircase (expanded layers layer, layer + 1, ...) the
+  /// derivatives of its thickness and of its radii (um per unit of the parameter)
+  std::vector<double> dh;
+  std::vector<std::vector<double>> dr;
 };
 
 std::vector<std::string> pointerTokens(const std::string& ptr) {
@@ -44,6 +48,47 @@ std::vector<std::string> pointerTokens(const std::string& ptr) {
   while (std::getline(ss, s, '/'))
     if (!s.empty()) t.push_back(s);
   return t;
+}
+
+/// Staircase derivatives of a rings_profile parameter (Plan v2.50): the staircases at theta +- delta (delta = 1e-6
+/// max(1, |theta|), as the shape parameters) must have the same structure (slices, homogeneous or rings, the rings
+/// present and their materials); then dh, dr by central differences of the (smooth) geometry.
+void profileDerivatives(const json& j, const std::string& ptr, const io::RunConfig& cfg, std::size_t k, CylParam& p) {
+  const json::json_pointer jp(ptr);
+  const double v = j.at(jp).get<double>(), delta = 1e-6 * std::max(1.0, std::abs(v));
+  auto at = [&](double d) {
+    json a = j;
+    a[jp] = v + d;
+    const io::RunConfig c = io::parseConfig(a.dump());
+    return ringsStaircase(std::get<RingsProfileLayer>(c.stack.layers[k].spec), cfg.solver.rcwaSlices);
+  };
+  const auto s0 = ringsStaircase(std::get<RingsProfileLayer>(cfg.stack.layers[k].spec), cfg.solver.rcwaSlices);
+  std::vector<LayerEntry> plus, minus;
+  try {
+    plus = at(delta);
+    minus = at(-delta);
+  } catch (const Error& e) {
+    throw Error("gradient (cylindrical): '" + ptr + "' is not differentiable here (" + e.what() + ")");
+  }
+  const std::string changes = "gradient (cylindrical): '" + ptr +
+                              "' changes the staircase of the rings_profile layer (a ring appears or vanishes in a "
+                              "slice); not differentiable here";
+  FG_REQUIRE(plus.size() == s0.size() && minus.size() == s0.size(), changes);
+  for (std::size_t s = 0; s < s0.size(); ++s) {
+    const auto* r0 = std::get_if<RingsLayer>(&s0[s].spec);
+    const auto* rp = std::get_if<RingsLayer>(&plus[s].spec);
+    const auto* rm = std::get_if<RingsLayer>(&minus[s].spec);
+    FG_REQUIRE(!r0 == !rp && !r0 == !rm, changes);
+    auto thick = [](const LayerEntry& e) {
+      if (const auto* r = std::get_if<RingsLayer>(&e.spec)) return r->thickness_um;
+      return std::get<HomogeneousLayer>(e.spec).thickness_um;
+    };
+    p.dh.push_back((thick(plus[s]) - thick(minus[s])) / (2 * delta));
+    p.dr.emplace_back();
+    if (!r0) continue;
+    FG_REQUIRE(rp->materials == r0->materials && rm->materials == r0->materials, changes);
+    for (std::size_t i = 0; i < r0->radii_um.size(); ++i) p.dr.back().push_back((rp->radii_um[i] - rm->radii_um[i]) / (2 * delta));
+  }
 }
 
 CylParam resolveCyl(const json& j, const io::RunConfig& cfg, const std::string& ptr) {
@@ -67,8 +112,6 @@ CylParam resolveCyl(const json& j, const io::RunConfig& cfg, const std::string& 
     FG_REQUIRE(l.value("type", std::string()) != "cad", "gradient: layer parameters with cad layers (M19 Phase 2)");
   const std::size_t k = std::stoul(t[1]);
   FG_REQUIRE(k < st.layers.size(), "gradient: layer index out of range in '" + ptr + "'");
-  FG_REQUIRE(!std::holds_alternative<RingsProfileLayer>(st.layers[k].spec),
-             "gradient (cylindrical): parameters of rings_profile layers are not available ('" + ptr + "')");
   // index in the expanded stack (rings_profile -> staircase, as the solver)
   std::size_t e = 0;
   for (std::size_t i = 0; i < k; ++i)
@@ -77,6 +120,14 @@ CylParam resolveCyl(const json& j, const io::RunConfig& cfg, const std::string& 
     else
       ++e;
   p.layer = e;
+  if (std::holds_alternative<RingsProfileLayer>(st.layers[k].spec)) {  // Plan v2.50: through the staircase
+    FG_REQUIRE(t[2] == "thickness_um" || t[2] == "radii",
+               "gradient (cylindrical): rings_profile parameters are thickness_um and the numbers of radii ('" + ptr +
+                   "'; slices is no parameter)");
+    p.kind = CylParam::Kind::Profile;
+    profileDerivatives(j, ptr, cfg, k, p);
+    return p;
+  }
   if (t[2] == "thickness_um" && t.size() == 3) {
     p.kind = CylParam::Kind::Thickness;
   } else if (t[2] == "radii_um" && t.size() == 4) {
@@ -249,6 +300,8 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
       FG_REQUIRE(p.index < P.layers[p.layer]->rings.radii.size(), "gradient: radius index out of range");
     if (!pw) continue;
     if (p.kind == CylParam::Kind::Thickness) moveBg[q] = true;
+    if (p.kind == CylParam::Kind::Profile)
+      for (double d : p.dh) moveBg[q] = moveBg[q] || d != 0.0;
     if (p.kind == CylParam::Kind::Material) {
       moveBg[q] = p.material == P.stack.substrate;
       for (const auto& nm : names) moveBg[q] = moveBg[q] || nm.back() == p.material;
@@ -632,6 +685,15 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
         out.grad[q] += rBar[p.layer][p.index] * k0;
         break;
       case CylParam::Kind::Shape:  // added per class above (normalized velocities per unit of theta)
+        break;
+      case CylParam::Kind::Profile:  // the slices of the staircase: thicknesses (and the top of the stack), radii
+        for (std::size_t s = 0; s < p.dh.size(); ++s) {
+          const std::size_t l = p.layer + s;
+          FG_REQUIRE(p.dr[s].size() == rBar[l].size(), "gradient (cylindrical): staircase and layers disagree");
+          double g = (hBar[l] + yTopBar) * p.dh[s];
+          for (std::size_t i = 0; i < p.dr[s].size(); ++i) g += rBar[l][i] * p.dr[s][i];
+          out.grad[q] += g * k0;
+        }
         break;
       case CylParam::Kind::Material: {
         const cplx eb = epsBar.count(p.material) ? epsBar[p.material] : cplx(0.0);

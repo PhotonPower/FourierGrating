@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M20/M21, Gradienten nach `rings_profile`-Parametern (Plan v2.50): `thickness_um` und jede Zahl unter `radii`
+  (Kegel, Kugel, Tabelle, konstant) über die Treppe (Scheibendicken und -radien, geometrische Ableitung durch
+  zentrale Differenzen), auch für ebene Wellen und im Klassenpfad. Tests `V21i.RingsProfile` (≤ 9,7e-10),
+  `V22g.RingsProfileInTheClassPath` (≤ 6e-9).
 - M20/M21, Gradienten für den Strahl als Streufeld (Plan v2.49): `"scattered_field": true` ist bei Strahlen kein
   Ausschlussgrund mehr. Streufeld + Hintergrund ist dieselbe Lösung wie das Totalfeld, der Gradient läuft daher über
   die Totalfeldkette. Tests `V21i.ScatteredBeam` (≤ 3,2e-10), `V22g.ScatteredBeamThroughTheClassPath` (≤ 1,7e-8).

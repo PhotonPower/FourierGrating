@@ -431,6 +431,11 @@ Strahl als Streufeld (Plan v2.49, Gradient über die Totalfeldkette, Differenzen
 als Außenmaterial der Ringe (äußerer Radius, Im n Kern, Film n, Filmdicke) ≤ 3,2e-10; Klassenpfad P = 1 (Fünfeck,
 Film als Hintergrund: Eckpunkt, Film n, Dicke) und P = 2 (Ellipse über Ringen: Halbachse, Ringradius) ≤ 1,7e-8.
 
+`rings_profile`-Parameter (Plan v2.50, über die Treppe): Kugel innen, Tabelle außen, drei Scheiben unter einem Film;
+Strahl (Dicke, Kugelradius und -mitte, Tabellenwert, Im n Kern) und ebene Welle (Dicke, Tabellenwert) ≤ 9,7e-10;
+Klassenpfad P = 2 (Kegel in zwei Scheiben unter der Ellipse: Kegelradius, Dicke) ≤ 6e-9. Liegt eine Scheibenmitte auf
+einem Tabellenknoten, ist die Ableitung nach der Dicke dort nur einseitig definiert (zentrale Differenzen 3,5e-7).
+
 Die Rückwärtsregeln selbst (`CylAdjoint.*`, Fluss, Propagationsmatrix, Galerkin-Matrizen und Faktorisierung, Laurent
 und Li, m = 0, 1, −2, 3, komplexe ε auf dem deformierten Weg) stimmen auf 1e-6 relativ mit Differenzenquotienten überein.
 
@@ -486,6 +491,7 @@ Konvergenz V22c (Quadrat, lokal): Klassenpfad L = 1 bei κ_max = 4/6/8: 0,30063 
 | V22Volume | verlustbehaftete Ringschicht über P = 3 gegen M20; Kreis (P = 3, L = 2) gegen Ringschicht, Laurent | Ringabsorption 5e-15; σ_abs 5e-14, Theorem 9e-14 µm² |
 | V22g | Gradienten im Klassenpfad (Strahl, κ_max = 2, L = 1, Kriterium von M19): P = 1, unregelmäßiges `contour2d`-Fünfeck (Eckpunkte, Materialien, Dicke); P = 2, Ellipse (Halbachse, Winkel) über Ringen mit Li in r (Radius, Materialien) | ≤ 2,9e-9 bzw. 6,5e-8; symmetriebrechender Parameter abgelehnt |
 | V22g (Streufeld) | Gradienten des Strahls als Streufeld im Klassenpfad (über die Totalfeldkette, Plan v2.49): P = 1 Fünfeck mit Film als Hintergrund (Eckpunkt, Film n, Dicke), P = 2 Ellipse über Ringen (Halbachse, Ringradius) | ≤ 1,7e-8 |
+| V22g (`rings_profile`) | Kegel in zwei Scheiben unter der Ellipse (P = 2): Kegelradius, Dicke | ≤ 6e-9 |
 | V22g (ebene Welle) | Gradienten im Klassenpfad für eine schräge ebene Welle (φ = 30°, ψ = 20°, Harmonische −1..1, Zielfunktion σ↑ + ½σ↓ + 2σ↓,m=1): P = 1 Fünfeck (Eckpunkt, Kernmaterial, Filmmaterial, Dicke), P = 2 Ellipse über Ringen (Halbachse, Ringradius, Im n Kern, Dicke) | ≤ 4,6e-10 |
 | CAD_V22f | Sechseck (P = 6, L = 1) aus STEP gegen `polygon2d`; Kegelstumpf (P = 4, L = 0) als `contour2d`-Treppe gegen `rings_profile`; gestörtes Sechseck, Quadrat mit P = 6 / 2, Dreieck (Achse im Schwerpunkt) | R, T 1,3e-14 bzw. 2,5e-14; `E_ROT_SYMMETRY` mit Ordnung 1 bzw. 4, `rotation_order` |
 | V22NearField | Nahfeld im Klassenpfad: Ringschicht (Li in r, Strahl) gegen M20; Kreis gegen Ringschicht (ebene Welle); Materialkarte des Quadrats | 1,5e-12 bzw. 3e-10 relativ (Schnitte bis R_s) |

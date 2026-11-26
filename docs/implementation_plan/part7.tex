@@ -741,7 +741,7 @@ dazu Materialableitungen (linear in $g$) und Ableitungen der Quelle \eqref{eq:cy
         $\max\operatorname{Re}\sqrt\varepsilon$, $k_b$, $k_p$ und $R_s$ von Materialien und Radien ab; abgeleitet wird
         die diskrete Abbildung bei festem Gitter).
   \item Noch nicht: ebene Wellen und Strahlen im Streufeld (Quelle $\sigma=(M-M_{\text{bg}})F_{\text{bg}}$, Ableitung
-        nach $k_\parallel,\Psi$; Strahlen seit v2.49 umgesetzt), Halbraummaterialien (seit v2.48 umgesetzt), \verb|rings_profile|-Parameter, RK. Ebene
+        nach $k_\parallel,\Psi$; Strahlen seit v2.49 umgesetzt), Halbraummaterialien (seit v2.48 umgesetzt), \verb|rings_profile|-Parameter (seit v2.50 umgesetzt), RK. Ebene
         Wellen: Stufe 2 (v2.35).
   \item Tests: \verb|CylAdjoint.FluxBar|, \verb|CylAdjoint.PropagationMatrixAndFactorization| (Regeln gegen
         Differenzenquotienten, Laurent und Li, $m=0,1,-2$, komplexe $\varepsilon$ auf dem deformierten Weg);
@@ -1286,6 +1286,33 @@ Totalfeldkette (V21i, V22g, Halbraummaterialien wie v2.48), ohne die Quellen und
         als Außenmaterial der Ringe, sodass sich der Hintergrund mit Film-$n$ und der Filmdicke ändert; äußerer Radius,
         Im $n$ Kern): $\le3{,}2\cdot10^{-10}$; \verb|V22g.ScatteredBeamThroughTheClassPath| ($P=1$ Fünfeck mit Film als
         Hintergrund: Eckpunkt, Film-$n$, Dicke; $P=2$ Ellipse über Ringen: Halbachse, Ringradius): $\le1{,}7\cdot10^{-8}$.
+\end{itemize}
+
+\paragraph{Umsetzung (v2.50): Gradienten nach \texttt{rings\_profile}-Parametern (M20, M21).}
+Parameter sind \verb|thickness_um| und jede Zahl unter \verb|radii| (konstanter Radius, Kegel \verb|cone/0|, \verb|cone/1|,
+Kugel \verb|sphere/center_y_um|, \verb|sphere/radius_um|, Tabelle \verb|table/y_um/i|, \verb|table/r_um/i|); \verb|slices| nicht.
+Abgeleitet wird die Treppe, die der Löser rechnet: Scheibe $s$ hat die Dicke $h_s=H/K$ und die Radien $r_{s,i}=r_i(y_s)$
+in ihrer Mitte $y_s=(s+\tfrac12)H/K$. Mit den Kotangenten ihrer Ringschichten ($\bar h_s$, $\bar r_{s,i}$ wie bei
+\verb|rings|, dazu $\bar y_{\text{top}}$ der Strahlphase) gilt
+\[
+  \frac{dL}{d\theta}=\sum_s\Big[(\bar h_s+\bar y_{\text{top}})\frac{dh_s}{d\theta}+\sum_i\bar r_{s,i}\frac{dr_{s,i}}{d\theta}\Big].
+\]
+\begin{itemize}[nosep]
+  \item $dh_s/d\theta$, $dr_{s,i}/d\theta$ aus zentralen Differenzen der Treppe ($\delta=10^{-6}\max(1,|\theta|)$, wie die
+        Formparameter von M21): reine Geometrie, glatt in $\theta$. Die Treppen bei $\theta\pm\delta$ müssen dieselbe Struktur
+        haben (Scheiben homogen oder Ringe, dieselben Ringe mit denselben Materialien); entsteht oder verschwindet ein
+        Ring, ist $L$ dort nicht differenzierbar (Fehlermeldung).
+  \item Ebene Welle: Die Dicke ändert auch den Hintergrund (Stufe~2b über zentrale Differenzen), die Radien nicht.
+  \item Klassenpfad: Ringschichten einer Klasse liefern $\bar r_{s,i}$ je Harmonischer (\verb|cylQBar|), unverändert.
+  \item \textbf{Befund:} Liegt eine Scheibenmitte auf einem Tabellenknoten, hat $r_{s,i}(\theta)$ dort einen Knick; die
+        Treppenableitung ist dann der Mittelwert der einseitigen Steigungen, Differenzenquotienten mit anderer Schrittweite
+        weichen um $O(h)$ ab (Testfall Tabelle mit Knoten in der Scheibenmitte, Ableitung nach der Dicke: $3{,}5\cdot10^{-7}$
+        statt $10^{-10}$).
+  \item Tests (Kriterium von M19): \verb|V21i.RingsProfile| (Kugel innen, Tabelle außen, drei Scheiben, darüber ein Film;
+        Strahl: Dicke, Kugelradius und -mitte, Tabellenwert, Im $n$ Kern; ebene Welle: Dicke, Tabellenwert):
+        $\le9{,}7\cdot10^{-10}$; Ablehnung von \verb|slices| und einer Treppe, in der ein Ring entsteht;
+        \verb|V22g.RingsProfileInTheClassPath| ($P=2$, Kegel in zwei Scheiben unter der Ellipse: Kegelradius, Dicke):
+        $\le6\cdot10^{-9}$.
 \end{itemize}
 
 \subsection{Tests und Abnahme (M21)}

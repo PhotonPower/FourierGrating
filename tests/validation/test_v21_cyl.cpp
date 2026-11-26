@@ -1022,6 +1022,60 @@ TEST(V21i, ScatteredBeam) {
                    {"/layers/1/radii_um/1", "/materials/core/n/1", "/materials/film/n", "/layers/0/thickness_um"});
 }
 
+// rings_profile parameters (Plan v2.50): thickness, sphere (centre, radius) and table values of the profile, through
+// the staircase (slice thicknesses and radii) into the gradients of its rings layers; beam and plane wave (the
+// thickness also moves the background, Stufe 2b). A homogeneous film above the profile shifts the layer indices.
+namespace {
+
+nlohmann::json profileCase(bool planeWave) {
+  nlohmann::json j = gradientCase("li_r", false);
+  j["cylindrical"]["spectrum"]["kappa_max"] = 1.5;
+  j["layers"] = nlohmann::json::parse(R"([
+    {"type": "rings_profile", "thickness_um": 0.16, "slices": 3,
+     "radii": [{"sphere": {"center_y_um": 0.05, "radius_um": 0.2}},
+               {"table": {"y_um": [0, 0.07, 0.16], "r_um": [0.3, 0.26, 0.32]}}],
+     "materials": ["core", "shell", "film"]},
+    {"type": "homogeneous", "thickness_um": 0.05, "material": "film"}])");
+  if (planeWave)
+    j["incidence"] = {{"type", "plane_wave"}, {"lambda_um", 0.633}, {"phi_deg", 30}, {"psi_deg", 20}, {"delta_deg", 0}};
+  return j;
+}
+
+}  // namespace
+
+TEST(V21i, RingsProfile) {
+  checkCylGradient(profileCase(false), "li_r profile", false,
+                   {"/layers/0/thickness_um", "/layers/0/radii/0/sphere/radius_um",
+                    "/layers/0/radii/0/sphere/center_y_um", "/layers/0/radii/1/table/r_um/1", "/materials/core/n/1"});
+  // plane wave: sigma_up + sigma_down / 2 (um^2)
+  fg::Objective obj;
+  obj.cylindrical = {{fg::CylRef{'R', true, 0}, 1.0}, {fg::CylRef{'T', true, 0}, 0.5}};
+  const nlohmann::json j = profileCase(true);
+  auto L = [](const fg::CylindricalResult& r) { return r.scatteredUp_um2 + 0.5 * r.scatteredDown_um2; };
+  const std::vector<std::string> params = {"/layers/0/thickness_um", "/layers/0/radii/1/table/r_um/0"};
+  const fg::GradientResult g = fg::gradient(j.dump(), obj, params);
+  EXPECT_NEAR(g.value, L(solveConfig(j.dump()).cylindrical), 1e-12);
+  for (std::size_t q = 0; q < params.size(); ++q) {
+    const nlohmann::json::json_pointer p(params[q]);
+    const double v = j.at(p).get<double>(), h = 1e-5 * std::max(0.1, std::abs(v));
+    nlohmann::json a = j, b = j;
+    a[p] = v + h;
+    b[p] = v - h;
+    const double fd = (L(solveConfig(a.dump()).cylindrical) - L(solveConfig(b.dump()).cylindrical)) / (2 * h);
+    std::printf("V21i plane wave profile %-34s adjoint %+.10e  fd %+.10e  diff %.1e\n", params[q].c_str(), g.grad[q],
+                fd, std::abs(g.grad[q] - fd));
+    EXPECT_NEAR(g.grad[q], fd, 1e-6 * std::max(1.0, std::abs(fd))) << params[q];
+  }
+  // the number of slices is no parameter; a step that changes the staircase (a ring appears) is rejected
+  EXPECT_THROW(fg::gradient(profileCase(false).dump(), obj, {"/layers/0/slices"}), fg::Error);
+  nlohmann::json c = profileCase(false);
+  c["layers"][0]["radii"][0] = {{"cone", {0.0, 0.2}}};  // zero at the bottom: slice centres all > 0, fine
+  EXPECT_NO_THROW(fg::gradient(c.dump(), obj, {"/layers/0/radii/0/cone/1"}));
+  c["layers"][0]["radii"][1] = {{"table", {{"y_um", {0, 0.16}}, {"r_um", {0.3, 0.3}}}}};
+  c["layers"][0]["radii"][0] = 0.3;  // ring 0 as wide as ring 1: ring 1 has no width, a step would create it
+  EXPECT_THROW(fg::gradient(c.dump(), obj, {"/layers/0/radii/0"}), fg::Error);
+}
+
 // V21i Stufe 2 (Plan v2.35): plane wave (scattered field), objective on the scattered cross sections up/down (um^2);
 // radii and inner ring materials analytic (2a), thicknesses and the film material also through the background
 // solution of the incidence order (2b, central differences of that 4 x 4 problem)

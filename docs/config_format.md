@@ -291,7 +291,9 @@ durch ihr äußeres Material bzw. `background` ersetzt).
 
 `rings_profile`: Radien als Funktionen der Höhe y über der Schichtunterkante, gerechnet als Treppe aus `slices`
 Scheiben (Standard `rcwa.slices`) mit den Radien in der Scheibenmitte; ein Ring ohne Breite entfällt, sich kreuzende
-Radien sind ein Fehler. RK rechnet dieselbe Treppe.
+Radien sind ein Fehler. RK rechnet dieselbe Treppe. Gradientenparameter (Plan v2.50): `thickness_um` und jede Zahl
+unter `radii` (z. B. `/layers/0/radii/1/cone/0`, `.../sphere/radius_um`, `.../table/r_um/2`), nicht `slices`; ein
+Schritt, bei dem in einer Scheibe ein Ring entsteht oder verschwindet, ist nicht differenzierbar (Fehler).
 
 ```jsonc
 {"type": "rings_profile", "thickness_um": 0.6, "slices": 20,
