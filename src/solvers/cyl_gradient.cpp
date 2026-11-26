@@ -545,10 +545,10 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
                      (2 * dk);
         }
       }
-      MatC Wub, Wdb;
+      MatC Wub, Wdb, Lub, Ldb;
       VecC lub, ldb;
       double hb = 0;
-      adjoint::layerSMatrix(modes[l], H, ref, Eb.S, Wub, Wdb, lub, ldb, hb, supParam ? &refPsiInvb : nullptr);
+      adjoint::layerSMatrix(modes[l], H, ref, Eb.S, Wub, Wdb, lub, ldb, hb, supParam ? &refPsiInvb : nullptr, &Lub, &Ldb);
       hBar[l] += hb;
       const Eigen::Index nm = modes[l].lu.size();
       MatC W(4 * nf, 2 * nm), Wb(4 * nf, 2 * nm);
@@ -559,7 +559,12 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
       lamb << lub, ldb;
       std::vector<int> cls(static_cast<std::size_t>(2 * nm), 0);
       for (Eigen::Index q = nm; q < 2 * nm; ++q) cls[static_cast<std::size_t>(q)] = 1;
-      MatC Mb = adjoint::eig(W, lam, Wb, lamb, cls);
+      // degenerate pairs (harmonics m, -m of a block-diagonal class layer, e.g. a circle about the axis) coupled by the
+      // perturbation: their part stays in Lambda (Plan v2.52)
+      MatC Lam = MatC::Zero(2 * nm, 2 * nm);
+      Lam.topLeftCorner(nm, nm) = Lub;
+      Lam.bottomRightCorner(nm, nm) = Ldb;
+      MatC Mb = adjoint::eig(W, lam, Wb, lamb, cls, &Lam);
       if (Msrc.size()) Mb += Msrc;
       cyl::CylQ Qb = cyl::propagationMatrixBar(kt, Q[l], Mb);
       if (lay.homogeneous()) {

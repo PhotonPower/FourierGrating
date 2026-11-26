@@ -281,6 +281,8 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
   - Plan v2.48: Ringschichten einer Klasse je Harmonischer zerlegt (Planfehler: entartete Paare m, −m mischten die
     Blöcke, Gradient nach dem Außenmaterial um 2 % falsch); Formparameter von Randstücken auf Kreisen um die Achse
     abgelehnt (Randterm offen)
+  - Erledigt (Plan v2.52): Randterm für Kreisbögen um die Achse (Kreis, Kreisring, Kreis → Ellipse wieder als
+    Formparameter) – `CylCoupled.ArcsAboutTheAxisAgainstDifferences`, `V22g.EllipseAboveRingsWithTwofoldSymmetry`
   - Als Nächstes: Abnahme `V22c.PillarsAgainstCartesianPml` auf dem Zielsystem, dann M21 abschließen
 
 ## Dispersive Materialien (Plan v2.18–v2.19, Teil 8: M22)

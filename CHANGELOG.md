@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M21, Randterm der Formableitung für Randstücke auf Kreisen um die Achse (Plan v2.52): Formparameter von Kreisen
+  und Kreisringen (auch Kreis → Ellipse) sind wieder Gradientenparameter; `coupledQBar`/`coupledSourceBar` werten die
+  Kotangentenfunktion zusätzlich an den Bogenradien aus (`CoupledQBar::rArc`, `Garc`). Tests
+  `CylCoupled.ArcsAboutTheAxisAgainstDifferences`, `V22g.EllipseAboveRingsWithTwofoldSymmetry`.
+
+### Behoben
+- Adjungierte der Eigenzerlegung (`adjoint::eig`): Entartete Paare einer Klasse, die die Störung koppelt (Harmonische
+  m und −m einer blockdiagonalen Klassenschicht, etwa ein Kreis um die Achse, der zur Ellipse wird), fielen weg. Ihr
+  Anteil bleibt jetzt in Λ; `adjoint::layerSMatrix` liefert dazu die vollen Kotangenten von Λ (Plan v2.52). Zylindrisch
+  aktiv; der kartesische Pfad bleibt unverändert.
 - M20/M21, Gradient nach dem Superstrat für ebene Wellen (Plan v2.51): über die Basis des Halbraums (auch in den
   Quellamplituden), k∥ der Quellspektren (`CylBasis::planeWaveSourceAt`), den Hintergrund und die einfallende
   Intensität der Normierung auf µm²; Spektralgitter fest. Tests `V21i.HalfSpaceMaterials` (1,1e-8),

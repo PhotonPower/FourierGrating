@@ -604,17 +604,22 @@ TEST(V22g, EllipseAboveRingsWithTwofoldSymmetry) {
   fg::Objective obj;
   obj.cylindrical = {{fg::CylRef{'R', true, 0}, 1.0}};
   EXPECT_THROW(fg::gradient(v22gCase(2).dump(), obj, {"/layers/1/regions/0/ellipse/center_um/0"}), fg::Error);
-  // a boundary on a circle about the axis (here the ellipse with equal half-axes) has no shape derivative yet
-  // (Plan v2.48): rejected instead of a wrong zero; its material stays a parameter
+  // a boundary on a circle about the axis (here the ellipse with equal half-axes, Plan v2.52): chi_q jumps at its
+  // radius, the boundary term of coupledQShape (rejected in v2.48, where the arc-end rule alone gave 0 instead of 0.27)
   nlohmann::json c = v22gCase(2);
   c["layers"][1]["regions"][0]["ellipse"]["radii_um"] = {0.15, 0.15};
-  try {
-    (void)fg::gradient(c.dump(), obj, {"/layers/1/regions/0/ellipse/radii_um/0"});
-    ADD_FAILURE() << "circle radius accepted";
-  } catch (const fg::Error& e) {
-    EXPECT_NE(std::string(e.what()).find("circle about the axis"), std::string::npos) << e.what();
-  }
-  EXPECT_NO_THROW(fg::gradient(c.dump(), obj, {"/materials/core/n/0"}));
+  obj.cylindrical = {{fg::CylRef{'R', true, 0}, 1.0}, {fg::CylRef{'T', true, 0}, 0.5}, {fg::CylRef{'T', false, 1}, 2.0}};
+  const std::string pr = "/layers/1/regions/0/ellipse/radii_um/0";
+  const fg::GradientResult g = fg::gradient(c.dump(), obj, {pr});
+  const nlohmann::json::json_pointer jp(pr);
+  nlohmann::json a = c, b = c;
+  a[jp] = 0.15 + 1.5e-6;
+  b[jp] = 0.15 - 1.5e-6;
+  const double fd =
+      (v22gObjective(solveConfig(a.dump()).cylindrical) - v22gObjective(solveConfig(b.dump()).cylindrical)) / 3e-6;
+  std::printf("V22g beam P = 2 circle radius (arc about the axis)       adjoint %+.10e  fd %+.10e  diff %.1e\n",
+              g.grad[0], fd, std::abs(g.grad[0] - fd));
+  EXPECT_NEAR(g.grad[0], fd, 1e-6 * std::max(1.0, std::abs(fd)));
 }
 
 // Plane-wave gradients in the class path (Plan v2.47): the source chain of V21i Stufe 2 per class, the class source

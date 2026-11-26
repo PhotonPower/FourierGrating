@@ -31,8 +31,12 @@ void inverse(const MatC& C, const MatC& Cbar, MatC& Abar);
 /// conj(P) o (W^H Wbar)) W^H, P_ij = 1/(lambda_j - lambda_i). Requires L to be independent of the
 /// normalization of the eigenvectors. Pairs within one class (cls[i] == cls[j], e.g. up/down) closer than
 /// tau max|lambda| (tau = 1e-10) have P_ij = 0 (only their subspace enters); nearly degenerate pairs
-/// get the Lorentz broadening conj(dl) / (|dl|^2 + delta^2), delta = 1e-12 max|lambda|.
-MatC eig(const MatC& W, const VecC& lambda, const MatC& Wbar, const VecC& lambdabar, const std::vector<int>& cls);
+/// get the Lorentz broadening conj(dl) / (|dl|^2 + delta^2), delta = 1e-12 max|lambda|. Lambar (optional, Plan v2.52):
+/// the cotangents of the off-diagonal entries of a non-diagonal Lambda; a degenerate pair then takes Lambar(i, j)
+/// instead of 0 (the part of W^-1 dA W inside a degenerate subspace stays in Lambda, e.g. a perturbation that couples
+/// two harmonics with equal eigenvalues).
+MatC eig(const MatC& W, const VecC& lambda, const MatC& Wbar, const VecC& lambdabar, const std::vector<int>& cls,
+         const MatC* Lambar = nullptr);
 
 /// T = toeplitz(map, f): fbar_pq += sum over the diagonals n - n' = p, m - m' = q of Tbar.
 void toeplitz(const IndexMap& map, const MatC& Tbar, fourier::CoefficientGrid& fbar);
@@ -48,9 +52,12 @@ void starSources(const SMatrix& A, const SMatrix& B, const VecC& Au, const VecC&
 /// S = fromTransfer(T) (Plan eq:T2S).
 void fromTransfer(const MatC& T, const SMatrix& Sbar, MatC& Tbar);
 /// Slice S-matrix S = H G^-1 of stableLayerSMatrix: cotangents of the mode matrices, eigenvalues and the
-/// (normalized) slice thickness h.
+/// (normalized) slice thickness h. Lubar, Ldbar (optional, Plan v2.52): cotangents of all entries of Lambda_u, Lambda_d
+/// as if they were full matrices (X = exp(Lambda h): dX_ij = (e^{l_i h} - e^{l_j h}) / (l_i - l_j) dLambda_ij off the
+/// diagonal), for adjoint::eig at degenerate pairs.
 void layerSMatrix(const LayerModes& m, double h, const ModeBasis& ref, const SMatrix& Sbar, MatC& Wubar, MatC& Wdbar,
-                  VecC& lubar, VecC& ldbar, double& hbar, MatC* PsiInvbar = nullptr);
+                  VecC& lubar, VecC& ldbar, double& hbar, MatC* PsiInvbar = nullptr, MatC* Lubar = nullptr,
+                  MatC* Ldbar = nullptr);
 /// mb = isotropicModes(eps, alpha, gamma): cotangents of eps, alpha, gamma from those of Psi, PsiInv and beta
 /// (empty: none).
 void isotropicModes(cplx eps, const VecC& alpha, const VecC& gamma, const ModeBasis& mb, const MatC& Psibar,

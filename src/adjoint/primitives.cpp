@@ -32,7 +32,8 @@ void solve(const MatC& A, const MatC& X, const MatC& Xbar, MatC* Abar, MatC* Bba
 
 void inverse(const MatC& C, const MatC& Cbar, MatC& Abar) { accumulate(Abar, MatC(-C.adjoint() * Cbar * C.adjoint())); }
 
-MatC eig(const MatC& W, const VecC& lambda, const MatC& Wbar, const VecC& lambdabar, const std::vector<int>& cls) {
+MatC eig(const MatC& W, const VecC& lambda, const MatC& Wbar, const VecC& lambdabar, const std::vector<int>& cls,
+         const MatC* Lambar) {
   const Eigen::Index n = W.rows();
   FG_REQUIRE(W.cols() == n && lambda.size() == n, "adjoint::eig: square W and n eigenvalues");
   const double lmax = lambda.size() ? lambda.cwiseAbs().maxCoeff() : 0.0;
@@ -45,7 +46,10 @@ MatC eig(const MatC& W, const VecC& lambda, const MatC& Wbar, const VecC& lambda
         if (i == j) continue;
         const cplx dl = lambda(j) - lambda(i);
         const bool same = cls.empty() || cls[static_cast<std::size_t>(i)] == cls[static_cast<std::size_t>(j)];
-        if (same && std::abs(dl) < tau) continue;              // degenerate cluster: subspace only
+        if (same && std::abs(dl) < tau) {  // degenerate cluster: the coupling inside stays in Lambda (Plan v2.52)
+          if (Lambar) K(i, j) = (*Lambar)(i, j);
+          continue;
+        }
         const cplx cP = dl / (std::norm(dl) + delta * delta);   // conj(P_ij), Lorentz broadened
         K(i, j) = cP * G(i, j);
       }
@@ -181,7 +185,7 @@ void fromTransfer(const MatC& T, const SMatrix& Sbar, MatC& Tbar) {
 }
 
 void layerSMatrix(const LayerModes& m, double h, const ModeBasis& ref, const SMatrix& Sbar, MatC& Wubar, MatC& Wdbar,
-                  VecC& lubar, VecC& ldbar, double& hbar, MatC* PsiInvbar) {
+                  VecC& lubar, VecC& ldbar, double& hbar, MatC* PsiInvbar, MatC* Lubar, MatC* Ldbar) {
   const Eigen::Index n = m.lu.size();
   const MatC Cu = ref.PsiInv * m.Wu, Cd = ref.PsiInv * m.Wd;
   const MatC Au = Cu.topRows(n), Bu = Cu.bottomRows(n), Ad = Cd.topRows(n), Bd = Cd.bottomRows(n);
@@ -224,6 +228,25 @@ void layerSMatrix(const LayerModes& m, double h, const ModeBasis& ref, const SMa
   }
   accumulate(lubar, lub);
   accumulate(ldbar, ldb);
+  // full Lambda cotangents (Plan v2.52): Xbar_ij of X = exp(Lambda h) as a full matrix, times the divided difference
+  // of f(l) = e^{l h} (up) or e^{-l h} (down)
+  auto full = [n, h](const MatC& Xbf, const VecC& l, double sg, const VecC& lb) {
+    MatC Lb(n, n);
+    for (Eigen::Index i = 0; i < n; ++i)
+      for (Eigen::Index j = 0; j < n; ++j) {
+        if (i == j) {
+          Lb(i, i) = lb(i);
+          continue;
+        }
+        const cplx d = l(i) - l(j), z = sg * d * h, lm = 0.5 * (l(i) + l(j));
+        // (e^{sg l_i h} - e^{sg l_j h}) / d = sg h e^{sg lm h} sinh(z/2) / (z/2)
+        const cplx sh = std::abs(z) < 1e-4 ? 1.0 + z * z / 24.0 : std::sinh(0.5 * z) / (0.5 * z);
+        Lb(i, j) = std::conj(sg * h * std::exp(sg * lm * h) * sh) * Xbf(i, j);
+      }
+    return Lb;
+  };
+  if (Lubar) accumulate(*Lubar, full(MatC(Bu.adjoint() * H11 + Au.adjoint() * G21), m.lu, 1.0, lub));
+  if (Ldbar) accumulate(*Ldbar, full(MatC(Bd.adjoint() * G12 + Ad.adjoint() * H22), m.ld, -1.0, ldb));
 }
 
 namespace {
