@@ -76,6 +76,9 @@ class CylBasis final : public ModalBasis {
   const cyl::CylQ& Q(std::size_t i) const { return Q_.at(i); }
   /// The plane-wave source spectra of layer i (after setPlaneWave; empty for homogeneous layers; gradients).
   const cyl::PlaneWaveSource& planeWaveSource(std::size_t i) const { return src_.at(i); }
+  /// The source spectra of layer i for the incidence (kpar, Psi) without storing them (setPlaneWave per layer; the
+  /// superstrate gradient of plane waves differentiates them in kpar, Plan v2.51).
+  cyl::PlaneWaveSource planeWaveSourceAt(std::size_t i, double kpar, double Psi) const;
   /// e_y = Q_yy^{-1} (d_y - p_y) with d_y = -1/2 kappa (h_+ + h_-) (Plan eq:cyl_spec, eq:cyl_scat); p_y of
   /// the plane-wave background e_y on the axis (zero for beams). Homogeneous layers: d_y / eps.
   VecC ey(std::size_t layer, const VecC& hp, const VecC& hm, cplx eyBg = 0.0) const;

@@ -199,34 +199,29 @@ std::size_t CylBasis::index(const StackLayer& layer) const {
 
 void CylBasis::setPlaneWave(double kpar, double Psi) {
   src_.clear();
+  for (std::size_t i = 0; i < layers_.size(); ++i) src_.push_back(planeWaveSourceAt(i, kpar, Psi));
+}
+
+cyl::PlaneWaveSource CylBasis::planeWaveSourceAt(std::size_t i, double kpar, double Psi) const {
+  const auto& L = static_cast<const CylLayer&>(*layers_.at(i));
   const int nb = map_.blocks();
   const Eigen::Index n = grid_.k.size(), nf = nb * n;
-  for (const StackLayer* l : layers_) {
-    const auto& L = static_cast<const CylLayer&>(*l);
-    const std::size_t i = src_.size();
-    if (L.homogeneous()) {
-      src_.emplace_back();
-    } else if (L.angular) {
-      src_.push_back(cyl::coupledSource(grid_, map_, L.section, kpar, Psi));
-    } else if (nb == 1) {
-      src_.push_back(cyl::planeWaveSource(grid_, map_.m0, L.rings, kpar, Psi, f_, Q_[i]));
-    } else {  // ring layer in a class: the harmonics do not couple
-      cyl::PlaneWaveSource B;
-      B.By = VecC::Zero(nf);
-      B.Bpm = MatC::Zero(2 * nf, 2);
-      if (f_ == cyl::CylFactorization::LiR) B.Apm = MatC::Zero(2 * nf, 2);
-      for (int b = 0; b < nb; ++b) {
-        const cyl::PlaneWaveSource s =
-            cyl::planeWaveSource(grid_, map_.m(b), L.rings, kpar, Psi, f_, diagonalBlock(Q_[i], b, n));
-        B.By.segment(b * n, n) = s.By;
-        for (Eigen::Index u = 0; u < 2; ++u) {
-          B.Bpm.block(u * nf + b * n, 0, n, 2) = s.Bpm.middleRows(u * n, n);
-          if (s.Apm.size()) B.Apm.block(u * nf + b * n, 0, n, 2) = s.Apm.middleRows(u * n, n);
-        }
-      }
-      src_.push_back(std::move(B));
+  if (L.homogeneous()) return {};
+  if (L.angular) return cyl::coupledSource(grid_, map_, L.section, kpar, Psi);
+  if (nb == 1) return cyl::planeWaveSource(grid_, map_.m0, L.rings, kpar, Psi, f_, Q_[i]);
+  cyl::PlaneWaveSource B;  // ring layer in a class: the harmonics do not couple
+  B.By = VecC::Zero(nf);
+  B.Bpm = MatC::Zero(2 * nf, 2);
+  if (f_ == cyl::CylFactorization::LiR) B.Apm = MatC::Zero(2 * nf, 2);
+  for (int b = 0; b < nb; ++b) {
+    const cyl::PlaneWaveSource s = cyl::planeWaveSource(grid_, map_.m(b), L.rings, kpar, Psi, f_, diagonalBlock(Q_[i], b, n));
+    B.By.segment(b * n, n) = s.By;
+    for (Eigen::Index u = 0; u < 2; ++u) {
+      B.Bpm.block(u * nf + b * n, 0, n, 2) = s.Bpm.middleRows(u * n, n);
+      if (s.Apm.size()) B.Apm.block(u * nf + b * n, 0, n, 2) = s.Apm.middleRows(u * n, n);
     }
   }
+  return B;
 }
 
 VecC CylBasis::source(const StackLayer& layer, cplx cp, cplx cm, cplx ey) const {

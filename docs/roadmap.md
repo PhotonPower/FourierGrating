@@ -245,7 +245,9 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
     Totalfeldkette) – `V21i.ScatteredBeam`, `V22g.ScatteredBeamThroughTheClassPath`
   - Erledigt (Plan v2.50): Gradienten nach `rings_profile`-Parametern (Dicke, Kegel, Kugel, Tabelle; über die Treppe)
     – `V21i.RingsProfile`, `V22g.RingsProfileInTheClassPath`
-  - Offen bei den Gradienten: RK, Superstrat bei ebenen Wellen
+  - Erledigt (Plan v2.51): Superstrat bei ebenen Wellen (k∥ der Quellspektren, Hintergrund, Normierung auf µm²) –
+    `V21i.HalfSpaceMaterials`, `V22g.HalfSpaceMaterialsOfTheClassPath`
+  - Offen bei den Gradienten: RK
 - [ ] **M21** P-zählige Drehsymmetrie: gekoppelte Harmonische m0 + lP, Winkelkoeffizienten aus `polygon2d`/
   `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)
   - Abnahme: V22a–g (Plan)

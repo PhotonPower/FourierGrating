@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M20/M21, Gradient nach dem Superstrat für ebene Wellen (Plan v2.51): über die Basis des Halbraums (auch in den
+  Quellamplituden), k∥ der Quellspektren (`CylBasis::planeWaveSourceAt`), den Hintergrund und die einfallende
+  Intensität der Normierung auf µm²; Spektralgitter fest. Tests `V21i.HalfSpaceMaterials` (1,1e-8),
+  `V22g.HalfSpaceMaterialsOfTheClassPath` (5e-10).
 - M20/M21, Gradienten nach `rings_profile`-Parametern (Plan v2.50): `thickness_um` und jede Zahl unter `radii`
   (Kegel, Kugel, Tabelle, konstant) über die Treppe (Scheibendicken und -radien, geometrische Ableitung durch
   zentrale Differenzen), auch für ebene Wellen und im Klassenpfad. Tests `V21i.RingsProfile` (≤ 9,7e-10),

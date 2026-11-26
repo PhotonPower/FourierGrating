@@ -424,8 +424,10 @@ Differenzen der Einfallsordnung): ≤ 2e-10.
 
 Halbraummaterialien (Plan v2.48), Differenzen bei festem Spektralgitter mit Richardson-Extrapolation (die
 Verzweigungspunkte folgen den Halbräumen): Strahl, Substrat n = 2 + 0,05i (Re, Im) und Superstrat „air" (zugleich
-Außenmaterial der Ringe) ≤ 1,8e-8; ebene Welle, Substrat ≤ 2e-10; Klassenpfad P = 2 (V22g-Fall, „air" zugleich
-Superstrat, Hintergrund der Ellipse und Außenmaterial der Ringe) ≤ 9,4e-9.
+Außenmaterial der Ringe) ≤ 1,8e-8; ebene Welle, Substrat ≤ 2e-9; Klassenpfad P = 2 (V22g-Fall, „air" zugleich
+Superstrat, Hintergrund der Ellipse und Außenmaterial der Ringe) ≤ 9,4e-9. Superstrat der ebenen Welle (Plan v2.51,
+über k∥ der Quellen, den Hintergrund und die Normierung; Richardson mit h = 4e-6/2e-6, darunter rauschen die
+Differenzen): 1,1e-8, Klassenpfad 5e-10.
 
 Strahl als Streufeld (Plan v2.49, Gradient über die Totalfeldkette, Differenzen der Streufeldrechnung): Li in r, Film
 als Außenmaterial der Ringe (äußerer Radius, Im n Kern, Film n, Filmdicke) ≤ 3,2e-10; Klassenpfad P = 1 (Fünfeck,
