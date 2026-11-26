@@ -348,17 +348,17 @@ double coupledQShape(const CoupledQBar& bar, const HarmonicMap& map, const Angul
         FG_REQUIRE(it != bar.rArc.end() && std::abs(*it - R) <= 1e-12 * R,
                    "coupledQShape: the cotangent misses the arc radius (coupledQBar of another section?)");
         const auto ia = static_cast<Eigen::Index>(it - bar.rArc.begin());
-        VecC I = VecC::Zero(qmax + 1);
+        VecC Iq = VecC::Zero(qmax + 1);
         for (std::size_t g = 0; g < gl.x.size(); ++g) {
           const double t = 0.5 * (gl.x[g] + 1), wt = 0.5 * gl.w[g];
           geometry::Point2 p, dp;
           C.segments[sg].eval(t, p, dp);
           const geometry::Point2 V = velocity[reg](c, sg, t);
           const double vn = V[0] * dp[1] - V[1] * dp[0], phi = std::atan2(p[1], p[0]);
-          for (int q = 0; q <= qmax; ++q) I(q) += wt * vn * std::exp(cplx(0, -double(q) * map.P * phi)) / (2 * PI);
+          for (int q = 0; q <= qmax; ++q) Iq(q) += wt * vn * std::exp(cplx(0, -double(q) * map.P * phi)) / (2 * PI);
         }
-        cplx g = bar.Garc(qmax, ia) * I(0);
-        for (int q = 1; q <= qmax; ++q) g += bar.Garc(qmax + q, ia) * I(q) + bar.Garc(qmax - q, ia) * std::conj(I(q));
+        cplx g = bar.Garc(qmax, ia) * Iq(0);
+        for (int q = 1; q <= qmax; ++q) g += bar.Garc(qmax + q, ia) * Iq(q) + bar.Garc(qmax - q, ia) * std::conj(Iq(q));
         dL += std::real(de * g);
       }
     }
