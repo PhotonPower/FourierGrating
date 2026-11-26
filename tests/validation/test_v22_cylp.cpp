@@ -693,4 +693,33 @@ TEST(V22g, HalfSpaceMaterialsOfTheClassPath) {
                 std::abs(g.grad[q] - fd));
     EXPECT_NEAR(g.grad[q], fd, 1e-6 * std::max(1.0, std::abs(fd))) << params[q];
   }
+  // plane wave, the superstrate (Plan v2.51): k_par of the sources (here the ellipse, coupledSource, and the rings per
+  // harmonic) and the incident intensity
+  nlohmann::json w = v22gCase(2, true);
+  const fg::io::RunConfig cw = fg::io::parseConfig(w.dump());
+  const fg::detail::CylProblem Pw = fg::detail::cylProblem(cw.solver, cw.stack, cw.scan.front());
+  auto fixedGridW = [&](const nlohmann::json& x) {
+    fg::io::RunConfig c = fg::io::parseConfig(x.dump());
+    fg::CylindricalSpec& cs = c.stack.cylindrical;
+    cs.fixedK.assign(Pw.grid.k.data(), Pw.grid.k.data() + Pw.grid.k.size());
+    cs.fixedW.assign(Pw.grid.w.data(), Pw.grid.w.data() + Pw.grid.w.size());
+    cs.fixedEdges = Pw.grid.edges;
+    return v22gObjective(fg::makeSolver(c.solver)->solve(c.stack, c.scan.front()).cylindrical);
+  };
+  const std::string pa = "/materials/air/n";
+  const fg::GradientResult gw = fg::gradient(w.dump(), obj, {pa});
+  EXPECT_NEAR(gw.value, v22gObjective(solveConfig(w.dump()).cylindrical), 1e-12);
+  {
+    const nlohmann::json::json_pointer p(pa);
+    auto central = [&](double h) {
+      nlohmann::json a = w, b = w;
+      a[p] = 1.0 + h;
+      b[p] = 1.0 - h;
+      return (fixedGridW(a) - fixedGridW(b)) / (2 * h);
+    };
+    const double fd = (4 * central(1e-6) - central(2e-6)) / 3;
+    std::printf("V22g half spaces, plane wave %-10s adjoint %+.10e  fd %+.10e  diff %.1e\n", pa.c_str(), gw.grad[0], fd,
+                std::abs(gw.grad[0] - fd));
+    EXPECT_NEAR(gw.grad[0], fd, 1e-6 * std::max(1.0, std::abs(fd)));
+  }
 }

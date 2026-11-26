@@ -270,15 +270,15 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
   for (std::size_t q = 0; q < ps.size(); ++q)
     if (ps[q].kind == CylParam::Kind::Shape) ps[q].velocity = shapeVelocity(j, params[q], cfg, P, ps[q].layer);
   // half-space materials (Plan v2.48): through the bases of superstrate and substrate, the incident beam and P_inc;
-  // the spectral grid stays fixed. Plane waves: the substrate only (k_par depends on the superstrate).
+  // the spectral grid stays fixed. Plane waves (v2.51): the superstrate also through k_par (source spectra, background)
+  // and the incident intensity of the um^2 normalization.
   bool supParam = false, subParam = false;
   for (const CylParam& p : ps)
     if (p.kind == CylParam::Kind::Material) {
       supParam = supParam || p.material == P.stack.superstrate;
       subParam = subParam || p.material == P.stack.substrate;
     }
-  FG_REQUIRE(!(pw && supParam), "gradient (cylindrical plane wave): the superstrate material is not a parameter (the "
-                                "lateral wave number k_par of the incidence depends on it)");
+  double kparBar = 0;  // plane wave, superstrate: d L / d k_par through the source spectra (central differences)
   cplx epsSupBar = 0.0, epsSubBar = 0.0;
   const double yFocus = P.stack.cylindrical.focus_y_um * P.k0;
   /// incident beam a_q ~ exp(i beta_q (y_f - y_top)), beta = sqrt(eps_sup - k^2): sum aInBar conj(d a / d eps_sup)
@@ -303,7 +303,7 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
     if (p.kind == CylParam::Kind::Profile)
       for (double d : p.dh) moveBg[q] = moveBg[q] || d != 0.0;
     if (p.kind == CylParam::Kind::Material) {
-      moveBg[q] = p.material == P.stack.substrate;
+      moveBg[q] = p.material == P.stack.substrate || p.material == P.stack.superstrate;
       for (const auto& nm : names) moveBg[q] = moveBg[q] || nm.back() == p.material;
     }
   }
@@ -384,7 +384,7 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
       std::unique_ptr<Eigen::PartialPivLU<MatC>> Qyy;
       std::vector<VecC> p, sigma;
       std::vector<BgValues> bv;
-      VecC g0, g1;
+      VecC g0, g1, F0, F1;  // g = Psi_ref^-1 F (the superstrate also enters through Psi_ref^-1)
     };
     std::vector<Src> src(L);
     pre[0] = {fromTransfer(ref.PsiInv * basis.sub().Psi), zero, zero};
@@ -428,6 +428,8 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
         }
         sr.g0 = ref.PsiInv * F0;
         sr.g1 = ref.PsiInv * F1;
+        sr.F0 = std::move(F0);
+        sr.F1 = std::move(F1);
         const SMatrix& S = E[l].S;
         E[l].u = sr.g1.tail(2 * nf) - S.S11 * sr.g0.tail(2 * nf) - S.S12 * sr.g1.head(2 * nf);
         E[l].v = sr.g0.head(2 * nf) - S.S21 * sr.g0.tail(2 * nf) - S.S22 * sr.g1.head(2 * nf);
@@ -503,6 +505,7 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
         g0b << vb, -(S.S11.adjoint() * ub + S.S21.adjoint() * vb);
         g1b << -(S.S12.adjoint() * ub + S.S22.adjoint() * vb), ub;
         const VecC F0b = ref.PsiInv.adjoint() * g0b, F1b = ref.PsiInv.adjoint() * g1b;
+        if (supParam) adjoint::accumulate(refPsiInvb, MatC(g0b * sr.F0.adjoint() + g1b * sr.F1.adjoint()));
         Msrc = MatC::Zero(4 * nf, 4 * nf);
         Bpmbar = MatC::Zero(2 * nf, 2);
         Bybar = VecC::Zero(nf);
@@ -532,6 +535,14 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
           Bpmbar.col(1) += ppmb * std::conj(term.cm);
           tb.cp += VecC(sr.B.Bpm.col(0)).dot(ppmb);
           tb.cm += VecC(sr.B.Bpm.col(1)).dot(ppmb);
+        }
+        if (supParam) {  // B(k_par): Bessel functions J(k_par r) of the background (Plan v2.51)
+          const double dk = 1e-6 * std::max(1.0, P.kpar);
+          const cyl::PlaneWaveSource Bp = basis.planeWaveSourceAt(l, P.kpar + dk, P.Psi),
+                                     Bm = basis.planeWaveSourceAt(l, P.kpar - dk, P.Psi);
+          kparBar += std::real(Bpmbar.conjugate().cwiseProduct(Bp.Bpm - Bm.Bpm).sum() +
+                               Bybar.conjugate().cwiseProduct(Bp.By - Bm.By).sum()) /
+                     (2 * dk);
         }
       }
       MatC Wub, Wdb;
@@ -660,6 +671,12 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
     };
     const CylProblem Pplus = at(1.0), Pminus = at(-1.0);
     double dL = 0;
+    if (pw) {  // superstrate (v2.51): k_par of the sources and the incident intensity in toArea; zero otherwise
+      FG_REQUIRE(Pplus.ms == P.ms && Pminus.ms == P.ms,
+                 "gradient (cylindrical plane wave): the harmonics change with '" + params[q] + "' (set \"harmonics\")");
+      dL += kparBar * (Pplus.kpar - Pminus.kpar) / (2 * hstep) +
+            value / P.toArea * (Pplus.toArea - Pminus.toArea) / (2 * hstep);
+    }
     for (std::size_t l = 0; l < P.layers.size(); ++l) {
       if (bgBar[l].empty()) continue;
       const auto a = bgValues(Pplus, l), b = bgValues(Pminus, l);
