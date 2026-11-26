@@ -265,9 +265,47 @@ MatC CylBasis::M(const StackLayer& layer, double /*y_um*/) const {
   return M_[i];
 }
 
-// M is block anti-diagonal: reduced path (Plan eq:rcwa_reduced)
+// M is block anti-diagonal: reduced path (Plan eq:rcwa_reduced). Class matrices that are block-diagonal over the
+// harmonics (ring layers of a class, M21): per harmonic. Harmonics m and -m have the same eigenvalues
+// (J_{-n} = (-1)^n J_n); the modes of the whole matrix would mix the blocks arbitrarily within these degenerate pairs,
+// which costs accuracy and breaks the reverse rule of the eigen-decomposition (gradients, Plan v2.48).
 LayerModes CylBasis::modes(const MatC& M) const {
-  return layerModesAuto(M);
+  const int nb = map_.blocks();
+  const Eigen::Index n = grid_.k.size(), nf = nb * n;
+  if (nb == 1 || M.rows() != 4 * nf) return layerModesAuto(M);
+  for (Eigen::Index u = 0; u < 4; ++u)
+    for (Eigen::Index v = 0; v < 4; ++v)
+      for (int b = 0; b < nb; ++b)
+        for (int c = 0; c < nb; ++c)
+          if (b != c && !M.block(u * nf + b * n, v * nf + c * n, n, n).isZero(0.0)) return layerModesAuto(M);
+  std::vector<LayerModes> per;
+  Eigen::Index nu = 0, nd = 0;
+  for (int b = 0; b < nb; ++b) {
+    MatC Mb(4 * n, 4 * n);
+    for (Eigen::Index u = 0; u < 4; ++u)
+      for (Eigen::Index v = 0; v < 4; ++v) Mb.block(u * n, v * n, n, n) = M.block(u * nf + b * n, v * nf + b * n, n, n);
+    per.push_back(layerModesAuto(Mb));
+    nu += per.back().lu.size();
+    nd += per.back().ld.size();
+  }
+  LayerModes out;
+  out.Wu = MatC::Zero(4 * nf, nu);
+  out.Wd = MatC::Zero(4 * nf, nd);
+  out.lu.resize(nu);
+  out.ld.resize(nd);
+  Eigen::Index cu = 0, cd = 0;
+  for (int b = 0; b < nb; ++b) {
+    const LayerModes& m = per[static_cast<std::size_t>(b)];
+    for (Eigen::Index u = 0; u < 4; ++u) {
+      out.Wu.block(u * nf + b * n, cu, n, m.lu.size()) = m.Wu.middleRows(u * n, n);
+      out.Wd.block(u * nf + b * n, cd, n, m.ld.size()) = m.Wd.middleRows(u * n, n);
+    }
+    out.lu.segment(cu, m.lu.size()) = m.lu;
+    out.ld.segment(cd, m.ld.size()) = m.ld;
+    cu += m.lu.size();
+    cd += m.ld.size();
+  }
+  return out;
 }
 
 LayerModes CylBasis::homogeneousModes(const StackLayer& layer) const {

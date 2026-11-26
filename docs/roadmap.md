@@ -238,7 +238,10 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
     (`V21d.ContactHoleSpectrumIndependentOfDensity`); `S_lat` in `efficiencies.csv`
   - **Offen für die Abnahme:** `V21d.ContactHoleAgainstCartesianPml` auf dem Zielsystem (`FG_SERVER_TESTS=1`,
     kartesisch N = 14/18/22 und Zelle 2,4 µm mit N = 26; lokal N = 12: 0,5640 gegen M20 0,5544, fallend)
-  - Offen bei den Gradienten: Halbraummaterialien, Strahl im Streufeld, `rings_profile`-Parameter, RK
+  - Erledigt (Plan v2.48): Gradienten nach den Halbraummaterialien (Superstrat Realteil, Substrat; ebene Welle nur
+    Substrat) bei festem Spektralgitter (`cyl::homogeneousModesBar`, C++-API `CylindricalSpec::fixedK`) –
+    `V21i.HalfSpaceMaterials`, `V22g.HalfSpaceMaterialsOfTheClassPath`
+  - Offen bei den Gradienten: Strahl im Streufeld, `rings_profile`-Parameter, RK, Superstrat bei ebenen Wellen
 - [ ] **M21** P-zählige Drehsymmetrie: gekoppelte Harmonische m0 + lP, Winkelkoeffizienten aus `polygon2d`/
   `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)
   - Abnahme: V22a–g (Plan)
@@ -269,6 +272,9 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
   - Erledigt (Plan v2.47): Gradienten für ebene Wellen im Klassenpfad (Quellenkette von V21i Stufe 2 je Klasse,
     `cyl::coupledSourceBar`; ≤ 4,6e-10 gegen Differenzenquotienten) – `V22g.PlaneWaveThroughTheClassPath`,
     `CylCoupled.SourceReverseRuleAgainstDifferences`
+  - Plan v2.48: Ringschichten einer Klasse je Harmonischer zerlegt (Planfehler: entartete Paare m, −m mischten die
+    Blöcke, Gradient nach dem Außenmaterial um 2 % falsch); Formparameter von Randstücken auf Kreisen um die Achse
+    abgelehnt (Randterm offen)
   - Als Nächstes: Abnahme `V22c.PillarsAgainstCartesianPml` auf dem Zielsystem, dann M21 abschließen
 
 ## Dispersive Materialien (Plan v2.18–v2.19, Teil 8: M22)

@@ -422,8 +422,13 @@ Ebene Welle (Stufe 2, Plan v2.35): dieselben Ringe unter φ = 30°, ψ = 20°, Z
 bzw. 6,6e-8 (Laurent). Beide Dicken und Film n, auch als Außenmaterial der Ringe (Hintergrund über zentrale
 Differenzen der Einfallsordnung): ≤ 2e-10.
 
+Halbraummaterialien (Plan v2.48), Differenzen bei festem Spektralgitter mit Richardson-Extrapolation (die
+Verzweigungspunkte folgen den Halbräumen): Strahl, Substrat n = 2 + 0,05i (Re, Im) und Superstrat „air" (zugleich
+Außenmaterial der Ringe) ≤ 1,8e-8; ebene Welle, Substrat ≤ 2e-10; Klassenpfad P = 2 (V22g-Fall, „air" zugleich
+Superstrat, Hintergrund der Ellipse und Außenmaterial der Ringe) ≤ 9,4e-9.
+
 Die Rückwärtsregeln selbst (`CylAdjoint.*`, Fluss, Propagationsmatrix, Galerkin-Matrizen und Faktorisierung, Laurent
-und Li, m = 0, 1, −2, komplexe ε auf dem deformierten Weg) stimmen auf 1e-6 relativ mit Differenzenquotienten überein.
+und Li, m = 0, 1, −2, 3, komplexe ε auf dem deformierten Weg) stimmen auf 1e-6 relativ mit Differenzenquotienten überein.
 
 **V21g (Lochblende im Metallschirm, Plan v2.36).** Qualitativer Vergleich mit Popov/Bonod, phys. stat. sol. (b) 244,
 3463 (2007). Ebene Welle 500 nm, senkrecht, E längs x; Silber/Aluminium nach Rakić (ε_Ag = −7,632 + 0,731i,

@@ -741,7 +741,8 @@ dazu Materialableitungen (linear in $g$) und Ableitungen der Quelle \eqref{eq:cy
         $\max\operatorname{Re}\sqrt\varepsilon$, $k_b$, $k_p$ und $R_s$ von Materialien und Radien ab; abgeleitet wird
         die diskrete Abbildung bei festem Gitter).
   \item Noch nicht: ebene Wellen und Strahlen im Streufeld (Quelle $\sigma=(M-M_{\text{bg}})F_{\text{bg}}$, Ableitung
-        nach $k_\parallel,\Psi$), Halbraummaterialien, \verb|rings_profile|-Parameter, RK. Ebene Wellen: Stufe 2 (v2.35).
+        nach $k_\parallel,\Psi$), Halbraummaterialien (seit v2.48 umgesetzt), \verb|rings_profile|-Parameter, RK. Ebene
+        Wellen: Stufe 2 (v2.35).
   \item Tests: \verb|CylAdjoint.FluxBar|, \verb|CylAdjoint.PropagationMatrixAndFactorization| (Regeln gegen
         Differenzenquotienten, Laurent und Li, $m=0,1,-2$, komplexe $\varepsilon$ auf dem deformierten Weg);
         \verb|V21i.*|: zwei Ringe (verlustbehafteter Kern, Schale) über einem Film auf einem Substrat höchsten
@@ -1237,6 +1238,37 @@ gekoppelten Matrix $M$ der Klasse und $\sigma_k=\sigma(c_\pm,e_y)$ aus der Quell
         $5\cdot10^{-9}$ relativ); \verb|V22g.PlaneWaveThroughTheClassPath| (Fälle von V22g, ebene Welle $\varphi=30^\circ$,
         $\psi=20^\circ$, Harmonische $-1..1$, $\sigma_\uparrow+\tfrac12\sigma_\downarrow+2\sigma_{\downarrow,m=1}$): $P=1$ Eckpunkt,
         Kern- und Filmmaterial, Dicke; $P=2$ Halbachse, Ringradius, $\operatorname{Im}n$ des Kerns, Dicke: $\le4{,}6\cdot10^{-10}$.
+\end{itemize}
+
+\paragraph{Umsetzung (v2.48): Gradienten nach den Halbraummaterialien (M20, M21).}
+Superstrat (nur Realteil, es bleibt verlustfrei) und Substrat (Real- und Imaginärteil) als Parameter; bei ebenen Wellen
+nur das Substrat (der Einfall $k_\parallel$ hängt vom Superstrat ab). Das Spektralgitter bleibt fest wie bei allen
+Parametern, obwohl seine Verzweigungspunkte den Halbräumen folgen.
+\begin{itemize}[nosep]
+  \item Die Basen $\Psi$, $\Psi^{-1}$ aus \eqref{eq:cyl_Psi} hängen über $\mathcal B$ und $\beta=\sqrt{\varepsilon-k^2}$ von $\varepsilon$ ab
+        ($\partial_\varepsilon\beta=1/(2\beta)$): \verb|cyl::homogeneousModesBar|. Kotangenten von $\Psi_{\text{ref}}$ aus dem
+        Fluss nach oben, von $\Psi_{\text{ref}}^{-1}$ aus jeder Schicht-S-Matrix (\verb|adjoint::layerSMatrix|) und aus
+        $S_0=\text{fromTransfer}(\Psi_{\text{ref}}^{-1}\Psi_{\text{sub}})$; von $\Psi_{\text{sub}}$ aus dem Fluss nach unten und aus $S_0$.
+  \item Strahl: $a_j\propto e^{i\beta_j(y_f-y_{\text{top}})}$ mit $\beta_j$ des Superstrats, und $P_{\text{inc}}=-\sum\text{flux}(\Psi_{\text{ref}}(a;0))$
+        in der Normierung $L=S/P_{\text{inc}}$: $\bar P_{\text{inc}}=-L/P_{\text{inc}}$ nach dem Durchlauf über alle Einheiten.
+  \item Ebene Welle, Substrat: zusätzlich die Hintergrundlösung über zentrale Differenzen wie Stufe~2b.
+  \item Prüfung bei festem Gitter: \verb|CylindricalSpec::fixedK|, \verb|fixedW|, \verb|fixedEdges| (nur C++-API) ersetzen das
+        Gitter. \textbf{Befund:} Die Knoten der Wurzelsubstitution liegen etwa $10^{-4}$ neben dem Verzweigungspunkt
+        $k=n_{\text{sup}}$; der $h^2$-Term zentraler Differenzen ist dort groß ($h=10^{-5}$: $2{,}5\cdot10^{-3}$, $10^{-6}$: $2{,}5\cdot10^{-5}$
+        relativ). Die Tests extrapolieren nach Richardson ($h=2\cdot10^{-6}$ und $10^{-6}$).
+  \item \textbf{Planfehler (seit v2.44):} In einer Klasse haben die Harmonischen $m$ und $-m$ einer Ringschicht dieselben
+        Eigenwerte ($J_{-n}=(-1)^nJ_n$). Die Eigenzerlegung der ganzen Klassenmatrix mischt die Blöcke innerhalb dieser Paare
+        beliebig; das kostete im Vorwärtslauf etwa $10^{-9}$ und verfälschte die Rückwärtsregel der Eigenzerlegung (Gradient
+        nach dem Außenmaterial der Ringe in V22g um 2\,\%). \verb|CylBasis::modes| zerlegt eine über die Harmonischen
+        blockdiagonale Klassenmatrix jetzt je Block (auch schneller: $2L+1$ Probleme der Größe $4N_k$).
+  \item \textbf{Planfehler (seit v2.44):} \eqref{eq:cylP_shape} setzt $\chi_q$ stetig in $r$ voraus. Ein Randstück auf einem
+        Kreis um die Achse (Kreis, Kreisring) lässt $\chi_q$ bei seinem Radius springen; seine Normalbewegung braucht einen
+        Randterm dort, den die Bogenenden nicht liefern (der Gradient nach dem Radius einer zentrierten Kreis-Ellipse war
+        $0$ statt $0{,}27$). Solche Parameter werden jetzt abgelehnt (Ringschichten nehmen diese Radien); der Randterm ist offen.
+  \item Tests: \verb|CylAdjoint.HomogeneousModesBar|; \verb|V21i.HalfSpaceMaterials| (Strahl: Substrat $n=2+0{,}05i$ Re/Im,
+        Superstrat \enquote{air}, zugleich Außenmaterial der Ringe; ebene Welle: Substrat): $\le1{,}8\cdot10^{-8}$;
+        \verb|V22g.HalfSpaceMaterialsOfTheClassPath| ($P=2$, \enquote{air} zugleich Superstrat, Hintergrund der Ellipse und
+        Außenmaterial der Ringe): $\le9{,}4\cdot10^{-9}$; Ablehnung des Kreisradius in \verb|V22g.EllipseAboveRingsWithTwofoldSymmetry|.
 \end{itemize}
 
 \subsection{Tests und Abnahme (M21)}

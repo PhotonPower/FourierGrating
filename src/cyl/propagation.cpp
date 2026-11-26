@@ -57,6 +57,31 @@ ModeBasis homogeneousModes(cplx eps, const VecC& k, double eta) {
   return mb;
 }
 
+cplx homogeneousModesBar(cplx eps, const VecC& k, const MatC& Psibar, const MatC& PsiInvbar, double eta) {
+  const Eigen::Index n = k.size();
+  FG_REQUIRE((Psibar.size() == 0 || Psibar.rows() == 4 * n) && (PsiInvbar.size() == 0 || PsiInvbar.rows() == 4 * n),
+             "homogeneousModesBar: sizes");
+  // dX = X' d eps for the holomorphic entries X: d L = Re sum conj(Xbar) X' d eps, so epsbar = sum Xbar conj(X')
+  cplx bar = 0.0;
+  for (Eigen::Index j = 0; j < n; ++j) {
+    const cplx b = betaBranch(eps, k(j), 0.0, eta), k2 = k(j) * k(j), db = 0.5 / b;
+    const cplx B[2][2] = {{eps - 0.5 * k2, -0.5 * k2}, {0.5 * k2, -eps + 0.5 * k2}};
+    const double dB[2][2] = {{1.0, 0.0}, {0.0, -1.0}};
+    const Eigen::Index idx[2] = {j, n + j};
+    for (int r = 0; r < 2; ++r)
+      for (int c = 0; c < 2; ++c) {
+        // V = -i/beta B, Vi = i/(eps beta) B
+        const cplx dV = -I * (dB[r][c] / b - B[r][c] * db / (b * b));
+        const cplx dVi = I * (dB[r][c] / (eps * b) - B[r][c] * (b + eps * db) / (eps * eps * b * b));
+        if (Psibar.size())
+          bar += (-Psibar(2 * n + idx[r], idx[c]) + Psibar(2 * n + idx[r], 2 * n + idx[c])) * std::conj(dV);
+        if (PsiInvbar.size())
+          bar += 0.5 * (-PsiInvbar(idx[r], 2 * n + idx[c]) + PsiInvbar(2 * n + idx[r], 2 * n + idx[c])) * std::conj(dVi);
+      }
+  }
+  return bar;
+}
+
 double flux(const SpectralGrid& grid, const VecC& F) {
   const Eigen::Index n = grid.k.size();
   FG_REQUIRE(F.size() == 4 * n, "cyl::flux: F has 4 N_k entries");

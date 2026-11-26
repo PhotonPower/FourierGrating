@@ -23,6 +23,11 @@ double flux(const SpectralGrid& grid, const VecC& F);
 
 // ---- reverse-mode rules (gradients V21i; convention of fg::adjoint: Xbar = dL/dRe X + i dL/dIm X)
 
+/// Cotangent of eps of homogeneousModes(eps, k) from those of Psi and PsiInv (either may be empty): Psi and PsiInv
+/// depend on eps through calB and beta = sqrt(eps - k^2), d beta / d eps = 1 / (2 beta) (gradients by half-space
+/// materials).
+cplx homogeneousModesBar(cplx eps, const VecC& k, const MatC& Psibar, const MatC& PsiInvbar, double eta = 1e-10);
+
 /// Cotangent of F for L = scale * flux(grid, F).
 VecC fluxBar(const SpectralGrid& grid, const VecC& F, double scale);
 /// Cotangents of Q_pp, Q_pm, Q_mp, Q_mm, Q_yy from that of M = propagationMatrix(k, Q) (k fixed; Qbar.A empty).

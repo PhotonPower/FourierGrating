@@ -2,6 +2,7 @@
 // "M20: Schichttypen, CAD und Konfiguration"). Lengths in micrometres.
 #pragma once
 
+#include <complex>
 #include <string>
 #include <vector>
 
@@ -38,6 +39,11 @@ struct CylindricalSpec {
   /// "x", "z", "circular_plus" (E_z = +i E_x), "circular_minus" (E_z = -i E_x), "radial",
   /// "azimuthal"
   std::string polarization = "x";
+  /// Fixed spectral grid (C++ API only, not in JSON): when fixedK is non-empty, its nodes, weights (fixedW) and panel
+  /// edges replace the grid of Plan sec:cylgrid. Gradient checks by differences at a fixed discretization (the
+  /// gradients differentiate the discrete map at a fixed grid; half-space materials move its branch points).
+  std::vector<std::complex<double>> fixedK, fixedW;
+  std::vector<double> fixedEdges;
 };
 
 }  // namespace fg

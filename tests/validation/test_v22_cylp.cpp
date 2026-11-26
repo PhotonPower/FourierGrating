@@ -20,6 +20,7 @@
 #include "fg/cyl/spectrum.hpp"
 #include "fg/io/config.hpp"
 #include "fg/solvers/solver.hpp"
+#include "../../src/solvers/cyl_basis.hpp"
 
 using fg::cplx;
 using fg::MatC;
@@ -601,6 +602,17 @@ TEST(V22g, EllipseAboveRingsWithTwofoldSymmetry) {
   fg::Objective obj;
   obj.cylindrical = {{fg::CylRef{'R', true, 0}, 1.0}};
   EXPECT_THROW(fg::gradient(v22gCase(2).dump(), obj, {"/layers/1/regions/0/ellipse/center_um/0"}), fg::Error);
+  // a boundary on a circle about the axis (here the ellipse with equal half-axes) has no shape derivative yet
+  // (Plan v2.48): rejected instead of a wrong zero; its material stays a parameter
+  nlohmann::json c = v22gCase(2);
+  c["layers"][1]["regions"][0]["ellipse"]["radii_um"] = {0.15, 0.15};
+  try {
+    (void)fg::gradient(c.dump(), obj, {"/layers/1/regions/0/ellipse/radii_um/0"});
+    ADD_FAILURE() << "circle radius accepted";
+  } catch (const fg::Error& e) {
+    EXPECT_NE(std::string(e.what()).find("circle about the axis"), std::string::npos) << e.what();
+  }
+  EXPECT_NO_THROW(fg::gradient(c.dump(), obj, {"/materials/core/n/0"}));
 }
 
 // Plane-wave gradients in the class path (Plan v2.47): the source chain of V21i Stufe 2 per class, the class source
@@ -611,4 +623,41 @@ TEST(V22g, PlaneWaveThroughTheClassPath) {
                 "/layers/1/thickness_um"}, true);
   checkV22g(2, {"/layers/1/regions/0/ellipse/radii_um/0", "/layers/0/radii_um/0", "/materials/core/n/1",
                 "/layers/0/thickness_um"}, true);
+}
+
+// Half-space materials in the class path (Plan v2.48): differences on the grid of the unperturbed problem (the branch
+// points follow the half spaces; Richardson as V21i.HalfSpaceMaterials). P = 2, ellipse over rings: "air" is the
+// superstrate, the background of the ellipse and the outer ring material at once.
+TEST(V22g, HalfSpaceMaterialsOfTheClassPath) {
+  fg::Objective obj;
+  obj.cylindrical = {{fg::CylRef{'R', true, 0}, 1.0}, {fg::CylRef{'T', true, 0}, 0.5}, {fg::CylRef{'T', false, 1}, 2.0}};
+  nlohmann::json j = v22gCase(2);
+  j["materials"]["sub"]["n"] = {2.0, 0.05};
+  const std::vector<std::string> params = {"/materials/sub/n/0", "/materials/sub/n/1", "/materials/air/n"};
+  const fg::io::RunConfig cfg = fg::io::parseConfig(j.dump());
+  const fg::detail::CylProblem P0 = fg::detail::cylProblem(cfg.solver, cfg.stack, cfg.scan.front());
+  auto fixedGrid = [&](const nlohmann::json& x) {
+    fg::io::RunConfig c = fg::io::parseConfig(x.dump());
+    fg::CylindricalSpec& cs = c.stack.cylindrical;
+    cs.fixedK.assign(P0.grid.k.data(), P0.grid.k.data() + P0.grid.k.size());
+    cs.fixedW.assign(P0.grid.w.data(), P0.grid.w.data() + P0.grid.w.size());
+    cs.fixedEdges = P0.grid.edges;
+    return v22gObjective(fg::makeSolver(c.solver)->solve(c.stack, c.scan.front()).cylindrical);
+  };
+  const fg::GradientResult g = fg::gradient(j.dump(), obj, params);
+  EXPECT_NEAR(g.value, v22gObjective(solveConfig(j.dump()).cylindrical), 1e-12);
+  for (std::size_t q = 0; q < params.size(); ++q) {
+    const nlohmann::json::json_pointer p(params[q]);
+    const double v = j.at(p).get<double>();
+    auto central = [&](double h) {
+      nlohmann::json a = j, b = j;
+      a[p] = v + h;
+      b[p] = v - h;
+      return (fixedGrid(a) - fixedGrid(b)) / (2 * h);
+    };
+    const double h = 2e-6 * std::max(0.1, std::abs(v)), fd = (4 * central(0.5 * h) - central(h)) / 3;
+    std::printf("V22g half spaces %-22s adjoint %+.10e  fd %+.10e  diff %.1e\n", params[q].c_str(), g.grad[q], fd,
+                std::abs(g.grad[q] - fd));
+    EXPECT_NEAR(g.grad[q], fd, 1e-6 * std::max(1.0, std::abs(fd))) << params[q];
+  }
 }

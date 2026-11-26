@@ -288,6 +288,29 @@ CoupledQBar coupledSourceBar(const SpectralGrid& grid, const HarmonicMap& map, c
 double coupledQShape(const CoupledQBar& bar, const HarmonicMap& map, const AngularSection& section,
                      const std::vector<BoundaryVelocity>& velocity) {
   FG_REQUIRE(velocity.size() == section.regions.size(), "coupledQShape: one velocity per region");
+  // A boundary piece on a circle about the axis (|C(t)| constant) makes chi_q jump in r; moving it normally needs a
+  // boundary term at that radius which the arc-end rule (Plan eq:cylP_shape) does not contain: rejected (Plan v2.48)
+  for (std::size_t reg = 0; reg < section.regions.size(); ++reg) {
+    if (!velocity[reg]) continue;
+    const geometry::Region& R = section.regions[reg];
+    for (std::size_t c = 0; c <= R.holes.size(); ++c) {
+      const geometry::Contour2D& C = c ? R.holes[c - 1] : R.outer;
+      for (std::size_t sg = 0; sg < C.segments.size(); ++sg) {
+        double rmin = 1e300, rmax = 0, vr = 0, vmax = 0;
+        for (const double t : {0.0, 0.2, 0.4, 0.6, 0.8, 1.0}) {
+          const geometry::Point2 p = C.segments[sg].point(t), v = velocity[reg](c, sg, t);
+          const double r = std::hypot(p[0], p[1]);
+          rmin = std::min(rmin, r);
+          rmax = std::max(rmax, r);
+          vr = std::max(vr, std::abs(p[0] * v[0] + p[1] * v[1]) / std::max(r, 1e-300));
+          vmax = std::max(vmax, std::hypot(v[0], v[1]));
+        }
+        FG_REQUIRE(rmax - rmin > 1e-12 * rmax || vr <= 1e-9 * vmax,
+                   "gradient (cylindrical): the parameter moves a boundary piece that lies on a circle about the axis "
+                   "(circle, annulus); its shape derivative is not available (use a rings layer for such radii)");
+      }
+    }
+  }
   const int qmax = bar.qmax;
   double dL = 0;
   for (std::size_t reg = 0; reg < section.regions.size(); ++reg) {
