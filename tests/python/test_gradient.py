@@ -150,8 +150,9 @@ def test_cylindrical_plane_wave_objective():
             c = s.solve().cylindrical
             vals.append(c["scattered_up_um2"] + 0.5 * c["scattered_down_um2"])
         assert grad[k] == pytest.approx((vals[0] - vals[1]) / 2e-6, rel=1e-5, abs=1e-6)
-    with pytest.raises(fg.FourierGratingError, match="half spaces"):
-        sim.value_and_grad(obj, ["/materials/sub/n"])
+    # Plan v2.48: the substrate is a parameter; the superstrate is not (k_par depends on it).
+    with pytest.raises(fg.FourierGratingError, match="superstrate"):
+        sim.value_and_grad(obj, ["/materials/air/n"])
 
 
 def test_unsupported_parameter_raises():
