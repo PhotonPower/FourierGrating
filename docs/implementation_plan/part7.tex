@@ -741,7 +741,7 @@ dazu Materialableitungen (linear in $g$) und Ableitungen der Quelle \eqref{eq:cy
         $\max\operatorname{Re}\sqrt\varepsilon$, $k_b$, $k_p$ und $R_s$ von Materialien und Radien ab; abgeleitet wird
         die diskrete Abbildung bei festem Gitter).
   \item Noch nicht: ebene Wellen und Strahlen im Streufeld (Quelle $\sigma=(M-M_{\text{bg}})F_{\text{bg}}$, Ableitung
-        nach $k_\parallel,\Psi$), Halbraummaterialien (seit v2.48 umgesetzt), \verb|rings_profile|-Parameter, RK. Ebene
+        nach $k_\parallel,\Psi$; Strahlen seit v2.49 umgesetzt), Halbraummaterialien (seit v2.48 umgesetzt), \verb|rings_profile|-Parameter, RK. Ebene
         Wellen: Stufe 2 (v2.35).
   \item Tests: \verb|CylAdjoint.FluxBar|, \verb|CylAdjoint.PropagationMatrixAndFactorization| (Regeln gegen
         Differenzenquotienten, Laurent und Li, $m=0,1,-2$, komplexe $\varepsilon$ auf dem deformierten Weg);
@@ -1215,7 +1215,8 @@ dem Gitter gelöst, sein Feld je Schicht als Exponentiale der Klasse.
   \item Quelle einer strukturierten Schicht $\sigma=(M-M_{\text{bg}})F_{\text{bg}}$ mit der gekoppelten Matrix $M$ der Klasse
         und der blockdiagonalen $M_{\text{bg}}$; Ausgaben (Leistungen je Harmonischer, Ringabsorption, Nahfeld) aus
         Streufeld $+$ Hintergrund wie in M20.
-  \item Die Gradienten bleiben auf das Totalfeld beschränkt (wie V21i).
+  \item Die Gradienten bleiben auf das Totalfeld beschränkt (wie V21i; seit v2.49 auch das Streufeld, über die
+        Totalfeldkette).
   \item Test \verb|V22Scattered.BeamScatteredFieldEqualsTotalField|: verlustbehaftetes Quadrat ($P=4$, $L=1$) über einer
         Ringschicht (Li in $r$) in einem Film, $x$-polarisierter Strahl, $\kappa_{\max}=2$: $R$, $T$, $A_{\text{Ringe}}$ je
         Harmonischer $6\cdot10^{-14}$, Nahfeld $4{,}6\cdot10^{-13}$ relativ zu $\max|E|$ (Toleranz $10^{-10}$).
@@ -1269,6 +1270,22 @@ Parametern, obwohl seine Verzweigungspunkte den Halbräumen folgen.
         Superstrat \enquote{air}, zugleich Außenmaterial der Ringe; ebene Welle: Substrat): $\le1{,}8\cdot10^{-8}$;
         \verb|V22g.HalfSpaceMaterialsOfTheClassPath| ($P=2$, \enquote{air} zugleich Superstrat, Hintergrund der Ellipse und
         Außenmaterial der Ringe): $\le9{,}4\cdot10^{-9}$; Ablehnung des Kreisradius in \verb|V22g.EllipseAboveRingsWithTwofoldSymmetry|.
+\end{itemize}
+
+\paragraph{Umsetzung (v2.49): Gradienten für den Strahl als Streufeld (M20, M21).}
+Mit \verb|"scattered_field": true| ist Streufeld $+$ Hintergrund dieselbe Lösung wie das Totalfeld auf demselben Gitter:
+$F_{\text{bg}}$ löst $F'=M_{\text{bg}}F$ exakt, also löst $F_s+F_{\text{bg}}$ wegen $\sigma=(M-M_{\text{bg}})F_{\text{bg}}$ die Gleichung
+$F'=MF$ in jeder Scheibe, ist an den Grenzflächen stetig und hat nach außen nur den Einfall und auslaufende Anteile.
+$R$ und $T$ sind daher als Funktionen der Parameter dieselben (V21e, V22Scattered: auf Rundung); jede partikuläre
+Lösung (auch die dividierte Differenz bei Fast-Resonanz) gibt dasselbe Feld. Der Gradient läuft deshalb über die
+Totalfeldkette (V21i, V22g, Halbraummaterialien wie v2.48), ohne die Quellen und den Hintergrund abzuleiten.
+\begin{itemize}[nosep]
+  \item Volumenintegrale und Nahfeld sind nicht Teil der Zielfunktion; das Ergebnis des Gradienten trägt $R$, $T$ je
+        Harmonischer wie beim Totalfeld.
+  \item Tests (zentrale Differenzen der Streufeldrechnung, Kriterium von M19): \verb|V21i.ScatteredBeam| (Li in $r$, Film
+        als Außenmaterial der Ringe, sodass sich der Hintergrund mit Film-$n$ und der Filmdicke ändert; äußerer Radius,
+        Im $n$ Kern): $\le3{,}2\cdot10^{-10}$; \verb|V22g.ScatteredBeamThroughTheClassPath| ($P=1$ Fünfeck mit Film als
+        Hintergrund: Eckpunkt, Film-$n$, Dicke; $P=2$ Ellipse über Ringen: Halbachse, Ringradius): $\le1{,}7\cdot10^{-8}$.
 \end{itemize}
 
 \subsection{Tests und Abnahme (M21)}

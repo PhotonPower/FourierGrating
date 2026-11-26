@@ -192,7 +192,8 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
   for (const auto& ptr : params) ps.push_back(resolveCyl(j, cfg, ptr));
 
   CylProblem P = cylProblem(cfg.solver, cfg.stack, wl);
-  FG_REQUIRE(!P.beamScattered, "gradient (cylindrical): beams in the total-field formulation only (scattered_field false)");
+  // a beam in the scattered-field formulation (Plan v2.49): scattered field + background is the total-field solution on
+  // the same grid (sigma = (M - M_bg) F_bg, V21e on rounding), so R and T and their gradient follow the total-field chain
   const bool pw = P.planeWave;
   const Eigen::Index n = P.grid.k.size();
   const double k0 = P.k0;
@@ -644,7 +645,9 @@ GradientResult cylindricalGradient(const std::string& configJson, const io::RunC
   out.notes = {"cylindrical: spectral grid (k_max, panels, deformed path, graded panels) fixed",
                pw ? "cylindrical: plane wave (scattered field); the background solution of the incidence order by "
                     "central differences for thicknesses and background materials (V21i Stufe 2b)"
-                  : "cylindrical: Gaussian beam, total field, RCWA (V21i)"};
+                  : P.beamScattered ? "cylindrical: Gaussian beam, scattered field: R and T through the total-field chain "
+                                      "(the same solution on the grid, V21e; Plan v2.49)"
+                                    : "cylindrical: Gaussian beam, total field, RCWA (V21i)"};
   return out;
 }
 

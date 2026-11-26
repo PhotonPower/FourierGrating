@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M20/M21, Gradienten für den Strahl als Streufeld (Plan v2.49): `"scattered_field": true` ist bei Strahlen kein
+  Ausschlussgrund mehr. Streufeld + Hintergrund ist dieselbe Lösung wie das Totalfeld, der Gradient läuft daher über
+  die Totalfeldkette. Tests `V21i.ScatteredBeam` (≤ 3,2e-10), `V22g.ScatteredBeamThroughTheClassPath` (≤ 1,7e-8).
 - M20/M21, Gradienten nach den Halbraummaterialien (Plan v2.48): Substrat (Re, Im) und Superstrat (Re) für Strahlen,
   Substrat für ebene Wellen, über die Basen der Halbräume (`fg::cyl::homogeneousModesBar`), den einfallenden Strahl
   und P_inc; Spektralgitter fest. C++-API `CylindricalSpec::fixedK`/`fixedW`/`fixedEdges` für Prüfungen bei festem
