@@ -965,10 +965,9 @@ nlohmann::json gradientCase(const std::string& fac, bool metal) {
 double cylObjective(const fg::CylindricalResult& r) { return r.reflected + 0.5 * r.transmitted + 2 * r.transmittedPerHarmonic[1]; }
 
 /// Adjoint against central differences (step 1e-5 max(0.1, |v|)), criterion of M19: 1e-6 max(1, |fd|).
-void checkCylGradient(const std::string& fac, bool metal, const std::vector<std::string>& params) {
+void checkCylGradient(const nlohmann::json& j, const std::string& fac, bool metal, const std::vector<std::string>& params) {
   fg::Objective obj;
   obj.cylindrical = {{fg::CylRef{'R', true, 0}, 1.0}, {fg::CylRef{'T', true, 0}, 0.5}, {fg::CylRef{'T', false, 1}, 2.0}};
-  const nlohmann::json j = gradientCase(fac, metal);
   const fg::GradientResult g = fg::gradient(j.dump(), obj, params);
   EXPECT_NEAR(g.value, cylObjective(solveConfig(j.dump()).cylindrical), 1e-12) << fac;
   for (std::size_t q = 0; q < params.size(); ++q) {
@@ -983,6 +982,9 @@ void checkCylGradient(const std::string& fac, bool metal, const std::vector<std:
                 params[q].c_str(), g.grad[q], fd, std::abs(g.grad[q] - fd));
     EXPECT_NEAR(g.grad[q], fd, 1e-6 * std::max(1.0, std::abs(fd))) << fac << " " << params[q];
   }
+}
+void checkCylGradient(const std::string& fac, bool metal, const std::vector<std::string>& params) {
+  checkCylGradient(gradientCase(fac, metal), fac, metal, params);
 }
 
 }  // namespace
@@ -1007,6 +1009,17 @@ TEST(V21i, LaurentRadiiAndMaterials) {
 TEST(V21i, MetalCoreOnTheRealPath) {
   checkCylGradient("li_r", true,
                    {"/layers/1/thickness_um", "/layers/1/radii_um/0", "/materials/core/n/0", "/materials/core/n/1"});
+}
+
+// Beam in the scattered-field formulation (Plan v2.49): R and T equal those of the total field (V21e, the same
+// solution on the grid), so the gradient runs through the total-field chain; the differences here solve the scattered
+// field. The film is the outer ring material: the background stack changes with its index and the thicknesses.
+TEST(V21i, ScatteredBeam) {
+  nlohmann::json j = gradientCase("li_r", false);
+  j["scattered_field"] = true;
+  j["layers"][1]["materials"] = {"core", "shell", "film"};
+  checkCylGradient(j, "li_r scattered", false,
+                   {"/layers/1/radii_um/1", "/materials/core/n/1", "/materials/film/n", "/layers/0/thickness_um"});
 }
 
 // V21i Stufe 2 (Plan v2.35): plane wave (scattered field), objective on the scattered cross sections up/down (um^2);

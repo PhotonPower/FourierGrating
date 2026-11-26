@@ -567,10 +567,11 @@ double v22gObjective(const fg::CylindricalResult& r) {
   return r.reflected + 0.5 * r.transmitted + 2 * t1;
 }
 
-void checkV22g(int P, const std::vector<std::string>& params, bool planeWave = false) {
+void checkV22g(int P, const std::vector<std::string>& params, bool planeWave = false, bool scattered = false) {
   fg::Objective obj;
   obj.cylindrical = {{fg::CylRef{'R', true, 0}, 1.0}, {fg::CylRef{'T', true, 0}, 0.5}, {fg::CylRef{'T', false, 1}, 2.0}};
-  const nlohmann::json j = v22gCase(P, planeWave);
+  nlohmann::json j = v22gCase(P, planeWave);
+  if (scattered) j["scattered_field"] = true;
   const fg::GradientResult g = fg::gradient(j.dump(), obj, params);
   EXPECT_NEAR(g.value, v22gObjective(solveConfig(j.dump()).cylindrical), 1e-12) << P;
   for (std::size_t q = 0; q < params.size(); ++q) {
@@ -581,7 +582,8 @@ void checkV22g(int P, const std::vector<std::string>& params, bool planeWave = f
     b[p] = v - h;
     const double fd =
         (v22gObjective(solveConfig(a.dump()).cylindrical) - v22gObjective(solveConfig(b.dump()).cylindrical)) / (2 * h);
-    std::printf("V22g %s P = %d %-40s adjoint %+.10e  fd %+.10e  diff %.1e\n", planeWave ? "plane wave" : "beam", P,
+    std::printf("V22g %s P = %d %-40s adjoint %+.10e  fd %+.10e  diff %.1e\n",
+                planeWave ? "plane wave" : scattered ? "scattered beam" : "beam", P,
                 params[q].c_str(), g.grad[q], fd, std::abs(g.grad[q] - fd));
     EXPECT_NEAR(g.grad[q], fd, 1e-6 * std::max(1.0, std::abs(fd))) << P << " " << params[q];
   }
@@ -623,6 +625,13 @@ TEST(V22g, PlaneWaveThroughTheClassPath) {
                 "/layers/1/thickness_um"}, true);
   checkV22g(2, {"/layers/1/regions/0/ellipse/radii_um/0", "/layers/0/radii_um/0", "/materials/core/n/1",
                 "/layers/0/thickness_um"}, true);
+}
+
+// Beam in the scattered-field formulation in the class path (Plan v2.49): through the total-field chain (R, T equal,
+// V22Scattered); the differences solve the scattered field. "film" is the background of the contour (P = 1).
+TEST(V22g, ScatteredBeamThroughTheClassPath) {
+  checkV22g(1, {"/layers/1/regions/0/polygon_um/1/0", "/materials/film/n", "/layers/1/thickness_um"}, false, true);
+  checkV22g(2, {"/layers/1/regions/0/ellipse/radii_um/0", "/layers/0/radii_um/0"}, false, true);
 }
 
 // Half-space materials in the class path (Plan v2.48): differences on the grid of the unperturbed problem (the branch

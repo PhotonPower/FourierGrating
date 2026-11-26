@@ -306,7 +306,8 @@ Moden) und je Harmonischer `C_Rm`, `C_Tm` (n = m). Sind Ringmaterialien verlustb
 `result.cylindrical["absorbed_rings"]` die in den Ringen absorbierte Leistung (Volumenintegral); `C_A` minus
 dieser Wert ist der seitliche Abfluss plus die Absorption außerhalb der Ringe. Mit `"scattered_field": true`
 rechnet auch ein Strahl in der Streufeldformulierung (Hintergrund = Stapel mit dem äußeren Material jeder
-Ringschicht, Quelle σ = (M − M_bg) F_bg); die Ergebnisse sind dieselben wie beim Totalfeld (Test V21e).
+Ringschicht, Quelle σ = (M − M_bg) F_bg); die Ergebnisse sind dieselben wie beim Totalfeld (Test V21e), ebenso
+die Gradienten (seit Plan v2.49 auch mit `"scattered_field": true`).
 
 Ebene Welle (Streufeldformulierung, Hintergrund = Stapel mit dem äußersten Ringmaterial): Winkel wie beim
 kartesischen Einfall, Polarisation über `delta_deg`; Strahlparameter entfallen.

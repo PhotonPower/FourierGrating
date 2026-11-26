@@ -241,7 +241,9 @@ Reihenfolge nach M19. Spezifikation: Plan Abschnitte „Erweiterungen ab Version
   - Erledigt (Plan v2.48): Gradienten nach den Halbraummaterialien (Superstrat Realteil, Substrat; ebene Welle nur
     Substrat) bei festem Spektralgitter (`cyl::homogeneousModesBar`, C++-API `CylindricalSpec::fixedK`) –
     `V21i.HalfSpaceMaterials`, `V22g.HalfSpaceMaterialsOfTheClassPath`
-  - Offen bei den Gradienten: Strahl im Streufeld, `rings_profile`-Parameter, RK, Superstrat bei ebenen Wellen
+  - Erledigt (Plan v2.49): Gradienten für den Strahl als Streufeld (dieselbe Lösung wie das Totalfeld, über die
+    Totalfeldkette) – `V21i.ScatteredBeam`, `V22g.ScatteredBeamThroughTheClassPath`
+  - Offen bei den Gradienten: `rings_profile`-Parameter, RK, Superstrat bei ebenen Wellen
 - [ ] **M21** P-zählige Drehsymmetrie: gekoppelte Harmonische m0 + lP, Winkelkoeffizienten aus `polygon2d`/
   `contour2d`/`cad`, Symmetrieklassen, Laurent (FFF als Stufe 2)
   - Abnahme: V22a–g (Plan)
