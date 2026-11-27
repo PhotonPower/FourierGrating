@@ -156,4 +156,27 @@ Stack backgroundStack(const Stack& st) {
   return bg;
 }
 
+void lateralNodes(const Stack& stack, const std::vector<double>& thickness_um, double k0, std::vector<double>& ys,
+                  std::vector<double>& wy) {
+  std::vector<double> br{0.0};
+  for (std::size_t k = 0; k < stack.layers.size(); ++k) {
+    if (const auto* p = std::get_if<Profile1DLayer>(&stack.layers[k].spec)) {
+      const double g0 = profileValue(*p, 0.0, stack.dx_um);
+      if (g0 > 0 && g0 < p->depth_um) br.push_back(br.back() + g0);
+    }
+    br.push_back(br.back() + thickness_um[k]);
+  }
+  const auto& g = quadrature::gaussLegendre(8);
+  const double hmax = 0.1 * 2 * PI / k0;  // panels <= lambda / 10
+  for (std::size_t k = 0; k + 1 < br.size(); ++k) {
+    const double a = br[k], b = br[k + 1];
+    const int m = std::max(1, static_cast<int>(std::ceil((b - a) / hmax)));
+    for (int p = 0; p < m; ++p)
+      for (std::size_t q = 0; q < g.x.size(); ++q) {
+        ys.push_back(a + (b - a) * (p + 0.5 * (1 + g.x[q])) / m);
+        wy.push_back(0.5 * (b - a) / m * g.w[q]);
+      }
+  }
+}
+
 }  // namespace fg

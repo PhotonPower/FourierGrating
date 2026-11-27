@@ -642,7 +642,7 @@ Hintergrunddaten (Amplituden, Exponenten, Modenvektoren, Schichtgrenzen), $T_{mn
 Kotangenten und werden nach Dicken, Hintergrundmaterialien, $\lambda$ und Winkeln per zentralem Differenzenquotienten
 der $N=0$-Rechnung abgeleitet. RK: erweitertes System mit $\sigma(y)$ in der letzten Spalte. Der Löser teilt die
 RK-Scheiben zusätzlich an den Knoten der seitlichen Flussquadratur; der Wert stimmt dann auf die RK-Toleranz. Nicht
-umgesetzt: Profilschichten mit PML (Hintergrund geteilt bei der Profilhöhe; seit v2.54), Stufe C.
+umgesetzt: Profilschichten mit PML (Hintergrund geteilt bei der Profilhöhe; seit v2.54), Stufe C (C1 seit v2.55).
 
 \paragraph{Umsetzung (v2.53): entartete Moden, die die Störung koppelt.}
 Wie im Zylinderpfad (v2.52) nimmt \verb|adjoint::eig| für entartete Paare einer Klasse die vollen Kotangenten von $\Lambda$
@@ -687,6 +687,46 @@ Element genau einer Hintergrundschicht angehört:
         schräg RCWA und RK; $n$ Profil, $\varepsilon$ Film, Dicke, $\lambda$, $\phi$): $\le2{,}2\cdot10^{-8}$, Wert $=$ Löser auf
         $10^{-12}$; \verb|V25b.InteriorStepOfPointsEqualsDegree1InRK| (Stufe im Inneren, RK gleich NURBS Grad~1:
         $6\cdot10^{-16}$, vorher $5{,}8\cdot10^{-7}$).
+\end{itemize}
+
+\paragraph{Spezifikation und Umsetzung (v2.55): Stufe C1, seitlicher Fluss und Absorption in der Totalfeldformulierung.}
+Gilt für Normaleinfall ohne Streufeldformulierung (Stufe A) und RCWA; Streufeldformulierung (C2) und RK (C3) folgen.
+Wie im Löser (\verb|scattering|, Abschnitt \enquote{M18: Ausgaben}):
+\[
+P_{\text{seit}}=\tfrac1{S_{\text{inc}}}\sum_i w_i\,q_S(f_i-g_i),\qquad
+P_{\text{abs}}=\tfrac1{S_{\text{inc}}}\Bigl[q_W(\Psi_\downarrow t)-q_W(\Psi\,(a;b))-\sum_i w_i\,q_S(f_i)
+-q_W(\Psi_\downarrow t_{\text{bg}})+q_W(\Psi\,(a;b_{\text{bg}}))\Bigr]
+\]
+mit den Seitenknoten $(y_i,w_i)$ (\verb|fg::lateralNodes|, mit dem Löser geteilt), den Feldern
+$f_i=(F_i,E_{y,i},H_{y,i})$ des Stapels und $g_i$ des Hintergrundstapels und dem Fluss $q_S$ durch die Seiten des
+Fensters (quadratische Form in $f$, \verb|sidesFlux|).
+\begin{itemize}[nosep]
+  \item \textbf{Knoten als Schnitte:} Der Treiber schneidet die Kette an jedem $y_i$, homogene Schichten und
+        Treppenscheiben in Stücke (gleiche Moden, Dickenanteil als Bruchteil der Schicht). Am Schnitt $q$ (Oberkante von
+        Element $q$) sind die Amplituden $(a_q;b_q)=\verb|interfaceAmplitudes|(S_L^{(q)},S_U^{(q)},0,a_{\text{in}})$ mit
+        $S_L^{(q)}=P_q$ (Präfix) und $S_U^{(q)}=E_{q+1}\star\dots\star E_K$ (Suffix), $F_i=\Psi_{\text{ref}}(a_q;b_q)$;
+        $E_y,H_y$ aus $F_i$ mit $Q$ des Elements darunter und $A,G$ der Transformation (\verb|computeEy|,
+        \verb|computeHy|). Mathematisch gleich der Auswertung im Element (Löser); der Wert stimmt auf Rundung.
+  \item \textbf{Rückwärts:} $\bar E_y,\bar H_y\to\bar F_i,\bar Q,\bar A,\bar G$; $\bar F_i\to\overline{(a_q;b_q)}$,
+        $\bar\Psi_{\text{ref}}$; die Rückwärtsregel von \verb|interfaceAmplitudes| ($D=I-L_{12}U_{21}$, $r=L_{12}U_{22}a$,
+        $b_q=D^{-1}r$, $a_q=U_{21}b_q+U_{22}a$) liefert $\bar S_L^{(q)},\bar S_U^{(q)},\bar a_{\text{in}}$. $\bar S_L^{(q)}$
+        kommt in der vorhandenen Rückwärtsschleife zum Kotangens des Präfixes $P_q$. Für die Suffixe läuft vorher eine
+        Schleife von unten nach oben: $\bar S_U^{(q)}$ geht durch die Rückwärtsregel von $S_U^{(q)}=E_{q+1}\star
+        S_U^{(q+1)}$ zu $\bar E_{q+1}$ (zum Kotangens des Elements addiert) und $\bar S_U^{(q+1)}$.
+  \item \textbf{Drei Durchläufe} wie bei Stufe A: Hintergrundstapel vorwärts (zusätzlich $g_i$), Stapel mit
+        $\bar b,\bar t,\bar f_i$, Hintergrundstapel mit $\bar b_{\text{bg}},\bar t_{\text{bg}},\bar g_i$. Die Gewichte
+        $w_i\propto t_k$ der Schicht $k$: $\partial L/\partial t_k\mathrel{+}=\sum_{i\in k}(\partial L/\partial w_i)\,w_i/t_k$;
+        die Knotenhöhen skalieren mit der Schicht (Dickenanteile der Stücke). Die Zahl der Panels hängt nur stückweise
+        konstant von $\lambda$ ab.
+  \item Nicht mit \verb|checkpoint_every| $>1$ (Fehlermeldung).
+  \item Aufwand: jeder Knoten kostet eine Scheiben-S-Matrix und zwei Sternprodukte (Präfix, Suffix) mehr; der Steg
+        ($N_x=24$, 56 Knoten) braucht für den Wert 3\,s statt 0{,}23\,s. Ohne Parameter läuft keine Rückwärtsschleife
+        mehr (Differenzenquotienten, Hintergrunddurchläufe; gilt für alle Gradienten).
+  \item Tests: \verb|M19_Gradient.AperiodicLateralAndAbsorbed| (Steg, $N_x=12$; Dicken, Kanten, $n$ Steg, $\varepsilon$ Film,
+        $\lambda$, $\psi$, $\delta$, $n$ Superstrat und Substrat): seitlich $\le6{,}6\cdot10^{-9}$, absorbiert $\le1{,}7\cdot10^{-7}$
+        ($\psi$: $10^{-6}$ relativ, $7\cdot10^{-10}$ absolut; die Absorption ist eine Differenz großer Flüsse);
+        \verb|AperiodicLateralAndAbsorbed2D| (Kontaktloch, $N=3$; Radius, Mittelpunkt, $n$ Film, Dicke, $\lambda$):
+        $\le5{,}2\cdot10^{-7}$. Werte $=$ Löser auf $10^{-12}$.
 \end{itemize}
 
 \subsection{Tests und Abnahme (M19)}

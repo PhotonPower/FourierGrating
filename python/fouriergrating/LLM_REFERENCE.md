@@ -142,7 +142,7 @@ fg.llm_reference() -> str                              this text
   `R_top`, `T_down`, `T_up`, `R_bottom` (s components at r, p components at n_f + r), `k0`, `incidence`,
   `index(n, m)`.
 - Objectives and cotangents: `{("R", -1, 0): 1.0, ("T", 0, 0): -0.5}` or `[("R", -1, 0, 1.0)]`; PML:
-  `{("scattering", "up"): w}`, `{("mode", "R", j): w}`; cylindrical beams: `{("cylindrical", "R"): w}`,
+  `{("scattering", "up"): w}` (also `"down"`, and at normal incidence `"lateral"`, `"absorbed"`), `{("mode", "R", j): w}`; cylindrical beams: `{("cylindrical", "R"): w}`,
   `{("cylindrical", "T", m): w}` (harmonic m), parameters `/layers/k/radii_um/i`, thicknesses, materials (not
   the half spaces); plane waves: R/T are the scattered cross sections up/down in um^2. With `"symmetry":
   {"rotation": P}`: beams only, plus `polygon2d`/`contour2d` geometry numbers that keep the P-fold symmetry.

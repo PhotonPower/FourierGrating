@@ -2700,29 +2700,12 @@ class StackSolver final : public Solver {
     return out;
   }
 
-  /// Heights (um) and weights of the lateral-side quadrature: Gauss nodes per layer, and in a 1D profile
-  /// layer also split at its height in the zones (E_y, E_z jump on the sides there).
+  /// Heights (um) and weights of the lateral-side quadrature (fg::lateralNodes, shared with the gradient).
   static void sideNodes(const Stack& stack, const Setup& s, const detail::LayerModels& models, std::vector<double>& ys,
                         std::vector<double>& wy) {
-    std::vector<double> br{0.0};
-    for (std::size_t k = 0; k < stack.layers.size(); ++k) {
-      if (const auto* p = std::get_if<Profile1DLayer>(&stack.layers[k].spec)) {
-        const double g0 = profileValue(*p, 0.0, stack.dx_um);
-        if (g0 > 0 && g0 < p->depth_um) br.push_back(br.back() + g0);
-      }
-      br.push_back(br.back() + models[k]->thickness_um());
-    }
-    const auto& g = quadrature::gaussLegendre(8);
-    const double hmax = 0.1 * 2 * PI / s.k0;  // panels <= lambda / 10
-    for (std::size_t k = 0; k + 1 < br.size(); ++k) {
-      const double a = br[k], b = br[k + 1];
-      const int m = std::max(1, static_cast<int>(std::ceil((b - a) / hmax)));
-      for (int p = 0; p < m; ++p)
-        for (std::size_t q = 0; q < g.x.size(); ++q) {
-          ys.push_back(a + (b - a) * (p + 0.5 * (1 + g.x[q])) / m);
-          wy.push_back(0.5 * (b - a) / m * g.w[q]);
-        }
-    }
+    std::vector<double> t;
+    for (const auto& m : models) t.push_back(m->thickness_um());
+    lateralNodes(stack, t, s.k0, ys, wy);
   }
 
   /// Scattering outputs (Plan section "M18: Ausgaben"), total-field formulation (normal incidence): the

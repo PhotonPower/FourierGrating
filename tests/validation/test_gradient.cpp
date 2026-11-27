@@ -755,6 +755,66 @@ TEST(M19_Gradient, AperiodicContactHole) {
         1e-6, "contact hole");
 }
 
+// Plan v2.55, Stufe C1: lateral scattering and absorption (total field, normal incidence, RCWA): the fields at the
+// nodes of the lateral-side quadrature from the interface amplitudes at cuts of the chain (prefix and suffix
+// products); the value is the solver's.
+namespace {
+fg::Objective lateralObjective(double lateral, double absorbed, double up) {
+  fg::Objective o;
+  o.scattering = {{fg::ScatterRef{fg::ScatterRef::Kind::Lateral}, lateral},
+                  {fg::ScatterRef{fg::ScatterRef::Kind::Absorbed}, absorbed},
+                  {fg::ScatterRef{fg::ScatterRef::Kind::Up}, up}};
+  return o;
+}
+void expectSolverOutputs(const json& cfg) {
+  const auto c = fg::io::parseConfig(cfg.dump());
+  const auto r = fg::makeSolver(c.solver)->solve(c.stack, c.scan.front());
+  const auto g = fg::gradient(cfg.dump(), lateralObjective(1.0, 0.0, 0.0), {});
+  std::printf("lateral %.12e (solver %.12e), absorbed %.12e (solver %.12e)\n", g.result.scattering.lateral,
+              r.scattering.lateral, g.result.scattering.absorbed, r.scattering.absorbed);
+  EXPECT_NEAR(g.result.scattering.lateral, r.scattering.lateral, 1e-10 * std::abs(r.scattering.lateral));
+  EXPECT_NEAR(g.result.scattering.absorbed, r.scattering.absorbed, 1e-10 * std::abs(r.scattering.absorbed));
+  EXPECT_NEAR(g.value, r.scattering.lateral, 1e-10 * std::abs(r.scattering.lateral));
+}
+}  // namespace
+
+TEST(M19_Gradient, AperiodicLateralAndAbsorbed) {
+  json cfg = pmlRidge();
+  cfg["truncation"]["Nx"] = 12;  // 56 nodes: the chain is cut 56 times
+  expectSolverOutputs(cfg);
+  check(cfg, lateralObjective(1.0, 0.0, 0.0),
+        {"/layers/1/thickness_um", "/layers/0/thickness_um", "/layers/1/breakpoints_um/1", "/materials/bar/n/0",
+         "/materials/bar/n/1", "/materials/film/eps", "/incidence/lambda_um", "/incidence/delta_deg"},
+        1e-6, "pml ridge lateral");
+  check(cfg, lateralObjective(0.0, 1.0, 0.3),
+        {"/layers/1/thickness_um", "/layers/0/thickness_um", "/layers/1/breakpoints_um/2", "/materials/bar/n/0",
+         "/materials/bar/n/1", "/materials/film/eps", "/incidence/lambda_um", "/incidence/psi_deg", "/materials/air/n",
+         "/materials/glass/n"},
+        1e-6, "pml ridge absorbed");
+}
+
+TEST(M19_Gradient, AperiodicLateralAndAbsorbed2D) {
+  const json hole{{"dimension", "2D"},
+                  {"truncation", {{"Nx", 3}, {"Nz", 3}}},
+                  {"period_um", {{"x", 2.0}, {"z", 2.0}}},
+                  {"incidence", {{"lambda_um", 0.6328}, {"phi_deg", 0}, {"psi_deg", 0}, {"delta_deg", 30}}},
+                  {"materials", {{"air", {{"n", 1.0}}}, {"glass", {{"n", 1.5}}}, {"film", {{"n", {2.1, 0.01}}}}}},
+                  {"superstrate", "air"},
+                  {"substrate", "glass"},
+                  {"layers", json::array({json{{"type", "contour2d"},
+                                               {"thickness_um", 0.3},
+                                               {"background", "film"},
+                                               {"regions", json::array({json{{"material", "air"},
+                                                                             {"circle", {{"center_um", {1.05, 0.98}}, {"radius_um", 0.25}}}}})},
+                                               {"factorization", "laurent"}}})},
+                  {"aperiodic", {{"pml", {{"x", {{"width_um", 0.3}, {"beta", 1.0}}}, {"z", {{"width_um", 0.3}, {"beta", 1.0}}}}}}}};
+  expectSolverOutputs(hole);
+  check(hole, lateralObjective(1.0, 0.5, 0.0),
+        {"/layers/0/regions/0/circle/radius_um", "/layers/0/regions/0/circle/center_um/0", "/materials/film/n/0",
+         "/materials/film/n/1", "/layers/0/thickness_um", "/incidence/lambda_um"},
+        1e-6, "contact hole lateral/absorbed");
+}
+
 // Stufe A: modal excitation. A slab waveguide (core n = 2) ends in a wider block of another material on a
 // structured substrate (the same waveguide continues below): |r_0|^2, |t_0|^2 and a higher mode; the core index
 // acts on both half-space bases (eigenvector reverse rule) and on the layer.

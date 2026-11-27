@@ -184,7 +184,11 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
   - Umgesetzt (Plan v2.54): Profilschichten mit PML auch in der Streufeldformulierung (Schnitt bei der Profilhöhe,
     RCWA und RK, ≤ 2,2e-8); RK schneidet an waagrechten Stücken von Polygonprofilen (vorher Sprung in Q überintegriert)
     – `M19_Gradient.AperiodicProfileLayer`, `V25b.InteriorStepOfPointsEqualsDegree1InRK`
-  - Offen (Phase 2): GPU-Rückwärtsfunktionen; aperiodisch: seitlicher Fluss/Absorption (Stufe C, optional)
+  - Umgesetzt (Plan v2.55, Stufe C1): seitlicher Fluss und Absorption in der Totalfeldformulierung (Normaleinfall,
+    RCWA; Felder an den Seitenknoten über Schnitte der Kette, Präfixe und Suffixe; ≤ 5,2e-7) –
+    `M19_Gradient.AperiodicLateralAndAbsorbed`, `…2D`
+  - Offen (Phase 2): GPU-Rückwärtsfunktionen; aperiodisch: seitlicher Fluss/Absorption in der Streufeldformulierung
+    (Stufe C2) und mit RK (Stufe C3)
 
 ## Zylinderkoordinaten (Plan v2.14, Teil 7: M20–M21)
 
