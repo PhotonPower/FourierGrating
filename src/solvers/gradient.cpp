@@ -257,7 +257,7 @@ struct Elem {
   std::size_t layer = kNone;
   bool homogeneous = false;
   double y_um = 0;  ///< slice centre (layer-relative)
-  int K = 1;        ///< slices of the layer
+  double frac = 1;  ///< slice thickness / layer thickness (1/K; a piece cut at a background boundary: its share)
   double h = 0;     ///< normalized slice thickness
   QBlocks Q;
   LayerModes modes;
@@ -693,7 +693,6 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   // scattered-field formulation: background field, background propagation matrices, the re-expansion Tsrc
   std::vector<BgLayerField> bgf;
   std::vector<MatC> bgM, bgMB;
-  std::vector<std::size_t> bgOf(st.layers.size(), kNone);
   MatC Tsrc;
   /// T(m, n) = 1/d int_phys exp(i (kx0 + (n - m) 2 pi / d) x) dx on the oblique PML axes (as the solver)
   auto makeTsrc = [&](double kx0, double kz0) {
@@ -718,16 +717,6 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     FG_REQUIRE(opt.checkpointEvery <= 1, "gradient: checkpoint_every with the scattered-field formulation");
     a_in = VecC::Zero(nh);  // the sources drive the scattered field
     bgf = backgroundField(st, opt, wl, inc.alpha0, inc.gamma0);
-    std::size_t n = 0;
-    for (std::size_t k = 0; k < st.layers.size(); ++k) {
-      FG_REQUIRE(!std::holds_alternative<Profile1DLayer>(st.layers[k].spec),
-                 "gradient: profile layers with the scattered-field formulation");
-      Stack one = st;
-      one.layers = {st.layers[k]};
-      const std::size_t c1 = backgroundStack(one).layers.size();
-      if (c1) bgOf[k] = n;
-      n += c1;
-    }
     for (const auto& L : bgf) {
       const Material& mat = st.material(L.material);
       FG_REQUIRE(mat.isotropic, "gradient: anisotropic background materials with the scattered-field formulation");
@@ -746,6 +735,23 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     return bloch ? detail::componentwise(Tsrc, sig) : sig;
   };
   /// background field (incidence order, 4 components) of background layer l at the normalized height y
+  /// background layer containing the normalized height y, and the cuts [ya, background boundaries strictly
+  /// inside, yb] (as the solver's bgLayer / bgCuts: elements do not cross a background boundary; a profile layer
+  /// splits the background at its height in the PML zone, Plan v2.54)
+  auto bgAt = [&](double y) {
+    for (std::size_t l = 0; l < bgf.size(); ++l)
+      if (y <= bgf[l].y1) return l;
+    return bgf.size() - 1;
+  };
+  auto bgCuts = [&](double ya, double yb) {
+    std::vector<double> cuts{ya};
+    const double tol = 1e-12 * std::max(1.0, yb);
+    if (scat)
+      for (const auto& L : bgf)
+        if (L.y1 > ya + tol && L.y1 < yb - tol) cuts.push_back(L.y1);
+    cuts.push_back(yb);
+    return cuts;
+  };
   auto bgFieldAt = [&](std::size_t l, double y, VecC* Ek = nullptr) {
     const BgLayerField& L = bgf[l];
     VecC f = VecC::Zero(4);
@@ -938,7 +944,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         e.yb = yb;
         e.rho = rho;
         e.y0n = yBottom;  // RK: the layer bottom
-        if (scat) e.bgl = bgOf[k];
+        if (scat) e.bgl = bgAt(yBottom + 0.5 * (ya + yb));
         rebuild(e);
         if ((!e.T.allFinite() || e.T.cwiseAbs().maxCoeff() > growth) && depth < 12) {
           slice(ya, 0.5 * (ya + yb), depth + 1);
@@ -954,6 +960,13 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         for (double bk : breaks)
           if (bk * k0 > cuts.front() + 1e-12 * std::max(1.0, H) && bk * k0 < H * (is + 1) / K - 1e-12 * std::max(1.0, H))
             cuts.insert(cuts.end() - 1, bk * k0);
+        // scattered field: also at the background boundaries (profile height, Plan v2.54; as the solver)
+        for (double yc : bgCuts(yBottom + cuts.front(), yBottom + cuts.back())) {
+          const double yl = yc - yBottom, tol = 1e-12 * std::max(1.0, H);
+          if (yl > cuts.front() + tol && yl < cuts.back() - tol &&
+              std::none_of(cuts.begin(), cuts.end(), [&](double v) { return std::abs(v - yl) <= tol; }))
+            cuts.insert(std::upper_bound(cuts.begin(), cuts.end(), yl), yl);
+        }
         for (std::size_t q = 0; q + 1 < cuts.size(); ++q) {
           if (!breaks.empty()) {  // one-sided limits at the band boundaries (Plan "M24: Kritische Höhen und Bänder")
             const double d = 1e-9 * (cuts[q + 1] - cuts[q]);
@@ -967,16 +980,20 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     }
     const int K = m.yInvariant() ? 1 : m.rcwaSlices;
     for (int s = 0; s < K; ++s) {
-      Elem e;
-      e.layer = k;
-      e.K = K;
-      e.y_um = (s + 0.5) * m.thickness_um() / K;
-      e.h = H / K;
-      e.y0n = yBottom + H * s / K;
-      e.y1n = yBottom + H * (s + 1) / K;
-      if (scat) e.bgl = bgOf[k];
-      rebuild(e);
-      push(std::move(e));
+      // scattered field: pieces at the background boundaries (same Q, the staircase slice centre; as the solver)
+      const std::vector<double> cut = bgCuts(yBottom + H * s / K, yBottom + H * (s + 1) / K);
+      for (std::size_t ic = 0; ic + 1 < cut.size(); ++ic) {
+        Elem e;
+        e.layer = k;
+        e.y_um = (s + 0.5) * m.thickness_um() / K;
+        e.y0n = cut[ic];
+        e.y1n = cut[ic + 1];
+        e.h = cut.size() == 2 ? H / K : e.y1n - e.y0n;
+        e.frac = cut.size() == 2 ? 1.0 / K : e.h / H;
+        if (scat) e.bgl = bgAt(0.5 * (e.y0n + e.y1n));
+        rebuild(e);
+        push(std::move(e));
+      }
     }
   }
   const VecC b = scat ? PuLast : VecC(Plast.S12 * a_in), t = scat ? PvLast : VecC(Plast.S22 * a_in);
@@ -1577,7 +1594,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     VecC lub, ldb;
     double hb = 0;
     adjoint::layerSMatrix(e.modes, e.h, ref, Eb, Wub, Wdb, lub, ldb, hb, global ? &refPsiInvb : nullptr, &Lub, &Ldb);
-    thicknessParam(e.layer, hb * k0 / e.K);
+    thicknessParam(e.layer, hb * k0 * e.frac);
     dLdlnk0 += hb * e.h;
     if (!needQ) return;
     const Eigen::Index n = e.modes.lu.size();

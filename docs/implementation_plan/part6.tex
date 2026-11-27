@@ -642,7 +642,7 @@ Hintergrunddaten (Amplituden, Exponenten, Modenvektoren, Schichtgrenzen), $T_{mn
 Kotangenten und werden nach Dicken, Hintergrundmaterialien, $\lambda$ und Winkeln per zentralem Differenzenquotienten
 der $N=0$-Rechnung abgeleitet. RK: erweitertes System mit $\sigma(y)$ in der letzten Spalte. Der Löser teilt die
 RK-Scheiben zusätzlich an den Knoten der seitlichen Flussquadratur; der Wert stimmt dann auf die RK-Toleranz. Nicht
-umgesetzt: Profilschichten mit PML (Hintergrund geteilt bei der Profilhöhe), Stufe C.
+umgesetzt: Profilschichten mit PML (Hintergrund geteilt bei der Profilhöhe; seit v2.54), Stufe C.
 
 \paragraph{Umsetzung (v2.53): entartete Moden, die die Störung koppelt.}
 Wie im Zylinderpfad (v2.52) nimmt \verb|adjoint::eig| für entartete Paare einer Klasse die vollen Kotangenten von $\Lambda$
@@ -665,6 +665,28 @@ aus \verb|adjoint::layerSMatrix| (Scheiben von RCWA; die Halbraumbasen von M17 b
         ungeradem und $xz$-Anteil: mit $\bar\Lambda$ $10^{-8}$, ohne $30\,\%$ daneben);
         \verb|M19_Gradient.DegenerateModesCoupledByTheShape| (Quadrat, Normaleinfall, Laurent: zwei Eckpunkte, Dicke, $n$):
         $\le3{,}7\cdot10^{-9}$.
+\end{itemize}
+
+\paragraph{Umsetzung (v2.54): Profilschichten mit PML.}
+Ein Profil (\verb|profile1d|) ist in den PML-Zonen flach auf der Höhe $g_0=g(0)$; der Hintergrundstapel teilt die Schicht
+dort (\verb|below| bis $g_0$, \verb|above| darüber). Die Totalfeldformulierung (Stufe A) brauchte nichts Neues, die Parameter
+wirken über die geteilten Hintergrundschichten. Die Streufeldformulierung (Stufe B) lehnte Profilschichten ab, weil jedes
+Element genau einer Hintergrundschicht angehört:
+\begin{itemize}[nosep]
+  \item \textbf{Schnitt bei $g_0$:} Wie im Löser (\verb|bgCuts|) teilt der Gradient jede Treppenscheibe, die eine
+        Hintergrundgrenze enthält, in zwei Stücke mit demselben $Q$ (Scheibenmitte) und der Hintergrundschicht nach der
+        Höhe des Stücks; RK-Scheiben ebenso. Der Dickenanteil eines Stücks ist sein Bruchteil der Schicht (statt $1/K$).
+  \item \textbf{Planfehler (RK, seit v2.0):} An einem waagrechten Stück eines Polygonprofils springt $Q$. RK integrierte
+        darüber hinweg (Fehler $6\cdot10^{-7}$ bei tol $10^{-10}$ gegen dieselbe Kontur als NURBS vom Grad~1), die Schrittwahl
+        und damit der Wert hingen unstetig von den Parametern ab: die Differenzenquotienten nach $\lambda$ lagen um 13\,\%
+        daneben. Mit PML gibt es dieses Stück immer ($g_0$). Jetzt meldet \verb|ProfileModel::yBreaks_um()| die Höhen
+        der waagrechten Stücke im Inneren von $(0, \text{Tiefe})$, und RK schneidet dort mit einseitigen Grenzwerten wie an
+        den Bandgrenzen von M24 (Abschnitt~\ref{sec:nurbs1d_bands}), in Löser und Gradient. Golden Files: unverändert (kein
+        Beispiel mit einem solchen Stück und RK).
+  \item Tests: \verb|M19_Gradient.AperiodicProfileLayer| (Höcker mit $g_0=0{,}06$\,µm, 8 Scheiben: Normaleinfall RCWA und RK,
+        schräg RCWA und RK; $n$ Profil, $\varepsilon$ Film, Dicke, $\lambda$, $\phi$): $\le2{,}2\cdot10^{-8}$, Wert $=$ Löser auf
+        $10^{-12}$; \verb|V25b.InteriorStepOfPointsEqualsDegree1InRK| (Stufe im Inneren, RK gleich NURBS Grad~1:
+        $6\cdot10^{-16}$, vorher $5{,}8\cdot10^{-7}$).
 \end{itemize}
 
 \subsection{Tests und Abnahme (M19)}

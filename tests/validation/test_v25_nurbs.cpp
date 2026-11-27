@@ -198,6 +198,21 @@ TEST(V25b, Degree1EqualsProfile1DPointsAndTriangle) {
   EXPECT_LT(rk, 1e-10);
 }
 
+// Plan v2.54: a points profile with a horizontal piece inside (0, depth) (a step at 0.05 um): Q jumps there. Like the
+// degree-1 NURBS (band boundary of M24), RK cuts at that height and takes the one-sided limits; equal 1e-10.
+TEST(V25b, InteriorStepOfPointsEqualsDegree1InRK) {
+  const Pts step{{0.0, 0.0}, {0.06, 0.0}, {0.09, 0.05}, {0.15, 0.05}, {0.2, kH}, {0.24, kH}, {kD, 0.0}};
+  const json prof = {{"type", "profile1d"}, {"shape", "points"}, {"depth_um", kH},
+                     {"x_um", {0.0, 0.06, 0.09, 0.15, 0.2, 0.24}}, {"y_um", {0.0, 0.0, 0.05, 0.05, kH, kH}},
+                     {"below", "pillar"}, {"above", "air"}, {"factorization", "laurent"}};
+  const json nl = nurbs(1, step);
+  const double rc = maxDiff(solve(base(json::array({nl}))), solve(base(json::array({prof})))),
+               rk = maxDiff(solve(base(json::array({nl}), "rk")), solve(base(json::array({prof}), "rk")));
+  std::printf("V25b interior step: RCWA %.2e, RK %.2e\n", rc, rk);
+  EXPECT_LT(rc, 1e-12);
+  EXPECT_LT(rk, 1e-10);
+}
+
 TEST(V25c, RoundedLineAgainstTheAnalyticProfile) {
   // the rounded trapezoid of V24c exactly as a NURBS (rational quadratic arcs) against profile1d Function with the
   // analytic g(x) (RK, Laurent); band boundaries at the arc/wall joints
