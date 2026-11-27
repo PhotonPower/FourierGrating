@@ -744,13 +744,13 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     return bgf.size() - 1;
   };
   auto bgCuts = [&](double ya, double yb) {
-    std::vector<double> c{ya};
+    std::vector<double> cuts{ya};
     const double tol = 1e-12 * std::max(1.0, yb);
     if (scat)
       for (const auto& L : bgf)
-        if (L.y1 > ya + tol && L.y1 < yb - tol) c.push_back(L.y1);
-    c.push_back(yb);
-    return c;
+        if (L.y1 > ya + tol && L.y1 < yb - tol) cuts.push_back(L.y1);
+    cuts.push_back(yb);
+    return cuts;
   };
   auto bgFieldAt = [&](std::size_t l, double y, VecC* Ek = nullptr) {
     const BgLayerField& L = bgf[l];
