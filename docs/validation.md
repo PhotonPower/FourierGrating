@@ -220,6 +220,7 @@ Abweichung Adjungierte gegen Differenzenquotient der Vorwärtsrechnung (h = 1e-6
 | v2.13 Stufe B: Steg mit PML, schräg (φ = 25°, Laurent, Li) | Kanten, n Steg (Re, Im), eps Film, Dicken, λ, φ, ψ, δ, n Superstrat, n Substrat | ≤ 2,1e-8; Wert = Löser auf 1e-12 |
 | v2.13 Stufe B: Kontaktloch 2D schräg in x und z; Steg mit `scattered_field` bei Normaleinfall | Radius, n Film (Re, Im), Dicke, λ, φ; Kante, n, eps, Dicke, λ | ≤ 1,4e-7 (φ, Gradient 1e-4), sonst ≤ 1e-7 |
 | v2.13 Stufe B: Steg schräg mit RK (tol 1e-8) | Kante, eps Film, Dicke, λ | ≤ 2e-8 |
+| v2.54: Profilhöcker mit PML (flach bei g0 = 0,06 µm), Normaleinfall und schräg (φ = 25°), RCWA und RK | n Profil (Re, Im), eps Film, Dicke, λ, φ | ≤ 2,2e-8; Wert = Löser auf 1e-12 |
 | v2.13 Stufe A: modaler Einfall (Wellenleiter, Block, Wellenleiter als Substrat), \|r_0\|², \|t_0\|², \|r_1\|² | Dicke, Kante, n Block (Re, Im), n Kern (beide Halbräume), λ | ≤ 1e-8; Wert = Löser auf 1e-12 |
 
 Aufwand (2D, N = 3, Laurent, 5 Parameter): Gradient = 1,3 × Vorwärtsrechnung (gemessen 1,3–2,3); die Kosten
@@ -256,7 +257,9 @@ Kotangenten der Hintergrunddaten (Amplituden, Exponenten, Modenvektoren, Schicht
 nach Dicken, Hintergrundmaterialien, λ und Winkeln per zentralem Differenzenquotienten der N = 0-Hintergrundrechnung
 (ebenso Tsrc und I_0); Scheibengrenzen analytisch. RK: erweitertes System (F; 1) mit der Quelle σ(y) in der letzten
 Spalte, Rückwärtsregel des RK-Schritts unverändert; der Löser teilt die RK-Scheiben zusätzlich an den Knoten der
-seitlichen Flussquadratur (andere Schrittfolge), der Wert stimmt daher nur auf die RK-Toleranz (7e-10). Rasterfeld von Algorithmus NF (v2.12): unterhalb
+seitlichen Flussquadratur (andere Schrittfolge), der Wert stimmt daher nur auf die RK-Toleranz (7e-10). Profilschichten
+mit PML (v2.54): Scheiben, die die Profilhöhe der PML-Zone enthalten, werden dort geteilt (gleiches Q, je Stück die
+Hintergrundschicht nach der Höhe), wie im Löser. Rasterfeld von Algorithmus NF (v2.12): unterhalb
 einer Rasterzelle springt die Vorwärtsrechnung um ~1e-7 (Kreismittelpunkt in 2-nm-Schritten), der volle
 Differenzenquotient hängt dort von h ab (−0,82 / −0,086 / −0,0077 / −0,0012 für h = 1e-6 … 1e-3); eingefroren erzeugt
 das stehenbleibende Feld eine Scheinableitung. Formparameter mit FFF bewegen das Feld deshalb mit

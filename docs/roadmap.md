@@ -181,8 +181,10 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
   - Behoben (Plan v2.53): entartete Scheibenmoden, die die Störung koppelt (quadratische Säule unter Normaleinfall,
     Eckpunkt: 15 % falsch), und die Klassifikation ausbreitungsfähiger Moden im reduzierten Problem (Rauschen in Im κ) –
     `M19_Gradient.DegenerateModesCoupledByTheShape`, `Adjoint.SliceSMatrixDegenerateCoupled`
-  - Offen (Phase 2): GPU-Rückwärtsfunktionen; aperiodisch: seitlicher Fluss/Absorption (Stufe C, optional),
-    Profilschichten mit PML
+  - Umgesetzt (Plan v2.54): Profilschichten mit PML auch in der Streufeldformulierung (Schnitt bei der Profilhöhe,
+    RCWA und RK, ≤ 2,2e-8); RK schneidet an waagrechten Stücken von Polygonprofilen (vorher Sprung in Q überintegriert)
+    – `M19_Gradient.AperiodicProfileLayer`, `V25b.InteriorStepOfPointsEqualsDegree1InRK`
+  - Offen (Phase 2): GPU-Rückwärtsfunktionen; aperiodisch: seitlicher Fluss/Absorption (Stufe C, optional)
 
 ## Zylinderkoordinaten (Plan v2.14, Teil 7: M20–M21)
 

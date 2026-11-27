@@ -844,6 +844,54 @@ TEST(M19_Gradient, AperiodicScatteredField2D) {
         1e-6, "scattered ridge normal");
 }
 
+// Plan v2.54: a profile layer with PML (a bump, flat at g0 = 0.06 um in the PML zones): the background splits at the
+// profile height (bar below g0, air above), the slices of the staircase are cut there (as the solver). Total field at
+// normal incidence (Stufe A) and scattered field at oblique incidence (Stufe B, RCWA and RK).
+namespace {
+json pmlBump() {
+  json cfg = pmlRidge();
+  cfg["layers"][1] = json{{"type", "profile1d"},
+                          {"shape", "points"},
+                          {"depth_um", 0.3},
+                          {"x_um", {0.0, 0.8, 1.2, 1.8, 2.2}},
+                          {"y_um", {0.06, 0.06, 0.28, 0.28, 0.06}},
+                          {"below", "bar"},
+                          {"above", "air"},
+                          {"slices", 8}};
+  return cfg;
+}
+}  // namespace
+
+TEST(M19_Gradient, AperiodicProfileLayer) {
+  const auto obj = scatterObjective(1.0, 0.6);
+  const std::vector<std::string> ps{"/materials/bar/n/0", "/materials/bar/n/1", "/materials/film/eps",
+                                    "/layers/0/thickness_um", "/incidence/lambda_um"};
+  json cfg = pmlBump();
+  check(cfg, obj, ps, 1e-6, "pml bump normal");
+  {  // RK: Q jumps at the flat pieces (g0 and the top), cut there with one-sided limits (as M24)
+    json rk = cfg;
+    rk["solver"] = "rk";
+    rk["rk"] = {{"tol", 1e-8}};
+    rk["truncation"]["Nx"] = 12;
+    check(rk, obj, {"/materials/bar/n/1", "/incidence/lambda_um"}, 2e-6, "pml bump normal rk");
+  }
+  cfg["incidence"]["phi_deg"] = 25;
+  {  // the value is the solver's
+    const auto c = fg::io::parseConfig(cfg.dump());
+    const auto r = fg::makeSolver(c.solver)->solve(c.stack, c.scan.front());
+    const auto g = fg::gradient(cfg.dump(), obj, {});
+    EXPECT_NEAR(g.result.scattering.up, r.scattering.up, 1e-12 * std::abs(r.scattering.up));
+    EXPECT_NEAR(g.result.scattering.down, r.scattering.down, 1e-12 * std::abs(r.scattering.down));
+  }
+  std::vector<std::string> ob = ps;
+  ob.push_back("/incidence/phi_deg");
+  check(cfg, obj, ob, 1e-6, "pml bump scattered");
+  cfg["solver"] = "rk";
+  cfg["rk"] = {{"tol", 1e-8}};
+  cfg["truncation"]["Nx"] = 12;
+  check(cfg, obj, {"/materials/bar/n/1", "/layers/0/thickness_um", "/incidence/lambda_um"}, 2e-6, "pml bump scattered rk");
+}
+
 // Stufe B with RK: the augmented system (F; 1) with the source sigma(y) in the last column.
 TEST(M19_Gradient, AperiodicScatteredFieldRK) {
   json cfg = pmlRidge();

@@ -3,12 +3,19 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M19, Profilschichten mit PML in der Streufeldformulierung (Plan v2.54): Der Gradient schneidet die Scheiben bei der
+  Profilhöhe der PML-Zone wie der Löser (zwei Hintergrundschichten), RCWA und RK. Test
+  `M19_Gradient.AperiodicProfileLayer` (≤ 2,2e-8).
 - M21, Randterm der Formableitung für Randstücke auf Kreisen um die Achse (Plan v2.52): Formparameter von Kreisen
   und Kreisringen (auch Kreis → Ellipse) sind wieder Gradientenparameter; `coupledQBar`/`coupledSourceBar` werten die
   Kotangentenfunktion zusätzlich an den Bogenradien aus (`CoupledQBar::rArc`, `Garc`). Tests
   `CylCoupled.ArcsAboutTheAxisAgainstDifferences`, `V22g.EllipseAboveRingsWithTwofoldSymmetry`.
 
 ### Behoben
+- RK mit Polygonprofilen (`profile1d` points): An waagrechten Stücken im Inneren springt Q; RK integrierte darüber
+  hinweg (6e-7 bei tol 1e-10, Werte unstetig in den Parametern). `ProfileModel::yBreaks_um()` meldet diese Höhen,
+  RK schneidet dort mit einseitigen Grenzwerten wie bei M24 (Plan v2.54). Test
+  `V25b.InteriorStepOfPointsEqualsDegree1InRK`.
 - M19, kartesische Gradienten (Plan v2.53): Entartete Scheibenmoden, die die Störung koppelt, fielen in der Adjungierten
   der Eigenzerlegung weg (zentrierte quadratische Säule unter Normaleinfall, Gradient nach einem Eckpunkt 15 % falsch);
   `gradient.cpp` übergibt jetzt die vollen Kotangenten von Λ. Test `M19_Gradient.DegenerateModesCoupledByTheShape`.

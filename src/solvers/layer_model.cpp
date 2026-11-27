@@ -325,6 +325,21 @@ class ProfileModel final : public LayerModel {
                "factorization not applicable to this profile layer");
   }
   double thickness_um() const override { return p_.depth_um; }
+  /// Heights of the horizontal pieces strictly inside (0, depth) (points profile; with PML always the height in the
+  /// PML zone): Q jumps there, RK cuts and takes the one-sided limits as at the band boundaries of M24 (Plan v2.54).
+  std::vector<double> yBreaks_um() const override {
+    std::vector<double> b;
+    if (p_.shape != Profile1DLayer::Shape::PiecewiseLinear) return b;
+    const std::size_t n = p_.ys_um.size();
+    const double a = p_.depth_um, tol = 1e-12 * std::max(1.0, a);
+    for (std::size_t i = 0; i < n; ++i) {
+      const double y = p_.ys_um[i];
+      if (y == p_.ys_um[(i + 1) % n] && y > tol && y < a - tol) b.push_back(y);
+    }
+    std::sort(b.begin(), b.end());
+    b.erase(std::unique(b.begin(), b.end()), b.end());
+    return b;
+  }
   bool yInvariant() const override { return false; }
   QBlocks Q(double y) const override {
     FG_PROF_SCOPE("profile.Q");
