@@ -252,6 +252,12 @@ Param resolve(const json& j, const io::RunConfig& cfg, const std::string& ptr, c
   return p;
 }
 
+std::vector<std::string> coreNotes() {
+  return {"RCWA slices fixed (Plan M19 \"Methode\" 1.)",
+          "normal field: profiles differentiated, Algorithm NF over one raster cell, CAD sections frozen (Plan M19 "
+          "\"Methode\" 2., v2.12)"};
+}
+
 /// One recorded element of the chain.
 struct Elem {
   std::size_t layer = kNone;
@@ -408,10 +414,15 @@ namespace {
 /// Objectives on the amplitudes (aperiodic structures, Plan section "Gradienten aperiodischer Strukturen"):
 /// the up-going amplitudes b above and the down-going t below the stack (in X) with the bases and the incident
 /// amplitudes; returns L and the cotangents bbar, tbar and fills the outputs of res.
+/// Field at a node of the lateral-side quadrature (Plan v2.55, Stufe C1): F = (Ex, Ez, Hx, Hz), E_y, H_y in X.
+struct NodeField {
+  VecC F, Ey, Hy;
+};
 struct AmpContext {
   const ModeBasis& ref;
   const ModeBasis& sub;
   const VecC& aIn;
+  const std::vector<NodeField>* nodes = nullptr;  ///< fields at the requested nodes (gradientCore nodes_um)
 };
 /// Cotangents of the objective through the bases and the incident amplitudes directly (global parameters).
 struct AmpBar {
@@ -419,6 +430,7 @@ struct AmpBar {
   VecC aIn;
   VecC refLam, subLam;  ///< cotangents of the half-space eigenvalues
   double dlnk0 = 0;     ///< dL / d ln k0 at fixed normalized quantities (sampling heights in um)
+  std::vector<VecC> nodeF, nodeEy, nodeHy;  ///< cotangents of the node fields (empty: zero)
 };
 using AmpObjective =
     std::function<double(const AmpContext&, const VecC& b, const VecC& t, VecC& bbar, VecC& tbar, AmpBar& ab, Result& res)>;
@@ -426,7 +438,8 @@ using AmpObjective =
 using IncidentHook = std::function<VecC(const ModeBasis& ref)>;
 GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wavelength& wl,
                             const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps,
-                            const AmpObjective* ampObj = nullptr, const IncidentHook* incident = nullptr);
+                            const AmpObjective* ampObj = nullptr, const IncidentHook* incident = nullptr,
+                            const std::vector<double>* nodes_um = nullptr);
 }  // namespace
 
 GradientResult gradient(const SolverOptions& opt, const Stack& stack0, const Wavelength& wl, const Objective& objective,
@@ -593,7 +606,8 @@ GradientResult scatteredGradient(const Stack& st, const SolverOptions& opt, cons
 
 GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wavelength& wl,
                             const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps,
-                            const AmpObjective* ampObj, const IncidentHook* incident) {
+                            const AmpObjective* ampObj, const IncidentHook* incident,
+                            const std::vector<double>* nodes_um) {
   if (st.aperiodic.enabled && !ampObj) return aperiodicGradient(st, opt, wl, prebuilt, objective, std::move(ps));
   FG_PROF_SCOPE("gradient");
   FG_REQUIRE(!opt.scatteredField || st.aperiodic.enabled,
@@ -743,13 +757,25 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       if (y <= bgf[l].y1) return l;
     return bgf.size() - 1;
   };
+  // Stufe C1 (Plan v2.55): the chain is also cut at the nodes of the lateral-side quadrature (normalized heights)
+  std::vector<double> nodeY;
+  if (nodes_um) {
+    FG_REQUIRE(opt.checkpointEvery <= 1, "gradient: lateral scattering/absorption with checkpoint_every");
+    FG_REQUIRE(opt.kind != SolverKind::RK, "gradient: lateral scattering/absorption with RK (Plan v2.55, Stufe C3)");
+    FG_REQUIRE(!scat, "gradient: lateral scattering/absorption in the scattered-field formulation (Plan v2.55, Stufe C2)");
+    FG_REQUIRE(trans, "gradient: lateral scattering/absorption need PML");
+    for (double y : *nodes_um) nodeY.push_back(y * k0);
+  }
   auto bgCuts = [&](double ya, double yb) {
     std::vector<double> cuts{ya};
     const double tol = 1e-12 * std::max(1.0, yb);
     if (scat)
       for (const auto& L : bgf)
         if (L.y1 > ya + tol && L.y1 < yb - tol) cuts.push_back(L.y1);
+    for (double y : nodeY)
+      if (y > ya + tol && y < yb - tol) cuts.push_back(y);
     cuts.push_back(yb);
+    std::sort(cuts.begin(), cuts.end());
     return cuts;
   };
   auto bgFieldAt = [&](std::size_t l, double y, VecC* Ek = nullptr) {
@@ -776,13 +802,19 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   const ButcherTableau tab = ButcherTableau::byName(opt.rkTableau);
   const std::size_t ckpt = static_cast<std::size_t>(std::max(1, opt.checkpointEvery));
   /// slice data of a recorded element from its description (forward pass and checkpoint recomputation)
-  auto rebuild = [&](Elem& e) {
+  /// tmpl: a piece of the same slice (cut at a node or background boundary): same Q and modes
+  auto rebuild = [&](Elem& e, const Elem* tmpl = nullptr) {
     const auto& m = *models[e.layer];
     if (e.homogeneous) {
       const Material& mat = m.material();
-      e.Q = m.Q(0.0);
-      e.modes = trans ? detail::homogeneousModes(Mof(e.Q))
-                      : layerModesHomogeneous(mat.isotropic ? isotropicModes(mat.eps, al, ga) : anisotropicModes(mat.epsTensor, al, ga));
+      if (tmpl) {
+        e.Q = tmpl->Q;
+        e.modes = tmpl->modes;
+      } else {
+        e.Q = m.Q(0.0);
+        e.modes = trans ? detail::homogeneousModes(Mof(e.Q))
+                        : layerModesHomogeneous(mat.isotropic ? isotropicModes(mat.eps, al, ga) : anisotropicModes(mat.epsTensor, al, ga));
+      }
       e.S = stableLayerSMatrix(e.modes, e.h, ref);
     } else if (e.rk) {
       auto Mfun = [&m, &Mof, k0, &e](double yl) { return Mof(m.Q(std::clamp(yl, e.qlo, e.qhi) / k0)); };
@@ -818,9 +850,16 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       }
       e.S = fromTransfer(ref.PsiInv * e.T * ref.Psi);
     } else {
-      e.Q = m.Q(e.y_um);
-      const MatC M = Mof(e.Q);
-      e.modes = layerModesAuto(M);
+      MatC M;
+      if (tmpl) {
+        e.Q = tmpl->Q;
+        e.modes = tmpl->modes;
+        if (scat) M = Mof(e.Q);
+      } else {
+        e.Q = m.Q(e.y_um);
+        M = Mof(e.Q);
+        e.modes = layerModesAuto(M);
+      }
       e.S = stableLayerSMatrix(e.modes, e.h, ref);
       if (scat) {  // particular solution per background exponent (as the solver's modalSources)
         const BgLayerField& L = bgf[e.bgl];
@@ -901,14 +940,20 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     layerBottom[k] = yBottom;
     yLayer += H;
     if (m.homogeneous()) {
-      const Material& mat = m.material();
-      (void)mat;
-      Elem e;
-      e.layer = k;
-      e.homogeneous = true;
-      e.h = H;
-      rebuild(e);
-      push(std::move(e));
+      // pieces at the nodes of the lateral-side quadrature (Stufe C1), same modes
+      const std::vector<double> cut = bgCuts(yBottom, yBottom + H);
+      const std::size_t i0 = el.size();
+      for (std::size_t ic = 0; ic + 1 < cut.size(); ++ic) {
+        Elem e;
+        e.layer = k;
+        e.homogeneous = true;
+        e.y0n = cut[ic];
+        e.y1n = cut[ic + 1];
+        e.h = cut.size() == 2 ? H : e.y1n - e.y0n;
+        e.frac = cut.size() == 2 ? 1.0 : e.h / H;
+        rebuild(e, ic ? &el[i0] : nullptr);
+        push(std::move(e));
+      }
       continue;
     }
     if (opt.kind == SolverKind::RK) {
@@ -982,6 +1027,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     for (int s = 0; s < K; ++s) {
       // scattered field: pieces at the background boundaries (same Q, the staircase slice centre; as the solver)
       const std::vector<double> cut = bgCuts(yBottom + H * s / K, yBottom + H * (s + 1) / K);
+      const std::size_t i0 = el.size();
       for (std::size_t ic = 0; ic + 1 < cut.size(); ++ic) {
         Elem e;
         e.layer = k;
@@ -991,7 +1037,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         e.h = cut.size() == 2 ? H / K : e.y1n - e.y0n;
         e.frac = cut.size() == 2 ? 1.0 / K : e.h / H;
         if (scat) e.bgl = bgAt(0.5 * (e.y0n + e.y1n));
-        rebuild(e);
+        rebuild(e, ic && !scat ? &el[i0] : nullptr);  // scattered: pieces of other background layers differ
         push(std::move(e));
       }
     }
@@ -1001,6 +1047,32 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   if (trans) {
     bP = (refPhys.PsiInv * detail::componentwise(tc.toPhys, ref.Psi.rightCols(nh) * b)).tail(nh);
     tP = (subPhys.PsiInv * detail::componentwise(tc.toPhys, sm.Psi.leftCols(nh) * t)).head(nh);
+  }
+
+  // ---------------------------------------------------------------- fields at the nodes (Stufe C1, Plan v2.55)
+  // cut q (top of element q): (a_q; b_q) = interfaceAmplitudes(P_q, S_U^(q), 0, a_in), S_U^(q) = E_{q+1} * ... * E_K
+  std::vector<NodeField> nodeFields;
+  std::vector<std::size_t> nodeAt;  // element below each node
+  std::vector<VecC> nodeAmp;
+  std::vector<SMatrix> SU;  // suffix products
+  if (nodes_um) {
+    const std::size_t K = el.size() - 1;
+    SU.resize(K + 1);
+    SU[K] = SMatrix::identity(nh);
+    for (std::size_t q = K; q-- > 0;) SU[q] = star(el[q + 1].S, SU[q + 1]);
+    const VecC zero = VecC::Zero(nh);
+    for (const double y : nodeY) {
+      std::size_t q = 1;
+      while (q < K && std::abs(el[q].y1n - y) > 1e-11 * std::max(1.0, std::abs(y))) ++q;
+      FG_REQUIRE(std::abs(el[q].y1n - y) <= 1e-11 * std::max(1.0, std::abs(y)), "gradient: internal: node is not a cut");
+      nodeAt.push_back(q);
+      nodeAmp.push_back(interfaceAmplitudes(P[q], SU[q], zero, a_in));
+      NodeField f;
+      f.F = ref.Psi * nodeAmp.back();
+      f.Ey = computeEy(el[q].Q, tc.A, tc.G, f.F);
+      f.Hy = computeHy(tc.A, tc.G, f.F);
+      nodeFields.push_back(std::move(f));
+    }
   }
 
   // ---------------------------------------------------------------- efficiencies and objective
@@ -1053,7 +1125,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   res.diag.energyBalance = sumR + sumT;
   AmpBar ampBar;
   if (ampObj) {  // aperiodic: objective on the amplitudes in X
-    out.value = (*ampObj)(AmpContext{ref, sm, a_in}, b, t, bbar, tbar, ampBar, res);
+    out.value = (*ampObj)(AmpContext{ref, sm, a_in, nodes_um ? &nodeFields : nullptr}, b, t, bbar, tbar, ampBar, res);
     res.absorption = 0;
     res.diag.energyBalance = 1.0;
   }
@@ -1066,6 +1138,10 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
 
   // ---------------------------------------------------------------- reverse sweep
   out.grad.assign(ps.size(), 0.0);
+  if (ps.empty()) {  // value only (difference quotients, background passes): no reverse sweep
+    out.notes = coreNotes();
+    return out;
+  }
   // M19 Phase 2: global parameters (wavelength, angles, superstrate/substrate) act on every element
   bool global = false;
   for (const auto& p : ps)
@@ -1690,6 +1766,118 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       }
     }
   };
+  // node fields (Stufe C1, Plan v2.55): E_y, H_y -> F, Q, A, G; F = Psi_ref (a_q; b_q) -> amplitudes, Psi_ref;
+  // interfaceAmplitudes -> prefix P_q (SLb, added in the reverse sweep), suffix S_U^(q) (SUb) and a_in; the suffixes
+  // S_U^(q) = E_{q+1} * S_U^(q+1) bottom-up -> extra element cotangents Ex
+  std::vector<SMatrix> SLb, Ex;
+  auto zeroS = [&]() {
+    SMatrix z;
+    z.S11 = MatC::Zero(nh, nh);
+    z.S12 = MatC::Zero(nh, nh);
+    z.S21 = MatC::Zero(nh, nh);
+    z.S22 = MatC::Zero(nh, nh);
+    return z;
+  };
+  auto addS = [](SMatrix& to, const SMatrix& add) {
+    if (add.S11.size() == 0) return;
+    to.S11 += add.S11;
+    to.S12 += add.S12;
+    to.S21 += add.S21;
+    to.S22 += add.S22;
+  };
+  if (nodes_um) {
+    const std::size_t K = el.size() - 1;
+    SLb.assign(K + 1, SMatrix{});
+    Ex.assign(K + 1, SMatrix{});
+    std::vector<SMatrix> SUb(K + 1);
+    if (global) {
+      if (Abar.size() == 0) Abar = MatC::Zero(nf, nf);
+      if (Gbar.size() == 0) Gbar = MatC::Zero(nf, nf);
+      if (refPsib.size() == 0) refPsib = MatC::Zero(4 * nf, 4 * nf);
+      if (ampBar.aIn.size() == 0) ampBar.aIn = VecC::Zero(nh);
+    }
+    const MatC& A = tc.A;
+    const MatC& G = tc.G;
+    auto cot = [&](const std::vector<VecC>& v, std::size_t n, Eigen::Index size) {
+      return n < v.size() && v[n].size() ? v[n] : VecC(VecC::Zero(size));
+    };
+    for (std::size_t n = 0; n < nodeFields.size(); ++n) {
+      const std::size_t q = nodeAt[n];
+      const Elem& e = el[q];
+      const NodeField& f = nodeFields[n];
+      const VecC Exf = f.F.head(nf), Ezf = f.F.segment(nf, nf), Hxf = f.F.segment(2 * nf, nf), Hzf = f.F.tail(nf);
+      VecC Fb = cot(ampBar.nodeF, n, 4 * nf);
+      const VecC Hyb = cot(ampBar.nodeHy, n, nf), Eyb = cot(ampBar.nodeEy, n, nf);
+      // H_y = G E_x - A E_z
+      Fb.head(nf) += G.adjoint() * Hyb;
+      Fb.segment(nf, nf) -= A.adjoint() * Hyb;
+      // E_y = Q_yy^-1 (A H_z - G H_x - Q_yx E_x - Q_yz E_z)
+      const VecC rb = e.Q(1, 1).adjoint().partialPivLu().solve(Eyb);
+      Fb.head(nf) -= e.Q(1, 0).adjoint() * rb;
+      Fb.segment(nf, nf) -= e.Q(1, 2).adjoint() * rb;
+      Fb.segment(2 * nf, nf) -= G.adjoint() * rb;
+      Fb.tail(nf) += A.adjoint() * rb;
+      if (global) {
+        Gbar += Hyb * Exf.adjoint() - rb * Hxf.adjoint();
+        Abar += rb * Hzf.adjoint() - Hyb * Ezf.adjoint();
+      }
+      {  // Q of the element below the node
+        std::vector<std::string> mats;
+        if (e.homogeneous) {
+          mats = {std::get<HomogeneousLayer>(st.layers[e.layer].spec).material};
+        } else {
+          detail::AdjointSlice a;
+          if (models[e.layer]->adjointSlice(e.y_um, a)) mats = a.materials;
+        }
+        if (layerHasParams(e.layer, mats)) {
+          QBlocks Qb;
+          for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j) Qb(i, j) = MatC::Zero(nf, nf);
+          Qb(1, 1) = -rb * f.Ey.adjoint();
+          Qb(1, 0) = -rb * Exf.adjoint();
+          Qb(1, 2) = -rb * Ezf.adjoint();
+          fromQbar(e.layer, e.homogeneous, e.y_um, Qb);
+        }
+      }
+      // F = Psi_ref (a_q; b_q)
+      const VecC& amp = nodeAmp[n];
+      const VecC ampb = ref.Psi.adjoint() * Fb;
+      if (global) refPsib += Fb * amp.adjoint();
+      // interfaceAmplitudes(L, U, 0, a): D = I - L12 U21, b_q = D^-1 L12 U22 a, a_q = U21 b_q + U22 a
+      const SMatrix& L = P[q];
+      const SMatrix& U = SU[q];
+      const VecC aq = amp.head(nh), bq = amp.tail(nh), aqb = ampb.head(nh);
+      if (SLb[q].S11.size() == 0) SLb[q] = zeroS();
+      if (SUb[q].S11.size() == 0) SUb[q] = zeroS();
+      SMatrix& Lb = SLb[q];
+      SMatrix& Ub = SUb[q];
+      Ub.S21 += aqb * bq.adjoint();
+      Ub.S22 += aqb * a_in.adjoint();
+      VecC ainb = U.S22.adjoint() * aqb;
+      const VecC bt = ampb.tail(nh) + U.S21.adjoint() * aqb;
+      const MatC D = MatC::Identity(nh, nh) - L.S12 * U.S21;
+      const VecC r = D.adjoint().partialPivLu().solve(bt);
+      Lb.S12 += r * (U.S21 * bq).adjoint();
+      Ub.S21 += L.S12.adjoint() * r * bq.adjoint();
+      const VecC w = U.S22 * a_in, wb = L.S12.adjoint() * r;
+      Lb.S12 += r * w.adjoint();
+      Ub.S22 += wb * a_in.adjoint();
+      ainb += U.S22.adjoint() * wb;
+      if (global) ampBar.aIn += ainb;
+    }
+    SMatrix run;
+    for (std::size_t q = 0; q < K; ++q) {
+      if (SUb[q].S11.size()) {
+        if (run.S11.size() == 0) run = zeroS();
+        addS(run, SUb[q]);
+      }
+      if (run.S11.size() == 0) continue;
+      SMatrix Ab, Bb;
+      adjoint::star(el[q + 1].S, SU[q + 1], run, Ab, Bb);
+      Ex[q + 1] = std::move(Ab);
+      run = std::move(Bb);
+    }
+  }
   // reverse sweep over the star chain, per checkpoint segment (recompute the dropped slices and prefixes)
   SMatrix E0bar;
   {
@@ -1698,6 +1886,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     Pbar.S21 = MatC::Zero(nh, nh);
     Pbar.S12 = bbar * a_in.adjoint();
     Pbar.S22 = tbar * a_in.adjoint();
+    if (!SLb.empty()) addS(Pbar, SLb.back());
     VecC ub = bbar, vb = tbar;  // scattered field: cotangents of the prefix source vectors
     std::size_t i = el.size() - 1;
     while (i >= 1) {
@@ -1709,6 +1898,10 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       for (std::size_t j = i; j > s0; --j) {
         SMatrix Ab, Bb;
         adjoint::star(P[j - 1], el[j].S, Pbar, Ab, Bb);
+        if (!Ex.empty()) {  // node fields (Stufe C1): suffix and prefix cotangents
+          addS(Bb, Ex[j]);
+          addS(Ab, SLb[j - 1]);
+        }
         if (scat) {
           VecC Aub, Avb, Bub, Bvb;
           const VecC z = VecC::Zero(nh);
@@ -2003,9 +2196,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       out.grad[q] += std::real(std::conj(eb) * deps);
     }
   }
-  out.notes = {"RCWA slices fixed (Plan M19 \"Methode\" 1.)",
-               "normal field: profiles differentiated, Algorithm NF over one raster cell, CAD sections frozen (Plan M19 "
-               "\"Methode\" 2., v2.12)"};
+  out.notes = coreNotes();
   return out;
 }
 
@@ -2279,13 +2470,21 @@ GradientResult aperiodicGradient(const Stack& st, const SolverOptions& opt, cons
   const IncidentWave inc0 = makeIncidence(std::sqrt(sup.eps.real()), wl.phi, wl.psi, wl.delta);
   const bool scattered = opt.scatteredField || (ap.x.active() && std::abs(inc0.alpha0) >= 1e-12) ||
                          (ap.z.active() && std::abs(inc0.gamma0) >= 1e-12);
-  double wUp = 0, wDown = 0;
+  double wUp = 0, wDown = 0, wLat = 0, wAbs = 0;
   for (const auto& [r, w] : objective.scattering) {
-    FG_REQUIRE(r.kind == ScatterRef::Kind::Up || r.kind == ScatterRef::Kind::Down,
-               "gradient: lateral scattering and absorption are not differentiated (Plan v2.13, Stufe C)");
-    (r.kind == ScatterRef::Kind::Up ? wUp : wDown) += w;
+    switch (r.kind) {
+      case ScatterRef::Kind::Up: wUp += w; break;
+      case ScatterRef::Kind::Down: wDown += w; break;
+      case ScatterRef::Kind::Lateral: wLat += w; break;
+      case ScatterRef::Kind::Absorbed: wAbs += w; break;
+    }
   }
-  if (scattered) return scatteredGradient(st, opt, wl, prebuilt, objective, std::move(ps), wUp, wDown);
+  if (scattered) {
+    FG_REQUIRE(wLat == 0 && wAbs == 0, "gradient: lateral scattering and absorption in the scattered-field "
+                                       "formulation are not differentiated yet (Plan v2.55, Stufe C2)");
+    return scatteredGradient(st, opt, wl, prebuilt, objective, std::move(ps), wUp, wDown);
+  }
+  const bool sides = wLat != 0 || wAbs != 0;
   const Stack bg = backgroundStack(st);
   // layer k of the stack -> layer of the background stack (layers of zero thickness are dropped)
   std::vector<std::size_t> bgLayer(st.layers.size(), kNone);
@@ -2356,19 +2555,65 @@ GradientResult aperiodicGradient(const Stack& st, const SolverOptions& opt, cons
     Fb.segment(3 * nf, nf) = -0.5 * (W * F.head(nf));
     return Fb;
   };
-  // pass 1: background amplitudes
+  // Stufe C1 (Plan v2.55): nodes of the lateral-side quadrature (as the solver), the same for both stacks, and the
+  // flux through the lateral sides of the window, q_S(f) = 1/2 Re(Hz^H Wx Ey - Hy^H Wx Ez + Hy^H Wz Ex - Hx^H Wz Ey)
+  // with the physical lateral wave numbers (normal incidence)
+  std::vector<double> ys, wy, thick;
+  detail::LayerModels ownModels;
+  if (sides) {
+    if (!prebuilt) {
+      ownModels = detail::buildLayerModels(st, map, opt.rcwaSlices);
+      prebuilt = &ownModels;
+    }
+    for (const auto& m : *prebuilt) thick.push_back(m->thickness_um());
+    lateralNodes(st, thick, 2 * PI / wl.lambda_um, ys, wy);
+  }
+  MatC Wx = MatC::Zero(nf, nf), Wz = MatC::Zero(nf, nf);
+  if (sides)
+    for (int r = 0; r < nf; ++r)
+      for (int cc = 0; cc < nf; ++cc) {
+        const auto [nr, mr] = map.orders(r);
+        const auto [nc, mc] = map.orders(cc);
+        const double dkx = 2 * PI * (nc - nr) / st.dx_um, dkz = st.is2D() ? 2 * PI * (mc - mr) / st.dz_um : 0.0;
+        if (ap.x.active())
+          Wx(r, cc) = (std::exp(I * (dkx * x1)) - std::exp(I * (dkx * x0))) * (st.is2D() ? axisInt(dkz, z0, z1) : cplx(1.0));
+        if (ap.z.active()) Wz(r, cc) = (std::exp(I * (dkz * z1)) - std::exp(I * (dkz * z0))) * axisInt(dkx, x0, x1);
+      }
+  auto sideFlux = [&](const VecC& F, const VecC& Ey, const VecC& Hy) {
+    const VecC Ex = F.head(nf), Ez = F.segment(nf, nf), Hx = F.segment(2 * nf, nf), Hz = F.tail(nf);
+    return 0.5 * std::real(Hz.dot(Wx * Ey) - Hy.dot(Wx * Ez) + Hy.dot(Wz * Ex) - Hx.dot(Wz * Ey));
+  };
+  /// cotangents of c * q_S at (F, E_y, H_y) added to (Fb, Eyb, Hyb)
+  auto sideFluxBar = [&](double c, const VecC& F, const VecC& Ey, const VecC& Hy, VecC& Fb, VecC& Eyb, VecC& Hyb) {
+    const VecC Ex = F.head(nf), Ez = F.segment(nf, nf), Hx = F.segment(2 * nf, nf), Hz = F.tail(nf);
+    const double h = 0.5 * c;
+    Fb.tail(nf) += h * (Wx * Ey);
+    Eyb += h * (Wx.adjoint() * Hz);
+    Hyb -= h * (Wx * Ez);
+    Fb.segment(nf, nf) -= h * (Wx.adjoint() * Hy);
+    Hyb += h * (Wz * Ex);
+    Fb.head(nf) += h * (Wz.adjoint() * Hy);
+    Fb.segment(2 * nf, nf) -= h * (Wz * Ey);
+    Eyb -= h * (Wz.adjoint() * Hx);
+  };
+  const std::vector<double>* nodes = sides ? &ys : nullptr;
+  // pass 1: background amplitudes (and fields at the nodes)
   VecC bb, tb;
-  const AmpObjective record = [&](const AmpContext&, const VecC& b, const VecC& t, VecC& bbar, VecC& tbar, AmpBar&,
+  std::vector<NodeField> gNodes;
+  const AmpObjective record = [&](const AmpContext& cx, const VecC& b, const VecC& t, VecC& bbar, VecC& tbar, AmpBar&,
                                   Result&) {
     bb = b;
     tb = t;
+    if (cx.nodes) gNodes = *cx.nodes;
     bbar.setZero();
     tbar.setZero();
     return 0.0;
   };
-  gradientCore(bg, opt, wl, nullptr, Objective{}, {}, &record);
+  gradientCore(bg, opt, wl, nullptr, Objective{}, {}, &record, nullptr, nodes);
   // pass 2: the stack
-  VecC cb, ct;
+  VecC cbBg, ctBg;                      // cotangents of the background amplitudes (pass 3)
+  std::vector<VecC> gFb, gEyb, gHyb;    // and of its node fields
+  std::vector<double> dLdw(ys.size(), 0.0);
   const AmpObjective scatter = [&](const AmpContext& cx, const VecC& b, const VecC& t, VecC& bbar, VecC& tbar, AmpBar& ab,
                                    Result& res) {
     const VecC Fi = cx.ref.Psi.leftCols(nh) * cx.aIn;
@@ -2379,32 +2624,98 @@ GradientResult aperiodicGradient(const Stack& st, const SolverOptions& opt, cons
     sc.present = true;
     sc.up = flux(Fu) / Sinc;
     sc.down = -flux(Fd) / Sinc;
-    const double L = wUp * sc.up + wDown * sc.down;
     const VecC Fub = (wUp / Sinc) * fluxBar(Fu), Fdb = (-wDown / Sinc) * fluxBar(Fd);
     bbar = up.adjoint() * Fub;
     tbar = down.adjoint() * Fdb;
-    cb = bbar;
-    ct = tbar;
-    // through the bases and S_inc = |q_W(Psi_down a_in)| / area (wavelength, polarization, half spaces)
-    const VecC Fib = (-L / Sinc * (qi < 0 ? -1.0 : 1.0) / area) * fluxBar(Fi);
+    cbBg = -bbar;
+    ctBg = -tbar;
     ab.refPsi = MatC::Zero(4 * nf, 4 * nf);
     ab.subPsi = MatC::Zero(4 * nf, 4 * nf);
+    ab.aIn = VecC::Zero(nh);
     ab.refPsi.rightCols(nh) += Fub * (b - bb).adjoint();
-    ab.refPsi.leftCols(nh) += Fib * cx.aIn.adjoint();
     ab.subPsi.leftCols(nh) += Fdb * (t - tb).adjoint();
-    ab.aIn = cx.ref.Psi.leftCols(nh).adjoint() * Fib;
+    if (cx.nodes) {
+      // lateral: sum w_i q_S(f_i - g_i); absorbed: inward total-field flux through the closed box minus the background's
+      const auto& f = *cx.nodes;
+      double side = 0, sideSca = 0;
+      std::vector<VecC> dF(f.size()), dEy(f.size()), dHy(f.size());
+      for (std::size_t i = 0; i < f.size(); ++i) {
+        dF[i] = f[i].F - gNodes[i].F;
+        dEy[i] = f[i].Ey - gNodes[i].Ey;
+        dHy[i] = f[i].Hy - gNodes[i].Hy;
+        const double qs = sideFlux(f[i].F, f[i].Ey, f[i].Hy), qd = sideFlux(dF[i], dEy[i], dHy[i]);
+        side += wy[i] * qs;
+        sideSca += wy[i] * qd;
+        dLdw[i] = (wLat * qd - wAbs * qs) / Sinc;
+      }
+      VecC top(2 * nh), topb(2 * nh);
+      top << cx.aIn, b;
+      topb << cx.aIn, bb;
+      const VecC Ft = cx.ref.Psi * top, Ftb = cx.ref.Psi * topb, Fdt = down * t, Fdtb = down * tb;
+      sc.lateral = sideSca / Sinc;
+      sc.absorbed = ((flux(Fdt) - flux(Ft) - side) - (flux(Fdtb) - flux(Ftb))) / Sinc;
+      // cotangents: nodes of both stacks
+      ab.nodeF.assign(f.size(), VecC());
+      ab.nodeEy.assign(f.size(), VecC());
+      ab.nodeHy.assign(f.size(), VecC());
+      gFb.assign(f.size(), VecC());
+      gEyb.assign(f.size(), VecC());
+      gHyb.assign(f.size(), VecC());
+      for (std::size_t i = 0; i < f.size(); ++i) {
+        VecC Fb = VecC::Zero(4 * nf), Eyb = VecC::Zero(nf), Hyb = VecC::Zero(nf);
+        VecC Gb = VecC::Zero(4 * nf), GEyb = VecC::Zero(nf), GHyb = VecC::Zero(nf);
+        sideFluxBar(wLat * wy[i] / Sinc, dF[i], dEy[i], dHy[i], Fb, Eyb, Hyb);
+        sideFluxBar(-wLat * wy[i] / Sinc, dF[i], dEy[i], dHy[i], Gb, GEyb, GHyb);
+        sideFluxBar(-wAbs * wy[i] / Sinc, f[i].F, f[i].Ey, f[i].Hy, Fb, Eyb, Hyb);
+        ab.nodeF[i] = std::move(Fb);
+        ab.nodeEy[i] = std::move(Eyb);
+        ab.nodeHy[i] = std::move(Hyb);
+        gFb[i] = std::move(Gb);
+        gEyb[i] = std::move(GEyb);
+        gHyb[i] = std::move(GHyb);
+      }
+      // top and bottom terms of the absorption
+      const double ca = wAbs / Sinc;
+      const VecC Ftb_ = -ca * fluxBar(Ft), Ftbb = ca * fluxBar(Ftb), Fdtb_ = ca * fluxBar(Fdt), Fdtbb = -ca * fluxBar(Fdtb);
+      bbar += cx.ref.Psi.rightCols(nh).adjoint() * Ftb_;
+      cbBg += cx.ref.Psi.rightCols(nh).adjoint() * Ftbb;
+      tbar += down.adjoint() * Fdtb_;
+      ctBg += down.adjoint() * Fdtbb;
+      ab.aIn += cx.ref.Psi.leftCols(nh).adjoint() * (Ftb_ + Ftbb);
+      ab.refPsi += Ftb_ * top.adjoint() + Ftbb * topb.adjoint();
+      ab.subPsi.leftCols(nh) += Fdtb_ * t.adjoint() + Fdtbb * tb.adjoint();
+    }
+    const double L = wUp * sc.up + wDown * sc.down + wLat * sc.lateral + wAbs * sc.absorbed;
+    // through the bases and S_inc = |q_W(Psi_down a_in)| / area (wavelength, polarization, half spaces)
+    const VecC Fib = (-L / Sinc * (qi < 0 ? -1.0 : 1.0) / area) * fluxBar(Fi);
+    ab.refPsi.leftCols(nh) += Fib * cx.aIn.adjoint();
+    ab.aIn += cx.ref.Psi.leftCols(nh).adjoint() * Fib;
     return L;
   };
-  GradientResult out = gradientCore(st, opt, wl, prebuilt, objective, std::move(ps), &scatter);
-  out.notes.push_back("aperiodic: lateral scattering and absorption are not computed by the gradient");
-  // pass 3: the background stack with the negated cotangents
+  GradientResult out = gradientCore(st, opt, wl, prebuilt, objective, ps, &scatter, nullptr, nodes);
+  if (!sides) out.notes.push_back("aperiodic: lateral scattering and absorption are not computed by the gradient");
+  // node weights w_i = (b - a) / m * w_q scale with the thickness of their layer (the node heights: the core)
+  if (sides) {
+    std::vector<double> bottom{0.0};
+    for (double t : thick) bottom.push_back(bottom.back() + t);
+    for (std::size_t q = 0; q < ps.size(); ++q) {
+      if (ps[q].kind != Param::Kind::Thickness) continue;
+      const std::size_t k = ps[q].layer;
+      for (std::size_t i = 0; i < ys.size(); ++i)
+        if (ys[i] > bottom[k] && ys[i] < bottom[k + 1]) out.grad[q] += dLdw[i] * wy[i] / thick[k];
+    }
+  }
+  // pass 3: the background stack with the cotangents of its amplitudes (and node fields)
   if (!psBg.empty()) {
-    const AmpObjective back = [&](const AmpContext&, const VecC&, const VecC&, VecC& bbar, VecC& tbar, AmpBar&, Result&) {
-      bbar = -cb;
-      tbar = -ct;
+    const AmpObjective back = [&](const AmpContext&, const VecC&, const VecC&, VecC& bbar, VecC& tbar, AmpBar& ab, Result&) {
+      bbar = cbBg;
+      tbar = ctBg;
+      ab.nodeF = gFb;
+      ab.nodeEy = gEyb;
+      ab.nodeHy = gHyb;
       return 0.0;
     };
-    const GradientResult g = gradientCore(bg, opt, wl, nullptr, Objective{}, std::move(psBg), &back);
+    const GradientResult g = gradientCore(bg, opt, wl, nullptr, Objective{}, std::move(psBg), &back, nullptr, nodes);
     for (std::size_t i = 0; i < toBg.size(); ++i) out.grad[toBg[i]] += g.grad[i];
   }
   return out;

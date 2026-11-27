@@ -59,4 +59,10 @@ void checkPmlZones(const Stack& stack);
 /// profile: two homogeneous layers split at its height in the zones). Same transformation settings.
 Stack backgroundStack(const Stack& stack);
 
+/// Heights (um above the bottom of the stack) and weights of the lateral-side quadrature (Plan section "M18:
+/// Ausgaben"): per layer (thicknesses thickness_um) panels <= lambda / 10 with 8 Gauss-Legendre nodes each; a 1D
+/// profile layer is also split at its height in the zones (E_y, E_z jump on the sides there). Solver and gradient.
+void lateralNodes(const Stack& stack, const std::vector<double>& thickness_um, double k0, std::vector<double>& ys,
+                  std::vector<double>& wy);
+
 }  // namespace fg

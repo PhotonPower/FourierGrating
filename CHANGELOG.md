@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M19, Stufe C1 (Plan v2.55): Gradienten des seitlichen Streuflusses und der Absorption aperiodischer Strukturen in
+  der Totalfeldformulierung (Normaleinfall, RCWA, 1D und 2D). Die Kette wird an den Knoten der Seitenquadratur
+  geschnitten (`fg::lateralNodes`, mit dem Löser geteilt), die Felder dort aus Präfix- und Suffixprodukten. Tests
+  `M19_Gradient.AperiodicLateralAndAbsorbed` (≤ 1,7e-7), `…2D` (≤ 5,2e-7).
+- Gradienten ohne Parameter (nur der Wert) überspringen die Rückwärtsschleife.
 - M19, Profilschichten mit PML in der Streufeldformulierung (Plan v2.54): Der Gradient schneidet die Scheiben bei der
   Profilhöhe der PML-Zone wie der Löser (zwei Hintergrundschichten), RCWA und RK. Test
   `M19_Gradient.AperiodicProfileLayer` (≤ 2,2e-8).
