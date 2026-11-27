@@ -36,12 +36,24 @@ LayerModes layerModesReduced(const MatC& M, double eta) {
   m.Wd.resize(2 * n, n);
   m.lu.resize(n);
   m.ld.resize(n);
+  VecC kaps(n);
+  for (Eigen::Index k = 0; k < n; ++k) kaps(k) = std::sqrt(-es.values(k));
+  // Plan eq:beta_branch: Im kappa >= 0. A lossless propagating mode has Im kappa = rounding noise: there (|Im kappa| <=
+  // tau, as layerModesGeneral) the flux sign decides, otherwise noise could swap an up- and a down-going mode of equal
+  // lambda (harmless for S, but the adjoint of the eigen-decomposition then sees a degenerate pair across the classes)
+  const double tau = classificationTolerance() * (n ? kaps.cwiseAbs().maxCoeff() : 0.0);
   for (Eigen::Index k = 0; k < n; ++k) {
-    cplx kap = std::sqrt(-es.values(k));  // kappa with Im >= 0 (Plan eq:beta_branch)
-    if (kap.imag() < 0 || (kap.imag() == 0 && kap.real() < 0)) kap = -kap;
-    if (std::abs(kap) < eta) kap += cplx(0, eta);
+    cplx kap = kaps(k);
     const VecC u = es.vectors.col(k);
     const VecC Ru = R * u;
+    if (std::abs(kap.imag()) <= tau && kap != 0.0) {
+      VecC w(2 * n);
+      w << u, Ru / (I * kap);
+      if (modeFlux(w) < 0) kap = -kap;
+    } else if (kap.imag() < 0 || (kap.imag() == 0 && kap.real() < 0)) {
+      kap = -kap;
+    }
+    if (std::abs(kap) < eta) kap += cplx(0, eta);
     const cplx lup = I * kap, ldn = -I * kap;
     m.lu(k) = lup;
     m.ld(k) = ldn;

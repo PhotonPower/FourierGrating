@@ -1369,7 +1369,7 @@ schneidet den Bogen nicht, Doppelzählung entsteht also nicht.
         $dX_{ij}=\frac{e^{\lambda_ih}-e^{\lambda_jh}}{\lambda_i-\lambda_j}E_{ij}$. \verb|adjoint::layerSMatrix| liefert dazu
         $\bar X$ als volle Matrix (\verb|Lubar|, \verb|Ldbar|) und \verb|adjoint::eig| nimmt für entartete Paare
         $K_{ij}=\bar\Lambda_{ij}$ statt $0$. Koppelt die Störung die Paare nicht ($E_{ij}=0$, etwa TE/TM einer homogenen
-        Schicht), ändert sich nichts. Der kartesische Pfad (M19) übergibt $\bar\Lambda$ noch nicht.
+        Schicht), ändert sich nichts. Der kartesische Pfad (M19) übergibt $\bar\Lambda$ seit v2.53.
   \item Tests: \verb|CylCoupled.ArcsAboutTheAxisAgainstDifferences| (Kreisring außen und innen, Kreis$\to$Ellipse;
         \verb|coupledQ| und \verb|coupledSource|): $\le2{,}2\cdot10^{-9}$ relativ; \verb|V22g.EllipseAboveRingsWithTwofoldSymmetry|
         (Halbachse der Kreis-Ellipse, $P=2$, gegen Differenzenquotienten statt der Ablehnung von v2.48): $2{,}7\cdot10^{-8}$.
