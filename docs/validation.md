@@ -192,6 +192,7 @@ Abweichung Adjungierte gegen Differenzenquotient der Vorwärtsrechnung (h = 1e-6
 |---|---|---|
 | V3-Lamellen, konisch, Li und Laurent | Dicken, Lamellenkanten, n (Re, Im), ε eines Films | ≤ 6,6e-8 (Kanten), sonst ≤ 1e-8 |
 | Symmetrisches Lamellengitter, Normaleinfall (exakte Entartung) | Dicke, n, Kante | ≤ 1e-9 |
+| Zentrierte quadratische Säule, Normaleinfall (entartete Paare, von der Störung gekoppelt; Plan v2.53) | zwei Eckpunkte, Dicke, n | ≤ 3,7e-9 (vorher Eckpunkte 15 % bzw. 9 %) |
 | V9/V15: Polygon- und Kreissäulen (2D, Laurent) | Ecken, Radius, Mittelpunkt, Dicke, n | ≤ 2,5e-9 |
 | NURBS-Säule (rationaler Kreis, Laurent) | Kontrollpunkte / Gewicht | ≤ 9e-9 / 4,5e-8 |
 | Kreissäulen, FFF_sym (v2.11: Normalenfeld NF eingefroren) | Radius / n | 1,8e-7 / 2e-9 (N = 3); Mittelpunkt: −0,44 gegen Trend ≈ 0 (46 % bei N = 3, 150 % bei N = 5, 29 % bei N = 8), Polygonecke 0,7 % |

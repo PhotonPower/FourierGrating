@@ -145,6 +145,19 @@ TEST(M19_Gradient, ShapesLaurent) {
         "circle");
 }
 
+// Degenerate slice modes coupled by the perturbation (Plan v2.53): a centred square pillar under normal incidence is
+// 4-fold symmetric, its slice has degenerate mode pairs (orders (1, 0) / (0, 1) ...), and moving one vertex couples
+// them. adjoint::eig keeps that part in Lambda (cotangents of the full Lambda from adjoint::layerSMatrix).
+TEST(M19_Gradient, DegenerateModesCoupledByTheShape) {
+  json cfg = pillars2D("laurent", false);
+  cfg["incidence"] = {{"lambda_um", 0.6328}, {"phi_deg", 0}, {"psi_deg", 0}, {"delta_deg", 35}};
+  cfg["layers"][0]["inclusions"][0]["vertices_um"] = {{0.12, 0.12}, {0.38, 0.12}, {0.38, 0.38}, {0.12, 0.38}};
+  const auto obj = objective({{'R', 0, 0, 1.0}, {'T', -1, 0, 0.7}, {'T', 0, -1, 0.4}, {'T', 1, 0, 0.3}});
+  check(cfg, obj, {"/layers/0/inclusions/0/vertices_um/1/0", "/layers/0/inclusions/0/vertices_um/2/1",
+                   "/layers/0/thickness_um", "/materials/pillar/n"},
+        1e-6, "square");
+}
+
 // FFF_sym: the raster normal field of Algorithm NF moves with the geometry (difference quotient over one raster
 // cell). Frozen, a translation of the circle gave -0.44 against a trend of ~0 (the field stays behind); the
 // forward map jumps by ~1e-7 below the raster cell, so translations and vertices are compared with the

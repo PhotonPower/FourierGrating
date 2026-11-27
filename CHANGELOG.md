@@ -9,10 +9,16 @@
   `CylCoupled.ArcsAboutTheAxisAgainstDifferences`, `V22g.EllipseAboveRingsWithTwofoldSymmetry`.
 
 ### Behoben
+- M19, kartesische Gradienten (Plan v2.53): Entartete Scheibenmoden, die die Störung koppelt, fielen in der Adjungierten
+  der Eigenzerlegung weg (zentrierte quadratische Säule unter Normaleinfall, Gradient nach einem Eckpunkt 15 % falsch);
+  `gradient.cpp` übergibt jetzt die vollen Kotangenten von Λ. Test `M19_Gradient.DegenerateModesCoupledByTheShape`.
+- RCWA, reduziertes Eigenproblem (`layerModesReduced`): Verlustfrei ausbreitungsfähige Moden wurden nach dem
+  Rundungsrauschen in Im κ statt nach dem Fluss klassifiziert; ein entartetes Paar ±iβ konnte so über die Klassen
+  „auf“/„ab“ vertauscht werden (S-Matrix nur in der Rundung betroffen: zwei Golden-Beispiele ≤ 1e-15, Gradienten falsch).
 - Adjungierte der Eigenzerlegung (`adjoint::eig`): Entartete Paare einer Klasse, die die Störung koppelt (Harmonische
   m und −m einer blockdiagonalen Klassenschicht, etwa ein Kreis um die Achse, der zur Ellipse wird), fielen weg. Ihr
   Anteil bleibt jetzt in Λ; `adjoint::layerSMatrix` liefert dazu die vollen Kotangenten von Λ (Plan v2.52). Zylindrisch
-  aktiv; der kartesische Pfad bleibt unverändert.
+  aktiv; der kartesische Pfad seit Plan v2.53 ebenfalls.
 - M20/M21, Gradient nach dem Superstrat für ebene Wellen (Plan v2.51): über die Basis des Halbraums (auch in den
   Quellamplituden), k∥ der Quellspektren (`CylBasis::planeWaveSourceAt`), den Hintergrund und die einfallende
   Intensität der Normierung auf µm²; Spektralgitter fest. Tests `V21i.HalfSpaceMaterials` (1,1e-8),

@@ -1573,10 +1573,10 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       if (needQ && e.constant) fromMbar(model.Q(0.0), Msum, 0.0, false);
       return;
     }
-    MatC Wub, Wdb;
+    MatC Wub, Wdb, Lub, Ldb;
     VecC lub, ldb;
     double hb = 0;
-    adjoint::layerSMatrix(e.modes, e.h, ref, Eb, Wub, Wdb, lub, ldb, hb, global ? &refPsiInvb : nullptr);
+    adjoint::layerSMatrix(e.modes, e.h, ref, Eb, Wub, Wdb, lub, ldb, hb, global ? &refPsiInvb : nullptr, &Lub, &Ldb);
     thicknessParam(e.layer, hb * k0 / e.K);
     dLdlnk0 += hb * e.h;
     if (!needQ) return;
@@ -1589,7 +1589,12 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     lamb << lub, ldb;
     std::vector<int> cls(static_cast<std::size_t>(2 * n), 0);
     for (Eigen::Index q = n; q < 2 * n; ++q) cls[static_cast<std::size_t>(q)] = 1;
-    MatC Mb = adjoint::eig(W, lam, Wb, lamb, cls);
+    // degenerate pairs coupled by the perturbation (symmetric slices, e.g. a square pillar at normal incidence): their
+    // part stays in Lambda (Plan v2.52/v2.53)
+    MatC Lam = MatC::Zero(2 * n, 2 * n);
+    Lam.topLeftCorner(n, n) = Lub;
+    Lam.bottomRightCorner(n, n) = Ldb;
+    MatC Mb = adjoint::eig(W, lam, Wb, lamb, cls, &Lam);
     if (Msrc) Mb += *Msrc;
     fromMbar(e.Q, Mb, e.y_um, e.homogeneous);
     if (MBsrc) {  // the sources in the Bloch basis

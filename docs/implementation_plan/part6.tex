@@ -644,6 +644,29 @@ der $N=0$-Rechnung abgeleitet. RK: erweitertes System mit $\sigma(y)$ in der let
 RK-Scheiben zusätzlich an den Knoten der seitlichen Flussquadratur; der Wert stimmt dann auf die RK-Toleranz. Nicht
 umgesetzt: Profilschichten mit PML (Hintergrund geteilt bei der Profilhöhe), Stufe C.
 
+\paragraph{Umsetzung (v2.53): entartete Moden, die die Störung koppelt.}
+Wie im Zylinderpfad (v2.52) nimmt \verb|adjoint::eig| für entartete Paare einer Klasse die vollen Kotangenten von $\Lambda$
+aus \verb|adjoint::layerSMatrix| (Scheiben von RCWA; die Halbraumbasen von M17 bleiben wie bisher). Anlass:
+\begin{itemize}[nosep]
+  \item \textbf{Planfehler (seit v2.11):} Eine zentrierte quadratische Säule unter Normaleinfall ist vierzählig symmetrisch,
+        ihre Scheibe hat entartete Modenpaare, und ein verschobener Eckpunkt koppelt sie. Der Gradient nach dem Eckpunkt
+        lag um 15\,\% (bzw.\ 9\,\%) neben dem Differenzenquotienten; schon $10^{-5}$\,µm daneben stimmte er. Der Test
+        \enquote{Entartung} (symmetrisches Lamellengitter) prüfte nur symmetrische Störungen ($E_{ij}=0$).
+  \item \textbf{Planfehler (Klassifikation, \eqref{eq:rcwa_reduced}):} Im reduzierten Problem entschied der Zweig
+        $\operatorname{Im}\kappa\ge0$ auch bei verlustfrei ausbreitungsfähigen Moden, deren $\operatorname{Im}\kappa$ nur
+        Rundungsrauschen ist. Bei einem entarteten Paar $\pm i\beta$ landete so eine abwärts laufende Mode in der Klasse
+        \enquote{auf} und eine aufwärts laufende in \enquote{ab}, mit gleichem $\lambda$ über die Klassen hinweg. Die
+        S-Matrix der Scheibe ändert sich dadurch nur in der Rundung, die Adjungierte der Eigenzerlegung aber sah ein
+        klassenübergreifendes entartetes Paar ($1/(\lambda_j-\lambda_i)$ mit Lorentz-Verbreiterung: Rauschen). Jetzt entscheidet
+        für $|\operatorname{Im}\kappa|\le\tau$ der Fluss wie in \verb|layerModesGeneral|. Golden Files: zwei Beispiele ändern
+        sich um höchstens $10^{-15}$ (Rundung, innerhalb der Toleranz $10^{-11}$).
+  \item Beide Korrekturen sind nötig: nur die Klassifikation lässt den Fehler von 15\,\%, nur $\bar\Lambda$ ebenfalls.
+  \item Tests: \verb|Adjoint.SliceSMatrixDegenerateCoupled| (homogene Schicht, TE/TM und $\pm n$ entartet, Störung mit
+        ungeradem und $xz$-Anteil: mit $\bar\Lambda$ $10^{-8}$, ohne $30\,\%$ daneben);
+        \verb|M19_Gradient.DegenerateModesCoupledByTheShape| (Quadrat, Normaleinfall, Laurent: zwei Eckpunkte, Dicke, $n$):
+        $\le3{,}7\cdot10^{-9}$.
+\end{itemize}
+
 \subsection{Tests und Abnahme (M19)}
 \begin{itemize}[nosep]
   \item \textbf{Nach der Umsetzung (v2.11):} Rückwärtsfunktionen $10^{-6}$; Ende-zu-Ende V3, V9, V13, V15, V18

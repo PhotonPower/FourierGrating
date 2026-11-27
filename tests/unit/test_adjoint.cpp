@@ -139,12 +139,13 @@ namespace {
 fg::SMatrix sliceS(const MatC& M, double h, const fg::ModeBasis& ref) {
   return fg::stableLayerSMatrix(fg::layerModesAuto(M), h, ref);
 }
-MatC sliceBackward(const MatC& M, double h, const fg::ModeBasis& ref, const fg::SMatrix& K, double* hbar = nullptr) {
+MatC sliceBackward(const MatC& M, double h, const fg::ModeBasis& ref, const fg::SMatrix& K, double* hbar = nullptr,
+                   bool lambda = false) {
   const fg::LayerModes m = fg::layerModesAuto(M);
-  MatC Wub, Wdb;
+  MatC Wub, Wdb, Lub, Ldb;
   VecC lub, ldb;
   double hb = 0;
-  fg::adjoint::layerSMatrix(m, h, ref, K, Wub, Wdb, lub, ldb, hb);
+  fg::adjoint::layerSMatrix(m, h, ref, K, Wub, Wdb, lub, ldb, hb, nullptr, lambda ? &Lub : nullptr, lambda ? &Ldb : nullptr);
   if (hbar) *hbar = hb;
   const Eigen::Index n = m.lu.size();
   MatC W(M.rows(), 2 * n), Wb(M.rows(), 2 * n);
@@ -155,7 +156,11 @@ MatC sliceBackward(const MatC& M, double h, const fg::ModeBasis& ref, const fg::
   lamb << lub, ldb;
   std::vector<int> cls(static_cast<std::size_t>(2 * n), 0);
   for (Eigen::Index k = n; k < 2 * n; ++k) cls[static_cast<std::size_t>(k)] = 1;
-  return fg::adjoint::eig(W, lam, Wb, lamb, cls);
+  if (!lambda) return fg::adjoint::eig(W, lam, Wb, lamb, cls);
+  MatC Lam = MatC::Zero(2 * n, 2 * n);
+  Lam.topLeftCorner(n, n) = Lub;
+  Lam.bottomRightCorner(n, n) = Ldb;
+  return fg::adjoint::eig(W, lam, Wb, lamb, cls, &Lam);
 }
 }  // namespace
 
@@ -214,6 +219,40 @@ TEST(Adjoint, SliceSMatrixDegenerate) {
   const MatC Mb = sliceBackward(M, 0.5, ref, K);
   ASSERT_TRUE(Mb.allFinite());
   expectClose(re(Mb, D) / 2e-3, fd([&](double t) { return reS(K, sliceS(Mt(t), 0.5, ref)); }), 1e-5);
+}
+
+// Exact degeneracy coupled by the perturbation (Plan v2.52/v2.53): an odd perturbation of the symmetric layer couples
+// the +-n pairs; their part stays in Lambda (full Lambda cotangents of layerSMatrix into eig).
+TEST(Adjoint, SliceSMatrixDegenerateCoupled) {
+  const int N = 2, nf = 2 * N + 1;
+  VecC al(nf), ga = VecC::Zero(nf);
+  for (int r = 0; r < nf; ++r) al(r) = 0.6 * (r - N);
+  std::vector<cplx> c(4 * N + 1), dc(4 * N + 1);
+  for (int p = -2 * N; p <= 2 * N; ++p) {
+    c[static_cast<std::size_t>(p + 2 * N)] = p == 0 ? cplx(3.0) : cplx(0.0);  // homogeneous: TE/TM and +-n degenerate
+    dc[static_cast<std::size_t>(p + 2 * N)] = cplx(0.1 / (1 + std::abs(p)) + 0.07 * p, 0.02 - 0.03 * p);  // odd part
+  }
+  // the homogeneous layer has degenerate TE/TM and +-n pairs; the perturbation (a structure with an odd part and an
+  // xz coupling) couples them
+  auto Mt = [&](double t) {
+    std::vector<cplx> ct(c.size());
+    for (std::size_t k = 0; k < c.size(); ++k) ct[k] = c[k] + t * dc[k];
+    const MatC E = fg::fourier::toeplitz1D(ct, N), X = t * fg::fourier::toeplitz1D(dc, N);
+    fg::QBlocks q;
+    for (int i = 0; i < 3; ++i)
+      for (int j = 0; j < 3; ++j) q(i, j) = i == j ? E : MatC(MatC::Zero(nf, nf));
+    q(0, 2) = X;
+    q(2, 0) = X;
+    return fg::buildPropagationMatrix(q, al, ga);
+  };
+  const MatC M = Mt(0), D = (Mt(1e-3) - Mt(-1e-3)) / 2e-3;
+  const fg::ModeBasis ref = fg::isotropicModes(1.0, al, ga);
+  const auto K = randomS(2 * nf, 1.0);
+  const double num = fd([&](double t) { return reS(K, sliceS(Mt(t), 0.5, ref)); });
+  const MatC Mb = sliceBackward(M, 0.5, ref, K, nullptr, true);
+  std::printf("degenerate coupled: with Lambda %+.10e, without %+.10e, fd %+.10e\n", re(Mb, D),
+              re(sliceBackward(M, 0.5, ref, K), D), num);
+  expectClose(re(Mb, D), num, 1e-5);
 }
 
 TEST(Adjoint, QFactorizations) {

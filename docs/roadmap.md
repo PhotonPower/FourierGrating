@@ -178,6 +178,9 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
     Aperiodisch (Plan v2.13, Stufe A): Streuflüsse oben/unten bei Normaleinfall, alle Parameterarten außer φ (≤ 3e-7);
     modaler Einfall, Leistungen der geführten Moden (≤ 1e-8); Streufeldformulierung (Stufe B, RCWA und RK): schräger
     Einfall, alle Parameterarten (≤ 1,4e-7)
+  - Behoben (Plan v2.53): entartete Scheibenmoden, die die Störung koppelt (quadratische Säule unter Normaleinfall,
+    Eckpunkt: 15 % falsch), und die Klassifikation ausbreitungsfähiger Moden im reduzierten Problem (Rauschen in Im κ) –
+    `M19_Gradient.DegenerateModesCoupledByTheShape`, `Adjoint.SliceSMatrixDegenerateCoupled`
   - Offen (Phase 2): GPU-Rückwärtsfunktionen; aperiodisch: seitlicher Fluss/Absorption (Stufe C, optional),
     Profilschichten mit PML
 
