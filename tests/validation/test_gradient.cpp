@@ -815,6 +815,65 @@ TEST(M19_Gradient, AperiodicLateralAndAbsorbed2D) {
         1e-6, "contact hole lateral/absorbed");
 }
 
+// Plan v2.56, Stufe C2: lateral scattering and absorption in the scattered-field formulation. Oblique incidence on the
+// PML axis (Bloch-free scattered field, the background as one more order), "scattered_field" at normal incidence
+// (background in the centre order), the 2D contact hole and a profile layer (background split at its height).
+namespace {
+json pmlBump();  // below (profile layer with PML)
+}  // namespace
+
+TEST(M19_Gradient, AperiodicLateralAndAbsorbedScattered) {
+  json cfg = pmlRidge();
+  cfg["truncation"]["Nx"] = 12;
+  cfg["incidence"]["phi_deg"] = 25;
+  expectSolverOutputs(cfg);
+  check(cfg, lateralObjective(1.0, 0.0, 0.0),
+        {"/layers/1/thickness_um", "/layers/0/thickness_um", "/layers/1/breakpoints_um/1", "/materials/bar/n/1",
+         "/materials/film/eps", "/incidence/lambda_um", "/incidence/phi_deg", "/incidence/delta_deg"},
+        1e-6, "scattered ridge lateral");
+  check(cfg, lateralObjective(0.0, 1.0, 0.3),
+        {"/layers/1/thickness_um", "/layers/0/thickness_um", "/layers/1/breakpoints_um/2", "/materials/bar/n/0",
+         "/materials/bar/n/1", "/materials/film/eps", "/incidence/lambda_um", "/incidence/phi_deg", "/incidence/psi_deg",
+         "/materials/air/n", "/materials/glass/n"},
+        1e-6, "scattered ridge absorbed");
+  json normal = pmlRidge();
+  normal["truncation"]["Nx"] = 12;
+  normal["scattered_field"] = true;
+  expectSolverOutputs(normal);
+  check(normal, lateralObjective(1.0, 0.5, 0.0),
+        {"/layers/1/breakpoints_um/1", "/materials/bar/n/1", "/materials/film/eps", "/layers/0/thickness_um",
+         "/incidence/lambda_um"},
+        1e-6, "scattered ridge normal lateral/absorbed");
+}
+
+TEST(M19_Gradient, AperiodicLateralAndAbsorbedScattered2D) {
+  const json hole{{"dimension", "2D"},
+                  {"truncation", {{"Nx", 3}, {"Nz", 3}}},
+                  {"period_um", {{"x", 2.0}, {"z", 2.0}}},
+                  {"incidence", {{"lambda_um", 0.6328}, {"phi_deg", 20}, {"psi_deg", 30}, {"delta_deg", 30}}},
+                  {"materials", {{"air", {{"n", 1.0}}}, {"glass", {{"n", 1.5}}}, {"film", {{"n", {2.1, 0.01}}}}}},
+                  {"superstrate", "air"},
+                  {"substrate", "glass"},
+                  {"layers", json::array({json{{"type", "contour2d"},
+                                               {"thickness_um", 0.3},
+                                               {"background", "film"},
+                                               {"regions", json::array({json{{"material", "air"},
+                                                                             {"circle", {{"center_um", {1.05, 0.98}}, {"radius_um", 0.25}}}}})},
+                                               {"factorization", "laurent"}}})},
+                  {"aperiodic", {{"pml", {{"x", {{"width_um", 0.3}, {"beta", 1.0}}}, {"z", {{"width_um", 0.3}, {"beta", 1.0}}}}}}}};
+  expectSolverOutputs(hole);
+  check(hole, lateralObjective(1.0, 0.5, 0.0),
+        {"/layers/0/regions/0/circle/radius_um", "/materials/film/n/0", "/materials/film/n/1", "/layers/0/thickness_um",
+         "/incidence/lambda_um", "/incidence/phi_deg"},
+        1e-6, "scattered hole 2D lateral/absorbed");
+  json bump = pmlBump();
+  bump["truncation"]["Nx"] = 12;
+  bump["incidence"]["phi_deg"] = 25;
+  expectSolverOutputs(bump);
+  check(bump, lateralObjective(1.0, 0.5, 0.0), {"/materials/bar/n/1", "/layers/0/thickness_um", "/incidence/lambda_um"},
+        1e-6, "scattered bump lateral/absorbed");
+}
+
 // Stufe A: modal excitation. A slab waveguide (core n = 2) ends in a wider block of another material on a
 // structured substrate (the same waveguide continues below): |r_0|^2, |t_0|^2 and a higher mode; the core index
 // acts on both half-space bases (eigenvector reverse rule) and on the layer.

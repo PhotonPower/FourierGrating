@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M19, Stufe C2 (Plan v2.56): Gradienten des seitlichen Streuflusses und der Absorption in der Streufeldformulierung
+  (schräger Einfall auf PML-Achsen, `scattered_field` bei Normaleinfall; 1D und 2D, Profilschichten). Schnitte der
+  Kette mit Quellvektoren; Hintergrundterme analytisch in den Streufeldern und Q, explizit per zentralem
+  Differenzenquotienten der Hintergrundrechnung. Tests `M19_Gradient.AperiodicLateralAndAbsorbedScattered` (≤ 1,2e-7),
+  `…2D` (≤ 2e-7).
 - M19, Stufe C1 (Plan v2.55): Gradienten des seitlichen Streuflusses und der Absorption aperiodischer Strukturen in
   der Totalfeldformulierung (Normaleinfall, RCWA, 1D und 2D). Die Kette wird an den Knoten der Seitenquadratur
   geschnitten (`fg::lateralNodes`, mit dem Löser geteilt), die Felder dort aus Präfix- und Suffixprodukten. Tests
@@ -17,6 +22,10 @@
   `CylCoupled.ArcsAboutTheAxisAgainstDifferences`, `V22g.EllipseAboveRingsWithTwofoldSymmetry`.
 
 ### Behoben
+- Seitenquadratur aperiodischer Strukturen (`fg::lateralNodes`, Löser): Bei einer Profilschicht mit PML lagen alle
+  Knoten oberhalb der Profilhöhe g0 um g0 zu hoch (die obersten im Superstrat); seitlicher Fluss und Absorption waren
+  falsch (Höcker: seitlicher Fluss 17 % daneben, Absorption der verlustfreien Struktur schräg −6,7e-3 statt 3,6e-4).
+  Test `M18_Pml.LateralNodesCoverTheStack` (Plan v2.56).
 - RK mit Polygonprofilen (`profile1d` points): An waagrechten Stücken im Inneren springt Q; RK integrierte darüber
   hinweg (6e-7 bei tol 1e-10, Werte unstetig in den Parametern). `ProfileModel::yBreaks_um()` meldet diese Höhen,
   RK schneidet dort mit einseitigen Grenzwerten wie bei M24 (Plan v2.54). Test

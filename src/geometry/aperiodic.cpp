@@ -159,12 +159,14 @@ Stack backgroundStack(const Stack& st) {
 void lateralNodes(const Stack& stack, const std::vector<double>& thickness_um, double k0, std::vector<double>& ys,
                   std::vector<double>& wy) {
   std::vector<double> br{0.0};
+  double bottom = 0;
   for (std::size_t k = 0; k < stack.layers.size(); ++k) {
     if (const auto* p = std::get_if<Profile1DLayer>(&stack.layers[k].spec)) {
       const double g0 = profileValue(*p, 0.0, stack.dx_um);
-      if (g0 > 0 && g0 < p->depth_um) br.push_back(br.back() + g0);
+      if (g0 > 0 && g0 < p->depth_um) br.push_back(bottom + g0);
     }
-    br.push_back(br.back() + thickness_um[k]);
+    bottom += thickness_um[k];  // (before v2.56 measured from the split: nodes above shifted by g0)
+    br.push_back(bottom);
   }
   const auto& g = quadrature::gaussLegendre(8);
   const double hmax = 0.1 * 2 * PI / k0;  // panels <= lambda / 10

@@ -252,6 +252,27 @@ Param resolve(const json& j, const io::RunConfig& cfg, const std::string& ptr, c
   return p;
 }
 
+/// T(m, n) = 1/d int_phys exp(i (kx0 + (n - m) 2 pi / d) x) dx on the oblique PML axes (as the solver): the Bloch
+/// basis of the sources re-expanded in the Bloch-free one (scattered-field formulation, M18).
+MatC blochTsrc(const IndexMap& map, const Stack& st, bool oblX, bool oblZ, double kx0, double kz0) {
+  auto restrictT = [&](int N, double d, double w, double kk0) {
+    MatC T(2 * N + 1, 2 * N + 1);
+    const double xa = w, xb = d - w;
+    for (int m = -N; m <= N; ++m)
+      for (int n2 = -N; n2 <= N; ++n2) {
+        const double kap = kk0 + (n2 - m) * (2 * PI / d);
+        T(m + N, n2 + N) = std::abs(kap) * (xb - xa) < 1e-12
+                               ? cplx((xb - xa) / d)
+                               : (std::exp(I * (kap * xb)) - std::exp(I * (kap * xa))) / (I * kap * d);
+      }
+    return T;
+  };
+  MatC Tx, Tz;
+  if (oblX) Tx = restrictT(map.Nx(), st.dx_um, st.aperiodic.x.width_um, kx0);
+  if (oblZ) Tz = restrictT(map.Nz(), st.dz_um, st.aperiodic.z.width_um, kz0);
+  return detail::separable(map, oblX ? &Tx : nullptr, oblZ ? &Tz : nullptr);
+}
+
 std::vector<std::string> coreNotes() {
   return {"RCWA slices fixed (Plan M19 \"Methode\" 1.)",
           "normal field: profiles differentiated, Algorithm NF over one raster cell, CAD sections frozen (Plan M19 "
@@ -417,6 +438,7 @@ namespace {
 /// Field at a node of the lateral-side quadrature (Plan v2.55, Stufe C1): F = (Ex, Ez, Hx, Hz), E_y, H_y in X.
 struct NodeField {
   VecC F, Ey, Hy;
+  const QBlocks* Q = nullptr;  ///< Q of the element below the node (valid during the objective call)
 };
 struct AmpContext {
   const ModeBasis& ref;
@@ -431,6 +453,7 @@ struct AmpBar {
   VecC refLam, subLam;  ///< cotangents of the half-space eigenvalues
   double dlnk0 = 0;     ///< dL / d ln k0 at fixed normalized quantities (sampling heights in um)
   std::vector<VecC> nodeF, nodeEy, nodeHy;  ///< cotangents of the node fields (empty: zero)
+  std::vector<QBlocks> nodeQ;               ///< cotangents of the node Q (row 1 used; empty: zero)
 };
 using AmpObjective =
     std::function<double(const AmpContext&, const VecC& b, const VecC& t, VecC& bbar, VecC& tbar, AmpBar& ab, Result& res)>;
@@ -602,7 +625,7 @@ GradientResult modalGradient(const Stack& st, const SolverOptions& opt, const Wa
                              const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps);
 GradientResult scatteredGradient(const Stack& st, const SolverOptions& opt, const Wavelength& wl,
                                  const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps,
-                                 double wUp, double wDown);
+                                 double wUp, double wDown, double wLat = 0, double wAbs = 0);
 
 GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wavelength& wl,
                             const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps,
@@ -709,24 +732,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   std::vector<MatC> bgM, bgMB;
   MatC Tsrc;
   /// T(m, n) = 1/d int_phys exp(i (kx0 + (n - m) 2 pi / d) x) dx on the oblique PML axes (as the solver)
-  auto makeTsrc = [&](double kx0, double kz0) {
-    auto restrictT = [&](int N, double d, double w, double kk0) {
-      MatC T(2 * N + 1, 2 * N + 1);
-      const double xa = w, xb = d - w;
-      for (int m = -N; m <= N; ++m)
-        for (int n2 = -N; n2 <= N; ++n2) {
-          const double kap = kk0 + (n2 - m) * (2 * PI / d);
-          T(m + N, n2 + N) = std::abs(kap) * (xb - xa) < 1e-12
-                                 ? cplx((xb - xa) / d)
-                                 : (std::exp(I * (kap * xb)) - std::exp(I * (kap * xa))) / (I * kap * d);
-        }
-      return T;
-    };
-    MatC Tx, Tz;
-    if (oblX) Tx = restrictT(map.Nx(), st.dx_um, st.aperiodic.x.width_um, kx0);
-    if (oblZ) Tz = restrictT(map.Nz(), st.dz_um, st.aperiodic.z.width_um, kz0);
-    return detail::separable(map, oblX ? &Tx : nullptr, oblZ ? &Tz : nullptr);
-  };
+  auto makeTsrc = [&](double kx0, double kz0) { return blochTsrc(map, st, oblX, oblZ, kx0, kz0); };
   if (scat) {
     FG_REQUIRE(opt.checkpointEvery <= 1, "gradient: checkpoint_every with the scattered-field formulation");
     a_in = VecC::Zero(nh);  // the sources drive the scattered field
@@ -762,7 +768,6 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   if (nodes_um) {
     FG_REQUIRE(opt.checkpointEvery <= 1, "gradient: lateral scattering/absorption with checkpoint_every");
     FG_REQUIRE(opt.kind != SolverKind::RK, "gradient: lateral scattering/absorption with RK (Plan v2.55, Stufe C3)");
-    FG_REQUIRE(!scat, "gradient: lateral scattering/absorption in the scattered-field formulation (Plan v2.55, Stufe C2)");
     FG_REQUIRE(trans, "gradient: lateral scattering/absorption need PML");
     for (double y : *nodes_um) nodeY.push_back(y * k0);
   }
@@ -1037,7 +1042,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         e.h = cut.size() == 2 ? H / K : e.y1n - e.y0n;
         e.frac = cut.size() == 2 ? 1.0 / K : e.h / H;
         if (scat) e.bgl = bgAt(0.5 * (e.y0n + e.y1n));
-        rebuild(e, ic && !scat ? &el[i0] : nullptr);  // scattered: pieces of other background layers differ
+        rebuild(e, ic ? &el[i0] : nullptr);  // same Q and modes (scattered: own background layer)
         push(std::move(e));
       }
     }
@@ -1054,23 +1059,47 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   std::vector<NodeField> nodeFields;
   std::vector<std::size_t> nodeAt;  // element below each node
   std::vector<VecC> nodeAmp;
-  std::vector<SMatrix> SU;  // suffix products
+  std::vector<SMatrix> SU;   // suffix products
+  std::vector<VecC> SUu, SUv;  // scattered field (Stufe C2): their source vectors
+  auto srcOf = [&](std::size_t q) {  // element q with its source vectors (zero without)
+    const VecC z = VecC::Zero(nh);
+    return SourcedSMatrix{el[q].S, el[q].su.size() ? el[q].su : z, el[q].sv.size() ? el[q].sv : z};
+  };
   if (nodes_um) {
     const std::size_t K = el.size() - 1;
     SU.resize(K + 1);
     SU[K] = SMatrix::identity(nh);
-    for (std::size_t q = K; q-- > 0;) SU[q] = star(el[q + 1].S, SU[q + 1]);
     const VecC zero = VecC::Zero(nh);
+    if (scat) {
+      SUu.assign(K + 1, zero);
+      SUv.assign(K + 1, zero);
+      for (std::size_t q = K; q-- > 0;) {
+        const SourcedSMatrix C = star(srcOf(q + 1), SourcedSMatrix{SU[q + 1], SUu[q + 1], SUv[q + 1]});
+        SU[q] = C.S;
+        SUu[q] = C.u;
+        SUv[q] = C.v;
+      }
+    } else {
+      for (std::size_t q = K; q-- > 0;) SU[q] = star(el[q + 1].S, SU[q + 1]);
+    }
     for (const double y : nodeY) {
       std::size_t q = 1;
       while (q < K && std::abs(el[q].y1n - y) > 1e-11 * std::max(1.0, std::abs(y))) ++q;
-      FG_REQUIRE(std::abs(el[q].y1n - y) <= 1e-11 * std::max(1.0, std::abs(y)), "gradient: internal: node is not a cut");
+      if (std::abs(el[q].y1n - y) > 1e-11 * std::max(1.0, std::abs(y))) {
+        std::ostringstream os;
+        os << "gradient: internal: node is not a cut (y " << y << "; tops";
+        for (const auto& e2 : el) os << " " << e2.y1n;
+        throw Error(os.str() + ")");
+      }
       nodeAt.push_back(q);
-      nodeAmp.push_back(interfaceAmplitudes(P[q], SU[q], zero, a_in));
+      nodeAmp.push_back(scat ? interfaceAmplitudes(SourcedSMatrix{P[q], Pu[q], zero}, SourcedSMatrix{SU[q], SUu[q], SUv[q]},
+                                                   zero, zero)
+                             : interfaceAmplitudes(P[q], SU[q], zero, a_in));
       NodeField f;
       f.F = ref.Psi * nodeAmp.back();
-      f.Ey = computeEy(el[q].Q, tc.A, tc.G, f.F);
+      f.Ey = computeEy(el[q].Q, tc.A, tc.G, f.F);  // scattered field: without the background terms (the caller)
       f.Hy = computeHy(tc.A, tc.G, f.F);
+      f.Q = &el[q].Q;
       nodeFields.push_back(std::move(f));
     }
   }
@@ -1770,6 +1799,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   // interfaceAmplitudes -> prefix P_q (SLb, added in the reverse sweep), suffix S_U^(q) (SUb) and a_in; the suffixes
   // S_U^(q) = E_{q+1} * S_U^(q+1) bottom-up -> extra element cotangents Ex
   std::vector<SMatrix> SLb, Ex;
+  std::vector<VecC> SLub, Exu, Exv;  // scattered field: cotangents of the prefix u and the element sources
   auto zeroS = [&]() {
     SMatrix z;
     z.S11 = MatC::Zero(nh, nh);
@@ -1790,6 +1820,13 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     SLb.assign(K + 1, SMatrix{});
     Ex.assign(K + 1, SMatrix{});
     std::vector<SMatrix> SUb(K + 1);
+    std::vector<VecC> SUvb;
+    if (scat) {
+      SLub.assign(K + 1, VecC::Zero(nh));
+      SUvb.assign(K + 1, VecC::Zero(nh));
+      Exu.assign(K + 1, VecC());
+      Exv.assign(K + 1, VecC());
+    }
     if (global) {
       if (Abar.size() == 0) Abar = MatC::Zero(nf, nf);
       if (Gbar.size() == 0) Gbar = MatC::Zero(nf, nf);
@@ -1836,6 +1873,9 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
           Qb(1, 1) = -rb * f.Ey.adjoint();
           Qb(1, 0) = -rb * Exf.adjoint();
           Qb(1, 2) = -rb * Ezf.adjoint();
+          if (n < ampBar.nodeQ.size())  // Q in the caller's terms (scattered field: background terms of E_y)
+            for (int j = 0; j < 3; ++j)
+              if (ampBar.nodeQ[n](1, j).size()) Qb(1, j) += ampBar.nodeQ[n](1, j);
           fromQbar(e.layer, e.homogeneous, e.y_um, Qb);
         }
       }
@@ -1843,37 +1883,49 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
       const VecC& amp = nodeAmp[n];
       const VecC ampb = ref.Psi.adjoint() * Fb;
       if (global) refPsib += Fb * amp.adjoint();
-      // interfaceAmplitudes(L, U, 0, a): D = I - L12 U21, b_q = D^-1 L12 U22 a, a_q = U21 b_q + U22 a
+      // interfaceAmplitudes(L, U, 0, a) (scattered field: a = 0 and the sources L.u, U.v): D = I - L12 U21,
+      // w = U22 a + U.v, b_q = D^-1 (L12 w + L.u), a_q = U21 b_q + w
       const SMatrix& L = P[q];
       const SMatrix& U = SU[q];
-      const VecC aq = amp.head(nh), bq = amp.tail(nh), aqb = ampb.head(nh);
+      const VecC bq = amp.tail(nh), aqb = ampb.head(nh);
       if (SLb[q].S11.size() == 0) SLb[q] = zeroS();
       if (SUb[q].S11.size() == 0) SUb[q] = zeroS();
       SMatrix& Lb = SLb[q];
       SMatrix& Ub = SUb[q];
-      Ub.S21 += aqb * bq.adjoint();
-      Ub.S22 += aqb * a_in.adjoint();
-      VecC ainb = U.S22.adjoint() * aqb;
+      const VecC w = scat ? SUv[q] : VecC(U.S22 * a_in);
       const VecC bt = ampb.tail(nh) + U.S21.adjoint() * aqb;
       const MatC D = MatC::Identity(nh, nh) - L.S12 * U.S21;
       const VecC r = D.adjoint().partialPivLu().solve(bt);
-      Lb.S12 += r * (U.S21 * bq).adjoint();
-      Ub.S21 += L.S12.adjoint() * r * bq.adjoint();
-      const VecC w = U.S22 * a_in, wb = L.S12.adjoint() * r;
-      Lb.S12 += r * w.adjoint();
-      Ub.S22 += wb * a_in.adjoint();
-      ainb += U.S22.adjoint() * wb;
-      if (global) ampBar.aIn += ainb;
+      Ub.S21 += aqb * bq.adjoint() + L.S12.adjoint() * r * bq.adjoint();
+      Lb.S12 += r * (U.S21 * bq).adjoint() + r * w.adjoint();
+      const VecC wb = aqb + L.S12.adjoint() * r;  // cotangent of w
+      if (scat) {
+        SLub[q] += r;
+        SUvb[q] += wb;
+      } else {
+        Ub.S22 += wb * a_in.adjoint();
+        if (global) ampBar.aIn += U.S22.adjoint() * wb;
+      }
     }
     SMatrix run;
+    VecC runu = VecC::Zero(nh), runv = VecC::Zero(nh);  // scattered field: cotangents of the suffix sources
     for (std::size_t q = 0; q < K; ++q) {
       if (SUb[q].S11.size()) {
         if (run.S11.size() == 0) run = zeroS();
         addS(run, SUb[q]);
+        if (scat) runv += SUvb[q];
       }
       if (run.S11.size() == 0) continue;
       SMatrix Ab, Bb;
       adjoint::star(el[q + 1].S, SU[q + 1], run, Ab, Bb);
+      if (scat) {
+        VecC Aub, Avb, Bub, Bvb;
+        adjoint::starSources(el[q + 1].S, SU[q + 1], srcOf(q + 1).u, SUv[q + 1], runu, runv, Ab, Bb, Aub, Avb, Bub, Bvb);
+        Exu[q + 1] = std::move(Aub);
+        Exv[q + 1] = std::move(Avb);
+        runu = std::move(Bub);
+        runv = std::move(Bvb);
+      }
       Ex[q + 1] = std::move(Ab);
       run = std::move(Bb);
     }
@@ -1888,6 +1940,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
     Pbar.S22 = tbar * a_in.adjoint();
     if (!SLb.empty()) addS(Pbar, SLb.back());
     VecC ub = bbar, vb = tbar;  // scattered field: cotangents of the prefix source vectors
+    if (!SLub.empty()) ub += SLub.back();
     std::size_t i = el.size() - 1;
     while (i >= 1) {
       const std::size_t s0 = (i - 1) / ckpt * ckpt;  // P[s0] is stored
@@ -1906,6 +1959,13 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
           VecC Aub, Avb, Bub, Bvb;
           const VecC z = VecC::Zero(nh);
           adjoint::starSources(P[j - 1], el[j].S, Pu[j - 1], el[j].sv.size() ? el[j].sv : z, ub, vb, Ab, Bb, Aub, Avb, Bub, Bvb);
+          if (!SLub.empty()) {  // node fields (Stufe C2): prefix u and element sources from the suffix sweep
+            Aub += SLub[j - 1];
+            if (Exu[j].size()) {
+              Bub += Exu[j];
+              Bvb += Exv[j];
+            }
+          }
           ub = std::move(Aub);
           vb = std::move(Avb);
           if (el[j].su.size() && el[j].rk) {  // affine sources u = g_b - S12 g_a, v = -S22 g_a, g = Psi^-1 f
@@ -2345,7 +2405,7 @@ GradientResult modalGradient(const Stack& st, const SolverOptions& opt, const Wa
 /// matrices and the background field (Stufe B2: its N = 0 solution and Tsrc by central differences).
 GradientResult scatteredGradient(const Stack& st, const SolverOptions& opt, const Wavelength& wl,
                                  const detail::LayerModels* prebuilt, const Objective& objective, std::vector<Param> ps,
-                                 double wUp, double wDown) {
+                                 double wUp, double wDown, double wLat, double wAbs) {
   FG_PROF_SCOPE("gradient.scattered");
   const AperiodicSpec& ap = st.aperiodic;
   FG_REQUIRE(!st.superstrateStructure && !st.substrateStructure,
@@ -2391,6 +2451,270 @@ GradientResult scatteredGradient(const Stack& st, const SolverOptions& opt, cons
     I0 = std::abs(0.5 * std::real(Fi(1) * std::conj(Fi(2)) - Fi(0) * std::conj(Fi(3)))) * std::sqrt(sup.eps.real()) / beta0;
   }
   const double k0 = 2 * PI / wl.lambda_um, dTop = 1e-9 * k0, dBot = -1e-9 * k0;
+  // ---- Stufe C2 (Plan v2.56): lateral scattering and absorption as in the solver's scatteredOutputs. The scattered
+  // field at the nodes comes from the core (cuts of the chain with sources); the background enters as one more
+  // "order" (oblique incidence on a PML axis: Bloch-free scattered field) or in the centre order. The objective is
+  // differentiated analytically in the scattered fields and the node Q; its explicit dependence on the background,
+  // the incidence, the node positions and weights by central differences (BgS at perturbed parameters).
+  const bool sides = wLat != 0 || wAbs != 0;
+  const int c = map.center();
+  const bool oblX = ap.x.active() && std::abs(inc.alpha0) >= 1e-12, oblZ = ap.z.active() && std::abs(inc.gamma0) >= 1e-12;
+  const bool bloch = oblX || oblZ;
+  const int ne = nf + (bloch ? 1 : 0);
+  std::vector<double> ys, wy, thick;
+  detail::LayerModels ownModels;
+  if (sides) {
+    if (!prebuilt) {
+      ownModels = detail::buildLayerModels(st, map, opt.rcwaSlices);
+      prebuilt = &ownModels;
+    }
+    for (const auto& m : *prebuilt) thick.push_back(m->thickness_um());
+    lateralNodes(st, thick, k0, ys, wy);
+  }
+  const ResolvedTransform trS = resolveTransform(st);
+  std::shared_ptr<const PmlMap> pmlXs, pmlZs;
+  if (ap.x.active()) pmlXs = std::make_shared<const PmlMap>(st.dx_um, ap.x.width_um, ap.x.beta);
+  if (ap.z.active()) pmlZs = std::make_shared<const PmlMap>(st.dz_um, ap.z.width_um, ap.z.beta);
+  struct BgS {
+    double k0 = 0, a0 = 0, g0 = 0;
+    std::vector<VecC> Fb;   // background (Ex, Ez, Hx, Hz) at the nodes
+    std::vector<cplx> eps;  // background medium at the nodes
+    VecC Ft, Fd;            // background at the top / bottom samples
+    std::vector<double> w;  // node weights
+    MatC We, Wxe, Wze;      // window flux and lateral-side forms over the ne orders
+    MatC Tsrc;              // oblique: re-expansion, Bloch-basis wave numbers
+    VecC alB, gaB;
+    MatC A, G;              // normal incidence: the transformation
+  };
+  auto bgState = [&](const Stack& s2, const Wavelength& w2, const std::vector<double>& y_um, const std::vector<double>& wts) {
+    BgS S;
+    const Material& sp2 = s2.material(s2.superstrate);
+    const Material& sb2 = s2.material(s2.substrate);
+    const IncidentWave i2 = makeIncidence(std::sqrt(sp2.eps.real()), w2.phi, w2.psi, w2.delta);
+    S.k0 = 2 * PI / w2.lambda_um;
+    S.a0 = i2.alpha0;
+    S.g0 = i2.gamma0;
+    S.w = wts;
+    const std::vector<BgLayerField> bgf2 = backgroundField(s2, opt, w2, i2.alpha0, i2.gamma0);
+    auto field = [&](const BgLayerField& L, double y) {
+      VecC f = VecC::Zero(4);
+      for (int k = 0; k < 4; ++k) f += L.Psi.col(k) * (L.amp(k) * std::exp(L.lambda(k) * (y - (k < 2 ? L.y1 : L.y0))));
+      return f;
+    };
+    for (const double y : y_um) {
+      const double yn = y * S.k0;
+      std::size_t l = 0;
+      while (l + 1 < bgf2.size() && yn > bgf2[l].y1) ++l;
+      S.Fb.push_back(field(bgf2[l], yn));
+      S.eps.push_back(s2.material(bgf2[l].material).eps);
+    }
+    const VecC a0v = VecC::Constant(1, i2.alpha0), g0v = VecC::Constant(1, i2.gamma0);
+    {  // superstrate: incident + reflected (projection of the top background field), at 1e-9 um above
+      const ModeBasis s1 = isotropicModes(sp2.eps, a0v, g0v);
+      const VecC co = s1.PsiInv * field(bgf2.back(), bgf2.back().y1);
+      VecC v(4);
+      const double d = 1e-9 * S.k0;
+      v << i2.A(0), i2.A(2), co(2), co(3);
+      for (int k = 0; k < 4; ++k) v(k) *= std::exp(s1.lambda(k) * d);
+      S.Ft = s1.Psi * v;
+    }
+    {  // substrate: transmitted, at 1e-9 um below
+      const ModeBasis s1 = isotropicModes(sb2.eps, a0v, g0v);
+      const VecC co = s1.PsiInv * field(bgf2.front(), bgf2.front().y0);
+      VecC v = VecC::Zero(4);
+      const double d = -1e-9 * S.k0;
+      for (int k = 0; k < 2; ++k) v(k) = co(k) * std::exp(s1.lambda(k) * d);
+      S.Fd = s1.Psi * v;
+    }
+    std::vector<double> kx(static_cast<std::size_t>(ne)), kz(static_cast<std::size_t>(ne));
+    for (int r = 0; r < nf; ++r) {
+      const auto [n, m] = map.orders(r);
+      kx[static_cast<std::size_t>(r)] = (oblX ? 0.0 : S.k0 * S.a0) + 2 * PI * n / st.dx_um;
+      kz[static_cast<std::size_t>(r)] = (oblZ ? 0.0 : S.k0 * S.g0) + (st.is2D() ? 2 * PI * m / st.dz_um : 0.0);
+    }
+    if (bloch) {
+      kx[static_cast<std::size_t>(nf)] = S.k0 * S.a0;
+      kz[static_cast<std::size_t>(nf)] = S.k0 * S.g0;
+    }
+    S.We = MatC::Zero(ne, ne);
+    S.Wxe = MatC::Zero(ne, ne);
+    S.Wze = MatC::Zero(ne, ne);
+    for (int r = 0; r < ne; ++r)
+      for (int cc = 0; cc < ne; ++cc) {
+        const double dkx = kx[static_cast<std::size_t>(cc)] - kx[static_cast<std::size_t>(r)],
+                     dkz = kz[static_cast<std::size_t>(cc)] - kz[static_cast<std::size_t>(r)];
+        const cplx iz = st.is2D() ? axisInt(dkz, z0, z1) : cplx(1.0);
+        S.We(r, cc) = axisInt(dkx, x0, x1) * iz;
+        if (ap.x.active()) S.Wxe(r, cc) = (std::exp(I * (dkx * x1)) - std::exp(I * (dkx * x0))) * iz;
+        if (ap.z.active()) S.Wze(r, cc) = (std::exp(I * (dkz * z1)) - std::exp(I * (dkz * z0))) * axisInt(dkx, x0, x1);
+      }
+    const double Kx2 = 2 * PI / (S.k0 * st.dx_um), Kz2 = st.is2D() ? 2 * PI / (S.k0 * st.dz_um) : 0.0;
+    VecC al2(nf), ga2(nf);
+    for (int r = 0; r < nf; ++r) {
+      const auto [n, m] = map.orders(r);
+      al2(r) = S.a0 + n * Kx2;
+      ga2(r) = S.g0 + m * Kz2;
+    }
+    if (bloch) {
+      S.Tsrc = blochTsrc(map, st, oblX, oblZ, S.k0 * S.a0, S.k0 * S.g0);
+      S.alB = al2;
+      S.gaB = ga2;
+    } else {
+      const auto tc2 = detail::transformedCoordinates(map, trS, pmlXs.get(), pmlZs.get(), al2, ga2, S.a0 * S.k0, S.g0 * S.k0);
+      S.A = tc2.A;
+      S.G = tc2.G;
+    }
+    return S;
+  };
+  // fixed data of the objective (scattered fields, node Q) from the core
+  struct NodeFix {
+    VecC F, Ey, Hy;
+    MatC Q10, Q11, Q12;
+  };
+  std::vector<NodeFix> fix;
+  VecC FuFix, FdFix;
+  using Plane = std::array<VecC, 6>;  // Ex, Ey, Ez, Hx, Hy, Hz over the ne orders
+  auto planeFlux = [&](const BgS& S, const Plane& P) {
+    return 0.5 * std::real(P[3].dot(S.We * P[2]) - P[5].dot(S.We * P[0]));
+  };
+  auto planeFluxBar = [&](const BgS& S, double cf, const Plane& P, Plane& Pb) {
+    const double h = 0.5 * cf;
+    Pb[3] += h * (S.We * P[2]);
+    Pb[2] += h * (S.We.adjoint() * P[3]);
+    Pb[5] -= h * (S.We * P[0]);
+    Pb[0] -= h * (S.We.adjoint() * P[5]);
+  };
+  auto sidesFlux = [&](const BgS& S, const Plane& P) {
+    return 0.5 * std::real(P[5].dot(S.Wxe * P[1]) - P[4].dot(S.Wxe * P[2]) + P[4].dot(S.Wze * P[0]) - P[3].dot(S.Wze * P[1]));
+  };
+  auto sidesFluxBar = [&](const BgS& S, double cf, const Plane& P, Plane& Pb) {
+    const double h = 0.5 * cf;
+    Pb[5] += h * (S.Wxe * P[1]);
+    Pb[1] += h * (S.Wxe.adjoint() * P[5]);
+    Pb[4] -= h * (S.Wxe * P[2]);
+    Pb[2] -= h * (S.Wxe.adjoint() * P[4]);
+    Pb[4] += h * (S.Wze * P[0]);
+    Pb[0] += h * (S.Wze.adjoint() * P[4]);
+    Pb[3] -= h * (S.Wze * P[1]);
+    Pb[1] -= h * (S.Wze.adjoint() * P[3]);
+  };
+  auto zeroPlane = [&]() {
+    Plane P;
+    for (auto& v : P) v = VecC::Zero(ne);
+    return P;
+  };
+  /// background plane (6 components) at one node / sample: the extra order (oblique) or the centre order
+  auto bgPlane = [&](const VecC& Fb, const VecC& Eb, const VecC& Hb) {
+    Plane P = zeroPlane();
+    const int at = bloch ? nf : c;
+    P[0](at) = Fb(0);
+    P[2](at) = Fb(1);
+    P[3](at) = Fb(2);
+    P[5](at) = Fb(3);
+    if (Eb.size()) P[1](at) = Eb(0);
+    if (Hb.size()) P[4](at) = Hb(0);
+    return P;
+  };
+  /// L_side = wLat P_lat + wAbs P_abs; with bars: cotangents of the fixed data (nodes: F, E_y, H_y, Q rows; Fu, Fd)
+  struct SideBar {
+    std::vector<VecC> F, Ey, Hy;
+    std::vector<QBlocks> Q;
+    VecC Fu, Fd;
+  };
+  auto sideObjective = [&](const BgS& S, double& lat, double& absorbed, SideBar* bar) {
+    double sideSca = 0, sideTot = 0, sideBg = 0;
+    if (bar) {
+      bar->F.assign(fix.size(), VecC());
+      bar->Ey.assign(fix.size(), VecC());
+      bar->Hy.assign(fix.size(), VecC());
+      bar->Q.assign(fix.size(), QBlocks{});
+    }
+    const VecC a0v = VecC::Constant(1, S.a0), g0v = VecC::Constant(1, S.g0);
+    for (std::size_t i = 0; i < fix.size(); ++i) {
+      const NodeFix& f = fix[i];
+      const VecC& Fb = S.Fb[i];
+      const VecC Eb = computeEy(homogeneousIsotropicQ(S.eps[i], 1), a0v, g0v, Fb), Hb = computeHy(a0v, g0v, Fb);
+      // background terms of the scattered E_y, H_y with the element Q: X = background in the centre order
+      VecC X = VecC::Zero(4 * nf);
+      for (int k = 0; k < 4; ++k) X(k * nf + c) = Fb(k);
+      VecC rhs, yQ, cE, cH = VecC::Zero(nf);
+      if (bloch) {
+        rhs = S.alB.cwiseProduct(X.tail(nf)) - S.gaB.cwiseProduct(X.segment(2 * nf, nf)) - f.Q10 * X.head(nf) -
+              f.Q12 * X.segment(nf, nf);
+        yQ = f.Q11.partialPivLu().solve(rhs);
+        cE = S.Tsrc * (yQ - computeEy(homogeneousIsotropicQ(S.eps[i], nf), S.alB, S.gaB, X));
+      } else {
+        rhs = S.A * X.tail(nf) - S.G * X.segment(2 * nf, nf) - f.Q10 * X.head(nf) - f.Q12 * X.segment(nf, nf);
+        yQ = f.Q11.partialPivLu().solve(rhs);
+        cE = yQ;
+        cE(c) -= Eb(0);
+        cH = S.G * X.head(nf) - S.A * X.segment(nf, nf);
+        cH(c) -= Hb(0);
+      }
+      Plane sca = zeroPlane();
+      sca[0].head(nf) = f.F.head(nf);
+      sca[1].head(nf) = f.Ey + cE;
+      sca[2].head(nf) = f.F.segment(nf, nf);
+      sca[3].head(nf) = f.F.segment(2 * nf, nf);
+      sca[4].head(nf) = f.Hy + cH;
+      sca[5].head(nf) = f.F.tail(nf);
+      const Plane bgp = bgPlane(Fb, Eb, Hb);
+      Plane tot = sca;
+      for (int k = 0; k < 6; ++k) tot[static_cast<std::size_t>(k)] += bgp[static_cast<std::size_t>(k)];
+      const double w = S.w[i];
+      sideSca += w * sidesFlux(S, sca);
+      sideTot += w * sidesFlux(S, tot);
+      sideBg += w * sidesFlux(S, bgp);
+      if (bar) {
+        Plane Pb = zeroPlane();
+        sidesFluxBar(S, wLat * w / I0, sca, Pb);
+        sidesFluxBar(S, -wAbs * w / I0, tot, Pb);  // d tot = d sca for the fixed data
+        VecC Fbar(4 * nf);
+        Fbar << Pb[0].head(nf), Pb[2].head(nf), Pb[3].head(nf), Pb[5].head(nf);
+        bar->F[i] = Fbar;
+        bar->Ey[i] = Pb[1].head(nf);
+        bar->Hy[i] = Pb[4].head(nf);
+        // Q of the element in the background term of E_y
+        const VecC yb = bloch ? VecC(S.Tsrc.adjoint() * Pb[1].head(nf)) : VecC(Pb[1].head(nf));
+        const VecC rb = f.Q11.adjoint().partialPivLu().solve(yb);
+        QBlocks Qb;
+        Qb(1, 1) = -rb * yQ.adjoint();
+        Qb(1, 0) = -rb * X.head(nf).adjoint();
+        Qb(1, 2) = -rb * X.segment(nf, nf).adjoint();
+        bar->Q[i] = std::move(Qb);
+      }
+    }
+    // top and bottom samples: total = scattered + background
+    Plane st_ = zeroPlane(), sb_ = zeroPlane();
+    st_[0].head(nf) = FuFix.head(nf);
+    st_[2].head(nf) = FuFix.segment(nf, nf);
+    st_[3].head(nf) = FuFix.segment(2 * nf, nf);
+    st_[5].head(nf) = FuFix.tail(nf);
+    sb_[0].head(nf) = FdFix.head(nf);
+    sb_[2].head(nf) = FdFix.segment(nf, nf);
+    sb_[3].head(nf) = FdFix.segment(2 * nf, nf);
+    sb_[5].head(nf) = FdFix.tail(nf);
+    const Plane bt = bgPlane(S.Ft, VecC(), VecC()), bb = bgPlane(S.Fd, VecC(), VecC());
+    Plane tt = st_, tb = sb_;
+    for (int k = 0; k < 6; ++k) {
+      tt[static_cast<std::size_t>(k)] += bt[static_cast<std::size_t>(k)];
+      tb[static_cast<std::size_t>(k)] += bb[static_cast<std::size_t>(k)];
+    }
+    lat = sideSca / I0;
+    absorbed = ((planeFlux(S, tb) - planeFlux(S, tt) - sideTot) - (planeFlux(S, bb) - planeFlux(S, bt) - sideBg)) / I0;
+    if (bar) {
+      Plane Pt = zeroPlane(), Pd = zeroPlane();
+      planeFluxBar(S, -wAbs / I0, tt, Pt);
+      planeFluxBar(S, wAbs / I0, tb, Pd);
+      bar->Fu.resize(4 * nf);
+      bar->Fd.resize(4 * nf);
+      bar->Fu << Pt[0].head(nf), Pt[2].head(nf), Pt[3].head(nf), Pt[5].head(nf);
+      bar->Fd << Pd[0].head(nf), Pd[2].head(nf), Pd[3].head(nf), Pd[5].head(nf);
+    }
+    return wLat * lat + wAbs * absorbed;
+  };
+  BgS S0;
+  if (sides) S0 = bgState(st, wl, ys, wy);
   const AmpObjective scatter = [&](const AmpContext& cx, const VecC& u, const VecC& v, VecC& ubar, VecC& vbar, AmpBar& ab,
                                    Result& res) {
     VecC phU(nh), phD(nh);
@@ -2404,7 +2728,22 @@ GradientResult scatteredGradient(const Stack& st, const SolverOptions& opt, cons
     sc.present = true;
     sc.up = flux(Fu) / I0;
     sc.down = -flux(Fd) / I0;
-    const VecC Fub = fluxBar(Fu) * (wUp / I0), Fdb = fluxBar(Fd) * (-wDown / I0);
+    VecC Fub = fluxBar(Fu) * (wUp / I0), Fdb = fluxBar(Fd) * (-wDown / I0);
+    double Lside = 0;
+    if (cx.nodes) {
+      fix.clear();
+      for (const auto& f : *cx.nodes) fix.push_back({f.F, f.Ey, f.Hy, (*f.Q)(1, 0), (*f.Q)(1, 1), (*f.Q)(1, 2)});
+      FuFix = Fu;
+      FdFix = Fd;
+      SideBar bar;
+      Lside = sideObjective(S0, sc.lateral, sc.absorbed, &bar);
+      ab.nodeF = std::move(bar.F);
+      ab.nodeEy = std::move(bar.Ey);
+      ab.nodeHy = std::move(bar.Hy);
+      ab.nodeQ = std::move(bar.Q);
+      Fub += bar.Fu;
+      Fdb += bar.Fd;
+    }
     const VecC Gu = up.adjoint() * Fub, Gd = down.adjoint() * Fdb;
     ubar = phU.conjugate().cwiseProduct(Gu);
     vbar = phD.conjugate().cwiseProduct(Gd);
@@ -2422,10 +2761,43 @@ GradientResult scatteredGradient(const Stack& st, const SolverOptions& opt, cons
       ab.dlnk0 += std::real(std::conj(pu) * phU(q) * cx.ref.lambda(nh + q) * dTop) +
                   std::real(std::conj(pd) * phD(q) * cx.sub.lambda(q) * dBot);
     }
-    return wUp * sc.up + wDown * sc.down;
+    return wUp * sc.up + wDown * sc.down + Lside;
   };
-  GradientResult out = gradientCore(st, opt, wl, prebuilt, objective, std::move(ps), &scatter);
-  out.notes.push_back("aperiodic: lateral scattering and absorption are not computed by the gradient");
+  GradientResult out = gradientCore(st, opt, wl, prebuilt, objective, std::move(ps), &scatter, nullptr, sides ? &ys : nullptr);
+  if (!sides) out.notes.push_back("aperiodic: lateral scattering and absorption are not computed by the gradient");
+  if (sides) {
+    // explicit dependence on the background, the incidence, node positions and weights (scattered fields fixed)
+    std::vector<std::string> bgMats{st.superstrate, st.substrate};
+    for (const auto& L : backgroundField(st, opt, wl, inc.alpha0, inc.gamma0)) bgMats.push_back(L.material);
+    std::vector<double> bottom{0.0};
+    for (double t : thick) bottom.push_back(bottom.back() + t);
+    for (std::size_t q = 0; q < psIn.size(); ++q) {
+      const Param& p = psIn[q];
+      const bool acts = p.kind == Param::Kind::Thickness || p.kind == Param::Kind::Lambda || p.kind == Param::Kind::Phi ||
+                        p.kind == Param::Kind::Psi || p.kind == Param::Kind::Delta ||
+                        (p.kind == Param::Kind::Material && std::find(bgMats.begin(), bgMats.end(), p.material) != bgMats.end());
+      if (!acts) continue;
+      const double h = (p.kind == Param::Kind::Thickness || p.kind == Param::Kind::Lambda) ? 1e-6 : 1e-5;
+      double d = 0;
+      for (const double sg : {1.0, -1.0}) {
+        Stack s2;
+        Wavelength w2;
+        perturbedSetup(st, wl, p, sg * h, s2, w2);
+        std::vector<double> y2 = ys, wt2 = wy;
+        if (p.kind == Param::Kind::Thickness) {  // nodes of layer k scale with it, those above shift
+          const std::size_t k = p.layer;
+          for (std::size_t i = 0; i < ys.size(); ++i) {
+            const double s01 = std::clamp((ys[i] - bottom[k]) / thick[k], 0.0, 1.0);
+            y2[i] += sg * h * s01;
+            if (ys[i] > bottom[k] && ys[i] < bottom[k + 1]) wt2[i] *= (thick[k] + sg * h) / thick[k];
+          }
+        }
+        double la, absb;
+        d += sg * sideObjective(bgState(s2, w2, y2, wt2), la, absb, nullptr);
+      }
+      out.grad[q] += d / (2 * h);
+    }
+  }
   // I_0 depends on the superstrate and the incidence: dL/dI_0 = -L / I_0 (central differences)
   for (std::size_t q = 0; q < psIn.size(); ++q) {
     const Param& p = psIn[q];
@@ -2480,9 +2852,7 @@ GradientResult aperiodicGradient(const Stack& st, const SolverOptions& opt, cons
     }
   }
   if (scattered) {
-    FG_REQUIRE(wLat == 0 && wAbs == 0, "gradient: lateral scattering and absorption in the scattered-field "
-                                       "formulation are not differentiated yet (Plan v2.55, Stufe C2)");
-    return scatteredGradient(st, opt, wl, prebuilt, objective, std::move(ps), wUp, wDown);
+    return scatteredGradient(st, opt, wl, prebuilt, objective, std::move(ps), wUp, wDown, wLat, wAbs);
   }
   const bool sides = wLat != 0 || wAbs != 0;
   const Stack bg = backgroundStack(st);
