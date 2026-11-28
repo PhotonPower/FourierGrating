@@ -767,18 +767,18 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
   std::vector<double> nodeY;
   if (nodes_um) {
     FG_REQUIRE(opt.checkpointEvery <= 1, "gradient: lateral scattering/absorption with checkpoint_every");
-    FG_REQUIRE(opt.kind != SolverKind::RK, "gradient: lateral scattering/absorption with RK (Plan v2.55, Stufe C3)");
     FG_REQUIRE(trans, "gradient: lateral scattering/absorption need PML");
     for (double y : *nodes_um) nodeY.push_back(y * k0);
   }
-  auto bgCuts = [&](double ya, double yb) {
+  auto bgCuts = [&](double ya, double yb, bool withNodes = true) {
     std::vector<double> cuts{ya};
     const double tol = 1e-12 * std::max(1.0, yb);
     if (scat)
       for (const auto& L : bgf)
         if (L.y1 > ya + tol && L.y1 < yb - tol) cuts.push_back(L.y1);
-    for (double y : nodeY)
-      if (y > ya + tol && y < yb - tol) cuts.push_back(y);
+    if (withNodes)
+      for (double y : nodeY)
+        if (y > ya + tol && y < yb - tol) cuts.push_back(y);
     cuts.push_back(yb);
     std::sort(cuts.begin(), cuts.end());
     return cuts;
@@ -994,6 +994,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         e.yb = yb;
         e.rho = rho;
         e.y0n = yBottom;  // RK: the layer bottom
+        e.y1n = yBottom + yb;  // the slice top (node lookup, Stufe C3)
         if (scat) e.bgl = bgAt(yBottom + 0.5 * (ya + yb));
         rebuild(e);
         if ((!e.T.allFinite() || e.T.cwiseAbs().maxCoeff() > growth) && depth < 12) {
@@ -1011,7 +1012,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
           if (bk * k0 > cuts.front() + 1e-12 * std::max(1.0, H) && bk * k0 < H * (is + 1) / K - 1e-12 * std::max(1.0, H))
             cuts.insert(cuts.end() - 1, bk * k0);
         // scattered field: also at the background boundaries (profile height, Plan v2.54; as the solver)
-        for (double yc : bgCuts(yBottom + cuts.front(), yBottom + cuts.back())) {
+        for (double yc : bgCuts(yBottom + cuts.front(), yBottom + cuts.back(), false)) {
           const double yl = yc - yBottom, tol = 1e-12 * std::max(1.0, H);
           if (yl > cuts.front() + tol && yl < cuts.back() - tol &&
               std::none_of(cuts.begin(), cuts.end(), [&](double v) { return std::abs(v - yl) <= tol; }))
@@ -1023,7 +1024,15 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
             qlo = cuts[q] + d;
             qhi = cuts[q + 1] - d;
           }
-          slice(cuts[q], cuts[q + 1], 0);
+          // Stufe C3 (Plan v2.57): the integration also stops at the nodes of the lateral-side quadrature (the
+          // solver's recorded heights); the clamp range stays that of the cut slice
+          std::vector<double> stops{cuts[q]};
+          const double ntol = 1e-12 * std::max(1.0, H);
+          for (double yn : nodeY)
+            if (yn - yBottom > cuts[q] + ntol && yn - yBottom < cuts[q + 1] - ntol) stops.push_back(yn - yBottom);
+          std::sort(stops.begin() + 1, stops.end());
+          stops.push_back(cuts[q + 1]);
+          for (std::size_t is2 = 0; is2 + 1 < stops.size(); ++is2) slice(stops[is2], stops[is2 + 1], 0);
         }
       }
       continue;
@@ -1092,6 +1101,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         throw Error(os.str() + ")");
       }
       nodeAt.push_back(q);
+      if (el[q].rk) el[q].Q = models[el[q].layer]->Q(el[q].yb / k0);  // Q at the node (as the solver's sample)
       nodeAmp.push_back(scat ? interfaceAmplitudes(SourcedSMatrix{P[q], Pu[q], zero}, SourcedSMatrix{SU[q], SUu[q], SUv[q]},
                                                    zero, zero)
                              : interfaceAmplitudes(P[q], SU[q], zero, a_in));
@@ -1858,13 +1868,14 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
         Gbar += Hyb * Exf.adjoint() - rb * Hxf.adjoint();
         Abar += rb * Hzf.adjoint() - Hyb * Ezf.adjoint();
       }
-      {  // Q of the element below the node
+      {  // Q of the element below the node (RK: at the node height)
+        const double qy_um = e.rk ? e.yb / k0 : e.y_um;
         std::vector<std::string> mats;
         if (e.homogeneous) {
           mats = {std::get<HomogeneousLayer>(st.layers[e.layer].spec).material};
         } else {
           detail::AdjointSlice a;
-          if (models[e.layer]->adjointSlice(e.y_um, a)) mats = a.materials;
+          if (models[e.layer]->adjointSlice(qy_um, a)) mats = a.materials;
         }
         if (layerHasParams(e.layer, mats)) {
           QBlocks Qb;
@@ -1876,7 +1887,7 @@ GradientResult gradientCore(const Stack& st, const SolverOptions& opt, const Wav
           if (n < ampBar.nodeQ.size())  // Q in the caller's terms (scattered field: background terms of E_y)
             for (int j = 0; j < 3; ++j)
               if (ampBar.nodeQ[n](1, j).size()) Qb(1, j) += ampBar.nodeQ[n](1, j);
-          fromQbar(e.layer, e.homogeneous, e.y_um, Qb);
+          fromQbar(e.layer, e.homogeneous, qy_um, Qb);
         }
       }
       // F = Psi_ref (a_q; b_q)

@@ -766,15 +766,15 @@ fg::Objective lateralObjective(double lateral, double absorbed, double up) {
                   {fg::ScatterRef{fg::ScatterRef::Kind::Up}, up}};
   return o;
 }
-void expectSolverOutputs(const json& cfg) {
+void expectSolverOutputs(const json& cfg, double rel = 1e-10) {
   const auto c = fg::io::parseConfig(cfg.dump());
   const auto r = fg::makeSolver(c.solver)->solve(c.stack, c.scan.front());
   const auto g = fg::gradient(cfg.dump(), lateralObjective(1.0, 0.0, 0.0), {});
   std::printf("lateral %.12e (solver %.12e), absorbed %.12e (solver %.12e)\n", g.result.scattering.lateral,
               r.scattering.lateral, g.result.scattering.absorbed, r.scattering.absorbed);
-  EXPECT_NEAR(g.result.scattering.lateral, r.scattering.lateral, 1e-10 * std::abs(r.scattering.lateral));
-  EXPECT_NEAR(g.result.scattering.absorbed, r.scattering.absorbed, 1e-10 * std::abs(r.scattering.absorbed));
-  EXPECT_NEAR(g.value, r.scattering.lateral, 1e-10 * std::abs(r.scattering.lateral));
+  EXPECT_NEAR(g.result.scattering.lateral, r.scattering.lateral, rel * std::abs(r.scattering.lateral));
+  EXPECT_NEAR(g.result.scattering.absorbed, r.scattering.absorbed, rel * std::abs(r.scattering.absorbed));
+  EXPECT_NEAR(g.value, r.scattering.lateral, rel * std::abs(r.scattering.lateral));
 }
 }  // namespace
 
@@ -1009,6 +1009,40 @@ TEST(M19_Gradient, AperiodicProfileLayer) {
   cfg["rk"] = {{"tol", 1e-8}};
   cfg["truncation"]["Nx"] = 12;
   check(cfg, obj, {"/materials/bar/n/1", "/layers/0/thickness_um", "/incidence/lambda_um"}, 2e-6, "pml bump scattered rk");
+}
+
+// Plan v2.57, Stufe C3: lateral scattering and absorption with RK. The integration stops at the nodes of the
+// lateral-side quadrature (the solver's recorded heights), Q at the node height; ridge (y-invariant: constant M) in
+// the total-field and the scattered-field formulation, the profile bump (Q varies with y, flat pieces cut).
+TEST(M19_Gradient, AperiodicLateralAndAbsorbedRK) {
+  json rk = pmlRidge();
+  rk["solver"] = "rk";
+  rk["rk"] = {{"tol", 1e-8}};
+  rk["truncation"]["Nx"] = 12;
+  // total field: the solver's b, t come from the chain without the node stops, 1D polarizations integrated apart
+  expectSolverOutputs(rk, 1e-6);
+  check(rk, lateralObjective(1.0, 0.5, 0.0),
+        {"/layers/1/breakpoints_um/1", "/materials/bar/n/1", "/materials/film/eps", "/layers/1/thickness_um",
+         "/layers/0/thickness_um", "/incidence/lambda_um"},
+        2e-6, "rk ridge lateral/absorbed");
+  json obl = rk;
+  obl["incidence"]["phi_deg"] = 25;
+  expectSolverOutputs(obl);
+  check(obl, lateralObjective(1.0, 0.5, 0.0),
+        {"/layers/1/breakpoints_um/2", "/materials/bar/n/0", "/materials/film/eps", "/layers/1/thickness_um",
+         "/incidence/lambda_um", "/incidence/phi_deg"},
+        2e-6, "rk ridge scattered lateral/absorbed");
+  json bump = pmlBump();
+  bump["solver"] = "rk";
+  bump["rk"] = {{"tol", 1e-8}};
+  bump["truncation"]["Nx"] = 12;
+  expectSolverOutputs(bump, 1e-6);
+  check(bump, lateralObjective(1.0, 0.5, 0.0), {"/materials/bar/n/1", "/materials/film/eps", "/incidence/lambda_um"}, 2e-6,
+        "rk bump lateral/absorbed");
+  bump["incidence"]["phi_deg"] = 25;
+  expectSolverOutputs(bump);
+  check(bump, lateralObjective(1.0, 0.5, 0.0), {"/materials/bar/n/1", "/layers/0/thickness_um", "/incidence/lambda_um"},
+        2e-6, "rk bump scattered lateral/absorbed");
 }
 
 // Stufe B with RK: the augmented system (F; 1) with the source sigma(y) in the last column.
