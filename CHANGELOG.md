@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Hinzugefügt
+- M19, Stufe C3 (Plan v2.57): Gradienten des seitlichen Streuflusses und der Absorption mit RK (Total- und
+  Streufeldformulierung). Die RK-Scheiben werden wie im Löser an den Knoten der Seitenquadratur geteilt, Q am Knoten
+  auf der Knotenhöhe. Test `M19_Gradient.AperiodicLateralAndAbsorbedRK` (≤ 1,6e-7).
 - M19, Stufe C2 (Plan v2.56): Gradienten des seitlichen Streuflusses und der Absorption in der Streufeldformulierung
   (schräger Einfall auf PML-Achsen, `scattered_field` bei Normaleinfall; 1D und 2D, Profilschichten). Schnitte der
   Kette mit Quellvektoren; Hintergrundterme analytisch in den Streufeldern und Q, explizit per zentralem

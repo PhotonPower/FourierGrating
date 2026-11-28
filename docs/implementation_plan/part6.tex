@@ -642,7 +642,7 @@ Hintergrunddaten (Amplituden, Exponenten, Modenvektoren, Schichtgrenzen), $T_{mn
 Kotangenten und werden nach Dicken, Hintergrundmaterialien, $\lambda$ und Winkeln per zentralem Differenzenquotienten
 der $N=0$-Rechnung abgeleitet. RK: erweitertes System mit $\sigma(y)$ in der letzten Spalte. Der Löser teilt die
 RK-Scheiben zusätzlich an den Knoten der seitlichen Flussquadratur; der Wert stimmt dann auf die RK-Toleranz. Nicht
-umgesetzt: Profilschichten mit PML (Hintergrund geteilt bei der Profilhöhe; seit v2.54), Stufe C (C1 seit v2.55, C2 seit v2.56; offen C3, RK).
+umgesetzt: Profilschichten mit PML (Hintergrund geteilt bei der Profilhöhe; seit v2.54), Stufe C (C1 seit v2.55, C2 seit v2.56, C3 mit RK seit v2.57).
 
 \paragraph{Umsetzung (v2.53): entartete Moden, die die Störung koppelt.}
 Wie im Zylinderpfad (v2.52) nimmt \verb|adjoint::eig| für entartete Paare einer Klasse die vollen Kotangenten von $\Lambda$
@@ -690,7 +690,7 @@ Element genau einer Hintergrundschicht angehört:
 \end{itemize}
 
 \paragraph{Spezifikation und Umsetzung (v2.55): Stufe C1, seitlicher Fluss und Absorption in der Totalfeldformulierung.}
-Gilt für Normaleinfall ohne Streufeldformulierung (Stufe A) und RCWA; Streufeldformulierung: C2 (v2.56); RK (C3) folgt.
+Gilt für Normaleinfall ohne Streufeldformulierung (Stufe A) und RCWA; Streufeldformulierung: C2 (v2.56); RK: C3 (v2.57).
 Wie im Löser (\verb|scattering|, Abschnitt \enquote{M18: Ausgaben}):
 \[
 P_{\text{seit}}=\tfrac1{S_{\text{inc}}}\sum_i w_i\,q_S(f_i-g_i),\qquad
@@ -758,6 +758,27 @@ $P_{\text{abs}}=[q_W(f_u)-q_W(f_o)-\sum_i w_i\,q_S(f_i)]_{\text{tot}}-[\dots]_{\
         \verb|scattered_field| bei Normaleinfall $\le5{,}8\cdot10^{-8}$), \verb|…Scattered2D| (Kontaktloch schräg $\le2\cdot10^{-7}$,
         $\lambda$ $7\cdot10^{-6}$ relativ bei $5\cdot10^{-9}$ absolut; Profilhöcker $\le2{,}3\cdot10^{-8}$). Werte $=$ Löser
         auf $10^{-12}$.
+\end{itemize}
+
+\paragraph{Spezifikation und Umsetzung (v2.57): Stufe C3, RK.}
+Seitlicher Fluss und Absorption mit RK, in beiden Formulierungen.
+\begin{itemize}[nosep]
+  \item \textbf{Knoten als Schnitte:} Der Löser hält die RK-Integration an den Knoten der Seitenquadratur an (die
+        aufgezeichneten Höhen von \verb|samples|) und beginnt dort neu, mit neuer Schrittweitensteuerung. Der Gradient teilt jede
+        RK-Scheibe ebenso in Elemente an den Knoten; der Klemmbereich von $Q$ an waagrechten Profilstücken (v2.54) bleibt der
+        der ungeteilten Scheibe. Die Schrittfolgen sind damit die des Lösers.
+  \item \textbf{$Q$ am Knoten:} $E_y$ am Knoten mit $Q$ der Schicht auf der Knotenhöhe (wie der Löser); rückwärts
+        geht $\bar Q$ an dieser Höhe zu den Parametern. Alles Weitere (Präfixe, Suffixe, Quellvektoren, Hintergrund) wie
+        in C1 und C2; die Rückwärtsregel der RK-Schritte ist die vorhandene.
+  \item \textbf{Wert:} In der Streufeldformulierung stammen alle Größen des Lösers aus der an den Knoten geteilten Kette,
+        der Wert stimmt auf Rundung. In der Totalfeldformulierung (Normaleinfall) rechnet der Löser $b,t$ aus der Kette ohne
+        die Halte an den Knoten und integriert in 1D die entkoppelten Polarisationen getrennt mit eigenen Schrittweiten
+        (\verb|rkTransferAuto|; der Gradient gekoppelt, wie schon in Stufe A): Werte auf die RK-Toleranz ($\le8\cdot10^{-9}$
+        relativ bei tol $10^{-8}$; bei $y$-invariantem $M$ ist der seitliche Fluss gleich).
+  \item Tests: \verb|M19_Gradient.AperiodicLateralAndAbsorbedRK| (tol $10^{-8}$, $N_x=12$, seitlich $+\,0{,}5$ absorbiert): Steg
+        Normaleinfall und schräg ($\phi=25^\circ$; Kanten, $n$ Steg, $\varepsilon$ Film, Dicken, $\lambda$, $\phi$)
+        $\le1{,}3\cdot10^{-7}$; Profilhöcker Normaleinfall und schräg ($n$, $\varepsilon$ Film, Dicke, $\lambda$)
+        $\le1{,}6\cdot10^{-7}$.
 \end{itemize}
 
 \subsection{Tests und Abnahme (M19)}
