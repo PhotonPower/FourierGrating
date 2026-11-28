@@ -222,6 +222,8 @@ Abweichung Adjungierte gegen Differenzenquotient der Vorwärtsrechnung (h = 1e-6
 | v2.13 Stufe B: Steg schräg mit RK (tol 1e-8) | Kante, eps Film, Dicke, λ | ≤ 2e-8 |
 | v2.55 Stufe C1: Steg mit PML, Normaleinfall (N_x = 12), seitlicher Fluss / Absorption | Dicken, Kanten, n Steg (Re, Im), eps Film, λ, ψ, δ, n Superstrat, n Substrat | seitlich ≤ 6,6e-9, absorbiert ≤ 1,7e-7 (ψ 1e-6 relativ, 7e-10 absolut); Werte = Löser 1e-12 |
 | v2.55 Stufe C1: Kontaktloch 2D (N = 3), seitlich + 0,5 absorbiert | Radius, Mittelpunkt, n Film (Re, Im), Dicke, λ | ≤ 5,2e-7 |
+| v2.56 Stufe C2: Steg schräg (φ = 25°, N_x = 12), seitlicher Fluss / Absorption | Dicken, Kanten, n Steg (Re, Im), eps Film, λ, φ, ψ, δ, n Superstrat, n Substrat | seitlich ≤ 1,8e-8, absorbiert ≤ 1,2e-7 (ψ 1,6e-6 relativ, 9e-10 absolut); Werte = Löser 1e-12 |
+| v2.56 Stufe C2: Steg mit `scattered_field` bei Normaleinfall; Kontaktloch 2D schräg; Profilhöcker schräg | Kante, n, eps, Dicke, λ; Radius, n Film, Dicke, λ, φ; n, Dicke, λ | ≤ 5,8e-8; ≤ 2e-7 (λ 7e-6 relativ, 5e-9 absolut); ≤ 2,3e-8 |
 | v2.54: Profilhöcker mit PML (flach bei g0 = 0,06 µm), Normaleinfall und schräg (φ = 25°), RCWA und RK | n Profil (Re, Im), eps Film, Dicke, λ, φ | ≤ 2,2e-8; Wert = Löser auf 1e-12 |
 | v2.13 Stufe A: modaler Einfall (Wellenleiter, Block, Wellenleiter als Substrat), \|r_0\|², \|t_0\|², \|r_1\|² | Dicke, Kante, n Block (Re, Im), n Kern (beide Halbräume), λ | ≤ 1e-8; Wert = Löser auf 1e-12 |
 

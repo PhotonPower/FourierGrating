@@ -642,7 +642,7 @@ Hintergrunddaten (Amplituden, Exponenten, Modenvektoren, Schichtgrenzen), $T_{mn
 Kotangenten und werden nach Dicken, Hintergrundmaterialien, $\lambda$ und Winkeln per zentralem Differenzenquotienten
 der $N=0$-Rechnung abgeleitet. RK: erweitertes System mit $\sigma(y)$ in der letzten Spalte. Der Löser teilt die
 RK-Scheiben zusätzlich an den Knoten der seitlichen Flussquadratur; der Wert stimmt dann auf die RK-Toleranz. Nicht
-umgesetzt: Profilschichten mit PML (Hintergrund geteilt bei der Profilhöhe; seit v2.54), Stufe C (C1 seit v2.55).
+umgesetzt: Profilschichten mit PML (Hintergrund geteilt bei der Profilhöhe; seit v2.54), Stufe C (C1 seit v2.55, C2 seit v2.56; offen C3, RK).
 
 \paragraph{Umsetzung (v2.53): entartete Moden, die die Störung koppelt.}
 Wie im Zylinderpfad (v2.52) nimmt \verb|adjoint::eig| für entartete Paare einer Klasse die vollen Kotangenten von $\Lambda$
@@ -690,7 +690,7 @@ Element genau einer Hintergrundschicht angehört:
 \end{itemize}
 
 \paragraph{Spezifikation und Umsetzung (v2.55): Stufe C1, seitlicher Fluss und Absorption in der Totalfeldformulierung.}
-Gilt für Normaleinfall ohne Streufeldformulierung (Stufe A) und RCWA; Streufeldformulierung (C2) und RK (C3) folgen.
+Gilt für Normaleinfall ohne Streufeldformulierung (Stufe A) und RCWA; Streufeldformulierung: C2 (v2.56); RK (C3) folgt.
 Wie im Löser (\verb|scattering|, Abschnitt \enquote{M18: Ausgaben}):
 \[
 P_{\text{seit}}=\tfrac1{S_{\text{inc}}}\sum_i w_i\,q_S(f_i-g_i),\qquad
@@ -727,6 +727,37 @@ Fensters (quadratische Form in $f$, \verb|sidesFlux|).
         ($\psi$: $10^{-6}$ relativ, $7\cdot10^{-10}$ absolut; die Absorption ist eine Differenz großer Flüsse);
         \verb|AperiodicLateralAndAbsorbed2D| (Kontaktloch, $N=3$; Radius, Mittelpunkt, $n$ Film, Dicke, $\lambda$):
         $\le5{,}2\cdot10^{-7}$. Werte $=$ Löser auf $10^{-12}$.
+\end{itemize}
+
+\paragraph{Spezifikation und Umsetzung (v2.56): Stufe C2, Streufeldformulierung.}
+Wie im Löser (\verb|scatteredOutputs|): Abtastung knapp über und unter dem Stapel ($\pm10^{-9}$\,µm) und an den
+Seitenknoten; Totalfeld $=$ Streufeld $+$ Hintergrund, $P_{\text{seit}}=\sum_i w_i\,q_S(f^{\text{s}}_i)/I_0$,
+$P_{\text{abs}}=[q_W(f_u)-q_W(f_o)-\sum_i w_i\,q_S(f_i)]_{\text{tot}}-[\dots]_{\text{bg}}$, geteilt durch $I_0$.
+\begin{itemize}[nosep]
+  \item \textbf{Felder:} Die Schnitte der Kette (C1) tragen jetzt Quellvektoren: $S_U^{(q)}$ als Sternprodukt mit
+        Quellen, $(a_q;b_q)=\verb|interfaceAmplitudes|$ mit $L.u$ und $U.v$ (ohne Einfall). Rückwärts zusätzlich
+        $\bar u$ des Präfixes, $\bar v$ des Suffixes und in der Suffixschleife die Quellkotangenten der Elemente
+        (\verb|adjoint::starSources|), die zu denen der Rückwärtsschleife addiert werden.
+  \item \textbf{Hintergrund in den Flussformen:} schräg auf einer PML-Achse (Streufeld ohne Blochphase) als zusätzliche
+        \enquote{Ordnung} mit $(k_0\alpha_0,k_0\gamma_0)$, sonst in der Mittelordnung. $E_y$ des Streufelds enthält
+        Hintergrundterme mit $Q$ des Elements: schräg $T_{\text{src}}\,(E_y(Q,F_{\text{bg}})-E_y(Q_{\text{bg}},F_{\text{bg}}))$
+        in der Blochbasis, sonst $E_y(Q,F_{\text{bg}})-E_{y,\text{bg}}$ (ebenso $H_y$).
+  \item \textbf{Ableitung:} analytisch nach den Streufeldern (Knoten, oben, unten) und nach $Q$ der Elemente; die explizite
+        Abhängigkeit vom Hintergrund ($N=0$-Rechnung, Amplituden oben/unten durch Projektion auf die Halbraummoden), von
+        $T_{\text{src}}$, $\alpha_B,\gamma_B$ bzw.\ $A,G$, den Wellenzahlen der Flussformen sowie von Lage und Gewicht der
+        Knoten durch zentrale Differenzenquotienten der Zielfunktion bei festen Streufeldern (nur die $O(1)$-Rechnung
+        des Hintergrunds wird wiederholt), für Dicken, Hintergrundmaterialien, $\lambda$ und Winkel.
+  \item \textbf{Planfehler (Seitenquadratur, seit v2.10):} Bei einer Profilschicht, die bei ihrer Höhe $g_0$ in der Zone
+        geteilt wird, rechnete die Quadratur die Oberkante ab $g_0$ statt ab der Schichtunterkante: alle Knoten darüber
+        lagen um $g_0$ zu hoch, die obersten im Superstrat. Seitlicher Fluss und Absorption von Profilschichten mit PML
+        waren falsch (Höcker mit $g_0=0{,}06$\,µm: seitlicher Fluss 17\,\% daneben, Absorption der verlustfreien
+        Struktur schräg $-6{,}7\cdot10^{-3}$, jetzt $3{,}6\cdot10^{-4}$; senkrecht $2\cdot10^{-4}$ wie bei anderen
+        Strukturen). \verb|fg::lateralNodes| rechnet ab der Schichtunterkante; Test \verb|M18_Pml.LateralNodesCoverTheStack|.
+  \item Tests: \verb|M19_Gradient.AperiodicLateralAndAbsorbedScattered| (Steg schräg $\phi=25^\circ$, $N_x=12$: seitlich
+        $\le1{,}8\cdot10^{-8}$, absorbiert $\le1{,}2\cdot10^{-7}$, $\psi$ $1{,}6\cdot10^{-6}$ relativ bzw.\ $9\cdot10^{-10}$ absolut;
+        \verb|scattered_field| bei Normaleinfall $\le5{,}8\cdot10^{-8}$), \verb|…Scattered2D| (Kontaktloch schräg $\le2\cdot10^{-7}$,
+        $\lambda$ $7\cdot10^{-6}$ relativ bei $5\cdot10^{-9}$ absolut; Profilhöcker $\le2{,}3\cdot10^{-8}$). Werte $=$ Löser
+        auf $10^{-12}$.
 \end{itemize}
 
 \subsection{Tests und Abnahme (M19)}

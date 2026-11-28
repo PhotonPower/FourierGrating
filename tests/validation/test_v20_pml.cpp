@@ -186,6 +186,33 @@ TEST(M18_Pml, BackgroundStack) {
   EXPECT_THROW(fg::checkPmlZones(st), fg::Error);
 }
 
+// Nodes of the lateral-side quadrature (Plan v2.56): inside the stack, the weights add up to its height, also with a
+// profile split at its height in the zones (before: the layers above the profile were shifted by that height).
+TEST(M18_Pml, LateralNodesCoverTheStack) {
+  auto st = ridge(3.0, 0.5, 0.3, 0.45);
+  fg::Profile1DLayer p;
+  p.shape = fg::Profile1DLayer::Shape::PiecewiseLinear;
+  p.depth_um = 0.2;
+  p.xs_um = {0.0, 1.2, 1.5, 1.8};
+  p.ys_um = {0.05, 0.05, 0.2, 0.05};
+  p.below = "ridge";
+  p.above = "superstrate";
+  st.layers.push_back(entry(p));
+  st.layers.push_back(entry(fg::HomogeneousLayer{0.1, "ridge"}));
+  const std::vector<double> t{0.3, 0.2, 0.1};
+  std::vector<double> ys, wy;
+  fg::lateralNodes(st, t, 2 * 3.14159265358979323846 / 0.6328, ys, wy);
+  double sum = 0, sumProfile = 0;
+  for (std::size_t i = 0; i < ys.size(); ++i) {
+    EXPECT_GT(ys[i], 0.0);
+    EXPECT_LT(ys[i], 0.6);
+    sum += wy[i];
+    if (ys[i] > 0.3 && ys[i] < 0.5) sumProfile += wy[i];
+  }
+  EXPECT_NEAR(sum, 0.6, 1e-14);
+  EXPECT_NEAR(sumProfile, 0.2, 1e-14);
+}
+
 double maxDiff(const fg::Result& a, const fg::Result& b) {
   double d = std::abs(a.absorption - b.absorption);
   EXPECT_EQ(a.reflected.size(), b.reflected.size());

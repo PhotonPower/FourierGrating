@@ -187,8 +187,10 @@ mit Nurbforge; auf der RTX 3090 ist FP32 Standard.
   - Umgesetzt (Plan v2.55, Stufe C1): seitlicher Fluss und Absorption in der Totalfeldformulierung (Normaleinfall,
     RCWA; Felder an den Seitenknoten über Schnitte der Kette, Präfixe und Suffixe; ≤ 5,2e-7) –
     `M19_Gradient.AperiodicLateralAndAbsorbed`, `…2D`
-  - Offen (Phase 2): GPU-Rückwärtsfunktionen; aperiodisch: seitlicher Fluss/Absorption in der Streufeldformulierung
-    (Stufe C2) und mit RK (Stufe C3)
+  - Umgesetzt (Plan v2.56, Stufe C2): seitlicher Fluss und Absorption in der Streufeldformulierung (schräg, auch
+    `scattered_field` bei Normaleinfall; ≤ 2e-7) – `M19_Gradient.AperiodicLateralAndAbsorbedScattered`, `…2D`;
+    behoben: Seitenquadratur bei Profilschichten mit PML (Knoten oberhalb um die Profilhöhe verschoben)
+  - Offen (Phase 2): GPU-Rückwärtsfunktionen; aperiodisch: seitlicher Fluss/Absorption mit RK (Stufe C3)
 
 ## Zylinderkoordinaten (Plan v2.14, Teil 7: M20–M21)
 
